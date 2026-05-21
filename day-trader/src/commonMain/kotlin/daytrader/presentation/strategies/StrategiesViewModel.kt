@@ -13,7 +13,6 @@ import daytrader.domain.duplicateStrategyInstance
 import daytrader.domain.instanceDisplayName
 import daytrader.domain.onRunStarted
 import daytrader.domain.onRunStopped
-import daytrader.domain.syncInProgressRun
 import daytrader.domain.withClosedPosition
 import daytrader.domain.withStopPrice
 import daytrader.platform.currentSessionDateIso
@@ -119,7 +118,7 @@ class StrategiesViewModel(
             if (instance.status == InstanceStatus.RUNNING) {
                 instance.onRunStopped(sessionDate)
             } else {
-                instance.onRunStarted(sessionDate).withDemoLiveExecutionOnStart()
+                instance.onRunStarted(sessionDate).withDemoLiveExecutionOnStart(sessionDate)
             }
         }
         if (!wasRunning) {
@@ -150,18 +149,18 @@ class StrategiesViewModel(
     fun onAdjustStop(instanceId: String, stopText: String) {
         val newStop = stopText.toDoubleOrNull() ?: return
         repository.update(instanceId) { instance ->
-            val updated = instance.activeExecution.withStopPrice(
+            val updated = instance.live.withStopPrice(
                 newStop = newStop,
                 rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
             ) ?: return@update instance
-            instance.copy(activeExecution = updated)
+            instance.copy(live = updated)
         }
     }
 
     fun onClosePosition(instanceId: String) {
         val sessionDate = currentSessionDateIso()
         repository.update(instanceId) { instance ->
-            instance.withClosedPosition().syncInProgressRun(sessionDate)
+            instance.withClosedPosition(sessionDate)
         }
     }
 

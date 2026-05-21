@@ -4,6 +4,7 @@ import daytrader.data.StrategyCatalog
 import daytrader.domain.RunStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.instanceDisplayName
+import daytrader.domain.inProgressRun
 import daytrader.domain.rollups
 import daytrader.presentation.Formatters
 
@@ -12,7 +13,7 @@ object StrategyUiMapper {
         instanceDisplayName(instance.strategyType, instance.symbol)
 
     fun toRowUi(instance: StrategyInstance, sessionDate: String): StrategyInstanceRowUi {
-        val closedRuns = instance.runs.filter { it.status == RunStatus.CLOSED }
+        val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
         val rollup = closedRuns.rollups(sessionDate)
         return StrategyInstanceRowUi(
             id = instance.id,
@@ -22,7 +23,7 @@ object StrategyUiMapper {
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             isPositiveTotalPnL = rollup.totalPnl >= 0,
             paramsSummary = Formatters.paramsSummary(instance.symbol, instance.maxDollars),
-            tradesToday = instance.tradesToday,
+            tradesToday = instance.inProgressRun(sessionDate)?.trades ?: 0,
             liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text,
             formattedRollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
             isPositiveRollup7d = rollup.pnl7d >= 0,

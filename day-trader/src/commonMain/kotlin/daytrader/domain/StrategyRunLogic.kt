@@ -2,38 +2,43 @@ package daytrader.domain
 
 fun newStrategyRunId(): String = "run-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
-fun StrategyInstance.syncInProgressRun(sessionDate: String): StrategyInstance = copy(
-    runs = runs.map { run ->
-        if (run.status == RunStatus.IN_PROGRESS && run.sessionDate == sessionDate) {
-            run.copy(pnl = todayPnL, trades = tradesToday)
-        } else {
-            run
+fun StrategyInstance.inProgressRun(sessionDate: String): StrategyRun? =
+    performance.find { it.date == sessionDate && it.status == RunStatus.IN_PROGRESS }
+
+fun StrategyInstance.updateInProgressRun(
+    sessionDate: String,
+    transform: (StrategyRun) -> StrategyRun
+): StrategyInstance {
+    val day = inProgressRun(sessionDate) ?: return this
+    return copy(
+        performance = performance.map { run ->
+            if (run.id == day.id) transform(run) else run
         }
-    }
-)
+    )
+}
 
 fun StrategyInstance.onRunStarted(sessionDate: String): StrategyInstance {
-    val staleClosed = runs.map { run ->
-        if (run.status == RunStatus.IN_PROGRESS && run.sessionDate != sessionDate) {
-            run.copy(status = RunStatus.CLOSED, pnl = todayPnL, trades = tradesToday)
+    val staleClosed = performance.map { run ->
+        if (run.status == RunStatus.IN_PROGRESS && run.date != sessionDate) {
+            run.copy(status = RunStatus.CLOSED)
         } else {
             run
         }
     }
 
     val inProgressToday = staleClosed.find {
-        it.sessionDate == sessionDate && it.status == RunStatus.IN_PROGRESS
+        it.date == sessionDate && it.status == RunStatus.IN_PROGRESS
     }
     if (inProgressToday != null) {
-        return copy(runs = staleClosed, status = InstanceStatus.RUNNING)
+        return copy(performance = staleClosed, status = InstanceStatus.RUNNING)
     }
 
     val closedToday = staleClosed.find {
-        it.sessionDate == sessionDate && it.status == RunStatus.CLOSED
+        it.date == sessionDate && it.status == RunStatus.CLOSED
     }
     if (closedToday != null) {
         return copy(
-            runs = staleClosed.map { run ->
+            performance = staleClosed.map { run ->
                 if (run.id == closedToday.id) {
                     run.copy(status = RunStatus.IN_PROGRESS)
                 } else {
@@ -46,35 +51,29 @@ fun StrategyInstance.onRunStarted(sessionDate: String): StrategyInstance {
 
     val newRun = StrategyRun(
         id = newStrategyRunId(),
-        instanceId = id,
-        sessionDate = sessionDate,
+        date = sessionDate,
         pnl = 0.0,
         trades = 0,
-        maxDollarsAtRun = maxDollars,
+        maxAtRisk = maxDollars,
         status = RunStatus.IN_PROGRESS
     )
     return copy(
-        runs = staleClosed + newRun,
-        todayPnL = 0.0,
-        tradesToday = 0,
+        performance = staleClosed + newRun,
         status = InstanceStatus.RUNNING
     )
 }
 
 fun StrategyInstance.onRunStopped(sessionDate: String): StrategyInstance = copy(
-    runs = runs.map { run ->
-        if (run.sessionDate == sessionDate && run.status == RunStatus.IN_PROGRESS) {
-            run.copy(status = RunStatus.CLOSED, pnl = todayPnL, trades = tradesToday)
+    performance = performance.map { run ->
+        if (run.date == sessionDate && run.status == RunStatus.IN_PROGRESS) {
+            run.copy(status = RunStatus.CLOSED)
         } else {
             run
         }
     },
-    activeExecution = ActiveExecution.flat(),
+    live = ActiveExecution.flat(),
     status = InstanceStatus.STOPPED
 )
-
-fun StrategyInstance.inProgressRun(sessionDate: String): StrategyRun? =
-    runs.find { it.sessionDate == sessionDate && it.status == RunStatus.IN_PROGRESS }
 
 data class RunRollups(
     val totalPnl: Double,
@@ -88,11 +87,11 @@ fun List<StrategyRun>.rollups(asOfSessionDate: String): RunRollups {
     val asOf = asOfSessionDate.toSessionDayOrdinal()
     val relevant = filter { run ->
         run.status == RunStatus.CLOSED ||
-            (run.status == RunStatus.IN_PROGRESS && run.sessionDate <= asOfSessionDate)
+            (run.status == RunStatus.IN_PROGRESS && run.date <= asOfSessionDate)
     }
     val closed = relevant.filter { it.status == RunStatus.CLOSED }
-    val within30 = relevant.filter { asOf - it.sessionDate.toSessionDayOrdinal() < 30 }
-    val within7 = relevant.filter { asOf - it.sessionDate.toSessionDayOrdinal() < 7 }
+    val within30 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 30 }
+    val within7 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 7 }
     return RunRollups(
         totalPnl = closed.sumOf { it.pnl },
         pnl7d = within7.sumOf { it.pnl },

@@ -92,14 +92,12 @@ fun ActiveExecution.realizedPnL(): Double {
     }
 }
 
-fun StrategyInstance.withClosedPosition(): StrategyInstance {
-    if (activeExecution.state != ExecutionState.FILLED) return this
-    return copy(
-        activeExecution = ActiveExecution.flat(updatedAt = "Demo"),
-        tradesToday = tradesToday + 1,
-        lastOrder = "Closed at market (demo)",
-        lastUpdate = "Demo"
-    )
+fun StrategyInstance.withClosedPosition(sessionDate: String): StrategyInstance {
+    if (live.state != ExecutionState.FILLED) return this
+    return copy(live = ActiveExecution.flat(updatedAt = "Demo"))
+        .updateInProgressRun(sessionDate) { day ->
+            day.copy(trades = day.trades + 1)
+        }
 }
 
 fun ActiveExecution.positionLabel(symbol: String): String = when (state) {

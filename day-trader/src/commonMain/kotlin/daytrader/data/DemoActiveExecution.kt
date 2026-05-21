@@ -6,6 +6,7 @@ import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
+import daytrader.domain.updateInProgressRun
 
 private data class DemoPrices(val entry: Double, val stop: Double, val market: Double)
 
@@ -50,24 +51,15 @@ fun demoUnrealizedPnL(execution: ActiveExecution): Double {
     }
 }
 
-fun demoExecutionActivity(symbol: String, execution: ActiveExecution): Pair<String, String> {
-    val entry = execution.entryPrice?.let { "%.2f".format(it) } ?: "—"
-    return "Demo: Long signal on $symbol @ $entry" to
-        "Demo: BUY ${execution.quantity} $symbol @ $entry (filled)"
-}
-
 /** Populates a filled demo execution when an instance is started (UI preview only). */
-fun StrategyInstance.withDemoLiveExecutionOnStart(): StrategyInstance {
+fun StrategyInstance.withDemoLiveExecutionOnStart(sessionDate: String): StrategyInstance {
     if (status != InstanceStatus.RUNNING) return this
     val execution = demoActiveExecution(symbol, strategyType)
-    val (signal, order) = demoExecutionActivity(symbol, execution)
     val unrealized = demoUnrealizedPnL(execution)
-    return copy(
-        activeExecution = execution,
-        todayPnL = unrealized,
-        tradesToday = maxOf(tradesToday, 1),
-        lastSignal = signal,
-        lastOrder = order,
-        lastUpdate = "Demo"
-    )
+    return copy(live = execution).updateInProgressRun(sessionDate) { day ->
+        day.copy(
+            pnl = unrealized,
+            trades = maxOf(day.trades, 1)
+        )
+    }
 }

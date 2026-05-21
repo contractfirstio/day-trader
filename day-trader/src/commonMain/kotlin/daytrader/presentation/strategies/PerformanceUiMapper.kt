@@ -14,7 +14,7 @@ object PerformanceUiMapper {
         sortColumn: RunSortColumn,
         sortDirection: SortDirection
     ): PerformanceUiState {
-        val closedRuns = instance.runs.filter { it.status == RunStatus.CLOSED }
+        val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
         val sortedRows = sortRuns(closedRuns, sortColumn, sortDirection).map(::toRowUi)
         val rollup = closedRuns.rollups(sessionDate)
 
@@ -30,11 +30,11 @@ object PerformanceUiMapper {
 
     private fun toRowUi(run: StrategyRun): StrategyRunRowUi = StrategyRunRowUi(
         id = run.id,
-        formattedDate = Formatters.sessionDateLabel(run.sessionDate),
+        formattedDate = Formatters.sessionDateLabel(run.date),
         formattedPnL = Formatters.currency(run.pnl, showSign = true),
         isPositivePnL = run.pnl >= 0,
         trades = run.trades,
-        formattedAtRisk = Formatters.maxAtRisk(run.maxDollarsAtRun)
+        formattedAtRisk = Formatters.maxAtRisk(run.maxAtRisk)
     )
 
     private fun sortRuns(
@@ -43,10 +43,10 @@ object PerformanceUiMapper {
         sortDirection: SortDirection
     ): List<StrategyRun> {
         val comparator = when (sortColumn) {
-            RunSortColumn.DATE -> compareBy<StrategyRun> { it.sessionDate }
+            RunSortColumn.DATE -> compareBy<StrategyRun> { it.date }
             RunSortColumn.PNL -> compareBy { it.pnl }
             RunSortColumn.TRADES -> compareBy { it.trades }
-            RunSortColumn.AT_RISK -> compareBy { it.maxDollarsAtRun }
+            RunSortColumn.AT_RISK -> compareBy { it.maxAtRisk }
         }
         return if (sortDirection == SortDirection.DESCENDING) {
             runs.sortedWith(comparator.reversed())

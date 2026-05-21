@@ -512,7 +512,7 @@ private fun StrategyInstanceDetail(
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Last update: ${instance.lastUpdate}", fontSize = 11.sp, color = TextSecondary)
+            Text("Last update: ${instance.live.updatedAt}", fontSize = 11.sp, color = TextSecondary)
             StatusChip(instance.status)
         }
     }

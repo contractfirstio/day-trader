@@ -1,19 +1,11 @@
 package daytrader.domain
 
-import kotlinx.serialization.Serializable
-
-@Serializable
 data class StrategyInstance(
     val id: String,
     val strategyType: StrategyType,
     val status: InstanceStatus,
     val symbol: String,
     val maxDollars: Int,
-    val runs: List<StrategyRun> = emptyList(),
-    val activeExecution: ActiveExecution = ActiveExecution(),
-    val todayPnL: Double,
-    val tradesToday: Int,
-    val lastSignal: String,
-    val lastOrder: String,
-    val lastUpdate: String
+    val performance: List<StrategyRun> = emptyList(),
+    val live: ActiveExecution = ActiveExecution()
 )

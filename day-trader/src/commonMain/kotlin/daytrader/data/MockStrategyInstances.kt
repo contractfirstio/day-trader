@@ -12,31 +12,27 @@ import daytrader.domain.newStrategyRunId
 
 private const val MOCK_TODAY = "2026-05-21"
 
-private fun mockRuns(
-    instanceId: String,
-    maxDollars: Int,
+private fun mockPerformance(
     history: List<Triple<String, Double, Int>>,
     inProgress: Triple<String, Double, Int>? = null
 ): List<StrategyRun> {
     val closed = history.map { (date, pnl, trades) ->
         StrategyRun(
             id = newStrategyRunId(),
-            instanceId = instanceId,
-            sessionDate = date,
+            date = date,
             pnl = pnl,
             trades = trades,
-            maxDollarsAtRun = maxDollars,
+            maxAtRisk = 0,
             status = RunStatus.CLOSED
         )
     }
     val live = inProgress?.let { (date, pnl, trades) ->
         StrategyRun(
             id = newStrategyRunId(),
-            instanceId = instanceId,
-            sessionDate = date,
+            date = date,
             pnl = pnl,
             trades = trades,
-            maxDollarsAtRun = maxDollars,
+            maxAtRisk = 0,
             status = RunStatus.IN_PROGRESS
         )
     }
@@ -51,16 +47,16 @@ fun mockStrategyInstances() = listOf(
         status = InstanceStatus.RUNNING
     ).let { instance ->
         instance.copy(
-            runs = mockRuns(
-                instanceId = instance.id,
-                maxDollars = 500,
+            performance = mockPerformance(
                 history = listOf(
                     Triple("2026-05-19", 88.00, 5),
                     Triple("2026-05-20", 52.25, 4)
                 ),
                 inProgress = Triple(MOCK_TODAY, 142.50, 7)
-            ),
-            activeExecution = ActiveExecution(
+            ).map { day ->
+                day.copy(maxAtRisk = 500)
+            },
+            live = ActiveExecution(
                 state = ExecutionState.FILLED,
                 side = TradeSide.LONG,
                 quantity = 100,
@@ -70,12 +66,7 @@ fun mockStrategyInstances() = listOf(
                 marketPrice = 521.60,
                 orderStatus = "Filled 12:04:01",
                 updatedAt = "12:04:03"
-            ),
-            todayPnL = 142.50,
-            tradesToday = 7,
-            lastSignal = "Long @ 521.40 — touch of prior high",
-            lastOrder = "BUY 100 SPY @ 521.42 (filled 12:04:01)",
-            lastUpdate = "12:04:03"
+            )
         )
     },
     defaultStrategyInstance(
@@ -85,21 +76,14 @@ fun mockStrategyInstances() = listOf(
         status = InstanceStatus.STOPPED
     ).let { instance ->
         instance.copy(
-            runs = mockRuns(
-                instanceId = instance.id,
-                maxDollars = 350,
+            performance = mockPerformance(
                 history = listOf(
                     Triple("2026-05-19", 41.00, 2),
                     Triple("2026-05-20", -28.00, 3),
                     Triple(MOCK_TODAY, -12.50, 1)
                 )
-            ),
-            todayPnL = -12.50,
-            tradesToday = 1,
-            activeExecution = ActiveExecution.flat(updatedAt = "11:52:18"),
-            lastSignal = "Flat — no touch level",
-            lastOrder = "—",
-            lastUpdate = "11:52:18"
+            ).map { day -> day.copy(maxAtRisk = 350) },
+            live = ActiveExecution.flat(updatedAt = "11:52:18")
         )
     },
     defaultStrategyInstance(
@@ -109,22 +93,15 @@ fun mockStrategyInstances() = listOf(
         status = InstanceStatus.STOPPED
     ).let { instance ->
         instance.copy(
-            runs = mockRuns(
-                instanceId = instance.id,
-                maxDollars = 250,
+            performance = mockPerformance(
                 history = listOf(
                     Triple("2026-05-17", 31.00, 8),
                     Triple("2026-05-19", -18.00, 6),
                     Triple("2026-05-20", 64.00, 12),
                     Triple(MOCK_TODAY, 22.00, 4)
                 )
-            ),
-            todayPnL = 22.00,
-            tradesToday = 4,
-            activeExecution = ActiveExecution.flat(updatedAt = "12:01:44"),
-            lastSignal = "Short @ 485.10 — momentum flip",
-            lastOrder = "SELL 50 NVDA @ 485.08",
-            lastUpdate = "12:01:44"
+            ).map { day -> day.copy(maxAtRisk = 250) },
+            live = ActiveExecution.flat(updatedAt = "12:01:44")
         )
     }
 )

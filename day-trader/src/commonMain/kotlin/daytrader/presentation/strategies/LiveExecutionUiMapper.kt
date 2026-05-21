@@ -9,7 +9,7 @@ import daytrader.presentation.Formatters
 
 object LiveExecutionUiMapper {
     fun toLiveState(instance: StrategyInstance): LiveExecutionUiState {
-        val execution = instance.activeExecution
+        val execution = instance.live
         val isRunning = instance.status == InstanceStatus.RUNNING
         val risk = execution.riskReward(
             maxDollars = instance.maxDollars,
@@ -52,7 +52,7 @@ object LiveExecutionUiMapper {
         if (instance.status != InstanceStatus.RUNNING) {
             return LiveTradeListSummary(null)
         }
-        val execution = instance.activeExecution
+        val execution = instance.live
         val text = when (execution.state) {
             ExecutionState.FILLED -> {
                 val entry = execution.entryPrice?.let { Formatters.currencyPlain(it) } ?: "—"

@@ -20,24 +20,14 @@ fun defaultStrategyInstance(
         status = status,
         symbol = symbolUpper,
         maxDollars = maxDollars,
-        runs = emptyList(),
-        activeExecution = ActiveExecution.flat(),
-        todayPnL = 0.0,
-        tradesToday = 0,
-        lastSignal = "—",
-        lastOrder = "—",
-        lastUpdate = "—"
+        performance = emptyList(),
+        live = ActiveExecution.flat()
     )
 }
 
 fun duplicateStrategyInstance(source: StrategyInstance): StrategyInstance = source.copy(
     id = newStrategyInstanceId(),
     status = InstanceStatus.STOPPED,
-    runs = emptyList(),
-    todayPnL = 0.0,
-    tradesToday = 0,
-    activeExecution = ActiveExecution.flat(),
-    lastSignal = "—",
-    lastOrder = "—",
-    lastUpdate = "—"
+    performance = emptyList(),
+    live = ActiveExecution.flat()
 )
