@@ -25,8 +25,6 @@ import daytrader.domain.StrategyType
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
 
-private val timeframeOptions = listOf("1m", "5m", "15m")
-
 @Composable
 fun StrategiesScreen(viewModel: StrategiesViewModel) {
     val uiState by viewModel.uiState.collectAsState()
@@ -34,6 +32,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
     if (uiState.showAddDialog) {
         AddStrategyInstanceDialog(
             onDismiss = viewModel::onDismissAddDialog,
+            defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
             onCreate = viewModel::onCreateInstance
         )
     }
@@ -122,9 +121,11 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     StrategyInstanceDetail(
                         instance = selected,
                         detailTab = uiState.detailTab,
+                        performance = uiState.performance,
                         onTabChange = viewModel::onDetailTabChange,
                         onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
                         onStartStop = { viewModel.onToggleRun(selected.id) },
+                        onRunHeaderClick = viewModel::onRunHeaderClick,
                         onDuplicate = viewModel::onDuplicateSelected,
                         onDelete = viewModel::onDeleteSelected
                     )
@@ -352,9 +353,11 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
 private fun StrategyInstanceDetail(
     instance: StrategyInstance,
     detailTab: StrategyDetailTab,
+    performance: PerformanceUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
+    onRunHeaderClick: (RunSortColumn) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -366,7 +369,7 @@ private fun StrategyInstanceDetail(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(instance.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(StrategyUiMapper.displayName(instance), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         StrategyUiMapper.strategyDisplayName(instance),
@@ -441,7 +444,10 @@ private fun StrategyInstanceDetail(
             when (detailTab) {
                 StrategyDetailTab.CONFIGURATION -> ConfigurationTab(instance, onUpdate)
                 StrategyDetailTab.ACTIVITY -> ActivityTab(instance)
-                StrategyDetailTab.PERFORMANCE -> PerformanceTab(instance)
+                StrategyDetailTab.PERFORMANCE -> PerformanceTab(
+                    performance = performance,
+                    onRunHeaderClick = onRunHeaderClick
+                )
             }
         }
 
@@ -466,64 +472,18 @@ private fun ConfigurationTab(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ConfigField(
-            label = "Instance name",
-            value = instance.name,
-            onValueChange = { value -> onUpdate { it.copy(name = value) } }
+            label = "Symbol",
+            value = instance.symbol,
+            onValueChange = { value -> onUpdate { it.copy(symbol = value.trim().uppercase()) } }
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Symbol",
-                value = instance.symbol,
-                modifier = Modifier.weight(1f),
-                onValueChange = { value -> onUpdate { it.copy(symbol = value.uppercase()) } }
-            )
-            ConfigDropdown(
-                label = "Timeframe",
-                value = instance.timeframe,
-                options = timeframeOptions,
-                modifier = Modifier.weight(1f),
-                onValueChange = { value -> onUpdate { it.copy(timeframe = value) } }
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Risk per trade (\$)",
-                value = instance.riskDollars.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { risk -> onUpdate { it.copy(riskDollars = risk) } }
+        ConfigField(
+            label = "Max amount (\$)",
+            value = instance.maxDollars.toString(),
+            onValueChange = { value ->
+                value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
+                    onUpdate { it.copy(maxDollars = max) }
                 }
-            )
-            ConfigField(
-                label = "Position size (shares)",
-                value = instance.positionSize.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { size -> onUpdate { it.copy(positionSize = size) } }
-                }
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Stop loss (ticks)",
-                value = instance.stopLossTicks.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { ticks -> onUpdate { it.copy(stopLossTicks = ticks) } }
-                }
-            )
-            ConfigField(
-                label = "Session window",
-                value = instance.sessionWindow,
-                modifier = Modifier.weight(1f),
-                enabled = false,
-                onValueChange = {}
-            )
-        }
-        Text(
-            "Session window is fixed by the ${StrategyUiMapper.strategyDisplayName(instance)} strategy.",
-            fontSize = 11.sp,
-            color = TextSecondary
+            }
         )
     }
 }
@@ -538,26 +498,96 @@ private fun ActivityTab(instance: StrategyInstance) {
 }
 
 @Composable
-private fun PerformanceTab(instance: StrategyInstance) {
-    val formattedPnL = StrategyUiMapper.formattedTodayPnL(instance)
-    val isPositive = instance.todayPnL >= 0
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        PerformanceStatCard(
-            label = "Today P&L",
-            value = formattedPnL,
-            valueColor = if (isPositive) GainGreen else LossRed,
+private fun PerformanceTab(
+    performance: PerformanceUiState?,
+    onRunHeaderClick: (RunSortColumn) -> Unit
+) {
+    if (performance == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No performance data.", color = TextSecondary, fontSize = 13.sp)
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        CurrentRunSummaryStrip(performance)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PerformanceStatCard(
+                label = "7d P&L",
+                value = performance.rollup7d,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceStatCard(
+                label = "30d P&L",
+                value = performance.rollup30d,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceStatCard(
+                label = "Win rate",
+                value = performance.winRate,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        RunBlotterTable(
+            performance = performance,
+            onHeaderClick = onRunHeaderClick,
             modifier = Modifier.weight(1f)
         )
-        PerformanceStatCard(
-            label = "Trades today",
-            value = instance.tradesToday.toString(),
-            modifier = Modifier.weight(1f)
-        )
-        PerformanceStatCard(
-            label = "Status",
-            value = instance.status.name.lowercase().replaceFirstChar { it.uppercase() },
-            modifier = Modifier.weight(1f)
-        )
+    }
+}
+
+@Composable
+private fun CurrentRunSummaryStrip(performance: PerformanceUiState) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .testTag("CurrentRunSummary"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text("Current run", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    performance.currentRunDateLabel,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+                if (performance.isLive) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Live", fontSize = 11.sp, color = GainGreen, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text("P&L", fontSize = 11.sp, color = TextSecondary)
+                Text(
+                    performance.currentRunPnL,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (performance.isCurrentRunPositive) GainGreen else LossRed
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Trades", fontSize = 11.sp, color = TextSecondary)
+                Text(
+                    performance.currentRunTrades.toString(),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
     }
 }
 
@@ -676,10 +706,14 @@ private fun ConfigDropdown(
 @Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
-    onCreate: (StrategyType, String) -> Unit
+    defaultMaxDollarsFor: (StrategyType) -> Int,
+    onCreate: (StrategyType, String, Int) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
     var symbol by remember { mutableStateOf("") }
+    var maxDollarsText by remember {
+        mutableStateOf(defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -694,17 +728,26 @@ private fun AddStrategyInstanceDialog(
                     StrategyTypePickerCard(
                         strategyType = type,
                         selected = selectedStrategyType == type,
-                        onSelect = { selectedStrategyType = type }
+                        onSelect = {
+                            selectedStrategyType = type
+                            maxDollarsText = defaultMaxDollarsFor(type).toString()
+                        }
                     )
                 }
                 HorizontalDivider(color = TableHeaderBg)
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
+                ConfigField(
+                    label = "Max amount (\$)",
+                    value = maxDollarsText,
+                    onValueChange = { maxDollarsText = it }
+                )
             }
         },
         confirmButton = {
+            val maxDollars = maxDollarsText.toIntOrNull() ?: 0
             Button(
-                onClick = { onCreate(selectedStrategyType, symbol) },
-                enabled = symbol.isNotBlank(),
+                onClick = { onCreate(selectedStrategyType, symbol, maxDollars) },
+                enabled = symbol.isNotBlank() && maxDollars > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyInstanceButton")
             ) {

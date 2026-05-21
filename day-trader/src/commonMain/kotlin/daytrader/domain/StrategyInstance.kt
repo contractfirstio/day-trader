@@ -5,15 +5,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class StrategyInstance(
     val id: String,
-    val name: String,
     val strategyType: StrategyType,
     val status: InstanceStatus,
     val symbol: String,
-    val timeframe: String,
-    val riskDollars: Int,
-    val positionSize: Int,
-    val stopLossTicks: Int,
-    val sessionWindow: String,
+    val maxDollars: Int,
+    val runs: List<StrategyRun> = emptyList(),
     val todayPnL: Double,
     val tradesToday: Int,
     val lastSignal: String,

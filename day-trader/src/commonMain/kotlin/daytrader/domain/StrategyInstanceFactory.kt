@@ -1,10 +1,8 @@
 package daytrader.domain
 
-import daytrader.data.StrategyCatalog
-
 fun newStrategyInstanceId(): String = "inst-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
-fun defaultInstanceName(strategyType: StrategyType, symbol: String): String = when (strategyType) {
+fun instanceDisplayName(strategyType: StrategyType, symbol: String): String = when (strategyType) {
     StrategyType.TOUCH_AND_TURN_SCALPER -> "Touch and Turn — $symbol"
     StrategyType.QUICK_FLIP_SCALPER -> "Quick Flip — $symbol"
 }
@@ -12,21 +10,17 @@ fun defaultInstanceName(strategyType: StrategyType, symbol: String): String = wh
 fun defaultStrategyInstance(
     strategyType: StrategyType,
     symbol: String,
+    maxDollars: Int,
     status: InstanceStatus = InstanceStatus.STOPPED
 ): StrategyInstance {
     val symbolUpper = symbol.trim().uppercase()
-    val defaults = StrategyCatalog.defaultsFor(strategyType)
     return StrategyInstance(
         id = newStrategyInstanceId(),
-        name = defaultInstanceName(strategyType, symbolUpper),
         strategyType = strategyType,
         status = status,
         symbol = symbolUpper,
-        timeframe = defaults.defaultTimeframe,
-        riskDollars = defaults.defaultRiskDollars,
-        positionSize = defaults.positionSize,
-        stopLossTicks = defaults.stopLossTicks,
-        sessionWindow = defaults.sessionWindow,
+        maxDollars = maxDollars,
+        runs = emptyList(),
         todayPnL = 0.0,
         tradesToday = 0,
         lastSignal = "—",
@@ -38,8 +32,8 @@ fun defaultStrategyInstance(
 
 fun duplicateStrategyInstance(source: StrategyInstance): StrategyInstance = source.copy(
     id = newStrategyInstanceId(),
-    name = "${source.name} (copy)",
     status = InstanceStatus.STOPPED,
+    runs = emptyList(),
     todayPnL = 0.0,
     tradesToday = 0,
     lastSignal = "—",

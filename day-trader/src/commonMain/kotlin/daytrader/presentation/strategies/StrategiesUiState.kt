@@ -35,5 +35,6 @@ data class StrategiesUiState(
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     val showAddDialog: Boolean = false,
-    val selectedInstanceId: String? = null
+    val selectedInstanceId: String? = null,
+    val performance: PerformanceUiState? = null
 )
