@@ -19,13 +19,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.data.StrategyCatalog
+import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
-
-private val timeframeOptions = listOf("1m", "5m", "15m")
 
 @Composable
 fun StrategiesScreen(viewModel: StrategiesViewModel) {
@@ -34,7 +33,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
     if (uiState.showAddDialog) {
         AddStrategyInstanceDialog(
             onDismiss = viewModel::onDismissAddDialog,
-            defaultRiskFor = viewModel::defaultRiskFor,
+            defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
             onCreate = viewModel::onCreateInstance
         )
     }
@@ -123,9 +122,14 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     StrategyInstanceDetail(
                         instance = selected,
                         detailTab = uiState.detailTab,
+                        performance = uiState.performance,
+                        liveExecution = uiState.liveExecution,
                         onTabChange = viewModel::onDetailTabChange,
                         onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
                         onStartStop = { viewModel.onToggleRun(selected.id) },
+                        onRunHeaderClick = viewModel::onRunHeaderClick,
+                        onAdjustStop = viewModel::onAdjustStop,
+                        onClosePosition = viewModel::onClosePosition,
                         onDuplicate = viewModel::onDuplicateSelected,
                         onDelete = viewModel::onDeleteSelected
                     )
@@ -295,16 +299,58 @@ private fun StrategyInstanceCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             StatusChip(row.status)
-            Text(
-                row.formattedTodayPnL,
-                color = if (row.isPositivePnL) GainGreen else LossRed,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Total P&L", fontSize = 10.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    row.formattedTotalPnL,
+                    color = if (row.isPositiveTotalPnL) GainGreen else LossRed,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        if (row.liveTradeSummary != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(row.liveTradeSummary, color = TextSecondary, fontSize = 11.sp, maxLines = 1)
         }
         Spacer(modifier = Modifier.height(6.dp))
+        InstanceRollupRow(row)
+        Spacer(modifier = Modifier.height(4.dp))
         Text(row.paramsSummary, color = TextSecondary, fontSize = 12.sp)
-        Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
+        if (row.status == InstanceStatus.RUNNING) {
+            Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun InstanceRollupRow(row: StrategyInstanceRowUi) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        InstanceRollupCell("7d", row.formattedRollup7d, row.isPositiveRollup7d)
+        InstanceRollupCell("30d", row.formattedRollup30d, row.isPositiveRollup30d)
+        InstanceRollupCell("Win", row.formattedWinRate)
+    }
+}
+
+@Composable
+private fun RowScope.InstanceRollupCell(label: String, value: String, positive: Boolean? = null) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+        Text(label, fontSize = 10.sp, color = TextSecondary)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            value,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = when (positive) {
+                true -> GainGreen
+                false -> LossRed
+                null -> if (value == "—") TextSecondary else Color.White
+            }
+        )
     }
 }
 
@@ -353,9 +399,14 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
 private fun StrategyInstanceDetail(
     instance: StrategyInstance,
     detailTab: StrategyDetailTab,
+    performance: PerformanceUiState?,
+    liveExecution: LiveExecutionUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
+    onRunHeaderClick: (RunSortColumn) -> Unit,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -367,7 +418,7 @@ private fun StrategyInstanceDetail(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(instance.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(StrategyUiMapper.displayName(instance), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         StrategyUiMapper.strategyDisplayName(instance),
@@ -424,7 +475,7 @@ private fun StrategyInstanceDetail(
                         Text(
                             when (tab) {
                                 StrategyDetailTab.CONFIGURATION -> "Configuration"
-                                StrategyDetailTab.ACTIVITY -> "Activity"
+                                StrategyDetailTab.LIVE -> "Live"
                                 StrategyDetailTab.PERFORMANCE -> "Performance"
                             },
                             fontSize = 13.sp
@@ -441,8 +492,15 @@ private fun StrategyInstanceDetail(
         ) {
             when (detailTab) {
                 StrategyDetailTab.CONFIGURATION -> ConfigurationTab(instance, onUpdate)
-                StrategyDetailTab.ACTIVITY -> ActivityTab(instance)
-                StrategyDetailTab.PERFORMANCE -> PerformanceTab(instance)
+                StrategyDetailTab.LIVE -> LiveTab(
+                    liveExecution = liveExecution,
+                    onAdjustStop = onAdjustStop,
+                    onClosePosition = onClosePosition
+                )
+                StrategyDetailTab.PERFORMANCE -> PerformanceTab(
+                    performance = performance,
+                    onRunHeaderClick = onRunHeaderClick
+                )
             }
         }
 
@@ -454,7 +512,7 @@ private fun StrategyInstanceDetail(
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Last update: ${instance.lastUpdate}", fontSize = 11.sp, color = TextSecondary)
+            Text("Last update: ${instance.live.updatedAt}", fontSize = 11.sp, color = TextSecondary)
             StatusChip(instance.status)
         }
     }
@@ -465,114 +523,280 @@ private fun ConfigurationTab(
     instance: StrategyInstance,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit
 ) {
+    val canEdit = instance.status != InstanceStatus.RUNNING
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ConfigField(
-            label = "Instance name",
-            value = instance.name,
-            onValueChange = { value -> onUpdate { it.copy(name = value) } }
+            label = "Symbol",
+            value = instance.symbol,
+            enabled = false,
+            onValueChange = {}
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Symbol",
-                value = instance.symbol,
-                modifier = Modifier.weight(1f),
-                onValueChange = { value -> onUpdate { it.copy(symbol = value.uppercase()) } }
-            )
-            ConfigDropdown(
-                label = "Timeframe",
-                value = instance.timeframe,
-                options = timeframeOptions,
-                modifier = Modifier.weight(1f),
-                onValueChange = { value -> onUpdate { it.copy(timeframe = value) } }
+        if (!canEdit) {
+            Text(
+                "Stop the instance to edit max at risk.",
+                fontSize = 12.sp,
+                color = TextSecondary
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Risk per trade (\$)",
-                value = instance.riskDollars.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { risk -> onUpdate { it.copy(riskDollars = risk) } }
+        ConfigField(
+            label = "Max at risk (\$)",
+            value = instance.maxDollars.toString(),
+            enabled = canEdit,
+            onValueChange = { value ->
+                value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
+                    onUpdate { it.copy(maxDollars = max) }
                 }
-            )
-            ConfigField(
-                label = "Position size (shares)",
-                value = instance.positionSize.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { size -> onUpdate { it.copy(positionSize = size) } }
-                }
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ConfigField(
-                label = "Stop loss (ticks)",
-                value = instance.stopLossTicks.toString(),
-                modifier = Modifier.weight(1f),
-                onValueChange = { value ->
-                    value.toIntOrNull()?.let { ticks -> onUpdate { it.copy(stopLossTicks = ticks) } }
-                }
-            )
-            ConfigField(
-                label = "Session window",
-                value = instance.sessionWindow,
-                modifier = Modifier.weight(1f),
-                enabled = false,
-                onValueChange = {}
-            )
-        }
-        Text(
-            "Session window is fixed by the ${StrategyUiMapper.strategyDisplayName(instance)} strategy.",
-            fontSize = 11.sp,
-            color = TextSecondary
+            }
         )
     }
 }
 
 @Composable
-private fun ActivityTab(instance: StrategyInstance) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ActivityRow("Last signal", instance.lastSignal)
-        ActivityRow("Last order", instance.lastOrder)
-        ActivityRow("Open position", instance.openPosition)
+private fun LiveTab(
+    liveExecution: LiveExecutionUiState?,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit
+) {
+    if (liveExecution == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No live data.", color = TextSecondary, fontSize = 13.sp)
+        }
+        return
+    }
+
+    if (liveExecution.showPanel) {
+        LiveTradePanel(
+            live = liveExecution,
+            onAdjustStop = onAdjustStop,
+            onClosePosition = onClosePosition
+        )
+    } else if (!liveExecution.isRunning) {
+        Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
+    } else {
+        Text("No open trade — watching for signal.", color = TextSecondary, fontSize = 13.sp)
     }
 }
 
 @Composable
-private fun PerformanceTab(instance: StrategyInstance) {
-    val formattedPnL = StrategyUiMapper.formattedTodayPnL(instance)
-    val isPositive = instance.todayPnL >= 0
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        PerformanceStatCard(
-            label = "Today P&L",
-            value = formattedPnL,
-            valueColor = if (isPositive) GainGreen else LossRed,
-            modifier = Modifier.weight(1f)
-        )
-        PerformanceStatCard(
-            label = "Trades today",
-            value = instance.tradesToday.toString(),
-            modifier = Modifier.weight(1f)
-        )
-        PerformanceStatCard(
-            label = "Status",
-            value = instance.status.name.lowercase().replaceFirstChar { it.uppercase() },
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun ActivityRow(label: String, value: String) {
+private fun LiveTradePanel(
+    live: LiveExecutionUiState,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DarkBackground, RoundedCornerShape(6.dp))
-            .padding(12.dp)
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(16.dp)
+            .testTag("LiveTradePanel"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(label, fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Text("Live trade", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Text(live.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+
+        when (live.state) {
+            ExecutionState.FILLED -> {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LivePriceCell("Entry", live.entryPrice, Modifier.weight(1f))
+                    LivePriceCell("Target", live.targetPrice, Modifier.weight(1f))
+                }
+                if (live.canManagePosition) {
+                    LiveStopEditor(
+                        stopPriceInput = live.stopPriceInput,
+                        onApply = { stopText -> onAdjustStop(live.instanceId, stopText) }
+                    )
+                } else {
+                    LivePriceCell("Stop", live.stopPrice, Modifier.fillMaxWidth())
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    live.formattedRisk?.let { risk ->
+                        PerformanceStatCard(
+                            label = "Risk at stop",
+                            value = risk,
+                            valueColor = LossRed,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    live.formattedUpside?.let { upside ->
+                        PerformanceStatCard(
+                            label = "Upside to target",
+                            value = upside,
+                            valueColor = GainGreen,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    live.formattedUnrealized?.let { unrealized ->
+                        PerformanceStatCard(
+                            label = "Unrealized",
+                            value = unrealized,
+                            valueColor = if (live.isUnrealizedPositive) GainGreen else LossRed,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                live.riskPercentOfMax?.let { pct ->
+                    Text(pct, fontSize = 11.sp, color = TextSecondary)
+                }
+                if (live.canManagePosition) {
+                    ClosePositionButton(
+                        live = live,
+                        onClosePosition = { onClosePosition(live.instanceId) }
+                    )
+                }
+            }
+            ExecutionState.WORKING -> {
+                Text("Order working — risk shown after fill.", fontSize = 12.sp, color = TextSecondary)
+            }
+            ExecutionState.FLAT -> {
+                Text("Watching for next signal.", fontSize = 12.sp, color = TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveStopEditor(
+    stopPriceInput: String,
+    onApply: (String) -> Unit
+) {
+    var stopText by remember(stopPriceInput) { mutableStateOf(stopPriceInput) }
+    val isValid = stopText.toDoubleOrNull() != null
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Stop", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = stopText,
+                onValueChange = { stopText = it },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("StopPriceField"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = TableHeaderBg,
+                    unfocusedContainerColor = TableHeaderBg,
+                    focusedBorderColor = BrandRed,
+                    unfocusedBorderColor = TableHeaderBg,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(6.dp)
+            )
+            Button(
+                onClick = { onApply(stopText) },
+                enabled = isValid,
+                colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.testTag("ApplyStopButton")
+            ) {
+                Text("Apply", fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClosePositionButton(
+    live: LiveExecutionUiState,
+    onClosePosition: () -> Unit
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+
+    Button(
+        onClick = { showConfirm = true },
+        modifier = Modifier.fillMaxWidth().testTag("ClosePositionButton"),
+        colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
+        shape = RoundedCornerShape(6.dp)
+    ) {
+        Text("Close position", fontWeight = FontWeight.SemiBold)
+    }
+
+    if (showConfirm) {
+        val pnlHint = live.formattedUnrealized?.let { "Estimated P&L: $it." } ?: ""
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            containerColor = SurfaceDark,
+            title = {
+                Text("Close position?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Close this position at market? $pnlHint",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirm = false
+                        onClosePosition()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
+                ) {
+                    Text("Close at market")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun LivePriceCell(label: String, value: String?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, fontSize = 11.sp, color = TextSecondary)
         Spacer(modifier = Modifier.height(4.dp))
-        Text(value, fontSize = 14.sp, color = Color.White)
+        Text(value ?: "—", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+    }
+}
+
+@Composable
+private fun PerformanceTab(
+    performance: PerformanceUiState?,
+    onRunHeaderClick: (RunSortColumn) -> Unit
+) {
+    if (performance == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No performance data.", color = TextSecondary, fontSize = 13.sp)
+        }
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PerformanceStatCard(
+                label = "7d P&L",
+                value = performance.rollup7d,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceStatCard(
+                label = "30d P&L",
+                value = performance.rollup30d,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceStatCard(
+                label = "Win rate",
+                value = performance.winRate,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        RunBlotterTable(
+            performance = performance,
+            onHeaderClick = onRunHeaderClick,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -677,14 +901,14 @@ private fun ConfigDropdown(
 @Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
-    defaultRiskFor: (StrategyType) -> Int,
-    onCreate: (StrategyType, String, String, String, Int) -> Unit
+    defaultMaxDollarsFor: (StrategyType) -> Int,
+    onCreate: (StrategyType, String, Int) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
-    var name by remember { mutableStateOf("") }
-    var symbol by remember { mutableStateOf("SPY") }
-    var timeframe by remember { mutableStateOf("1m") }
-    var riskText by remember { mutableStateOf(defaultRiskFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString()) }
+    var symbol by remember { mutableStateOf("") }
+    var maxDollarsText by remember {
+        mutableStateOf(defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString())
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -701,30 +925,24 @@ private fun AddStrategyInstanceDialog(
                         selected = selectedStrategyType == type,
                         onSelect = {
                             selectedStrategyType = type
-                            if (name.isBlank()) {
-                                riskText = defaultRiskFor(type).toString()
-                            }
+                            maxDollarsText = defaultMaxDollarsFor(type).toString()
                         }
                     )
                 }
                 HorizontalDivider(color = TableHeaderBg)
-                ConfigField(label = "Instance name (optional)", value = name, onValueChange = { name = it })
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
-                ConfigDropdown(
-                    label = "Timeframe",
-                    value = timeframe,
-                    options = timeframeOptions,
-                    onValueChange = { timeframe = it }
+                ConfigField(
+                    label = "Max at risk (\$)",
+                    value = maxDollarsText,
+                    onValueChange = { maxDollarsText = it }
                 )
-                ConfigField(label = "Risk per trade (\$)", value = riskText, onValueChange = { riskText = it })
             }
         },
         confirmButton = {
+            val maxDollars = maxDollarsText.toIntOrNull() ?: 0
             Button(
-                onClick = {
-                    val risk = riskText.toIntOrNull() ?: defaultRiskFor(selectedStrategyType)
-                    onCreate(selectedStrategyType, name, symbol, timeframe, risk)
-                },
+                onClick = { onCreate(selectedStrategyType, symbol, maxDollars) },
+                enabled = symbol.isNotBlank() && maxDollars > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyInstanceButton")
             ) {

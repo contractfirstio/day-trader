@@ -5,4 +5,5 @@ expect object AppFileSystem {
     fun ensureAppDataDirectory()
     fun readText(fileName: String): String?
     fun writeTextAtomic(fileName: String, content: String)
+    fun deleteIfExists(fileName: String)
 }

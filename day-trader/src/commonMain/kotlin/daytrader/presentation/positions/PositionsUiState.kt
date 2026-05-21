@@ -1,7 +1,7 @@
 package daytrader.presentation.positions
 
 enum class SortableColumn {
-    SYMBOL, COMPANY, QUANTITY, AVG_PRICE, LAST_PRICE, MARKET_VALUE, DAILY_CHANGE, UNREALIZED_PNL
+    COMPANY, SYMBOL, UNREALIZED_PNL
 }
 
 enum class SortDirection {
@@ -9,21 +9,14 @@ enum class SortDirection {
 }
 
 data class PositionRowUi(
-    val symbol: String,
     val companyName: String,
-    val quantity: Int,
-    val formattedAvgPrice: String,
-    val formattedMarketPrice: String,
-    val formattedMarketValue: String,
-    val formattedDailyChange: String,
+    val symbol: String,
     val formattedPnL: String,
-    val isPositiveDailyChange: Boolean,
     val isPositivePnL: Boolean
 )
 
 data class PositionsUiState(
     val rows: List<PositionRowUi> = emptyList(),
-    val searchQuery: String = "",
-    val sortColumn: SortableColumn = SortableColumn.SYMBOL,
+    val sortColumn: SortableColumn = SortableColumn.COMPANY,
     val sortDirection: SortDirection = SortDirection.ASCENDING
 )

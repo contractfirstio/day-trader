@@ -3,43 +3,46 @@ package daytrader.data.persistence
 import daytrader.platform.AppFileSystem
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 
 object JsonFileStore {
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
-        encodeDefaults = true
+        encodeDefaults = false
     }
 
-    fun readStrategyInstances(): StrategyInstancesDocument? =
-        read(AppDataFiles.STRATEGY_INSTANCES, StrategyInstancesDocument.serializer())
+    fun readInstances(): InstancesDocument? =
+        read<InstancesDocument>(AppDataFiles.INSTANCES)
 
-    fun writeStrategyInstances(document: StrategyInstancesDocument) {
-        write(AppDataFiles.STRATEGY_INSTANCES, document, StrategyInstancesDocument.serializer())
+    fun writeInstances(document: InstancesDocument) {
+        write(AppDataFiles.INSTANCES, document)
     }
 
-    fun readStrategiesAppState(): StrategiesAppStateDocument? =
-        read(AppDataFiles.STRATEGIES_APP_STATE, StrategiesAppStateDocument.serializer())
+    fun readStrategiesScreen(): StrategiesScreenDocument? =
+        read<StrategiesScreenDocument>(AppDataFiles.STRATEGIES_SCREEN)
 
-    fun writeStrategiesAppState(document: StrategiesAppStateDocument) {
-        write(AppDataFiles.STRATEGIES_APP_STATE, document, StrategiesAppStateDocument.serializer())
+    fun writeStrategiesScreen(document: StrategiesScreenDocument) {
+        write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
 
-    private fun <T> read(fileName: String, deserializer: kotlinx.serialization.DeserializationStrategy<T>): T? {
+    internal fun readLegacyInstances(): LegacyInstancesDocument? =
+        read<LegacyInstancesDocument>(AppDataFiles.LEGACY_STRATEGY_INSTANCES)
+
+    internal fun readLegacyStrategiesScreen(): LegacyStrategiesScreenDocument? =
+        read<LegacyStrategiesScreenDocument>(AppDataFiles.LEGACY_STRATEGIES_APP_STATE)
+
+    private inline fun <reified T> read(fileName: String): T? {
         val raw = AppFileSystem.readText(fileName) ?: return null
         return try {
-            json.decodeFromString(deserializer, raw)
+            json.decodeFromString(serializer<T>(), raw)
         } catch (_: SerializationException) {
             null
         }
     }
 
-    private fun <T> write(
-        fileName: String,
-        document: T,
-        serializer: kotlinx.serialization.SerializationStrategy<T>
-    ) {
-        val encoded = json.encodeToString(serializer, document)
+    private inline fun <reified T> write(fileName: String, document: T) {
+        val encoded = json.encodeToString(serializer<T>(), document)
         AppFileSystem.writeTextAtomic(fileName, encoded)
     }
 }

@@ -11,7 +11,7 @@ enum class InstanceFilter {
 
 enum class StrategyDetailTab {
     CONFIGURATION,
-    ACTIVITY,
+    LIVE,
     PERFORMANCE
 }
 
@@ -20,10 +20,16 @@ data class StrategyInstanceRowUi(
     val name: String,
     val strategyTypeLabel: String,
     val status: daytrader.domain.InstanceStatus,
-    val formattedTodayPnL: String,
-    val isPositivePnL: Boolean,
+    val formattedTotalPnL: String,
+    val isPositiveTotalPnL: Boolean,
     val paramsSummary: String,
-    val tradesToday: Int
+    val tradesToday: Int,
+    val liveTradeSummary: String?,
+    val formattedRollup7d: String,
+    val isPositiveRollup7d: Boolean,
+    val formattedRollup30d: String,
+    val isPositiveRollup30d: Boolean,
+    val formattedWinRate: String
 )
 
 data class StrategiesUiState(
@@ -35,5 +41,7 @@ data class StrategiesUiState(
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     val showAddDialog: Boolean = false,
-    val selectedInstanceId: String? = null
+    val selectedInstanceId: String? = null,
+    val performance: PerformanceUiState? = null,
+    val liveExecution: LiveExecutionUiState? = null
 )

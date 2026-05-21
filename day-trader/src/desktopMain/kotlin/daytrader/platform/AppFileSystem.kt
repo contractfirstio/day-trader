@@ -47,4 +47,9 @@ actual object AppFileSystem {
         )
         Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
+
+    actual fun deleteIfExists(fileName: String) {
+        val path = Path.of(appDataDirectory(), fileName)
+        Files.deleteIfExists(path)
+    }
 }

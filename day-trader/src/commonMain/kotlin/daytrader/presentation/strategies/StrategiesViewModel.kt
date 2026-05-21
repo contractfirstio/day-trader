@@ -4,12 +4,19 @@ import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
-import daytrader.domain.InstanceStatus
+import daytrader.data.withDemoLiveExecutionOnStart
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
-import daytrader.domain.defaultInstanceName
+import daytrader.domain.InstanceStatus
 import daytrader.domain.defaultStrategyInstance
 import daytrader.domain.duplicateStrategyInstance
+import daytrader.domain.instanceDisplayName
+import daytrader.domain.onRunStarted
+import daytrader.domain.onRunStopped
+import daytrader.domain.withClosedPosition
+import daytrader.domain.withStopPrice
+import daytrader.platform.currentSessionDateIso
+import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +36,8 @@ class StrategiesViewModel(
     private var appState = StrategiesAppState()
     private var showAddDialog = false
     private var instances: List<StrategyInstance> = emptyList()
+    private var runSortColumn = RunSortColumn.DATE
+    private var runSortDirection = SortDirection.DESCENDING
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
@@ -84,20 +93,12 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    fun onCreateInstance(
-        strategyType: StrategyType,
-        name: String,
-        symbol: String,
-        timeframe: String,
-        riskDollars: Int
-    ) {
-        val symbolUpper = symbol.uppercase()
+    fun onCreateInstance(strategyType: StrategyType, symbol: String, maxDollars: Int) {
+        if (symbol.isBlank() || maxDollars <= 0) return
         val instance = defaultStrategyInstance(
             strategyType = strategyType,
-            name = name.ifBlank { defaultInstanceName(strategyType, symbolUpper) },
-            symbol = symbolUpper,
-            timeframe = timeframe,
-            riskDollars = riskDollars
+            symbol = symbol,
+            maxDollars = maxDollars
         )
         repository.add(instance)
         appStateRepository.update {
@@ -111,18 +112,56 @@ class StrategiesViewModel(
     }
 
     fun onToggleRun(id: String) {
+        val sessionDate = currentSessionDateIso()
+        val wasRunning = instances.find { it.id == id }?.status == InstanceStatus.RUNNING
         repository.update(id) { instance ->
-            val nextStatus = if (instance.status == InstanceStatus.RUNNING) {
-                InstanceStatus.STOPPED
+            if (instance.status == InstanceStatus.RUNNING) {
+                instance.onRunStopped(sessionDate)
             } else {
-                InstanceStatus.RUNNING
+                instance.onRunStarted(sessionDate).withDemoLiveExecutionOnStart(sessionDate)
             }
-            instance.copy(status = nextStatus)
         }
+        if (!wasRunning) {
+            appStateRepository.update {
+                it.copy(selectedInstanceId = id, detailTab = StrategyDetailTab.LIVE)
+            }
+        }
+    }
+
+    fun onRunHeaderClick(column: RunSortColumn) {
+        if (runSortColumn == column) {
+            runSortDirection = if (runSortDirection == SortDirection.ASCENDING) {
+                SortDirection.DESCENDING
+            } else {
+                SortDirection.ASCENDING
+            }
+        } else {
+            runSortColumn = column
+            runSortDirection = SortDirection.DESCENDING
+        }
+        emitUiState()
     }
 
     fun onUpdateInstance(id: String, transform: (StrategyInstance) -> StrategyInstance) {
         repository.update(id, transform)
+    }
+
+    fun onAdjustStop(instanceId: String, stopText: String) {
+        val newStop = stopText.toDoubleOrNull() ?: return
+        repository.update(instanceId) { instance ->
+            val updated = instance.live.withStopPrice(
+                newStop = newStop,
+                rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
+            ) ?: return@update instance
+            instance.copy(live = updated)
+        }
+    }
+
+    fun onClosePosition(instanceId: String) {
+        val sessionDate = currentSessionDateIso()
+        repository.update(instanceId) { instance ->
+            instance.withClosedPosition(sessionDate)
+        }
     }
 
     fun onDuplicateSelected() {
@@ -137,8 +176,8 @@ class StrategiesViewModel(
         repository.remove(id)
     }
 
-    fun defaultRiskFor(strategyType: StrategyType): Int =
-        StrategyCatalog.defaultsFor(strategyType).defaultRiskDollars
+    fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
+        StrategyCatalog.defaultMaxDollars(strategyType)
 
     private fun reconcileSelectedInstance(list: List<StrategyInstance>) {
         val current = appState.selectedInstanceId
@@ -156,8 +195,9 @@ class StrategiesViewModel(
     private fun emitUiState() {
         val state = appState
         val filtered = instances.filter { instance ->
+            val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
             val matchesSearch = state.searchQuery.isBlank() ||
-                instance.name.contains(state.searchQuery, ignoreCase = true) ||
+                displayName.contains(state.searchQuery, ignoreCase = true) ||
                 instance.symbol.contains(state.searchQuery, ignoreCase = true)
             val matchesFilter = when (state.instanceFilter) {
                 InstanceFilter.ALL -> true
@@ -169,17 +209,30 @@ class StrategiesViewModel(
             matchesSearch && matchesFilter && matchesStrategyType
         }
 
+        val selected = instances.find { it.id == state.selectedInstanceId }
+        val sessionDate = currentSessionDateIso()
+        val performance = selected?.let { instance ->
+            PerformanceUiMapper.build(
+                instance = instance,
+                sessionDate = sessionDate,
+                sortColumn = runSortColumn,
+                sortDirection = runSortDirection
+            )
+        }
+
         _uiState.update {
             StrategiesUiState(
-                filteredRows = filtered.map(StrategyUiMapper::toRowUi),
+                filteredRows = filtered.map { StrategyUiMapper.toRowUi(it, sessionDate) },
                 filteredCount = filtered.size,
-                selectedInstance = instances.find { it.id == state.selectedInstanceId },
+                selectedInstance = selected,
                 searchQuery = state.searchQuery,
                 instanceFilter = state.instanceFilter,
                 strategyTypeFilter = state.strategyTypeFilter,
                 detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
-                selectedInstanceId = state.selectedInstanceId
+                selectedInstanceId = state.selectedInstanceId,
+                performance = performance,
+                liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState)
             )
         }
     }
