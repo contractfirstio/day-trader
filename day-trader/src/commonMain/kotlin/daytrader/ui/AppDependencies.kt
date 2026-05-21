@@ -2,8 +2,9 @@ package daytrader.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import daytrader.data.FileStrategiesAppStateRepository
+import daytrader.data.FileStrategyInstanceRepository
 import daytrader.data.InMemoryPositionRepository
-import daytrader.data.InMemoryStrategyInstanceRepository
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
 
@@ -14,11 +15,12 @@ data class AppDependencies(
 
 @Composable
 fun rememberAppDependencies(): AppDependencies {
-    val strategyRepository = remember { InMemoryStrategyInstanceRepository() }
+    val strategyRepository = remember { FileStrategyInstanceRepository() }
+    val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val positionRepository = remember { InMemoryPositionRepository() }
-    return remember(strategyRepository, positionRepository) {
+    return remember(strategyRepository, appStateRepository, positionRepository) {
         AppDependencies(
-            strategiesViewModel = StrategiesViewModel(strategyRepository),
+            strategiesViewModel = StrategiesViewModel(strategyRepository, appStateRepository),
             positionsViewModel = PositionsViewModel(positionRepository)
         )
     }

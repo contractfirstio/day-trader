@@ -1,5 +1,7 @@
 package daytrader.presentation.strategies
 
+import daytrader.data.StrategiesAppState
+import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
 import daytrader.domain.InstanceStatus
@@ -19,15 +21,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 
 class StrategiesViewModel(
-    private val repository: StrategyInstanceRepository
+    private val repository: StrategyInstanceRepository,
+    private val appStateRepository: StrategiesAppStateRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private var searchQuery = ""
-    private var instanceFilter = InstanceFilter.ALL
-    private var strategyTypeFilter: StrategyType? = null
-    private var selectedInstanceId: String? = null
-    private var detailTab = StrategyDetailTab.CONFIGURATION
+    private var appState = StrategiesAppState()
     private var showAddDialog = false
     private var instances: List<StrategyInstance> = emptyList()
 
@@ -35,43 +34,44 @@ class StrategiesViewModel(
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
 
     init {
+        appStateRepository.state
+            .onEach { state ->
+                appState = state
+                emitUiState()
+            }
+            .launchIn(scope)
+
         repository.instances
             .onEach { list ->
                 instances = list
-                if (selectedInstanceId != null && list.none { it.id == selectedInstanceId }) {
-                    selectedInstanceId = list.firstOrNull()?.id
-                } else if (selectedInstanceId == null) {
-                    selectedInstanceId = list.firstOrNull()?.id
-                }
-                emitUiState()
+                reconcileSelectedInstance(list)
             }
             .launchIn(scope)
     }
 
     fun onSearchChange(query: String) {
-        searchQuery = query
-        emitUiState()
+        appStateRepository.update { it.copy(searchQuery = query) }
     }
 
     fun onInstanceFilterChange(filter: InstanceFilter) {
-        instanceFilter = filter
-        emitUiState()
+        appStateRepository.update { it.copy(instanceFilter = filter) }
     }
 
     fun onStrategyTypeFilterChange(type: StrategyType?) {
-        strategyTypeFilter = type
-        emitUiState()
+        appStateRepository.update { it.copy(strategyTypeFilter = type) }
     }
 
     fun onSelectInstance(id: String) {
-        selectedInstanceId = id
-        detailTab = StrategyDetailTab.CONFIGURATION
-        emitUiState()
+        appStateRepository.update {
+            it.copy(
+                selectedInstanceId = id,
+                detailTab = StrategyDetailTab.CONFIGURATION
+            )
+        }
     }
 
     fun onDetailTabChange(tab: StrategyDetailTab) {
-        detailTab = tab
-        emitUiState()
+        appStateRepository.update { it.copy(detailTab = tab) }
     }
 
     fun onShowAddDialog() {
@@ -100,8 +100,12 @@ class StrategiesViewModel(
             riskDollars = riskDollars
         )
         repository.add(instance)
-        selectedInstanceId = instance.id
-        detailTab = StrategyDetailTab.CONFIGURATION
+        appStateRepository.update {
+            it.copy(
+                selectedInstanceId = instance.id,
+                detailTab = StrategyDetailTab.CONFIGURATION
+            )
+        }
         showAddDialog = false
         emitUiState()
     }
@@ -122,33 +126,46 @@ class StrategiesViewModel(
     }
 
     fun onDuplicateSelected() {
-        val selected = instances.find { it.id == selectedInstanceId } ?: return
+        val selected = instances.find { it.id == appState.selectedInstanceId } ?: return
         val copy = duplicateStrategyInstance(selected)
         repository.add(copy)
-        selectedInstanceId = copy.id
-        emitUiState()
+        appStateRepository.update { it.copy(selectedInstanceId = copy.id) }
     }
 
     fun onDeleteSelected() {
-        val id = selectedInstanceId ?: return
+        val id = appState.selectedInstanceId ?: return
         repository.remove(id)
-        emitUiState()
     }
 
     fun defaultRiskFor(strategyType: StrategyType): Int =
         StrategyCatalog.defaultsFor(strategyType).defaultRiskDollars
 
+    private fun reconcileSelectedInstance(list: List<StrategyInstance>) {
+        val current = appState.selectedInstanceId
+        val validSelection = when {
+            current != null && list.any { it.id == current } -> current
+            else -> list.firstOrNull()?.id
+        }
+        if (validSelection != current) {
+            appStateRepository.update { it.copy(selectedInstanceId = validSelection) }
+        } else {
+            emitUiState()
+        }
+    }
+
     private fun emitUiState() {
+        val state = appState
         val filtered = instances.filter { instance ->
-            val matchesSearch = searchQuery.isBlank() ||
-                instance.name.contains(searchQuery, ignoreCase = true) ||
-                instance.symbol.contains(searchQuery, ignoreCase = true)
-            val matchesFilter = when (instanceFilter) {
+            val matchesSearch = state.searchQuery.isBlank() ||
+                instance.name.contains(state.searchQuery, ignoreCase = true) ||
+                instance.symbol.contains(state.searchQuery, ignoreCase = true)
+            val matchesFilter = when (state.instanceFilter) {
                 InstanceFilter.ALL -> true
                 InstanceFilter.RUNNING -> instance.status == InstanceStatus.RUNNING
                 InstanceFilter.STOPPED -> instance.status == InstanceStatus.STOPPED
             }
-            val matchesStrategyType = strategyTypeFilter == null || instance.strategyType == strategyTypeFilter
+            val matchesStrategyType =
+                state.strategyTypeFilter == null || instance.strategyType == state.strategyTypeFilter
             matchesSearch && matchesFilter && matchesStrategyType
         }
 
@@ -156,13 +173,13 @@ class StrategiesViewModel(
             StrategiesUiState(
                 filteredRows = filtered.map(StrategyUiMapper::toRowUi),
                 filteredCount = filtered.size,
-                selectedInstance = instances.find { it.id == selectedInstanceId },
-                searchQuery = searchQuery,
-                instanceFilter = instanceFilter,
-                strategyTypeFilter = strategyTypeFilter,
-                detailTab = detailTab,
+                selectedInstance = instances.find { it.id == state.selectedInstanceId },
+                searchQuery = state.searchQuery,
+                instanceFilter = state.instanceFilter,
+                strategyTypeFilter = state.strategyTypeFilter,
+                detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
-                selectedInstanceId = selectedInstanceId
+                selectedInstanceId = state.selectedInstanceId
             )
         }
     }
