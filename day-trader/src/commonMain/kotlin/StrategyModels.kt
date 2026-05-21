@@ -7,6 +7,10 @@ enum class StrategyType(val displayName: String, val description: String) {
     TOUCH_AND_TURN_SCALPER(
         displayName = "Touch and Turn Scalper",
         description = "Scalps reversals when price touches prior session high/low and turns."
+    ),
+    QUICK_FLIP_SCALPER(
+        displayName = "Quick Flip Scalper",
+        description = "Rapid in-and-out trades on short-term momentum flips with tight stops."
     )
 }
 
@@ -55,33 +59,46 @@ data class StrategyInstance(
 
 fun newStrategyInstanceId(): String = "inst-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
-fun defaultTouchAndTurnInstance(
+fun defaultInstanceName(strategyType: StrategyType, symbol: String): String = when (strategyType) {
+    StrategyType.TOUCH_AND_TURN_SCALPER -> "Touch and Turn — $symbol"
+    StrategyType.QUICK_FLIP_SCALPER -> "Quick Flip — $symbol"
+}
+
+fun defaultStrategyInstance(
+    strategyType: StrategyType,
     name: String,
     symbol: String,
     timeframe: String,
     riskDollars: Int,
     status: InstanceStatus = InstanceStatus.STOPPED
-): StrategyInstance = StrategyInstance(
-    id = newStrategyInstanceId(),
-    name = name,
-    strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-    status = status,
-    symbol = symbol,
-    timeframe = timeframe,
-    riskDollars = riskDollars,
-    positionSize = 100,
-    stopLossTicks = 4,
-    sessionWindow = "09:30 – 16:00 ET",
-    todayPnL = 0.0,
-    tradesToday = 0,
-    lastSignal = "—",
-    lastOrder = "—",
-    openPosition = "Flat",
-    lastUpdate = "—"
-)
+): StrategyInstance {
+    val (positionSize, stopLossTicks, sessionWindow) = when (strategyType) {
+        StrategyType.TOUCH_AND_TURN_SCALPER -> Triple(100, 4, "09:30 – 16:00 ET")
+        StrategyType.QUICK_FLIP_SCALPER -> Triple(50, 2, "09:45 – 15:45 ET")
+    }
+    return StrategyInstance(
+        id = newStrategyInstanceId(),
+        name = name,
+        strategyType = strategyType,
+        status = status,
+        symbol = symbol,
+        timeframe = timeframe,
+        riskDollars = riskDollars,
+        positionSize = positionSize,
+        stopLossTicks = stopLossTicks,
+        sessionWindow = sessionWindow,
+        todayPnL = 0.0,
+        tradesToday = 0,
+        lastSignal = "—",
+        lastOrder = "—",
+        openPosition = "Flat",
+        lastUpdate = "—"
+    )
+}
 
 fun mockStrategyInstances(): List<StrategyInstance> = listOf(
-    defaultTouchAndTurnInstance(
+    defaultStrategyInstance(
+        strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         name = "T&T — SPY 1m",
         symbol = "SPY",
         timeframe = "1m",
@@ -95,7 +112,8 @@ fun mockStrategyInstances(): List<StrategyInstance> = listOf(
         openPosition = "Long 100 SPY",
         lastUpdate = "12:04:03"
     ),
-    defaultTouchAndTurnInstance(
+    defaultStrategyInstance(
+        strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         name = "T&T — QQQ 5m",
         symbol = "QQQ",
         timeframe = "5m",
@@ -108,5 +126,20 @@ fun mockStrategyInstances(): List<StrategyInstance> = listOf(
         lastOrder = "—",
         openPosition = "Flat",
         lastUpdate = "11:52:18"
+    ),
+    defaultStrategyInstance(
+        strategyType = StrategyType.QUICK_FLIP_SCALPER,
+        name = "QF — NVDA 1m",
+        symbol = "NVDA",
+        timeframe = "1m",
+        riskDollars = 250,
+        status = InstanceStatus.STOPPED
+    ).copy(
+        todayPnL = 64.00,
+        tradesToday = 12,
+        lastSignal = "Short @ 485.10 — momentum flip",
+        lastOrder = "SELL 50 NVDA @ 485.08",
+        openPosition = "Flat",
+        lastUpdate = "12:01:44"
     )
 )

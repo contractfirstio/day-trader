@@ -25,12 +25,13 @@ fun StrategiesScreen() {
     var selectedInstanceId by remember { mutableStateOf(instances.firstOrNull()?.id) }
     var searchQuery by remember { mutableStateOf("") }
     var instanceFilter by remember { mutableStateOf(InstanceFilter.ALL) }
+    var strategyTypeFilter by remember { mutableStateOf<StrategyType?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var detailTab by remember { mutableStateOf(StrategyDetailTab.CONFIGURATION) }
 
     val selectedInstance = instances.find { it.id == selectedInstanceId }
 
-    val filteredInstances = remember(instances, searchQuery, instanceFilter) {
+    val filteredInstances = remember(instances, searchQuery, instanceFilter, strategyTypeFilter) {
         instances.filter { instance ->
             val matchesSearch = searchQuery.isBlank() ||
                 instance.name.contains(searchQuery, ignoreCase = true) ||
@@ -40,7 +41,8 @@ fun StrategiesScreen() {
                 InstanceFilter.RUNNING -> instance.status == InstanceStatus.RUNNING
                 InstanceFilter.STOPPED -> instance.status == InstanceStatus.STOPPED
             }
-            matchesSearch && matchesFilter
+            val matchesStrategyType = strategyTypeFilter == null || instance.strategyType == strategyTypeFilter
+            matchesSearch && matchesFilter && matchesStrategyType
         }
     }
 
@@ -52,10 +54,12 @@ fun StrategiesScreen() {
     if (showAddDialog) {
         AddStrategyInstanceDialog(
             onDismiss = { showAddDialog = false },
-            onCreate = { name, symbol, timeframe, riskDollars ->
-                val instance = defaultTouchAndTurnInstance(
-                    name = name.ifBlank { "Touch and Turn — $symbol" },
-                    symbol = symbol.uppercase(),
+            onCreate = { strategyType, name, symbol, timeframe, riskDollars ->
+                val symbolUpper = symbol.uppercase()
+                val instance = defaultStrategyInstance(
+                    strategyType = strategyType,
+                    name = name.ifBlank { defaultInstanceName(strategyType, symbolUpper) },
+                    symbol = symbolUpper,
                     timeframe = timeframe,
                     riskDollars = riskDollars
                 )
@@ -80,6 +84,13 @@ fun StrategiesScreen() {
             filter = instanceFilter,
             onFilterChange = { instanceFilter = it },
             instanceCount = filteredInstances.size
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        StrategyTypeFilterRow(
+            selectedType = strategyTypeFilter,
+            onTypeChange = { strategyTypeFilter = it }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -241,6 +252,27 @@ private fun StrategiesHeader(
 }
 
 @Composable
+private fun StrategyTypeFilterRow(
+    selectedType: StrategyType?,
+    onTypeChange: (StrategyType?) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(
+            label = "All strategies",
+            selected = selectedType == null,
+            onClick = { onTypeChange(null) }
+        )
+        StrategyType.entries.forEach { type ->
+            FilterChip(
+                label = type.displayName,
+                selected = selectedType == type,
+                onClick = { onTypeChange(if (selectedType == type) null else type) }
+            )
+        }
+    }
+}
+
+@Composable
 private fun InstanceFilterRow(
     filter: InstanceFilter,
     onFilterChange: (InstanceFilter) -> Unit,
@@ -379,7 +411,7 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.TouchApp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Select an instance or add Touch and Turn Scalper", color = TextSecondary, fontSize = 14.sp)
+            Text("Select an instance or add a strategy", color = TextSecondary, fontSize = 14.sp)
         }
     }
 }
@@ -548,7 +580,7 @@ private fun ConfigurationTab(
             )
         }
         Text(
-            "Session window is fixed by the Touch and Turn Scalper strategy.",
+            "Session window is fixed by the ${instance.strategyType.displayName} strategy.",
             fontSize = 11.sp,
             color = TextSecondary
         )
@@ -701,8 +733,9 @@ private fun ConfigDropdown(
 @Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
-    onCreate: (name: String, symbol: String, timeframe: String, riskDollars: Int) -> Unit
+    onCreate: (StrategyType, String, String, String, Int) -> Unit
 ) {
+    var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
     var name by remember { mutableStateOf("") }
     var symbol by remember { mutableStateOf("SPY") }
     var timeframe by remember { mutableStateOf("1m") }
@@ -716,17 +749,23 @@ private fun AddStrategyInstanceDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    StrategyType.TOUCH_AND_TURN_SCALPER.displayName,
-                    color = BrandRed,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
-                Text(
-                    StrategyType.TOUCH_AND_TURN_SCALPER.description,
-                    color = TextSecondary,
-                    fontSize = 12.sp
-                )
+                Text("Choose strategy", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                StrategyType.entries.forEach { type ->
+                    StrategyTypePickerCard(
+                        strategyType = type,
+                        selected = selectedStrategyType == type,
+                        onSelect = {
+                            selectedStrategyType = type
+                            if (name.isBlank()) {
+                                riskText = when (type) {
+                                    StrategyType.TOUCH_AND_TURN_SCALPER -> "500"
+                                    StrategyType.QUICK_FLIP_SCALPER -> "250"
+                                }
+                            }
+                        }
+                    )
+                }
+                HorizontalDivider(color = TableHeaderBg)
                 ConfigField(label = "Instance name (optional)", value = name, onValueChange = { name = it })
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
                 ConfigDropdown(
@@ -741,10 +780,15 @@ private fun AddStrategyInstanceDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val risk = riskText.toIntOrNull() ?: 500
-                    onCreate(name, symbol, timeframe, risk)
+                    val defaultRisk = when (selectedStrategyType) {
+                        StrategyType.TOUCH_AND_TURN_SCALPER -> 500
+                        StrategyType.QUICK_FLIP_SCALPER -> 250
+                    }
+                    val risk = riskText.toIntOrNull() ?: defaultRisk
+                    onCreate(selectedStrategyType, name, symbol, timeframe, risk)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
+                colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
+                modifier = Modifier.testTag("CreateStrategyInstanceButton")
             ) {
                 Text("Create")
             }
@@ -755,4 +799,41 @@ private fun AddStrategyInstanceDialog(
             }
         }
     )
+}
+
+@Composable
+private fun StrategyTypePickerCard(
+    strategyType: StrategyType,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    val borderColor = if (selected) BrandRed else TableHeaderBg
+    val backgroundColor = if (selected) BrandRed.copy(alpha = 0.12f) else DarkBackground
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onSelect)
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(backgroundColor, RoundedCornerShape(8.dp))
+            .padding(12.dp)
+            .testTag("StrategyTypePicker-${strategyType.name}")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                strategyType.displayName,
+                color = if (selected) Color.White else TextSecondary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+            if (selected) {
+                Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = BrandRed, modifier = Modifier.size(18.dp))
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(strategyType.description, color = TextSecondary, fontSize = 12.sp)
+    }
 }
