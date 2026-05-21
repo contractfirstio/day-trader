@@ -57,6 +57,51 @@ fun ActiveExecution.riskReward(
     )
 }
 
+fun ActiveExecution.isValidStop(newStop: Double): Boolean {
+    val entry = entryPrice ?: return false
+    if (state != ExecutionState.FILLED) return false
+    return when (side) {
+        TradeSide.LONG -> newStop in 0.0..<entry
+        TradeSide.SHORT -> newStop > entry
+    }
+}
+
+fun ActiveExecution.withStopPrice(newStop: Double, rewardMultiple: Double): ActiveExecution? {
+    if (!isValidStop(newStop)) return null
+    val entry = entryPrice ?: return null
+    val r = abs(entry - newStop)
+    val newTarget = when (side) {
+        TradeSide.LONG -> entry + (r * rewardMultiple)
+        TradeSide.SHORT -> entry - (r * rewardMultiple)
+    }
+    return copy(
+        stopPrice = newStop,
+        targetPrice = newTarget,
+        orderStatus = "Stop updated (demo)",
+        updatedAt = "Demo"
+    )
+}
+
+fun ActiveExecution.realizedPnL(): Double {
+    val entry = entryPrice ?: return 0.0
+    val market = marketPrice ?: return 0.0
+    val qty = quantity
+    return when (side) {
+        TradeSide.LONG -> (market - entry) * qty
+        TradeSide.SHORT -> (entry - market) * qty
+    }
+}
+
+fun StrategyInstance.withClosedPosition(): StrategyInstance {
+    if (activeExecution.state != ExecutionState.FILLED) return this
+    return copy(
+        activeExecution = ActiveExecution.flat(updatedAt = "Demo"),
+        tradesToday = tradesToday + 1,
+        lastOrder = "Closed at market (demo)",
+        lastUpdate = "Demo"
+    )
+}
+
 fun ActiveExecution.positionLabel(symbol: String): String = when (state) {
     ExecutionState.FLAT -> "Flat"
     ExecutionState.WORKING -> "${side.label()} $quantity $symbol (working)"

@@ -14,6 +14,8 @@ import daytrader.domain.instanceDisplayName
 import daytrader.domain.onRunStarted
 import daytrader.domain.onRunStopped
 import daytrader.domain.syncInProgressRun
+import daytrader.domain.withClosedPosition
+import daytrader.domain.withStopPrice
 import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
@@ -143,6 +145,24 @@ class StrategiesViewModel(
 
     fun onUpdateInstance(id: String, transform: (StrategyInstance) -> StrategyInstance) {
         repository.update(id, transform)
+    }
+
+    fun onAdjustStop(instanceId: String, stopText: String) {
+        val newStop = stopText.toDoubleOrNull() ?: return
+        repository.update(instanceId) { instance ->
+            val updated = instance.activeExecution.withStopPrice(
+                newStop = newStop,
+                rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
+            ) ?: return@update instance
+            instance.copy(activeExecution = updated)
+        }
+    }
+
+    fun onClosePosition(instanceId: String) {
+        val sessionDate = currentSessionDateIso()
+        repository.update(instanceId) { instance ->
+            instance.withClosedPosition().syncInProgressRun(sessionDate)
+        }
     }
 
     fun onDuplicateSelected() {

@@ -27,11 +27,16 @@ object LiveExecutionUiMapper {
             else -> "No open trade — watching for signal"
         }
 
+        val canManage = isRunning && execution.state == ExecutionState.FILLED
+
         return LiveExecutionUiState(
+            instanceId = instance.id,
             showPanel = isRunning,
             isRunning = isRunning,
+            canManagePosition = canManage,
             state = execution.state,
             headline = headline,
+            stopPriceInput = execution.stopPrice?.let { "%.2f".format(it) } ?: "",
             entryPrice = execution.entryPrice?.let { Formatters.currencyPlain(it) },
             stopPrice = execution.stopPrice?.let { Formatters.currencyPlain(it) },
             targetPrice = execution.targetPrice?.let { Formatters.currencyPlain(it) },

@@ -128,6 +128,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                         onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
                         onStartStop = { viewModel.onToggleRun(selected.id) },
                         onRunHeaderClick = viewModel::onRunHeaderClick,
+                        onAdjustStop = viewModel::onAdjustStop,
+                        onClosePosition = viewModel::onClosePosition,
                         onDuplicate = viewModel::onDuplicateSelected,
                         onDelete = viewModel::onDeleteSelected
                     )
@@ -365,6 +367,8 @@ private fun StrategyInstanceDetail(
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
     onRunHeaderClick: (RunSortColumn) -> Unit,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -450,7 +454,11 @@ private fun StrategyInstanceDetail(
         ) {
             when (detailTab) {
                 StrategyDetailTab.CONFIGURATION -> ConfigurationTab(instance, onUpdate)
-                StrategyDetailTab.LIVE -> LiveTab(liveExecution)
+                StrategyDetailTab.LIVE -> LiveTab(
+                    liveExecution = liveExecution,
+                    onAdjustStop = onAdjustStop,
+                    onClosePosition = onClosePosition
+                )
                 StrategyDetailTab.PERFORMANCE -> PerformanceTab(
                     performance = performance,
                     onRunHeaderClick = onRunHeaderClick
@@ -496,7 +504,11 @@ private fun ConfigurationTab(
 }
 
 @Composable
-private fun LiveTab(liveExecution: LiveExecutionUiState?) {
+private fun LiveTab(
+    liveExecution: LiveExecutionUiState?,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit
+) {
     if (liveExecution == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No live data.", color = TextSecondary, fontSize = 13.sp)
@@ -505,7 +517,11 @@ private fun LiveTab(liveExecution: LiveExecutionUiState?) {
     }
 
     if (liveExecution.showPanel) {
-        LiveTradePanel(liveExecution)
+        LiveTradePanel(
+            live = liveExecution,
+            onAdjustStop = onAdjustStop,
+            onClosePosition = onClosePosition
+        )
     } else if (!liveExecution.isRunning) {
         Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
     } else {
@@ -514,7 +530,11 @@ private fun LiveTab(liveExecution: LiveExecutionUiState?) {
 }
 
 @Composable
-private fun LiveTradePanel(live: LiveExecutionUiState) {
+private fun LiveTradePanel(
+    live: LiveExecutionUiState,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -530,8 +550,15 @@ private fun LiveTradePanel(live: LiveExecutionUiState) {
             ExecutionState.FILLED -> {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     LivePriceCell("Entry", live.entryPrice, Modifier.weight(1f))
-                    LivePriceCell("Stop", live.stopPrice, Modifier.weight(1f))
                     LivePriceCell("Target", live.targetPrice, Modifier.weight(1f))
+                }
+                if (live.canManagePosition) {
+                    LiveStopEditor(
+                        stopPriceInput = live.stopPriceInput,
+                        onApply = { stopText -> onAdjustStop(live.instanceId, stopText) }
+                    )
+                } else {
+                    LivePriceCell("Stop", live.stopPrice, Modifier.fillMaxWidth())
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     live.formattedRisk?.let { risk ->
@@ -562,6 +589,12 @@ private fun LiveTradePanel(live: LiveExecutionUiState) {
                 live.riskPercentOfMax?.let { pct ->
                     Text(pct, fontSize = 11.sp, color = TextSecondary)
                 }
+                if (live.canManagePosition) {
+                    ClosePositionButton(
+                        live = live,
+                        onClosePosition = { onClosePosition(live.instanceId) }
+                    )
+                }
             }
             ExecutionState.WORKING -> {
                 Text("Order working — risk shown after fill.", fontSize = 12.sp, color = TextSecondary)
@@ -570,6 +603,100 @@ private fun LiveTradePanel(live: LiveExecutionUiState) {
                 Text("Watching for next signal.", fontSize = 12.sp, color = TextSecondary)
             }
         }
+    }
+}
+
+@Composable
+private fun LiveStopEditor(
+    stopPriceInput: String,
+    onApply: (String) -> Unit
+) {
+    var stopText by remember(stopPriceInput) { mutableStateOf(stopPriceInput) }
+    val isValid = stopText.toDoubleOrNull() != null
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Stop", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = stopText,
+                onValueChange = { stopText = it },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("StopPriceField"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = TableHeaderBg,
+                    unfocusedContainerColor = TableHeaderBg,
+                    focusedBorderColor = BrandRed,
+                    unfocusedBorderColor = TableHeaderBg,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(6.dp)
+            )
+            Button(
+                onClick = { onApply(stopText) },
+                enabled = isValid,
+                colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.testTag("ApplyStopButton")
+            ) {
+                Text("Apply", fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClosePositionButton(
+    live: LiveExecutionUiState,
+    onClosePosition: () -> Unit
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+
+    Button(
+        onClick = { showConfirm = true },
+        modifier = Modifier.fillMaxWidth().testTag("ClosePositionButton"),
+        colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
+        shape = RoundedCornerShape(6.dp)
+    ) {
+        Text("Close position", fontWeight = FontWeight.SemiBold)
+    }
+
+    if (showConfirm) {
+        val pnlHint = live.formattedUnrealized?.let { "Estimated P&L: $it." } ?: ""
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            containerColor = SurfaceDark,
+            title = {
+                Text("Close position?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "Close this position at market? $pnlHint",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirm = false
+                        onClosePosition()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
+                ) {
+                    Text("Close at market")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
     }
 }
 
