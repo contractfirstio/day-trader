@@ -39,14 +39,9 @@ fun BlotterHeader(
             .testTag("BlotterTableHeaderRow"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HeaderCell("Symbol", SortableColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(1.2f), onClick = onHeaderClick)
-        HeaderCell("Company", SortableColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(1.8f), onClick = onHeaderClick)
-        HeaderCell("Position", SortableColumn.QUANTITY, activeSortColumn, sortDirection, Modifier.weight(1f), alignEnd = true, onClick = onHeaderClick)
-        HeaderCell("Avg Price", SortableColumn.AVG_PRICE, activeSortColumn, sortDirection, Modifier.weight(1.2f), alignEnd = true, onClick = onHeaderClick)
-        HeaderCell("Last Price", SortableColumn.LAST_PRICE, activeSortColumn, sortDirection, Modifier.weight(1.2f), alignEnd = true, onClick = onHeaderClick)
-        HeaderCell("Market Value", SortableColumn.MARKET_VALUE, activeSortColumn, sortDirection, Modifier.weight(1.5f), alignEnd = true, onClick = onHeaderClick)
-        HeaderCell("Chg %", SortableColumn.DAILY_CHANGE, activeSortColumn, sortDirection, Modifier.weight(1f), alignEnd = true, onClick = onHeaderClick)
-        HeaderCell("Unrealized P&L", SortableColumn.UNREALIZED_PNL, activeSortColumn, sortDirection, Modifier.weight(1.5f), alignEnd = true, onClick = onHeaderClick)
+        HeaderCell("Name", SortableColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(2f), onClick = onHeaderClick)
+        HeaderCell("Ticker", SortableColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(1f), onClick = onHeaderClick)
+        HeaderCell("Unrealized P&L", SortableColumn.UNREALIZED_PNL, activeSortColumn, sortDirection, Modifier.weight(1.2f), alignEnd = true, onClick = onHeaderClick)
     }
 }
 
@@ -96,22 +91,11 @@ fun BlotterRow(position: PositionRowUi) {
             .testTag("BlotterDataRow"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(position.symbol, modifier = Modifier.weight(1.2f), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Text(position.companyName, modifier = Modifier.weight(1.8f), color = TextSecondary, fontSize = 14.sp, maxLines = 1)
-        Text(position.quantity.toString(), modifier = Modifier.weight(1f), color = Color.White, fontSize = 14.sp, textAlign = TextAlign.End)
-        Text(position.formattedAvgPrice, modifier = Modifier.weight(1.2f), color = Color.White, fontSize = 14.sp, textAlign = TextAlign.End)
-        Text(position.formattedMarketPrice, modifier = Modifier.weight(1.2f), color = Color.White, fontSize = 14.sp, textAlign = TextAlign.End)
-        Text(position.formattedMarketValue, modifier = Modifier.weight(1.5f), color = Color.White, fontWeight = FontWeight.Medium, fontSize = 14.sp, textAlign = TextAlign.End)
-        Text(
-            text = position.formattedDailyChange,
-            modifier = Modifier.weight(1f),
-            color = if (position.isPositiveDailyChange) GainGreen else LossRed,
-            fontSize = 13.sp,
-            textAlign = TextAlign.End
-        )
+        Text(position.companyName, modifier = Modifier.weight(2f), color = Color.White, fontSize = 14.sp, maxLines = 1)
+        Text(position.symbol, modifier = Modifier.weight(1f), color = TextSecondary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         Text(
             text = position.formattedPnL,
-            modifier = Modifier.weight(1.5f),
+            modifier = Modifier.weight(1.2f),
             color = if (position.isPositivePnL) GainGreen else LossRed,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
