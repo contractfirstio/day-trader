@@ -19,4 +19,10 @@ object StrategyCatalog {
         StrategyType.TOUCH_AND_TURN_SCALPER -> 500
         StrategyType.QUICK_FLIP_SCALPER -> 250
     }
+
+    /** R-multiple used to derive target when no explicit target price is set. */
+    fun rewardMultiple(type: StrategyType): Double = when (type) {
+        StrategyType.TOUCH_AND_TURN_SCALPER -> 2.0
+        StrategyType.QUICK_FLIP_SCALPER -> 1.5
+    }
 }

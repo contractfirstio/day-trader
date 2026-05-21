@@ -4,6 +4,7 @@ import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
+import daytrader.data.withDemoLiveExecutionOnStart
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
 import daytrader.domain.InstanceStatus
@@ -111,11 +112,17 @@ class StrategiesViewModel(
 
     fun onToggleRun(id: String) {
         val sessionDate = currentSessionDateIso()
+        val wasRunning = instances.find { it.id == id }?.status == InstanceStatus.RUNNING
         repository.update(id) { instance ->
             if (instance.status == InstanceStatus.RUNNING) {
                 instance.onRunStopped(sessionDate)
             } else {
-                instance.onRunStarted(sessionDate)
+                instance.onRunStarted(sessionDate).withDemoLiveExecutionOnStart()
+            }
+        }
+        if (!wasRunning) {
+            appStateRepository.update {
+                it.copy(selectedInstanceId = id, detailTab = StrategyDetailTab.LIVE)
             }
         }
     }
@@ -205,7 +212,8 @@ class StrategiesViewModel(
                 detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
                 selectedInstanceId = state.selectedInstanceId,
-                performance = performance
+                performance = performance,
+                liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState)
             )
         }
     }

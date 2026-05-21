@@ -2,8 +2,12 @@ package daytrader.presentation
 
 object Formatters {
     fun currency(amount: Double, showSign: Boolean = false): String {
-        val sign = if (showSign && amount >= 0) "+" else if (amount < 0) "" else ""
-        return "$sign$${String.format("%,.2f", amount)}"
+        val sign = when {
+            showSign && amount > 0 -> "+"
+            amount < 0 -> "-"
+            else -> ""
+        }
+        return "$sign$${String.format("%,.2f", kotlin.math.abs(amount))}"
     }
 
     fun currencyPlain(amount: Double): String = "$${String.format("%.2f", amount)}"

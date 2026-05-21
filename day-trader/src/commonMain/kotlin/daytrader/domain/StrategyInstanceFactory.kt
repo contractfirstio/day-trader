@@ -21,11 +21,11 @@ fun defaultStrategyInstance(
         symbol = symbolUpper,
         maxDollars = maxDollars,
         runs = emptyList(),
+        activeExecution = ActiveExecution.flat(),
         todayPnL = 0.0,
         tradesToday = 0,
         lastSignal = "—",
         lastOrder = "—",
-        openPosition = "Flat",
         lastUpdate = "—"
     )
 }
@@ -36,8 +36,8 @@ fun duplicateStrategyInstance(source: StrategyInstance): StrategyInstance = sour
     runs = emptyList(),
     todayPnL = 0.0,
     tradesToday = 0,
+    activeExecution = ActiveExecution.flat(),
     lastSignal = "—",
     lastOrder = "—",
-    openPosition = "Flat",
     lastUpdate = "—"
 )

@@ -53,8 +53,11 @@ class FileStrategiesAppStateRepository(
             instanceFilter = runCatching { InstanceFilter.valueOf(document.instanceFilter) }
                 .getOrDefault(InstanceFilter.ALL),
             strategyTypeFilter = document.strategyTypeFilter,
-            detailTab = runCatching { StrategyDetailTab.valueOf(document.detailTab) }
-                .getOrDefault(StrategyDetailTab.CONFIGURATION)
+            detailTab = when (document.detailTab) {
+                "ACTIVITY" -> StrategyDetailTab.LIVE
+                else -> runCatching { StrategyDetailTab.valueOf(document.detailTab) }
+                    .getOrDefault(StrategyDetailTab.CONFIGURATION)
+            }
         )
     }
 

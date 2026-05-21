@@ -69,6 +69,7 @@ fun StrategyInstance.onRunStopped(sessionDate: String): StrategyInstance = copy(
             run
         }
     },
+    activeExecution = ActiveExecution.flat(),
     status = InstanceStatus.STOPPED
 )
 

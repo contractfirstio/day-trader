@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.data.StrategyCatalog
+import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
@@ -122,6 +123,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                         instance = selected,
                         detailTab = uiState.detailTab,
                         performance = uiState.performance,
+                        liveExecution = uiState.liveExecution,
                         onTabChange = viewModel::onDetailTabChange,
                         onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
                         onStartStop = { viewModel.onToggleRun(selected.id) },
@@ -302,6 +304,10 @@ private fun StrategyInstanceCard(
                 fontSize = 13.sp
             )
         }
+        if (row.liveTradeSummary != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(row.liveTradeSummary, color = TextSecondary, fontSize = 11.sp, maxLines = 1)
+        }
         Spacer(modifier = Modifier.height(6.dp))
         Text(row.paramsSummary, color = TextSecondary, fontSize = 12.sp)
         Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
@@ -354,6 +360,7 @@ private fun StrategyInstanceDetail(
     instance: StrategyInstance,
     detailTab: StrategyDetailTab,
     performance: PerformanceUiState?,
+    liveExecution: LiveExecutionUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
@@ -426,7 +433,7 @@ private fun StrategyInstanceDetail(
                         Text(
                             when (tab) {
                                 StrategyDetailTab.CONFIGURATION -> "Configuration"
-                                StrategyDetailTab.ACTIVITY -> "Activity"
+                                StrategyDetailTab.LIVE -> "Live"
                                 StrategyDetailTab.PERFORMANCE -> "Performance"
                             },
                             fontSize = 13.sp
@@ -443,7 +450,7 @@ private fun StrategyInstanceDetail(
         ) {
             when (detailTab) {
                 StrategyDetailTab.CONFIGURATION -> ConfigurationTab(instance, onUpdate)
-                StrategyDetailTab.ACTIVITY -> ActivityTab(instance)
+                StrategyDetailTab.LIVE -> LiveTab(liveExecution)
                 StrategyDetailTab.PERFORMANCE -> PerformanceTab(
                     performance = performance,
                     onRunHeaderClick = onRunHeaderClick
@@ -489,11 +496,89 @@ private fun ConfigurationTab(
 }
 
 @Composable
-private fun ActivityTab(instance: StrategyInstance) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ActivityRow("Last signal", instance.lastSignal)
-        ActivityRow("Last order", instance.lastOrder)
-        ActivityRow("Open position", instance.openPosition)
+private fun LiveTab(liveExecution: LiveExecutionUiState?) {
+    if (liveExecution == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No live data.", color = TextSecondary, fontSize = 13.sp)
+        }
+        return
+    }
+
+    if (liveExecution.showPanel) {
+        LiveTradePanel(liveExecution)
+    } else if (!liveExecution.isRunning) {
+        Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
+    } else {
+        Text("No open trade — watching for signal.", color = TextSecondary, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun LiveTradePanel(live: LiveExecutionUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(16.dp)
+            .testTag("LiveTradePanel"),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Live trade", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Text(live.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+
+        when (live.state) {
+            ExecutionState.FILLED -> {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    LivePriceCell("Entry", live.entryPrice, Modifier.weight(1f))
+                    LivePriceCell("Stop", live.stopPrice, Modifier.weight(1f))
+                    LivePriceCell("Target", live.targetPrice, Modifier.weight(1f))
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    live.formattedRisk?.let { risk ->
+                        PerformanceStatCard(
+                            label = "Risk at stop",
+                            value = risk,
+                            valueColor = LossRed,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    live.formattedUpside?.let { upside ->
+                        PerformanceStatCard(
+                            label = "Upside to target",
+                            value = upside,
+                            valueColor = GainGreen,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    live.formattedUnrealized?.let { unrealized ->
+                        PerformanceStatCard(
+                            label = "Unrealized",
+                            value = unrealized,
+                            valueColor = if (live.isUnrealizedPositive) GainGreen else LossRed,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                live.riskPercentOfMax?.let { pct ->
+                    Text(pct, fontSize = 11.sp, color = TextSecondary)
+                }
+            }
+            ExecutionState.WORKING -> {
+                Text("Order working — risk shown after fill.", fontSize = 12.sp, color = TextSecondary)
+            }
+            ExecutionState.FLAT -> {
+                Text("Watching for next signal.", fontSize = 12.sp, color = TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LivePriceCell(label: String, value: String?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, fontSize = 11.sp, color = TextSecondary)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(value ?: "—", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
 }
 
@@ -588,20 +673,6 @@ private fun CurrentRunSummaryStrip(performance: PerformanceUiState) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ActivityRow(label: String, value: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(DarkBackground, RoundedCornerShape(6.dp))
-            .padding(12.dp)
-    ) {
-        Text(label, fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(value, fontSize = 14.sp, color = Color.White)
     }
 }
 

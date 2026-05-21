@@ -1,9 +1,12 @@
 package daytrader.data
 
+import daytrader.domain.ActiveExecution
+import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
 import daytrader.domain.RunStatus
 import daytrader.domain.StrategyRun
 import daytrader.domain.StrategyType
+import daytrader.domain.TradeSide
 import daytrader.domain.defaultStrategyInstance
 import daytrader.domain.newStrategyRunId
 
@@ -57,11 +60,21 @@ fun mockStrategyInstances() = listOf(
                 ),
                 inProgress = Triple(MOCK_TODAY, 142.50, 7)
             ),
+            activeExecution = ActiveExecution(
+                state = ExecutionState.FILLED,
+                side = TradeSide.LONG,
+                quantity = 100,
+                entryPrice = 521.42,
+                stopPrice = 521.10,
+                targetPrice = 522.06,
+                marketPrice = 521.60,
+                orderStatus = "Filled 12:04:01",
+                updatedAt = "12:04:03"
+            ),
             todayPnL = 142.50,
             tradesToday = 7,
             lastSignal = "Long @ 521.40 — touch of prior high",
-            lastOrder = "BUY 100 SPY @ 521.42",
-            openPosition = "Long 100 SPY",
+            lastOrder = "BUY 100 SPY @ 521.42 (filled 12:04:01)",
             lastUpdate = "12:04:03"
         )
     },
@@ -83,9 +96,9 @@ fun mockStrategyInstances() = listOf(
             ),
             todayPnL = -12.50,
             tradesToday = 1,
+            activeExecution = ActiveExecution.flat(updatedAt = "11:52:18"),
             lastSignal = "Flat — no touch level",
             lastOrder = "—",
-            openPosition = "Flat",
             lastUpdate = "11:52:18"
         )
     },
@@ -108,9 +121,9 @@ fun mockStrategyInstances() = listOf(
             ),
             todayPnL = 22.00,
             tradesToday = 4,
+            activeExecution = ActiveExecution.flat(updatedAt = "12:01:44"),
             lastSignal = "Short @ 485.10 — momentum flip",
             lastOrder = "SELL 50 NVDA @ 485.08",
-            openPosition = "Flat",
             lastUpdate = "12:01:44"
         )
     }

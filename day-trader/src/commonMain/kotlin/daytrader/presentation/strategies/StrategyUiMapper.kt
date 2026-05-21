@@ -17,7 +17,8 @@ object StrategyUiMapper {
         formattedTodayPnL = Formatters.currency(instance.todayPnL, showSign = true),
         isPositivePnL = instance.todayPnL >= 0,
         paramsSummary = Formatters.paramsSummary(instance.symbol, instance.maxDollars),
-        tradesToday = instance.tradesToday
+        tradesToday = instance.tradesToday,
+        liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text
     )
 
     fun strategyDisplayName(instance: StrategyInstance): String =

@@ -11,7 +11,7 @@ enum class InstanceFilter {
 
 enum class StrategyDetailTab {
     CONFIGURATION,
-    ACTIVITY,
+    LIVE,
     PERFORMANCE
 }
 
@@ -23,7 +23,8 @@ data class StrategyInstanceRowUi(
     val formattedTodayPnL: String,
     val isPositivePnL: Boolean,
     val paramsSummary: String,
-    val tradesToday: Int
+    val tradesToday: Int,
+    val liveTradeSummary: String?
 )
 
 data class StrategiesUiState(
@@ -36,5 +37,6 @@ data class StrategiesUiState(
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     val showAddDialog: Boolean = false,
     val selectedInstanceId: String? = null,
-    val performance: PerformanceUiState? = null
+    val performance: PerformanceUiState? = null,
+    val liveExecution: LiveExecutionUiState? = null
 )

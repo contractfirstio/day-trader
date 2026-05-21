@@ -10,10 +10,10 @@ data class StrategyInstance(
     val symbol: String,
     val maxDollars: Int,
     val runs: List<StrategyRun> = emptyList(),
+    val activeExecution: ActiveExecution = ActiveExecution(),
     val todayPnL: Double,
     val tradesToday: Int,
     val lastSignal: String,
     val lastOrder: String,
-    val openPosition: String,
     val lastUpdate: String
 )
