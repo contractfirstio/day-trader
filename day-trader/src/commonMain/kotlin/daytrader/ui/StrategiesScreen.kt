@@ -34,7 +34,6 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
     if (uiState.showAddDialog) {
         AddStrategyInstanceDialog(
             onDismiss = viewModel::onDismissAddDialog,
-            defaultRiskFor = viewModel::defaultRiskFor,
             onCreate = viewModel::onCreateInstance
         )
     }
@@ -677,14 +676,10 @@ private fun ConfigDropdown(
 @Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
-    defaultRiskFor: (StrategyType) -> Int,
-    onCreate: (StrategyType, String, String, String, Int) -> Unit
+    onCreate: (StrategyType, String) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
-    var name by remember { mutableStateOf("") }
-    var symbol by remember { mutableStateOf("SPY") }
-    var timeframe by remember { mutableStateOf("1m") }
-    var riskText by remember { mutableStateOf(defaultRiskFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString()) }
+    var symbol by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -699,32 +694,17 @@ private fun AddStrategyInstanceDialog(
                     StrategyTypePickerCard(
                         strategyType = type,
                         selected = selectedStrategyType == type,
-                        onSelect = {
-                            selectedStrategyType = type
-                            if (name.isBlank()) {
-                                riskText = defaultRiskFor(type).toString()
-                            }
-                        }
+                        onSelect = { selectedStrategyType = type }
                     )
                 }
                 HorizontalDivider(color = TableHeaderBg)
-                ConfigField(label = "Instance name (optional)", value = name, onValueChange = { name = it })
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
-                ConfigDropdown(
-                    label = "Timeframe",
-                    value = timeframe,
-                    options = timeframeOptions,
-                    onValueChange = { timeframe = it }
-                )
-                ConfigField(label = "Risk per trade (\$)", value = riskText, onValueChange = { riskText = it })
             }
         },
         confirmButton = {
             Button(
-                onClick = {
-                    val risk = riskText.toIntOrNull() ?: defaultRiskFor(selectedStrategyType)
-                    onCreate(selectedStrategyType, name, symbol, timeframe, risk)
-                },
+                onClick = { onCreate(selectedStrategyType, symbol) },
+                enabled = symbol.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyInstanceButton")
             ) {

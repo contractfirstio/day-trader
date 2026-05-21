@@ -7,12 +7,10 @@ import daytrader.domain.defaultStrategyInstance
 fun mockStrategyInstances() = listOf(
     defaultStrategyInstance(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-        name = "T&T — SPY 1m",
         symbol = "SPY",
-        timeframe = "1m",
-        riskDollars = 500,
         status = InstanceStatus.RUNNING
     ).copy(
+        name = "T&T — SPY 1m",
         todayPnL = 142.50,
         tradesToday = 7,
         lastSignal = "Long @ 521.40 — touch of prior high",
@@ -22,12 +20,12 @@ fun mockStrategyInstances() = listOf(
     ),
     defaultStrategyInstance(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-        name = "T&T — QQQ 5m",
         symbol = "QQQ",
-        timeframe = "5m",
-        riskDollars = 350,
         status = InstanceStatus.STOPPED
     ).copy(
+        name = "T&T — QQQ 5m",
+        timeframe = "5m",
+        riskDollars = 350,
         todayPnL = -28.00,
         tradesToday = 3,
         lastSignal = "Flat — no touch level",
@@ -37,12 +35,10 @@ fun mockStrategyInstances() = listOf(
     ),
     defaultStrategyInstance(
         strategyType = StrategyType.QUICK_FLIP_SCALPER,
-        name = "QF — NVDA 1m",
         symbol = "NVDA",
-        timeframe = "1m",
-        riskDollars = 250,
         status = InstanceStatus.STOPPED
     ).copy(
+        name = "QF — NVDA 1m",
         todayPnL = 64.00,
         tradesToday = 12,
         lastSignal = "Short @ 485.10 — momentum flip",

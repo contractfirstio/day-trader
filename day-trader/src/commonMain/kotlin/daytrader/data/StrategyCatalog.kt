@@ -3,6 +3,7 @@ package daytrader.data
 import daytrader.domain.StrategyType
 
 data class StrategyTypeDefaults(
+    val defaultTimeframe: String,
     val positionSize: Int,
     val stopLossTicks: Int,
     val sessionWindow: String,
@@ -24,12 +25,14 @@ object StrategyCatalog {
 
     fun defaultsFor(type: StrategyType): StrategyTypeDefaults = when (type) {
         StrategyType.TOUCH_AND_TURN_SCALPER -> StrategyTypeDefaults(
+            defaultTimeframe = "1m",
             positionSize = 100,
             stopLossTicks = 4,
             sessionWindow = "09:30 – 16:00 ET",
             defaultRiskDollars = 500
         )
         StrategyType.QUICK_FLIP_SCALPER -> StrategyTypeDefaults(
+            defaultTimeframe = "1m",
             positionSize = 50,
             stopLossTicks = 2,
             sessionWindow = "09:45 – 15:45 ET",

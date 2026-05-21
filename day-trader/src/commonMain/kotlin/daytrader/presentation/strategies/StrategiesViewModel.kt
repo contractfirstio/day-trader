@@ -2,12 +2,10 @@ package daytrader.presentation.strategies
 
 import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
-import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
 import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
-import daytrader.domain.defaultInstanceName
 import daytrader.domain.defaultStrategyInstance
 import daytrader.domain.duplicateStrategyInstance
 import kotlinx.coroutines.CoroutineScope
@@ -84,21 +82,9 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    fun onCreateInstance(
-        strategyType: StrategyType,
-        name: String,
-        symbol: String,
-        timeframe: String,
-        riskDollars: Int
-    ) {
-        val symbolUpper = symbol.uppercase()
-        val instance = defaultStrategyInstance(
-            strategyType = strategyType,
-            name = name.ifBlank { defaultInstanceName(strategyType, symbolUpper) },
-            symbol = symbolUpper,
-            timeframe = timeframe,
-            riskDollars = riskDollars
-        )
+    fun onCreateInstance(strategyType: StrategyType, symbol: String) {
+        if (symbol.isBlank()) return
+        val instance = defaultStrategyInstance(strategyType = strategyType, symbol = symbol)
         repository.add(instance)
         appStateRepository.update {
             it.copy(
@@ -136,9 +122,6 @@ class StrategiesViewModel(
         val id = appState.selectedInstanceId ?: return
         repository.remove(id)
     }
-
-    fun defaultRiskFor(strategyType: StrategyType): Int =
-        StrategyCatalog.defaultsFor(strategyType).defaultRiskDollars
 
     private fun reconcileSelectedInstance(list: List<StrategyInstance>) {
         val current = appState.selectedInstanceId

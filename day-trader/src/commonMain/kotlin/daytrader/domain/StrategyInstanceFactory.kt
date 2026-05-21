@@ -11,21 +11,19 @@ fun defaultInstanceName(strategyType: StrategyType, symbol: String): String = wh
 
 fun defaultStrategyInstance(
     strategyType: StrategyType,
-    name: String,
     symbol: String,
-    timeframe: String,
-    riskDollars: Int,
     status: InstanceStatus = InstanceStatus.STOPPED
 ): StrategyInstance {
+    val symbolUpper = symbol.trim().uppercase()
     val defaults = StrategyCatalog.defaultsFor(strategyType)
     return StrategyInstance(
         id = newStrategyInstanceId(),
-        name = name,
+        name = defaultInstanceName(strategyType, symbolUpper),
         strategyType = strategyType,
         status = status,
-        symbol = symbol,
-        timeframe = timeframe,
-        riskDollars = riskDollars,
+        symbol = symbolUpper,
+        timeframe = defaults.defaultTimeframe,
+        riskDollars = defaults.defaultRiskDollars,
         positionSize = defaults.positionSize,
         stopLossTicks = defaults.stopLossTicks,
         sessionWindow = defaults.sessionWindow,
