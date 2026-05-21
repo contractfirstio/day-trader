@@ -1,3 +1,5 @@
+package daytrader.ui
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -8,51 +10,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import daytrader.presentation.navigation.AppScreen
+import daytrader.ui.theme.BrandRed
+import daytrader.ui.theme.DarkBackground
+import daytrader.ui.theme.GainGreen
+import daytrader.ui.theme.SurfaceDark
 
-// ==========================================
-// Color Palette & Enums
-// ==========================================
-val DarkBackground = Color(0xFF121318)
-val SurfaceDark = Color(0xFF1C1D24)
-val TableHeaderBg = Color(0xFF252730)
-val BrandRed = Color(0xFFD32F2F)
-val GainGreen = Color(0xFF00C853)
-val LossRed = Color(0xFFFF3D00)
-val TextSecondary = Color(0xFF9AA0A6)
-
-enum class SortableColumn {
-    SYMBOL, COMPANY, QUANTITY, AVG_PRICE, LAST_PRICE, MARKET_VALUE, DAILY_CHANGE, UNREALIZED_PNL
-}
-
-enum class SortDirection {
-    ASCENDING, DESCENDING
-}
-
-// ==========================================
-// Data Models
-// ==========================================
-data class PositionItem(
-    val symbol: String,
-    val companyName: String,
-    val quantity: Int,
-    val avgPrice: Double,
-    val marketPrice: Double,
-    val dailyChangePct: Double,
-    val totalUnrealizedPnL: Double
-) {
-    val marketValue: Double get() = quantity * marketPrice
-    val formattedAvgPrice: String get() = "$${String.format("%.2f", avgPrice)}"
-    val formattedMarketPrice: String get() = "$${String.format("%.2f", marketPrice)}"
-    val formattedMarketValue: String get() = "$${String.format("%,.2f", marketValue)}"
-    val formattedDailyChange: String get() = "${if (dailyChangePct >= 0) "+" else ""}${String.format("%.2f", dailyChangePct)}%"
-    val formattedPnL: String get() = "${if (totalUnrealizedPnL >= 0) "+" else ""}$${String.format("%,.2f", totalUnrealizedPnL)}"
-}
-
-// ==========================================
-// Main App Shell
-// ==========================================
 @Composable
 fun App() {
+    val dependencies = rememberAppDependencies()
     var currentScreen by remember { mutableStateOf(AppScreen.POSITIONS) }
 
     MaterialTheme {
@@ -94,8 +60,8 @@ fun App() {
                 }
 
                 when (currentScreen) {
-                    AppScreen.POSITIONS -> PositionsScreen()
-                    AppScreen.STRATEGIES -> StrategiesScreen()
+                    AppScreen.POSITIONS -> PositionsScreen(dependencies.positionsViewModel)
+                    AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
                 }
             }
         }

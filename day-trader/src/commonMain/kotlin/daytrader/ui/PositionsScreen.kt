@@ -1,3 +1,5 @@
+package daytrader.ui
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -18,46 +20,15 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.presentation.positions.PositionsViewModel
+import daytrader.ui.theme.BrandRed
+import daytrader.ui.theme.DarkBackground
+import daytrader.ui.theme.SurfaceDark
+import daytrader.ui.theme.TextSecondary
 
 @Composable
-fun PositionsScreen() {
-    val rawPositions = remember {
-        arrayOf(
-            PositionItem("AAPL", "Apple Inc.", 150, 175.20, 181.10, 0.85, 885.00),
-            PositionItem("TSLA", "Tesla Inc.", 80, 210.50, 198.30, -2.40, -976.00),
-            PositionItem("NVDA", "NVIDIA Corp.", 65, 450.00, 485.25, 3.12, 2291.25),
-            PositionItem("MSFT", "Microsoft Corp.", 110, 380.10, 389.50, 0.15, 1034.00),
-            PositionItem("AMD", "Advanced Micro Devices", 120, 112.00, 108.40, -1.10, -432.00),
-            PositionItem("AMZN", "Amazon.com Inc.", 200, 145.00, 151.20, 1.05, 1240.00)
-        )
-    }
-
-    var currentSortColumn by remember { mutableStateOf(SortableColumn.SYMBOL) }
-    var currentSortDirection by remember { mutableStateOf(SortDirection.ASCENDING) }
-
-    val sortedPositions = remember(rawPositions, currentSortColumn, currentSortDirection) {
-        val comparator = when (currentSortColumn) {
-            SortableColumn.SYMBOL -> compareBy<PositionItem> { it.symbol }
-            SortableColumn.COMPANY -> compareBy { it.companyName }
-            SortableColumn.QUANTITY -> compareBy { it.quantity }
-            SortableColumn.AVG_PRICE -> compareBy { it.avgPrice }
-            SortableColumn.LAST_PRICE -> compareBy { it.marketPrice }
-            SortableColumn.MARKET_VALUE -> compareBy { it.marketValue }
-            SortableColumn.DAILY_CHANGE -> compareBy { it.dailyChangePct }
-            SortableColumn.UNREALIZED_PNL -> compareBy { it.totalUnrealizedPnL }
-        }
-        if (currentSortDirection == SortDirection.DESCENDING) rawPositions.sortedWith(comparator.reversed())
-        else rawPositions.sortedWith(comparator)
-    }
-
-    val onHeaderClick: (SortableColumn) -> Unit = { column ->
-        if (currentSortColumn == column) {
-            currentSortDirection = if (currentSortDirection == SortDirection.ASCENDING) SortDirection.DESCENDING else SortDirection.ASCENDING
-        } else {
-            currentSortColumn = column
-            currentSortDirection = SortDirection.ASCENDING
-        }
-    }
+fun PositionsScreen(viewModel: PositionsViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
         Row(
@@ -71,10 +42,9 @@ fun PositionsScreen() {
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                var searchBy by remember { mutableStateOf("") }
                 OutlinedTextField(
-                    value = searchBy,
-                    onValueChange = { searchBy = it },
+                    value = uiState.searchQuery,
+                    onValueChange = viewModel::onSearchChange,
                     placeholder = { Text("Filter by symbol...", color = TextSecondary) },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary) },
                     colors = OutlinedTextFieldDefaults.colors(
@@ -98,7 +68,7 @@ fun PositionsScreen() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Open Positions (${sortedPositions.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text("Open Positions (${uiState.rows.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark), shape = RoundedCornerShape(6.dp)) {
                     Icon(Icons.Default.Download, contentDescription = "Export", tint = Color.White, modifier = Modifier.size(16.dp))
@@ -122,19 +92,18 @@ fun PositionsScreen() {
                 .background(SurfaceDark, RoundedCornerShape(8.dp))
         ) {
             BlotterHeader(
-                activeSortColumn = currentSortColumn,
-                sortDirection = currentSortDirection,
-                onHeaderClick = onHeaderClick
+                activeSortColumn = uiState.sortColumn,
+                sortDirection = uiState.sortDirection,
+                onHeaderClick = viewModel::onHeaderClick
             )
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(
-                    count = sortedPositions.size,
-                    key = { index: Int -> sortedPositions[index].symbol }
+                    count = uiState.rows.size,
+                    key = { index: Int -> uiState.rows[index].symbol }
                 ) { index: Int ->
-                    val position = sortedPositions[index]
-                    BlotterRow(position = position)
-                    if (index < sortedPositions.size - 1) {
+                    BlotterRow(position = uiState.rows[index])
+                    if (index < uiState.rows.size - 1) {
                         HorizontalDivider(color = DarkBackground, thickness = 1.dp)
                     }
                 }
