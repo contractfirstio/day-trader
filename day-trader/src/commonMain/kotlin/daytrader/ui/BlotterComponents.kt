@@ -1,3 +1,5 @@
+package daytrader.ui
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +17,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.presentation.positions.PositionRowUi
+import daytrader.presentation.positions.SortDirection
+import daytrader.presentation.positions.SortableColumn
+import daytrader.ui.theme.GainGreen
+import daytrader.ui.theme.LossRed
+import daytrader.ui.theme.TableHeaderBg
+import daytrader.ui.theme.TextSecondary
 
 @Composable
 fun BlotterHeader(
@@ -79,7 +88,7 @@ fun RowScope.HeaderCell(
 }
 
 @Composable
-fun BlotterRow(position: PositionItem) {
+fun BlotterRow(position: PositionRowUi) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -96,14 +105,14 @@ fun BlotterRow(position: PositionItem) {
         Text(
             text = position.formattedDailyChange,
             modifier = Modifier.weight(1f),
-            color = if (position.dailyChangePct >= 0) GainGreen else LossRed,
+            color = if (position.isPositiveDailyChange) GainGreen else LossRed,
             fontSize = 13.sp,
             textAlign = TextAlign.End
         )
         Text(
             text = position.formattedPnL,
             modifier = Modifier.weight(1.5f),
-            color = if (position.totalUnrealizedPnL >= 0) GainGreen else LossRed,
+            color = if (position.isPositivePnL) GainGreen else LossRed,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             textAlign = TextAlign.End

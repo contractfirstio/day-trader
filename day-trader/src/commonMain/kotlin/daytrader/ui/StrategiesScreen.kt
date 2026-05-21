@@ -1,3 +1,5 @@
+package daytrader.ui
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,87 +18,52 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.data.StrategyCatalog
+import daytrader.domain.InstanceStatus
+import daytrader.domain.StrategyInstance
+import daytrader.domain.StrategyType
+import daytrader.presentation.strategies.*
+import daytrader.ui.theme.*
 
 private val timeframeOptions = listOf("1m", "5m", "15m")
 
 @Composable
-fun StrategiesScreen() {
-    val instances = remember { mutableStateListOf(*mockStrategyInstances().toTypedArray()) }
-    var selectedInstanceId by remember { mutableStateOf(instances.firstOrNull()?.id) }
-    var searchQuery by remember { mutableStateOf("") }
-    var instanceFilter by remember { mutableStateOf(InstanceFilter.ALL) }
-    var strategyTypeFilter by remember { mutableStateOf<StrategyType?>(null) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var detailTab by remember { mutableStateOf(StrategyDetailTab.CONFIGURATION) }
+fun StrategiesScreen(viewModel: StrategiesViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
 
-    val selectedInstance = instances.find { it.id == selectedInstanceId }
-
-    val filteredInstances = remember(instances, searchQuery, instanceFilter, strategyTypeFilter) {
-        instances.filter { instance ->
-            val matchesSearch = searchQuery.isBlank() ||
-                instance.name.contains(searchQuery, ignoreCase = true) ||
-                instance.symbol.contains(searchQuery, ignoreCase = true)
-            val matchesFilter = when (instanceFilter) {
-                InstanceFilter.ALL -> true
-                InstanceFilter.RUNNING -> instance.status == InstanceStatus.RUNNING
-                InstanceFilter.STOPPED -> instance.status == InstanceStatus.STOPPED
-            }
-            val matchesStrategyType = strategyTypeFilter == null || instance.strategyType == strategyTypeFilter
-            matchesSearch && matchesFilter && matchesStrategyType
-        }
-    }
-
-    fun updateInstance(id: String, transform: (StrategyInstance) -> StrategyInstance) {
-        val index = instances.indexOfFirst { it.id == id }
-        if (index >= 0) instances[index] = transform(instances[index])
-    }
-
-    if (showAddDialog) {
+    if (uiState.showAddDialog) {
         AddStrategyInstanceDialog(
-            onDismiss = { showAddDialog = false },
-            onCreate = { strategyType, name, symbol, timeframe, riskDollars ->
-                val symbolUpper = symbol.uppercase()
-                val instance = defaultStrategyInstance(
-                    strategyType = strategyType,
-                    name = name.ifBlank { defaultInstanceName(strategyType, symbolUpper) },
-                    symbol = symbolUpper,
-                    timeframe = timeframe,
-                    riskDollars = riskDollars
-                )
-                instances.add(instance)
-                selectedInstanceId = instance.id
-                detailTab = StrategyDetailTab.CONFIGURATION
-                showAddDialog = false
-            }
+            onDismiss = viewModel::onDismissAddDialog,
+            defaultRiskFor = viewModel::defaultRiskFor,
+            onCreate = viewModel::onCreateInstance
         )
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).testTag("StrategiesScreen")) {
         StrategiesHeader(
-            searchQuery = searchQuery,
-            onSearchChange = { searchQuery = it },
-            onAddInstance = { showAddDialog = true }
+            searchQuery = uiState.searchQuery,
+            onSearchChange = viewModel::onSearchChange,
+            onAddInstance = viewModel::onShowAddDialog
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         InstanceFilterRow(
-            filter = instanceFilter,
-            onFilterChange = { instanceFilter = it },
-            instanceCount = filteredInstances.size
+            filter = uiState.instanceFilter,
+            onFilterChange = viewModel::onInstanceFilterChange,
+            instanceCount = uiState.filteredCount
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
         StrategyTypeFilterRow(
-            selectedType = strategyTypeFilter,
-            onTypeChange = { strategyTypeFilter = it }
+            selectedType = uiState.strategyTypeFilter,
+            onTypeChange = viewModel::onStrategyTypeFilterChange
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            // Left pane: instance list
             Column(
                 modifier = Modifier
                     .weight(0.38f)
@@ -107,14 +74,14 @@ fun StrategiesScreen() {
                     .testTag("StrategyInstanceList")
             ) {
                 Text(
-                    "Instances (${filteredInstances.size})",
+                    "Instances (${uiState.filteredCount})",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (filteredInstances.isEmpty()) {
+                if (uiState.filteredRows.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             "No instances match your filter.",
@@ -127,22 +94,12 @@ fun StrategiesScreen() {
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredInstances, key = { it.id }) { instance ->
+                        items(uiState.filteredRows, key = { it.id }) { row ->
                             StrategyInstanceCard(
-                                instance = instance,
-                                isSelected = instance.id == selectedInstanceId,
-                                onSelect = {
-                                    selectedInstanceId = instance.id
-                                    detailTab = StrategyDetailTab.CONFIGURATION
-                                },
-                                onToggleRun = {
-                                    val nextStatus = if (instance.status == InstanceStatus.RUNNING) {
-                                        InstanceStatus.STOPPED
-                                    } else {
-                                        InstanceStatus.RUNNING
-                                    }
-                                    updateInstance(instance.id) { it.copy(status = nextStatus) }
-                                }
+                                row = row,
+                                isSelected = row.id == uiState.selectedInstanceId,
+                                onSelect = { viewModel.onSelectInstance(row.id) },
+                                onToggleRun = { viewModel.onToggleRun(row.id) }
                             )
                         }
                     }
@@ -151,7 +108,6 @@ fun StrategiesScreen() {
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            // Right pane: instance detail
             Column(
                 modifier = Modifier
                     .weight(0.62f)
@@ -160,41 +116,18 @@ fun StrategiesScreen() {
                     .background(SurfaceDark, RoundedCornerShape(8.dp))
                     .testTag("StrategyInstanceDetail")
             ) {
-                if (selectedInstance == null) {
+                val selected = uiState.selectedInstance
+                if (selected == null) {
                     StrategyDetailEmptyState(modifier = Modifier.fillMaxSize())
                 } else {
                     StrategyInstanceDetail(
-                        instance = selectedInstance,
-                        detailTab = detailTab,
-                        onTabChange = { detailTab = it },
-                        onUpdate = { transform -> updateInstance(selectedInstance.id, transform) },
-                        onStartStop = {
-                            val next = if (selectedInstance.status == InstanceStatus.RUNNING) {
-                                InstanceStatus.STOPPED
-                            } else {
-                                InstanceStatus.RUNNING
-                            }
-                            updateInstance(selectedInstance.id) { it.copy(status = next) }
-                        },
-                        onDuplicate = {
-                            val copy = selectedInstance.copy(
-                                id = newStrategyInstanceId(),
-                                name = "${selectedInstance.name} (copy)",
-                                status = InstanceStatus.STOPPED,
-                                todayPnL = 0.0,
-                                tradesToday = 0,
-                                lastSignal = "—",
-                                lastOrder = "—",
-                                openPosition = "Flat",
-                                lastUpdate = "—"
-                            )
-                            instances.add(copy)
-                            selectedInstanceId = copy.id
-                        },
-                        onDelete = {
-                            instances.removeAll { it.id == selectedInstance.id }
-                            selectedInstanceId = instances.firstOrNull()?.id
-                        }
+                        instance = selected,
+                        detailTab = uiState.detailTab,
+                        onTabChange = viewModel::onDetailTabChange,
+                        onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
+                        onStartStop = { viewModel.onToggleRun(selected.id) },
+                        onDuplicate = viewModel::onDuplicateSelected,
+                        onDelete = viewModel::onDeleteSelected
                     )
                 }
             }
@@ -264,7 +197,7 @@ private fun StrategyTypeFilterRow(
         )
         StrategyType.entries.forEach { type ->
             FilterChip(
-                label = type.displayName,
+                label = StrategyCatalog.displayName(type),
                 selected = selectedType == type,
                 onClick = { onTypeChange(if (selectedType == type) null else type) }
             )
@@ -323,7 +256,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun StrategyInstanceCard(
-    instance: StrategyInstance,
+    row: StrategyInstanceRowUi,
     isSelected: Boolean,
     onSelect: () -> Unit,
     onToggleRun: () -> Unit
@@ -343,15 +276,15 @@ private fun StrategyInstanceCard(
             verticalAlignment = Alignment.Top
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(instance.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(row.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Spacer(modifier = Modifier.height(4.dp))
-                StrategyTypePill(instance.strategyType.displayName)
+                StrategyTypePill(row.strategyTypeLabel)
             }
             IconButton(onClick = onToggleRun, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = if (instance.status == InstanceStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = if (instance.status == InstanceStatus.RUNNING) "Stop" else "Start",
-                    tint = if (instance.status == InstanceStatus.RUNNING) LossRed else GainGreen
+                    imageVector = if (row.status == InstanceStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                    contentDescription = if (row.status == InstanceStatus.RUNNING) "Stop" else "Start",
+                    tint = if (row.status == InstanceStatus.RUNNING) LossRed else GainGreen
                 )
             }
         }
@@ -361,17 +294,17 @@ private fun StrategyInstanceCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatusChip(instance.status)
+            StatusChip(row.status)
             Text(
-                instance.formattedTodayPnL,
-                color = if (instance.todayPnL >= 0) GainGreen else LossRed,
+                row.formattedTodayPnL,
+                color = if (row.isPositivePnL) GainGreen else LossRed,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp
             )
         }
         Spacer(modifier = Modifier.height(6.dp))
-        Text(instance.paramsSummary, color = TextSecondary, fontSize = 12.sp)
-        Text("${instance.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
+        Text(row.paramsSummary, color = TextSecondary, fontSize = 12.sp)
+        Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
     }
 }
 
@@ -436,9 +369,18 @@ private fun StrategyInstanceDetail(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(instance.name, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(instance.strategyType.displayName, fontSize = 14.sp, color = BrandRed, fontWeight = FontWeight.Medium)
+                    Text(
+                        StrategyUiMapper.strategyDisplayName(instance),
+                        fontSize = 14.sp,
+                        color = BrandRed,
+                        fontWeight = FontWeight.Medium
+                    )
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text(instance.strategyType.description, fontSize = 12.sp, color = TextSecondary)
+                    Text(
+                        StrategyUiMapper.strategyDescription(instance),
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -580,7 +522,7 @@ private fun ConfigurationTab(
             )
         }
         Text(
-            "Session window is fixed by the ${instance.strategyType.displayName} strategy.",
+            "Session window is fixed by the ${StrategyUiMapper.strategyDisplayName(instance)} strategy.",
             fontSize = 11.sp,
             color = TextSecondary
         )
@@ -598,11 +540,13 @@ private fun ActivityTab(instance: StrategyInstance) {
 
 @Composable
 private fun PerformanceTab(instance: StrategyInstance) {
+    val formattedPnL = StrategyUiMapper.formattedTodayPnL(instance)
+    val isPositive = instance.todayPnL >= 0
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         PerformanceStatCard(
             label = "Today P&L",
-            value = instance.formattedTodayPnL,
-            valueColor = if (instance.todayPnL >= 0) GainGreen else LossRed,
+            value = formattedPnL,
+            valueColor = if (isPositive) GainGreen else LossRed,
             modifier = Modifier.weight(1f)
         )
         PerformanceStatCard(
@@ -733,13 +677,14 @@ private fun ConfigDropdown(
 @Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
+    defaultRiskFor: (StrategyType) -> Int,
     onCreate: (StrategyType, String, String, String, Int) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
     var name by remember { mutableStateOf("") }
     var symbol by remember { mutableStateOf("SPY") }
     var timeframe by remember { mutableStateOf("1m") }
-    var riskText by remember { mutableStateOf("500") }
+    var riskText by remember { mutableStateOf(defaultRiskFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -757,10 +702,7 @@ private fun AddStrategyInstanceDialog(
                         onSelect = {
                             selectedStrategyType = type
                             if (name.isBlank()) {
-                                riskText = when (type) {
-                                    StrategyType.TOUCH_AND_TURN_SCALPER -> "500"
-                                    StrategyType.QUICK_FLIP_SCALPER -> "250"
-                                }
+                                riskText = defaultRiskFor(type).toString()
                             }
                         }
                     )
@@ -780,11 +722,7 @@ private fun AddStrategyInstanceDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val defaultRisk = when (selectedStrategyType) {
-                        StrategyType.TOUCH_AND_TURN_SCALPER -> 500
-                        StrategyType.QUICK_FLIP_SCALPER -> 250
-                    }
-                    val risk = riskText.toIntOrNull() ?: defaultRisk
+                    val risk = riskText.toIntOrNull() ?: defaultRiskFor(selectedStrategyType)
                     onCreate(selectedStrategyType, name, symbol, timeframe, risk)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
@@ -824,7 +762,7 @@ private fun StrategyTypePickerCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                strategyType.displayName,
+                StrategyCatalog.displayName(strategyType),
                 color = if (selected) Color.White else TextSecondary,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp
@@ -834,6 +772,6 @@ private fun StrategyTypePickerCard(
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
-        Text(strategyType.description, color = TextSecondary, fontSize = 12.sp)
+        Text(StrategyCatalog.description(strategyType), color = TextSecondary, fontSize = 12.sp)
     }
 }
