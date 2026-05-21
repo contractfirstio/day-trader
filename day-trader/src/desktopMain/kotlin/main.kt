@@ -5,7 +5,7 @@ import daytrader.ui.App
 fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
-        title = "Compose Multiplatform App"
+        title = "Day Trader"
     ) {
         App()
     }

@@ -67,7 +67,7 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "ComposeApp"
+            packageName = "DayTrader"
             packageVersion = "1.0.0"
         }
     }
