@@ -1,10 +1,9 @@
 package daytrader.presentation.strategies
 
-import daytrader.domain.RunStatus
 import daytrader.presentation.positions.SortDirection
 
 enum class RunSortColumn {
-    DATE, PNL, TRADES, VS_MAX
+    DATE, PNL, TRADES, AT_RISK
 }
 
 data class StrategyRunRowUi(
@@ -13,17 +12,10 @@ data class StrategyRunRowUi(
     val formattedPnL: String,
     val isPositivePnL: Boolean,
     val trades: Int,
-    val formattedVsMax: String,
-    val status: RunStatus,
-    val isLive: Boolean
+    val formattedAtRisk: String
 )
 
 data class PerformanceUiState(
-    val currentRunDateLabel: String,
-    val currentRunPnL: String,
-    val isCurrentRunPositive: Boolean,
-    val currentRunTrades: Int,
-    val isLive: Boolean,
     val rollup7d: String,
     val rollup30d: String,
     val winRate: String,

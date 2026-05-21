@@ -77,6 +77,7 @@ fun StrategyInstance.inProgressRun(sessionDate: String): StrategyRun? =
     runs.find { it.sessionDate == sessionDate && it.status == RunStatus.IN_PROGRESS }
 
 data class RunRollups(
+    val totalPnl: Double,
     val pnl7d: Double,
     val pnl30d: Double,
     val winDays: Int,
@@ -93,6 +94,7 @@ fun List<StrategyRun>.rollups(asOfSessionDate: String): RunRollups {
     val within30 = relevant.filter { asOf - it.sessionDate.toSessionDayOrdinal() < 30 }
     val within7 = relevant.filter { asOf - it.sessionDate.toSessionDayOrdinal() < 7 }
     return RunRollups(
+        totalPnl = closed.sumOf { it.pnl },
         pnl7d = within7.sumOf { it.pnl },
         pnl30d = within30.sumOf { it.pnl },
         winDays = closed.count { it.pnl > 0 },

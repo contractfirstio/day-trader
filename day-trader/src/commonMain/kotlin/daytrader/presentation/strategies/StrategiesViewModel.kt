@@ -214,7 +214,7 @@ class StrategiesViewModel(
         val sessionDate = currentSessionDateIso()
         val performance = selected?.let { instance ->
             PerformanceUiMapper.build(
-                instance = instance.syncInProgressRun(sessionDate),
+                instance = instance,
                 sessionDate = sessionDate,
                 sortColumn = runSortColumn,
                 sortDirection = runSortDirection
@@ -223,7 +223,7 @@ class StrategiesViewModel(
 
         _uiState.update {
             StrategiesUiState(
-                filteredRows = filtered.map(StrategyUiMapper::toRowUi),
+                filteredRows = filtered.map { StrategyUiMapper.toRowUi(it, sessionDate) },
                 filteredCount = filtered.size,
                 selectedInstance = selected,
                 searchQuery = state.searchQuery,

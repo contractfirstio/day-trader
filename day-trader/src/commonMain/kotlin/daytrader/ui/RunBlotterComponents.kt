@@ -53,7 +53,7 @@ fun RunBlotterTable(
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No runs yet. Start the instance to open today's run.", color = TextSecondary, fontSize = 13.sp)
+                Text("No completed runs yet.", color = TextSecondary, fontSize = 13.sp)
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -88,7 +88,7 @@ private fun RunBlotterHeader(
         RunHeaderCell("Date", RunSortColumn.DATE, activeSortColumn, sortDirection, Modifier.weight(1.1f), onClick = onHeaderClick)
         RunHeaderCell("P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(1.2f), alignEnd = true, onClick = onHeaderClick)
         RunHeaderCell("Trades", RunSortColumn.TRADES, activeSortColumn, sortDirection, Modifier.weight(0.8f), alignEnd = true, onClick = onHeaderClick)
-        RunHeaderCell("vs Max", RunSortColumn.VS_MAX, activeSortColumn, sortDirection, Modifier.weight(0.8f), alignEnd = true, onClick = onHeaderClick)
+        RunHeaderCell("At risk", RunSortColumn.AT_RISK, activeSortColumn, sortDirection, Modifier.weight(0.9f), alignEnd = true, onClick = onHeaderClick)
     }
 }
 
@@ -138,13 +138,12 @@ private fun RunBlotterRow(row: StrategyRunRowUi) {
             .testTag("RunBlotterRow-${row.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(modifier = Modifier.weight(1.1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(row.formattedDate, color = Color.White, fontSize = 13.sp)
-            if (row.isLive) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Live", color = GainGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
+        Text(
+            row.formattedDate,
+            modifier = Modifier.weight(1.1f),
+            color = Color.White,
+            fontSize = 13.sp
+        )
         Text(
             text = row.formattedPnL,
             modifier = Modifier.weight(1.2f),
@@ -161,8 +160,8 @@ private fun RunBlotterRow(row: StrategyRunRowUi) {
             textAlign = TextAlign.End
         )
         Text(
-            text = row.formattedVsMax,
-            modifier = Modifier.weight(0.8f),
+            text = row.formattedAtRisk,
+            modifier = Modifier.weight(0.9f),
             color = TextSecondary,
             fontSize = 13.sp,
             textAlign = TextAlign.End

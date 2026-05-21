@@ -299,20 +299,58 @@ private fun StrategyInstanceCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             StatusChip(row.status)
-            Text(
-                row.formattedTodayPnL,
-                color = if (row.isPositivePnL) GainGreen else LossRed,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 13.sp
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Total P&L", fontSize = 10.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    row.formattedTotalPnL,
+                    color = if (row.isPositiveTotalPnL) GainGreen else LossRed,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp
+                )
+            }
         }
         if (row.liveTradeSummary != null) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(row.liveTradeSummary, color = TextSecondary, fontSize = 11.sp, maxLines = 1)
         }
         Spacer(modifier = Modifier.height(6.dp))
+        InstanceRollupRow(row)
+        Spacer(modifier = Modifier.height(4.dp))
         Text(row.paramsSummary, color = TextSecondary, fontSize = 12.sp)
-        Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
+        if (row.status == InstanceStatus.RUNNING) {
+            Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun InstanceRollupRow(row: StrategyInstanceRowUi) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        InstanceRollupCell("7d", row.formattedRollup7d, row.isPositiveRollup7d)
+        InstanceRollupCell("30d", row.formattedRollup30d, row.isPositiveRollup30d)
+        InstanceRollupCell("Win", row.formattedWinRate)
+    }
+}
+
+@Composable
+private fun RowScope.InstanceRollupCell(label: String, value: String, positive: Boolean? = null) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+        Text(label, fontSize = 10.sp, color = TextSecondary)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            value,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = when (positive) {
+                true -> GainGreen
+                false -> LossRed
+                null -> if (value == "—") TextSecondary else Color.White
+            }
+        )
     }
 }
 
@@ -485,15 +523,26 @@ private fun ConfigurationTab(
     instance: StrategyInstance,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit
 ) {
+    val canEdit = instance.status != InstanceStatus.RUNNING
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ConfigField(
             label = "Symbol",
             value = instance.symbol,
-            onValueChange = { value -> onUpdate { it.copy(symbol = value.trim().uppercase()) } }
+            enabled = false,
+            onValueChange = {}
         )
+        if (!canEdit) {
+            Text(
+                "Stop the instance to edit max at risk.",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+        }
         ConfigField(
-            label = "Max amount (\$)",
+            label = "Max at risk (\$)",
             value = instance.maxDollars.toString(),
+            enabled = canEdit,
             onValueChange = { value ->
                 value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
                     onUpdate { it.copy(maxDollars = max) }
@@ -725,8 +774,6 @@ private fun PerformanceTab(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        CurrentRunSummaryStrip(performance)
-
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PerformanceStatCard(
                 label = "7d P&L",
@@ -750,56 +797,6 @@ private fun PerformanceTab(
             onHeaderClick = onRunHeaderClick,
             modifier = Modifier.weight(1f)
         )
-    }
-}
-
-@Composable
-private fun CurrentRunSummaryStrip(performance: PerformanceUiState) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(DarkBackground, RoundedCornerShape(8.dp))
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .testTag("CurrentRunSummary"),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column {
-            Text("Current run", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    performance.currentRunDateLabel,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
-                if (performance.isLive) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Live", fontSize = 11.sp, color = GainGreen, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(horizontalAlignment = Alignment.End) {
-                Text("P&L", fontSize = 11.sp, color = TextSecondary)
-                Text(
-                    performance.currentRunPnL,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (performance.isCurrentRunPositive) GainGreen else LossRed
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("Trades", fontSize = 11.sp, color = TextSecondary)
-                Text(
-                    performance.currentRunTrades.toString(),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
     }
 }
 
@@ -935,7 +932,7 @@ private fun AddStrategyInstanceDialog(
                 HorizontalDivider(color = TableHeaderBg)
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
                 ConfigField(
-                    label = "Max amount (\$)",
+                    label = "Max at risk (\$)",
                     value = maxDollarsText,
                     onValueChange = { maxDollarsText = it }
                 )

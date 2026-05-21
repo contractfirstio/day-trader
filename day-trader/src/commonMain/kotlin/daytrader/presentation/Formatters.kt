@@ -20,6 +20,8 @@ object Formatters {
     fun paramsSummary(symbol: String, maxDollars: Int): String =
         "$symbol · \$${String.format("%,d", maxDollars)} max"
 
+    fun maxAtRisk(maxDollars: Int): String = "\$${String.format("%,d", maxDollars)}"
+
     fun sessionDateLabel(isoDate: String): String {
         val parts = isoDate.split("-")
         if (parts.size != 3) return isoDate

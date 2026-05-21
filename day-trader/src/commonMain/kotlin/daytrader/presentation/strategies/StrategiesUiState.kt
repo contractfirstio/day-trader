@@ -20,11 +20,16 @@ data class StrategyInstanceRowUi(
     val name: String,
     val strategyTypeLabel: String,
     val status: daytrader.domain.InstanceStatus,
-    val formattedTodayPnL: String,
-    val isPositivePnL: Boolean,
+    val formattedTotalPnL: String,
+    val isPositiveTotalPnL: Boolean,
     val paramsSummary: String,
     val tradesToday: Int,
-    val liveTradeSummary: String?
+    val liveTradeSummary: String?,
+    val formattedRollup7d: String,
+    val isPositiveRollup7d: Boolean,
+    val formattedRollup30d: String,
+    val isPositiveRollup30d: Boolean,
+    val formattedWinRate: String
 )
 
 data class StrategiesUiState(
