@@ -44,7 +44,7 @@ import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnEntryWindowStatus
 import daytrader.domain.TouchTurnLogic
-import daytrader.domain.TouchTurnNoPositionCancelOutcome
+import daytrader.domain.InstanceRunStopLogic
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
 import kotlinx.coroutines.delay
@@ -1261,43 +1261,6 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                     }
                 }
 
-                if (session.entryOrdersPermitted == true) {
-                    val cancelOutcome = session.noPositionBracketCancelOutcome
-                    val cancelRemainingMs = remember(session, tick) { session.noPositionCancelMillisRemaining() }
-                    when (cancelOutcome) {
-                        TouchTurnNoPositionCancelOutcome.WOULD_CANCEL_LOGGED -> {
-                            TouchTurnEntryWindowAlert(
-                                message = TouchTurnLogic.noPositionCancelAlert(
-                                    session.sessionDate,
-                                    session.marketZoneId,
-                                    symbol
-                                ),
-                                modifier = Modifier.testTag("TouchTurnNoPositionCancelAlert")
-                            )
-                        }
-                        TouchTurnNoPositionCancelOutcome.KEPT_HAS_POSITION -> {
-                            Text(
-                                TouchTurnLogic.noPositionCancelOutcomeLabel(cancelOutcome),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = GainGreen,
-                                modifier = Modifier.testTag("TouchTurnNoPositionCancelStatus")
-                            )
-                        }
-                        TouchTurnNoPositionCancelOutcome.PENDING,
-                        null -> {
-                            cancelRemainingMs?.let { remaining ->
-                                Text(
-                                    TouchTurnLogic.noPositionCancelPendingLabel(remaining),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFFFFB74D),
-                                    modifier = Modifier.testTag("TouchTurnNoPositionCancelPending")
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1597,6 +1560,51 @@ private fun TouchTurnMetric(
 }
 
 @Composable
+private fun SessionAutoStopStatus(instance: StrategyInstance) {
+    val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(instance.strategyType)
+    var tick by remember(instance.id, stopAfterMinOpen) { mutableIntStateOf(0) }
+    LaunchedEffect(instance.id, stopAfterMinOpen) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
+    val sessionDate = remember(instance, tick) { InstanceRunStopLogic.sessionDateForRunningInstance(instance) }
+    val openEpoch = remember(instance, sessionDate) {
+        sessionDate?.let { InstanceRunStopLogic.sessionOpenEpochMillis(instance, it) }
+    }
+    val remainingMs = remember(openEpoch, stopAfterMinOpen, tick) {
+        openEpoch?.let { InstanceRunStopLogic.millisUntilStopAfterOpen(it, stopAfterMinOpen) }
+    }
+    val pastDeadline = remainingMs == 0L && openEpoch != null
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("SessionAutoStopStatus")
+    ) {
+        Text(
+            "Session auto-stop (${stopAfterMinOpen}m after open)",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextSecondary
+        )
+        remainingMs?.let { remaining ->
+            Text(
+                if (pastDeadline) {
+                    "Flat with no IB position or open orders — instance will stop. " +
+                        "With exposure, runs until RTH close."
+                } else {
+                    InstanceRunStopLogic.pendingStopAfterOpenLabel(remaining, stopAfterMinOpen)
+                },
+                fontSize = 11.sp,
+                color = if (pastDeadline) Color(0xFFFFB74D) else TextSecondary,
+                modifier = Modifier.testTag("SessionAutoStopLabel")
+            )
+        }
+    }
+}
+
+@Composable
 private fun LiveTab(
     instance: StrategyInstance,
     liveExecution: LiveExecutionUiState?,
@@ -1616,6 +1624,7 @@ private fun LiveTab(
                 modifier = Modifier.testTag("LiveTabStoppedHint")
             )
         } else {
+            SessionAutoStopStatus(instance = instance)
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
                 TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
             }

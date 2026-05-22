@@ -44,26 +44,6 @@ object TouchTurnOrderLog {
         }
     }
 
-    fun logWouldCancelBrackets(
-        instanceId: String,
-        symbol: String,
-        sessionDate: String,
-        marketZoneId: String,
-        maxDollars: Int,
-        currencyCode: String,
-        setup: TouchTurnBracketSetup
-    ) {
-        val plan = TouchTurnOrderPlanner.buildOrderPlan(symbol, setup, maxDollars, currencyCode) ?: return
-        line(
-            "instance=$instanceId symbol=$symbol session=$sessionDate — " +
-                TouchTurnLogic.noPositionCancelAlert(sessionDate, marketZoneId, symbol)
-        )
-        line("  would cancel ${plan.orders.size} open bracket leg(s) — cancelOrder not called")
-        plan.orders.forEachIndexed { index, order ->
-            line(formatPlannedOrder(index + 1, order, plan.currencyCode))
-        }
-    }
-
     private fun logPlannedBracket(
         instanceId: String,
         sessionDate: String,

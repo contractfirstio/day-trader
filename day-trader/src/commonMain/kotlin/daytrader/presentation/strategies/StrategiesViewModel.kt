@@ -9,7 +9,9 @@ import daytrader.broker.BrokerPosition
 import daytrader.broker.IbConnectionState
 import daytrader.broker.IbGatewayConnection
 import daytrader.data.InstanceRunController
+import daytrader.data.InstanceRunStopWatcher
 import daytrader.data.MarketOpenAutoStarter
+import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.TouchTurnSessionBootstrap
 import daytrader.domain.StrategyInstance
@@ -130,6 +132,11 @@ class StrategiesViewModel(
                 }
             }
         ).start()
+
+        touchTurnMarketData?.let { gateway ->
+            InstanceRunStopWatcher(gateway, repository, scope).start()
+            PreMarketClosePositionWatcher(gateway, repository, scope).start()
+        }
     }
 
     fun onGlobalAutoStartEnabledChange(enabled: Boolean) {

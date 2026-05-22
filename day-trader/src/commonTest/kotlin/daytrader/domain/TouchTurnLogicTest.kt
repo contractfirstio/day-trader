@@ -329,56 +329,6 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun noPositionCancelDeadline_is90MinutesAfterMarketOpen() {
-        val barTime = "20250522  09:30:00"
-        val open = TouchTurnLogic.marketOpenEpochMillis("2025-05-22", "Asia/Hong_Kong", barTime)!!
-        val deadline = TouchTurnLogic.noPositionCancelDeadlineEpochMillis(
-            "2025-05-22",
-            "Asia/Hong_Kong",
-            barTime
-        )!!
-        assertEquals(open + TouchTurnDefaults.NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS, deadline)
-        assertFalse(
-            TouchTurnLogic.isPastNoPositionCancelDeadline(
-                "2025-05-22",
-                "Asia/Hong_Kong",
-                barTime,
-                deadline - 1
-            )
-        )
-        assertTrue(
-            TouchTurnLogic.isPastNoPositionCancelDeadline(
-                "2025-05-22",
-                "Asia/Hong_Kong",
-                barTime,
-                deadline
-            )
-        )
-    }
-
-    @Test
-    fun noPositionBracketCancel_setsPendingWhenEntryPermitted() {
-        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val instance = defaultStrategyInstance(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "700",
-            maxDollars = 5000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                candle = bar,
-                adr14 = 10.0,
-                rangeThreshold = 5.0,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(barEnd + 10_000)
-        assertEquals(TouchTurnNoPositionCancelOutcome.PENDING, evaluated.touchTurnSession?.noPositionBracketCancelOutcome)
-    }
-
-    @Test
     fun noPlannedOrders_whenNotLiquidity() {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
