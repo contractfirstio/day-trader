@@ -7,3 +7,8 @@ build
 .vscode
 
 .kotlin
+
+# Local IB Gateway / app diagnostic logs (may contain account symbols)
+logs.txt
+
+.idea

@@ -1,16 +1,43 @@
 package daytrader.presentation
 
+import daytrader.domain.CurrencyCodes
+
 object Formatters {
-    fun currency(amount: Double, showSign: Boolean = false): String {
+    fun currency(amount: Double, showSign: Boolean = false): String =
+        money(amount, "USD", showSign)
+
+    /** Format an amount in the given ISO currency (e.g. GBP → £, USD → $). */
+    fun money(amount: Double, currencyCode: String, showSign: Boolean = false): String {
         val sign = when {
             showSign && amount > 0 -> "+"
             amount < 0 -> "-"
             else -> ""
         }
-        return "$sign$${String.format("%,.2f", kotlin.math.abs(amount))}"
+        val code = normalizeDisplayCurrency(currencyCode)
+        val symbol = currencySymbol(code)
+        return "$sign$symbol${String.format("%,.2f", kotlin.math.abs(amount))}"
     }
 
-    fun currencyPlain(amount: Double): String = "$${String.format("%.2f", amount)}"
+    fun currencyPlain(amount: Double): String = moneyPlain(amount, "USD")
+
+    fun moneyPlain(amount: Double, currencyCode: String): String {
+        val code = normalizeDisplayCurrency(currencyCode)
+        return "${currencySymbol(code)}${String.format("%.2f", amount)}"
+    }
+
+    fun normalizeDisplayCurrency(currencyCode: String): String =
+        CurrencyCodes.displayCurrency(currencyCode)
+
+    private fun currencySymbol(code: String): String = when (code) {
+        "USD" -> "$"
+        "GBP" -> "£"
+        "EUR" -> "€"
+        "JPY" -> "¥"
+        "CHF" -> "CHF "
+        "CAD" -> "C$"
+        "AUD" -> "A$"
+        else -> "$code "
+    }
 
     fun percent(value: Double): String {
         val sign = if (value >= 0) "+" else ""

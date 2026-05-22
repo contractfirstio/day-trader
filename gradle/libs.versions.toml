@@ -5,8 +5,10 @@ compose = "1.8.1"
 junit = "4.13.2"
 kotlinx-coroutines = "1.8.0"
 kotlinx-serialization = "1.6.2"
+protobuf = "4.29.5"
 
 [libraries]
+protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test-junit = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit" }

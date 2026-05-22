@@ -2,7 +2,7 @@
 
 Day Trader is a desktop trading workstation for monitoring open positions and managing automated strategy instances. It is built with **Kotlin Multiplatform** and **Compose Multiplatform** (desktop JVM), using a dark trading-terminal aesthetic and a layered architecture that separates domain logic, persistence, presentation, and UI.
 
-> **Note:** The app currently uses **mock position data** and **simulated strategy execution** for development and UI work. It does not connect to a live broker or market data feed.
+> **Note:** The **positions blotter** loads live holdings from **IB Gateway** when connected. Strategy execution still uses **mock/demo data**.
 
 ## Features
 
@@ -10,7 +10,7 @@ Day Trader is a desktop trading workstation for monitoring open positions and ma
 
 - Sortable **positions blotter** (company, symbol, unrealized PnL)
 - Displays quantity, average price, market price, daily change, and PnL per line
-- Data is loaded from an in-memory repository seeded with sample equities (AAPL, TSLA, NVDA, etc.)
+- Data is loaded from IB Gateway when connected (`reqPositions` + live price ticks for PnL)
 
 ### Strategies
 
@@ -57,7 +57,7 @@ UI (Compose) → ViewModel → Repository → Domain
 
 - `FileStrategyInstanceRepository` — instances + performance + live execution state
 - `FileStrategiesAppStateRepository` — strategies screen UI state (selection, filters, active tab)
-- `InMemoryPositionRepository` — mock positions only
+- `IbPositionRepository` (desktop) — live positions from IB Gateway via `reqPositions` + market data ticks
 
 **Domain highlights:**
 
@@ -106,6 +106,35 @@ export DAY_TRADER_DATA_DIR=/tmp/day-trader-dev
 - **JDK 17+** (recommended for Kotlin 2.0 and Compose Desktop)
 - No Android SDK required — desktop JVM target only
 
+## IB Gateway connection
+
+On launch the desktop app connects to IB Gateway (or TWS) in the background. Status appears in the top bar:
+
+- **Connecting…** — socket open, waiting for API handshake (`nextValidId`)
+- **Connected (next order id N)** — positions requested automatically; blotter updates as ticks arrive
+- **Error** — use **Reconnect**; check Gateway is running and API clients are enabled
+
+Enrichment requests (`reqContractDetails`, streaming `reqMktData`) are **paced** (~6–7 per second) to stay under IB’s **50 messages/sec** limit. Positions publish as they arrive from IB. Reconnect waits 1.5s before resubscribing.
+
+Market data uses **delayed-frozen** mode so US/UK lines still get a last price when those exchanges are closed; HK lines update while SEHK is open. **Market price for P&L** uses, in order: streaming ticks → bid/ask mid → **latest daily historical close** (`reqHistoricalData`, requested ~4s after load if no live price) → portfolio (only if distinct from avg cost) → avg cost fallback. Log codes **2119** (data farm connecting) and **10167** (no live subscription — delayed data) are informational.
+
+Default endpoint: `127.0.0.1:4001` (Gateway paper). Override with environment variables:
+
+| Variable | Default |
+|----------|---------|
+| `DAY_TRADER_IB_HOST` | `127.0.0.1` |
+| `DAY_TRADER_IB_PORT` | `4001` |
+| `DAY_TRADER_IB_CLIENT_ID` | `1` |
+| `DAY_TRADER_IB_ACCOUNT` | *(empty = all accounts)* |
+| `DAY_TRADER_IB_DEBUG` | `false` — extra stack traces on errors |
+| `DAY_TRADER_IB_REDACT_LOGS` | `false` — set to `true` to hide prices/qty/symbols in console |
+
+By default, console output includes **`[IB] POSITION_DIAG`** blocks (full prices, magnifier, P&L sanity checks) plus one-line position/portfolio/historical logs. Copy `[IB] POSITION_DIAG` for the UK line when debugging pence/pricing.
+
+Set `DAY_TRADER_IB_REDACT_LOGS=true` before launch if you need shareable logs without financial values.
+
+`TwsApi.jar` lives in `day-trader/libs/` (copied from the IB API package).
+
 ## Getting started
 
 Clone the repository, then from the project root:
@@ -114,7 +143,7 @@ Clone the repository, then from the project root:
 ./gradlew :day-trader:run
 ```
 
-This opens the Day Trader window (navigation: **Positions** | **Strategies**).
+This opens the Day Trader window (navigation: **Positions** | **Strategies**). Start IB Gateway before or after launch; use **Reconnect** if needed.
 
 ### Other Gradle tasks
 
@@ -166,7 +195,8 @@ day-trader/                          # Gradle root (Kotlin Multiplatform)
 
 The codebase is structured for future integration (real positions feed, broker execution, market data), but today:
 
-- Positions never persist and are not updated live
+- Positions load from IB when connected; blotter is empty when Gateway is down
+- Positions never persist to disk
 - Strategy runs and fills are **demo/simulated** when you start an instance
 - No authentication, order routing, or backtesting engine
 

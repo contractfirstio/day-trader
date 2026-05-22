@@ -7,7 +7,7 @@ object PositionUiMapper {
     fun toRowUi(position: Position): PositionRowUi = PositionRowUi(
         companyName = position.companyName,
         symbol = position.symbol,
-        formattedPnL = Formatters.currency(position.totalUnrealizedPnL, showSign = true),
+        formattedPnL = Formatters.money(position.totalUnrealizedPnL, position.currency, showSign = true),
         isPositivePnL = position.totalUnrealizedPnL >= 0
     )
 }
