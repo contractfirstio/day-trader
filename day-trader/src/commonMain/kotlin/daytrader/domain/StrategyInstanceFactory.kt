@@ -29,5 +29,7 @@ fun duplicateStrategyInstance(source: StrategyInstance): StrategyInstance = sour
     id = newStrategyInstanceId(),
     status = InstanceStatus.STOPPED,
     performance = emptyList(),
-    live = ActiveExecution.flat()
+    live = ActiveExecution.flat(),
+    touchTurnSession = null,
+    lastAutoStartSessionDate = null
 )

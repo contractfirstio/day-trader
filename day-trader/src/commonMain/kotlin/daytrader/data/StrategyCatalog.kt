@@ -1,7 +1,6 @@
 package daytrader.data
 
 import daytrader.domain.StrategyType
-
 object StrategyCatalog {
     fun displayName(type: StrategyType): String = when (type) {
         StrategyType.TOUCH_AND_TURN_SCALPER -> "Touch and Turn Scalper"
@@ -25,4 +24,5 @@ object StrategyCatalog {
         StrategyType.TOUCH_AND_TURN_SCALPER -> 2.0
         StrategyType.QUICK_FLIP_SCALPER -> 1.5
     }
+
 }

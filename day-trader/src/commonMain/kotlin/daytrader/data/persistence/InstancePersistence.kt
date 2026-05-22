@@ -16,8 +16,11 @@ object InstancePersistence {
             status = parseInstanceStatus(record.status),
             symbol = record.configuration.symbol,
             maxDollars = record.configuration.maxAtRisk,
+            autoStartOnMarketOpen = record.configuration.autoStartOnMarketOpen,
+            lastAutoStartSessionDate = record.configuration.lastAutoStartSessionDate,
             live = toLiveDomain(record.live),
-            performance = record.performance.map { toPerformanceDomain(record.id, it) }
+            performance = record.performance.map { toPerformanceDomain(record.id, it) },
+            touchTurnSession = TouchTurnPersistence.toDomain(record.touchTurnSession)
         )
 
     fun toRecord(instance: StrategyInstance): InstanceRecord =
@@ -27,30 +30,43 @@ object InstancePersistence {
             status = instanceStatusLabel(instance.status),
             configuration = ConfigurationRecord(
                 symbol = instance.symbol,
-                maxAtRisk = instance.maxDollars
+                maxAtRisk = instance.maxDollars,
+                autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
+                lastAutoStartSessionDate = instance.lastAutoStartSessionDate
             ),
             live = toLiveRecord(instance.live),
-            performance = instance.performance.map(::toPerformanceRecord)
+            performance = instance.performance.map(::toPerformanceRecord),
+            touchTurnSession = TouchTurnPersistence.toRecord(instance.touchTurnSession)
         )
 
     private fun toPerformanceDomain(instanceId: String, record: PerformanceDayRecord): StrategyRun =
         StrategyRun(
             id = record.id.ifBlank { "run-$instanceId-${record.date}" },
             date = record.date,
+            startedAt = record.startedAt,
+            stoppedAt = record.stoppedAt,
             pnl = record.pnl,
             trades = record.trades,
             maxAtRisk = record.maxAtRisk,
-            status = parseRunStatus(record.status)
+            status = parseRunStatus(record.status),
+            hadLiquidityCandle = record.hadLiquidityCandle,
+            ordersPlacedForCandle = record.ordersPlacedForCandle,
+            positionOpened = record.positionOpened
         )
 
     private fun toPerformanceRecord(day: StrategyRun): PerformanceDayRecord =
         PerformanceDayRecord(
             id = day.id,
             date = day.date,
+            startedAt = day.startedAt,
+            stoppedAt = day.stoppedAt,
             pnl = day.pnl,
             trades = day.trades,
             maxAtRisk = day.maxAtRisk,
-            status = runStatusLabel(day.status)
+            status = runStatusLabel(day.status),
+            hadLiquidityCandle = day.hadLiquidityCandle,
+            ordersPlacedForCandle = day.ordersPlacedForCandle,
+            positionOpened = day.positionOpened
         )
 
     private fun toLiveDomain(record: LiveRecord): ActiveExecution =

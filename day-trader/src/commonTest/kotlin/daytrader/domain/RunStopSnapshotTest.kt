@@ -1,0 +1,119 @@
+package daytrader.domain
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class RunStopSnapshotTest {
+    @Test
+    fun touchTurnSnapshot_capturesLiquidityOrdersPositionAndPnl() {
+        val instance = defaultStrategyInstance(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).onRunStarted("2026-05-22").copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-22",
+                status = TouchTurnCandleStatus.READY,
+                setup = TouchTurnBracketSetup(
+                    range = 10.0,
+                    rangeThreshold = 5.0,
+                    isLiquidityCandle = true,
+                    candleColor = FirstCandleColor.GREEN,
+                    side = TouchTurnTradeSide.SHORT,
+                    entry = 400.0,
+                    stopLoss = 405.0,
+                    takeProfit = 395.0
+                ),
+                entryOrdersPermitted = true
+            )
+        )
+
+        val snapshot = instance.resolveStopSnapshot(
+            hadOpenBrokerPosition = true,
+            brokerUnrealizedPnL = 42.5
+        )
+
+        assertEquals(true, snapshot.hadLiquidityCandle)
+        assertEquals(true, snapshot.ordersPlacedForCandle)
+        assertEquals(true, snapshot.positionOpened)
+        assertEquals(42.5, snapshot.sessionPnL)
+    }
+
+    @Test
+    fun touchTurnSnapshot_noLiquidity_noOrders() {
+        val instance = defaultStrategyInstance(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-22",
+                status = TouchTurnCandleStatus.READY,
+                setup = TouchTurnBracketSetup(
+                    range = 2.0,
+                    rangeThreshold = 5.0,
+                    isLiquidityCandle = false,
+                    candleColor = FirstCandleColor.RED,
+                    side = TouchTurnTradeSide.LONG,
+                    entry = 400.0,
+                    stopLoss = 395.0,
+                    takeProfit = 405.0
+                ),
+                entryOrdersPermitted = false
+            )
+        )
+
+        val snapshot = instance.resolveStopSnapshot(
+            hadOpenBrokerPosition = false,
+            brokerUnrealizedPnL = null
+        )
+
+        assertEquals(false, snapshot.hadLiquidityCandle)
+        assertEquals(false, snapshot.ordersPlacedForCandle)
+        assertEquals(false, snapshot.positionOpened)
+        assertEquals(0.0, snapshot.sessionPnL)
+    }
+
+    @Test
+    fun onRunStopped_persistsSnapshotOnPerformanceRow() {
+        val instance = defaultStrategyInstance(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).onRunStarted("2026-05-22")
+
+        val stopped = instance.onRunStopped(
+            snapshot = RunStopSnapshot(
+                hadLiquidityCandle = true,
+                ordersPlacedForCandle = true,
+                positionOpened = false,
+                sessionPnL = 0.0,
+                trades = 0
+            )
+        )
+
+        val closed = stopped.performance.single()
+        assertEquals(true, closed.hadLiquidityCandle)
+        assertEquals(true, closed.ordersPlacedForCandle)
+        assertEquals(false, closed.positionOpened)
+        assertEquals(0.0, closed.pnl)
+    }
+
+    @Test
+    fun quickFlipSnapshot_hasNoTouchTurnFields() {
+        val instance = defaultStrategyInstance(
+            strategyType = StrategyType.QUICK_FLIP_SCALPER,
+            symbol = "SPY",
+            maxDollars = 250
+        )
+
+        val snapshot = instance.resolveStopSnapshot(
+            hadOpenBrokerPosition = false,
+            brokerUnrealizedPnL = null
+        )
+
+        assertNull(snapshot.hadLiquidityCandle)
+        assertNull(snapshot.ordersPlacedForCandle)
+    }
+}

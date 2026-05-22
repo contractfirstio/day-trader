@@ -56,7 +56,7 @@ fun StrategyInstance.withDemoLiveExecutionOnStart(sessionDate: String): Strategy
     if (status != InstanceStatus.RUNNING) return this
     val execution = demoActiveExecution(symbol, strategyType)
     val unrealized = demoUnrealizedPnL(execution)
-    return copy(live = execution).updateInProgressRun(sessionDate) { day ->
+    return copy(live = execution).updateInProgressRun { day ->
         day.copy(
             pnl = unrealized,
             trades = maxOf(day.trades, 1)

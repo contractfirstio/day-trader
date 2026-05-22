@@ -25,6 +25,8 @@ import daytrader.ui.theme.TextSecondary
 @Composable
 fun ConnectionStatusBar(
     ibGateway: IbGatewayConnection,
+    globalAutoStartEnabled: Boolean,
+    onGlobalAutoStartChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state by ibGateway.state.collectAsState()
@@ -32,39 +34,60 @@ fun ConnectionStatusBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = statusLabel(state),
+            text = brokerStatusLabel(state),
             style = MaterialTheme.typography.bodyMedium,
-            color = statusColor(state)
+            color = brokerStatusColor(state)
         )
-
-        if (state is IbConnectionState.Error || state is IbConnectionState.Disconnected) {
-            Button(
-                onClick = { ibGateway.reconnect() },
-                enabled = state !is IbConnectionState.Connecting,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SurfaceDark,
-                    contentColor = Color.White
-                )
-            ) {
-                Text(if (state is IbConnectionState.Disconnected) "Connect" else "Reconnect")
-            }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlobalAutoStartKillSwitch(
+                enabled = globalAutoStartEnabled,
+                onEnabledChange = onGlobalAutoStartChange
+            )
+            BrokerReconnectButton(
+                state = state,
+                onReconnect = ibGateway::reconnect
+            )
         }
     }
 }
 
-private fun statusLabel(state: IbConnectionState): String = when (state) {
-    IbConnectionState.Disconnected -> "IB Gateway: Disconnected"
-    IbConnectionState.Connecting -> "IB Gateway: Connecting…"
-    is IbConnectionState.Connected -> "IB Gateway: Connected (next order id ${state.nextOrderId})"
-    is IbConnectionState.Error -> "IB Gateway: ${state.message}"
+@Composable
+private fun BrokerReconnectButton(
+    state: IbConnectionState,
+    onReconnect: () -> Unit
+) {
+    if (state !is IbConnectionState.Disconnected && state !is IbConnectionState.Error) {
+        return
+    }
+    val label = if (state is IbConnectionState.Disconnected) "Connect" else "Reconnect"
+    Button(
+        onClick = onReconnect,
+        enabled = state !is IbConnectionState.Connecting,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = SurfaceDark,
+            contentColor = Color.White
+        )
+    ) {
+        Text(label)
+    }
 }
 
-private fun statusColor(state: IbConnectionState): Color = when (state) {
+private fun brokerStatusLabel(state: IbConnectionState): String = when (state) {
+    IbConnectionState.Disconnected -> "Not Connected to Broker"
+    IbConnectionState.Connecting -> "Connecting to Broker…"
+    is IbConnectionState.Connected -> "Connected to Broker"
+    is IbConnectionState.Error -> "Not Connected to Broker"
+}
+
+private fun brokerStatusColor(state: IbConnectionState): Color = when (state) {
     IbConnectionState.Disconnected -> TextSecondary
     IbConnectionState.Connecting -> Color(0xFFFFB300)
     is IbConnectionState.Connected -> GainGreen

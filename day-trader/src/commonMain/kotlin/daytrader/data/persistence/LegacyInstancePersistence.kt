@@ -49,9 +49,6 @@ internal object LegacyStrategiesScreenPersistence {
         val legacy = JsonFileStore.readLegacyStrategiesScreen() ?: return null
         return StrategiesScreenDocument(
             selectedInstanceId = legacy.selectedInstanceId,
-            search = legacy.searchQuery,
-            statusFilter = legacy.instanceFilter.lowercase(),
-            strategyFilter = legacy.strategyTypeFilter,
             detailTab = when (legacy.detailTab.uppercase()) {
                 "ACTIVITY" -> "live"
                 else -> legacy.detailTab.lowercase()

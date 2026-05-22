@@ -3,33 +3,38 @@ package daytrader.broker
 import com.ib.client.Contract
 
 /**
- * Position pricing/P&L diagnostics are **on by default** (full prices, qty, symbols).
- * Set DAY_TRADER_IB_REDACT_LOGS=true to restore redacted console output.
+ * IB Gateway console logging is **off by default** so Touch Turn order logs stay readable.
+ * Set DAY_TRADER_IB_LOGS=true to enable connection, positions, ticks, and diagnostics.
  *
- * DAY_TRADER_IB_DEBUG=true — extra connection flow + stack traces on errors.
+ * DAY_TRADER_IB_DEBUG=true — stack traces on errors (requires IB logs enabled).
+ * DAY_TRADER_IB_REDACT_LOGS=true — shorter redacted messages when IB logs are enabled.
  */
 internal object IbGatewayLog {
+    private val loggingEnabled: Boolean =
+        System.getenv("DAY_TRADER_IB_LOGS")?.equals("true", ignoreCase = true) == true
+
     private val debugEnabled: Boolean =
         System.getenv("DAY_TRADER_IB_DEBUG")?.equals("true", ignoreCase = true) == true
 
     private val redactLogs: Boolean =
         System.getenv("DAY_TRADER_IB_REDACT_LOGS")?.equals("true", ignoreCase = true) == true
 
-    fun isPositionDiagEnabled(): Boolean = !redactLogs
+    fun isPositionDiagEnabled(): Boolean = loggingEnabled && !redactLogs
 
     fun info(message: String) {
-        println("[IB] $message")
+        emit("[IB] $message")
     }
 
     fun debug(message: String) {
-        if (debugEnabled) println("[IB] DEBUG $message")
+        if (debugEnabled) emit("[IB] DEBUG $message")
     }
 
     fun apiError(reqId: Int, errorCode: Int, errorMsg: String? = null) {
+        if (!loggingEnabled) return
         if (!errorMsg.isNullOrBlank() && !redactLogs) {
-            println("[IB] API error reqId=$reqId code=$errorCode msg=$errorMsg")
+            emit("[IB] API error reqId=$reqId code=$errorCode msg=$errorMsg")
         } else {
-            println("[IB] API error reqId=$reqId code=$errorCode")
+            emit("[IB] API error reqId=$reqId code=$errorCode")
         }
     }
 
@@ -55,6 +60,14 @@ internal object IbGatewayLog {
 
     fun requestingPositions() {
         info("Requesting positions")
+    }
+
+    fun requestingOpenOrders() {
+        info("Requesting open orders")
+    }
+
+    fun openOrdersLoadComplete(count: Int) {
+        info("Open orders load complete count=$count")
     }
 
     fun positionsLoadComplete(openCount: Int) {
@@ -134,9 +147,9 @@ internal object IbGatewayLog {
     }
 
     fun positionDiag(snapshot: PositionDiagSnapshot) {
-        if (redactLogs) return
+        if (!isPositionDiagEnabled()) return
         val s = snapshot
-        println(
+        emit(
             """
             |[IB] POSITION_DIAG trigger=${s.trigger}
             |  contract conid=${s.conid} symbol=${s.symbol} local=${s.localSymbol} tradingClass=${s.tradingClass}
@@ -165,13 +178,20 @@ internal object IbGatewayLog {
     }
 
     fun callbackFailure(context: String, e: Exception) {
-        println("[IB] Callback failed context=$context error=${e.javaClass.simpleName}")
+        if (!loggingEnabled) return
+        emit("[IB] Callback failed context=$context error=${e.javaClass.simpleName}")
         if (debugEnabled || !redactLogs) e.printStackTrace()
     }
 
     fun pacerFailure(e: Exception) {
-        println("[IB] Request pacer failed error=${e.javaClass.simpleName}")
+        if (!loggingEnabled) return
+        emit("[IB] Request pacer failed error=${e.javaClass.simpleName}")
         if (debugEnabled || !redactLogs) e.printStackTrace()
+    }
+
+    private fun emit(message: String) {
+        if (!loggingEnabled) return
+        println(message)
     }
 
     private fun majorHint(raw: Double, magnifier: Int): String =

@@ -4,6 +4,31 @@ import com.ib.client.Contract
 import com.ib.client.protobuf.ContractProto
 
 internal object IbContractMapper {
+    fun usStock(symbol: String): Contract {
+        val contract = Contract()
+        contract.symbol(symbol.uppercase())
+        contract.secType("STK")
+        contract.exchange("SMART")
+        contract.currency("USD")
+        return contract
+    }
+
+    /** Contract for historical bars — routes numeric symbols to SEHK (Hong Kong). */
+    fun stockForHistorical(symbol: String): Contract =
+        if (SymbolMarkets.isHongKong(symbol)) hkStock(symbol) else usStock(symbol)
+
+    fun hkStock(symbol: String): Contract {
+        val digits = symbol.trim().uppercase().removeSuffix(".HK")
+        val ibSymbol = digits.toLongOrNull()?.toString() ?: digits.trimStart('0').ifEmpty { digits }
+        val contract = Contract()
+        contract.symbol(ibSymbol)
+        contract.secType("STK")
+        contract.exchange("SEHK")
+        contract.currency("HKD")
+        contract.primaryExch("SEHK")
+        return contract
+    }
+
     fun clone(contract: Contract): Contract {
         val copy = Contract()
         if (contract.conid() > 0) copy.conid(contract.conid())

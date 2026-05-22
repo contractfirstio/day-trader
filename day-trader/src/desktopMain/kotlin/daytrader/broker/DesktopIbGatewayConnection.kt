@@ -8,6 +8,8 @@ import com.ib.client.DefaultEWrapper
 import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EReader
+import com.ib.client.Order
+import com.ib.client.OrderState
 import com.ib.client.TickAttrib
 import com.ib.client.TickType
 import com.ib.client.protobuf.AccountDataEndProto
@@ -17,10 +19,14 @@ import com.ib.client.protobuf.PortfolioValueProto
 import com.ib.client.protobuf.PositionEndProto
 import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
+import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnLogic
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +35,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
@@ -62,7 +71,13 @@ class DesktopIbGatewayConnection(
     private val _positions = MutableStateFlow<List<BrokerPosition>>(emptyList())
     override val positions: StateFlow<List<BrokerPosition>> = _positions.asStateFlow()
 
+    private val _openOrders = MutableStateFlow<List<BrokerOpenOrder>>(emptyList())
+    override val openOrders: StateFlow<List<BrokerOpenOrder>> = _openOrders.asStateFlow()
+
     private val openPositions = ConcurrentHashMap<String, OpenPosition>()
+    private val openOrdersById = ConcurrentHashMap<Int, BrokerOpenOrder>()
+    @Volatile
+    private var openOrdersLoadFinished = false
     private val marketPrices = ConcurrentHashMap<String, Double>()
     private val priorCloses = ConcurrentHashMap<String, Double>()
     private val bidPrices = ConcurrentHashMap<String, Double>()
@@ -75,10 +90,20 @@ class DesktopIbGatewayConnection(
     private val historicalReqIdToKey = ConcurrentHashMap<Int, String>()
     private val historicalPendingKeys = ConcurrentHashMap.newKeySet<String>()
     private val historicalLastBarClose = ConcurrentHashMap<Int, Double>()
+    private val touchTurnHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
+    private val touchTurnHistoricalSymbol = ConcurrentHashMap<Int, String>()
+    private val touchTurnHistoricalDeferred =
+        ConcurrentHashMap<Int, CompletableDeferred<Result<OhlcBar>>>()
+    private val adrHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
+    private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
+    private val adrHistoricalDeferred =
+        ConcurrentHashMap<Int, CompletableDeferred<Result<Double>>>()
     private val lastTickDiagAtMs = ConcurrentHashMap<String, Long>()
     private val nextMktDataReqId = AtomicInteger(MKT_DATA_REQ_ID_START)
     private val nextContractDetailsReqId = AtomicInteger(CONTRACT_DETAILS_REQ_ID_START)
     private val nextHistoricalReqId = AtomicInteger(HISTORICAL_REQ_ID_START)
+    private val nextTouchTurnHistoricalReqId = AtomicInteger(TOUCH_TURN_HISTORICAL_REQ_ID_START)
+    private val nextAdrHistoricalReqId = AtomicInteger(ADR_HISTORICAL_REQ_ID_START)
 
     private var publishDebounceJob: Job? = null
     private var historicalFallbackJob: Job? = null
@@ -105,6 +130,87 @@ class DesktopIbGatewayConnection(
         }
     }
 
+    override suspend fun fetchFourteenDayAdr(symbol: String): Result<Double> {
+        if (!client.isConnected) {
+            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+        }
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            return Result.failure(IllegalArgumentException("Symbol is blank"))
+        }
+        val reqId = nextAdrHistoricalReqId.getAndIncrement()
+        val deferred = CompletableDeferred<Result<Double>>()
+        adrHistoricalDeferred[reqId] = deferred
+        adrHistoricalSymbol[reqId] = trimmed
+        val contract = IbContractMapper.stockForHistorical(trimmed)
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                failAdrHistorical(reqId, "Disconnected before 14-day ADR request")
+                return@enqueue
+            }
+            client.reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                ADR_HISTORICAL_DURATION,
+                ADR_HISTORICAL_BAR_SIZE,
+                HISTORICAL_WHAT_TO_SHOW,
+                1,
+                1,
+                true,
+                null
+            )
+        }
+        return try {
+            withTimeout(ADR_HISTORICAL_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            cancelAdrHistorical(reqId)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun fetch(symbol: String): Result<OhlcBar> {
+        if (!client.isConnected) {
+            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+        }
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            return Result.failure(IllegalArgumentException("Symbol is blank"))
+        }
+        val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
+        val deferred = CompletableDeferred<Result<OhlcBar>>()
+        touchTurnHistoricalDeferred[reqId] = deferred
+        touchTurnHistoricalSymbol[reqId] = trimmed
+        val contract = IbContractMapper.stockForHistorical(trimmed)
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                failTouchTurnHistorical(
+                    reqId,
+                    "Disconnected before first 15-minute candle request"
+                )
+                return@enqueue
+            }
+            client.reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                TOUCH_TURN_HISTORICAL_DURATION,
+                TOUCH_TURN_HISTORICAL_BAR_SIZE,
+                HISTORICAL_WHAT_TO_SHOW,
+                1,
+                1,
+                true,
+                null
+            )
+        }
+        return try {
+            withTimeout(TOUCH_TURN_HISTORICAL_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            cancelTouchTurnHistorical(reqId)
+            Result.failure(e)
+        }
+    }
+
     fun shutdown() {
         runBlocking {
             connectMutex.withLock { performDisconnect() }
@@ -118,6 +224,43 @@ class DesktopIbGatewayConnection(
         client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN)
         client.reqAccountUpdates(true, config.accountCode)
         requestPositions()
+        requestOpenOrders()
+    }
+
+    override fun openOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
+        try {
+            applyOpenOrder(orderId, contract, order, orderState)
+        } catch (e: Exception) {
+            logCallbackFailure("openOrder", e)
+        }
+    }
+
+    override fun openOrderEnd() {
+        try {
+            finishOpenOrdersLoad()
+        } catch (e: Exception) {
+            logCallbackFailure("openOrderEnd", e)
+        }
+    }
+
+    override fun orderStatus(
+        orderId: Int,
+        status: String,
+        filled: Decimal,
+        remaining: Decimal,
+        avgFillPrice: Double,
+        permId: Long,
+        parentId: Int,
+        lastFillPrice: Double,
+        clientId: Int,
+        whyHeld: String,
+        mktCapPrice: Double
+    ) {
+        try {
+            applyOrderStatus(orderId, status, filled, remaining)
+        } catch (e: Exception) {
+            logCallbackFailure("orderStatus", e)
+        }
     }
 
     override fun connectionClosed() {
@@ -220,6 +363,18 @@ class DesktopIbGatewayConnection(
 
     override fun historicalData(reqId: Int, bar: Bar) {
         try {
+            if (adrHistoricalDeferred.containsKey(reqId)) {
+                if (bar.high() > 0.0 && bar.low() > 0.0) {
+                    adrHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
+                }
+                return
+            }
+            if (touchTurnHistoricalDeferred.containsKey(reqId)) {
+                if (bar.high() > 0.0 && bar.low() > 0.0) {
+                    touchTurnHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
+                }
+                return
+            }
             if (bar.close() > 0.0) {
                 historicalLastBarClose[reqId] = bar.close()
             }
@@ -230,6 +385,14 @@ class DesktopIbGatewayConnection(
 
     override fun historicalDataEnd(reqId: Int, start: String?, end: String?) {
         try {
+            if (adrHistoricalDeferred.containsKey(reqId)) {
+                completeAdrHistorical(reqId)
+                return
+            }
+            if (touchTurnHistoricalDeferred.containsKey(reqId)) {
+                completeTouchTurnHistorical(reqId)
+                return
+            }
             applyHistoricalClose(reqId)
         } catch (e: Exception) {
             logCallbackFailure("historicalDataEnd", e)
@@ -276,7 +439,13 @@ class DesktopIbGatewayConnection(
         }
     }
 
-    override fun error(reqId: Int, errorTime: Long, errorCode: Int, errorMsg: String, advancedOrderRejectJson: String) {
+    override fun error(
+        reqId: Int,
+        errorTime: Long,
+        errorCode: Int,
+        errorMsg: String,
+        advancedOrderRejectJson: String?
+    ) {
         when {
             errorCode in INFO_ERROR_CODES -> return
             else -> IbGatewayLog.apiError(reqId, errorCode, errorMsg)
@@ -287,6 +456,9 @@ class DesktopIbGatewayConnection(
             historicalLastBarClose.remove(reqId)
             historicalPendingKeys.remove(key)
         }
+
+        failTouchTurnHistorical(reqId, errorMsg)
+        failAdrHistorical(reqId, errorMsg)
 
         when {
             errorCode == 100 -> _state.value = IbConnectionState.Error(
@@ -481,6 +653,8 @@ class DesktopIbGatewayConnection(
             cancelAllMarketDataImmediate()
             cancelAllContractDetailsImmediate()
             cancelAllHistoricalImmediate()
+            cancelAllTouchTurnHistoricalImmediate()
+            cancelAllAdrHistoricalImmediate()
             client.eDisconnect()
         }
         clearPositionState()
@@ -563,17 +737,219 @@ class DesktopIbGatewayConnection(
         lastTickDiagAtMs.clear()
     }
 
+    private fun cancelAllTouchTurnHistoricalImmediate() {
+        touchTurnHistoricalDeferred.keys.toList().forEach { reqId ->
+            cancelTouchTurnHistorical(reqId)
+        }
+        touchTurnHistoricalBars.clear()
+        touchTurnHistoricalSymbol.clear()
+        touchTurnHistoricalDeferred.clear()
+        cancelAllAdrHistoricalImmediate()
+    }
+
+    private fun cancelAllAdrHistoricalImmediate() {
+        adrHistoricalDeferred.keys.toList().forEach { reqId ->
+            cancelAdrHistorical(reqId)
+        }
+        adrHistoricalBars.clear()
+        adrHistoricalSymbol.clear()
+        adrHistoricalDeferred.clear()
+    }
+
+    private fun cancelAdrHistorical(reqId: Int) {
+        adrHistoricalBars.remove(reqId)
+        adrHistoricalSymbol.remove(reqId)
+        adrHistoricalDeferred.remove(reqId)?.let { deferred ->
+            if (!deferred.isCompleted) {
+                deferred.complete(Result.failure(IllegalStateException("ADR request cancelled")))
+            }
+        }
+        if (client.isConnected) {
+            runCatching { client.cancelHistoricalData(reqId) }
+        }
+    }
+
+    private fun failAdrHistorical(reqId: Int, message: String) {
+        adrHistoricalBars.remove(reqId)
+        adrHistoricalSymbol.remove(reqId)
+        adrHistoricalDeferred.remove(reqId)?.let { deferred ->
+            if (!deferred.isCompleted) {
+                deferred.complete(Result.failure(IllegalStateException(message)))
+            }
+        }
+    }
+
+    private fun completeAdrHistorical(reqId: Int) {
+        val deferred = adrHistoricalDeferred.remove(reqId) ?: return
+        val symbol = adrHistoricalSymbol.remove(reqId)
+        val bars = adrHistoricalBars.remove(reqId).orEmpty().map { it.toTouchTurnOhlcBar() }
+        val sessionDay = sessionDayYyyyMmDd(symbol)
+        val adrResult = TouchTurnLogic.computeAdr14(bars, excludeSessionDayYyyyMmdd = sessionDay)
+        deferred.complete(adrResult)
+    }
+
+    private fun cancelTouchTurnHistorical(reqId: Int) {
+        touchTurnHistoricalBars.remove(reqId)
+        touchTurnHistoricalSymbol.remove(reqId)
+        touchTurnHistoricalDeferred.remove(reqId)?.let { deferred ->
+            if (!deferred.isCompleted) {
+                deferred.complete(Result.failure(IllegalStateException("Historical request cancelled")))
+            }
+        }
+        if (client.isConnected) {
+            runCatching { client.cancelHistoricalData(reqId) }
+        }
+    }
+
+    private fun failTouchTurnHistorical(reqId: Int, message: String) {
+        touchTurnHistoricalBars.remove(reqId)
+        touchTurnHistoricalSymbol.remove(reqId)
+        touchTurnHistoricalDeferred.remove(reqId)?.let { deferred ->
+            if (!deferred.isCompleted) {
+                deferred.complete(Result.failure(IllegalStateException(message)))
+            }
+        }
+    }
+
+    private fun completeTouchTurnHistorical(reqId: Int) {
+        val deferred = touchTurnHistoricalDeferred.remove(reqId) ?: return
+        val symbol = touchTurnHistoricalSymbol.remove(reqId)
+        val bars = touchTurnHistoricalBars.remove(reqId).orEmpty()
+        val sessionDay = sessionDayYyyyMmDd(symbol)
+        val sessionBars = bars
+            .filter { it.high() > 0.0 && it.low() > 0.0 }
+            .filter { bar -> bar.time()?.trim()?.startsWith(sessionDay) == true }
+        val candidates = sessionBars.ifEmpty {
+            bars.filter { it.high() > 0.0 && it.low() > 0.0 }
+        }
+        val first = candidates.minByOrNull { barTimeSortKey(it.time()) }
+        if (first == null) {
+            val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
+            deferred.complete(
+                Result.failure(
+                    IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
+                )
+            )
+            return
+        }
+        deferred.complete(Result.success(first.toTouchTurnOhlcBar()))
+    }
+
     private fun clearPositionState() {
         cancelAllMarketDataImmediate()
         cancelAllContractDetailsImmediate()
         cancelAllHistoricalImmediate()
+        cancelAllTouchTurnHistoricalImmediate()
+        cancelAllAdrHistoricalImmediate()
         openPositions.clear()
         _positions.value = emptyList()
+        openOrdersById.clear()
+        _openOrders.value = emptyList()
+        openOrdersLoadFinished = false
         enrichmentScheduled = false
         positionsLoadFinished = false
         publishDebounceJob?.cancel()
         publishDebounceJob = null
     }
+
+    private fun requestOpenOrders() {
+        if (!client.isConnected) return
+        openOrdersLoadFinished = false
+        openOrdersById.clear()
+        _openOrders.value = emptyList()
+        IbGatewayLog.requestingOpenOrders()
+        client.reqAllOpenOrders()
+    }
+
+    private fun applyOpenOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
+        val status = orderStatusLabel(orderState)
+        if (isTerminalOrderStatus(status)) {
+            openOrdersById.remove(orderId)
+            return
+        }
+        val remaining = remainingQuantity(order)
+        if (remaining <= 0) {
+            openOrdersById.remove(orderId)
+            return
+        }
+        openOrdersById[orderId] = toBrokerOpenOrder(orderId, contract, order, orderState)
+        publishOpenOrders()
+    }
+
+    private fun applyOrderStatus(orderId: Int, status: String, filled: Decimal, remaining: Decimal) {
+        if (isTerminalOrderStatus(status)) {
+            openOrdersById.remove(orderId)
+            publishOpenOrders()
+            return
+        }
+        val existing = openOrdersById[orderId] ?: return
+        val remainingQty = decimalToInt(remaining)
+        if (remainingQty <= 0) {
+            openOrdersById.remove(orderId)
+            publishOpenOrders()
+            return
+        }
+        openOrdersById[orderId] = existing.copy(
+            status = status,
+            filled = decimalToInt(filled),
+            remaining = remainingQty
+        )
+        publishOpenOrders()
+    }
+
+    private fun finishOpenOrdersLoad() {
+        if (openOrdersLoadFinished) return
+        openOrdersLoadFinished = true
+        publishOpenOrders()
+        IbGatewayLog.openOrdersLoadComplete(openOrdersById.size)
+    }
+
+    private fun publishOpenOrders() {
+        _openOrders.value = openOrdersById.values.sortedBy { it.orderId }
+    }
+
+    private fun toBrokerOpenOrder(
+        orderId: Int,
+        contract: Contract,
+        order: Order,
+        orderState: OrderState
+    ): BrokerOpenOrder {
+        val total = decimalToInt(order.totalQuantity())
+        val filled = decimalToInt(order.filledQuantity())
+        val limit = order.lmtPrice().takeIf { it > 0 }
+        val stop = order.auxPrice().takeIf { it > 0 }
+        return BrokerOpenOrder(
+            orderId = orderId,
+            symbol = resolveSymbol(contract),
+            action = order.getAction().orEmpty(),
+            quantity = total,
+            filled = filled,
+            remaining = (total - filled).coerceAtLeast(0),
+            orderType = order.getOrderType().orEmpty(),
+            limitPrice = limit,
+            stopPrice = stop,
+            status = orderStatusLabel(orderState),
+            currency = contract.currency().orEmpty().ifBlank { "USD" }
+        )
+    }
+
+    private fun orderStatusLabel(orderState: OrderState): String =
+        orderState.getStatus().ifBlank { orderState.status().name }
+
+    private fun remainingQuantity(order: Order): Int {
+        val total = decimalToInt(order.totalQuantity())
+        val filled = decimalToInt(order.filledQuantity())
+        return (total - filled).coerceAtLeast(0)
+    }
+
+    private fun decimalToInt(value: Decimal): Int =
+        if (!Decimal.isValid(value)) 0 else value.value().toDouble().roundToInt()
+
+    private fun isTerminalOrderStatus(status: String): Boolean =
+        status.equals("Filled", ignoreCase = true) ||
+            status.equals("Cancelled", ignoreCase = true) ||
+            status.equals("ApiCancelled", ignoreCase = true) ||
+            status.equals("Inactive", ignoreCase = true)
 
     /**
      * @param immediate true for position load/change — publish now.
@@ -937,6 +1313,14 @@ class DesktopIbGatewayConnection(
         const val MKT_DATA_REQ_ID_START = 10_000
         const val CONTRACT_DETAILS_REQ_ID_START = 20_000
         const val HISTORICAL_REQ_ID_START = 30_000
+        const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
+        const val TOUCH_TURN_HISTORICAL_DURATION = "1 D"
+        const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
+        const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
+        const val ADR_HISTORICAL_REQ_ID_START = 55_000
+        const val ADR_HISTORICAL_DURATION = "20 D"
+        const val ADR_HISTORICAL_BAR_SIZE = "1 day"
+        const val ADR_HISTORICAL_TIMEOUT_MS = 45_000L
         const val PUBLISH_THROTTLE_MS = 300L
         const val HISTORICAL_FALLBACK_DELAY_MS = 4_000L
         const val HISTORICAL_DURATION = "2 D"
@@ -977,5 +1361,24 @@ class DesktopIbGatewayConnection(
             if (conid > 0) return "$account|conid:$conid"
             return "$account|$symbol|${contract.getSecType().orEmpty()}|${contract.exchange().orEmpty()}"
         }
+
+        fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
+
+        fun sessionDayYyyyMmDd(symbol: String?): String {
+            val zone = if (symbol != null && SymbolMarkets.isHongKong(symbol)) {
+                ZoneId.of("Asia/Hong_Kong")
+            } else {
+                ZoneId.systemDefault()
+            }
+            return LocalDate.now(zone).format(DateTimeFormatter.BASIC_ISO_DATE)
+        }
     }
 }
+
+private fun Bar.toTouchTurnOhlcBar(): OhlcBar = OhlcBar(
+    open = open(),
+    high = high(),
+    low = low(),
+    close = close(),
+    time = time()
+)

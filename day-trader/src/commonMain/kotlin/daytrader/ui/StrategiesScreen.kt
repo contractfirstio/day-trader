@@ -1,9 +1,17 @@
 package daytrader.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,16 +21,34 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import daytrader.domain.OhlcBar
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyInstance
 import daytrader.domain.StrategyType
+import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FirstCandleColor
+import daytrader.domain.LiquidityCandleEvaluation
+import daytrader.domain.TouchTurnBracketSetup
+import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnEntryWindowStatus
+import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnNoPositionCancelOutcome
+import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnTradeSide
+import kotlinx.coroutines.delay
+import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
 
@@ -38,19 +64,44 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         )
     }
 
+    uiState.startBlockedAlert?.let { alert ->
+        StartBlockedByPositionDialog(
+            alert = alert,
+            onDismiss = viewModel::onDismissStartBlockedAlert
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(24.dp).testTag("StrategiesScreen")) {
         StrategiesHeader(
             searchQuery = uiState.searchQuery,
             onSearchChange = viewModel::onSearchChange,
+            onClearSearch = {
+                if (uiState.searchQuery.isNotEmpty()) viewModel.onSearchChange("")
+            },
             onAddInstance = viewModel::onShowAddDialog
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        if (uiState.hasActiveFilters) {
+            ActiveFiltersBanner(
+                searchQuery = uiState.searchQuery,
+                instanceFilter = uiState.instanceFilter,
+                strategyTypeFilter = uiState.strategyTypeFilter,
+                selectedMarketLabel = uiState.selectedMarketLabel,
+                filteredCount = uiState.filteredCount,
+                totalCount = uiState.totalCount,
+                onClearFilters = viewModel::onClearFilters
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
         InstanceFilterRow(
             filter = uiState.instanceFilter,
             onFilterChange = viewModel::onInstanceFilterChange,
-            instanceCount = uiState.filteredCount
+            filteredCount = uiState.filteredCount,
+            totalCount = uiState.totalCount,
+            hasActiveFilters = uiState.hasActiveFilters
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -69,16 +120,20 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     .fillMaxHeight()
                     .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
                     .background(SurfaceDark, RoundedCornerShape(8.dp))
-                    .padding(12.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
                     .testTag("StrategyInstanceList")
             ) {
                 Text(
-                    "Instances (${uiState.filteredCount})",
-                    fontSize = 14.sp,
+                    if (uiState.hasActiveFilters) {
+                        "Instances (${uiState.filteredCount} of ${uiState.totalCount})"
+                    } else {
+                        "Instances (${uiState.totalCount})"
+                    },
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (uiState.filteredRows.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -91,14 +146,20 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(uiState.filteredRows, key = { it.id }) { row ->
                             StrategyInstanceCard(
                                 row = row,
                                 isSelected = row.id == uiState.selectedInstanceId,
                                 onSelect = { viewModel.onSelectInstance(row.id) },
-                                onToggleRun = { viewModel.onToggleRun(row.id) }
+                                onToggleRun = { viewModel.onToggleRun(row.id) },
+                                globalAutoStartEnabled = uiState.globalAutoStartEnabled,
+                                onAutoStartChange = { enabled ->
+                                    viewModel.onUpdateInstance(row.id) {
+                                        it.copy(autoStartOnMarketOpen = enabled)
+                                    }
+                                }
                             )
                         }
                     }
@@ -107,35 +168,252 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            Column(
+            StrategyInstanceDetailPanel(
+                selectedInstance = uiState.selectedInstance,
+                cardPresentation = uiState.selectedCardPresentation,
+                detailTab = uiState.detailTab,
+                globalAutoStartEnabled = uiState.globalAutoStartEnabled,
+                performance = uiState.performance,
+                liveExecution = uiState.liveExecution,
+                liveBroker = uiState.liveBroker,
+                onTabChange = viewModel::onDetailTabChange,
+                onUpdateInstance = viewModel::onUpdateInstance,
+                onStartStop = viewModel::onToggleRun,
+                onRunHeaderClick = viewModel::onRunHeaderClick,
+                onDeletePerformanceRun = viewModel::onDeletePerformanceRun,
+                onAdjustStop = viewModel::onAdjustStop,
+                onClosePosition = viewModel::onClosePosition,
+                onDuplicate = viewModel::onDuplicateSelected,
+                onDelete = viewModel::onDeleteSelected,
                 modifier = Modifier
                     .weight(0.62f)
                     .fillMaxHeight()
-                    .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
-                    .background(SurfaceDark, RoundedCornerShape(8.dp))
-                    .testTag("StrategyInstanceDetail")
-            ) {
-                val selected = uiState.selectedInstance
-                if (selected == null) {
-                    StrategyDetailEmptyState(modifier = Modifier.fillMaxSize())
-                } else {
-                    StrategyInstanceDetail(
-                        instance = selected,
-                        detailTab = uiState.detailTab,
-                        performance = uiState.performance,
-                        liveExecution = uiState.liveExecution,
-                        onTabChange = viewModel::onDetailTabChange,
-                        onUpdate = { transform -> viewModel.onUpdateInstance(selected.id, transform) },
-                        onStartStop = { viewModel.onToggleRun(selected.id) },
-                        onRunHeaderClick = viewModel::onRunHeaderClick,
-                        onAdjustStop = viewModel::onAdjustStop,
-                        onClosePosition = viewModel::onClosePosition,
-                        onDuplicate = viewModel::onDuplicateSelected,
-                        onDelete = viewModel::onDeleteSelected
-                    )
+            )
+        }
+    }
+}
+
+@Composable
+private fun StrategyInstanceDetailPanel(
+    selectedInstance: StrategyInstance?,
+    cardPresentation: InstanceCardPresentation?,
+    detailTab: StrategyDetailTab,
+    globalAutoStartEnabled: Boolean,
+    performance: PerformanceUiState?,
+    liveExecution: LiveExecutionUiState?,
+    liveBroker: LiveBrokerUiState?,
+    onTabChange: (StrategyDetailTab) -> Unit,
+    onUpdateInstance: (String, (StrategyInstance) -> StrategyInstance) -> Unit,
+    onStartStop: (String) -> Unit,
+    onRunHeaderClick: (RunSortColumn) -> Unit,
+    onDeletePerformanceRun: (String, String) -> Unit,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = cardPresentation?.accent ?: InstanceCardAccent.STOPPED_IDLE
+    InstanceCardChrome(
+        accent = accent,
+        modifier = modifier.testTag("StrategyInstanceDetail")
+    ) {
+        if (selectedInstance == null) {
+            StrategyDetailEmptyState(modifier = Modifier.fillMaxSize())
+        } else {
+            StrategyInstanceDetail(
+                instance = selectedInstance,
+                cardPresentation = cardPresentation,
+                detailTab = detailTab,
+                globalAutoStartEnabled = globalAutoStartEnabled,
+                performance = performance,
+                liveExecution = liveExecution,
+                liveBroker = liveBroker,
+                onTabChange = onTabChange,
+                onUpdate = { transform -> onUpdateInstance(selectedInstance.id, transform) },
+                onStartStop = { onStartStop(selectedInstance.id) },
+                onRunHeaderClick = onRunHeaderClick,
+                onDeletePerformanceRun = onDeletePerformanceRun,
+                onAdjustStop = onAdjustStop,
+                onClosePosition = onClosePosition,
+                onDuplicate = onDuplicate,
+                onDelete = onDelete
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActiveFiltersBanner(
+    searchQuery: String,
+    instanceFilter: InstanceFilter,
+    strategyTypeFilter: StrategyType?,
+    selectedMarketLabel: String?,
+    filteredCount: Int,
+    totalCount: Int,
+    onClearFilters: () -> Unit
+) {
+    val parts = buildList {
+        selectedMarketLabel?.let { add("$it market") }
+        if (searchQuery.isNotBlank()) add("search \"$searchQuery\"")
+        if (instanceFilter != InstanceFilter.ALL) {
+            add(
+                when (instanceFilter) {
+                    InstanceFilter.RUNNING -> "running only"
+                    InstanceFilter.STOPPED -> "stopped only"
+                    InstanceFilter.ALL -> ""
                 }
+            )
+        }
+        strategyTypeFilter?.let { add(StrategyCatalog.displayName(it)) }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MarketOpenSurface.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .border(1.dp, MarketOpenBorder.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Filters active — showing $filteredCount of $totalCount instances",
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (parts.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(parts.joinToString(", "), color = TextSecondary, fontSize = 12.sp)
             }
         }
+        TextButton(onClick = onClearFilters) {
+            Text("Clear filters", color = GainGreen, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun animatedCardPulseAlpha(accent: InstanceCardAccent): Float {
+    if (!accent.isPulsing) return 1f
+    val transition = rememberInfiniteTransition(label = "instanceCardPulse")
+    val alpha by transition.animateFloat(
+        initialValue = 0.28f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(750), repeatMode = RepeatMode.Reverse),
+        label = "instanceCardPulseAlpha"
+    )
+    return alpha
+}
+
+@Composable
+private fun InstanceCardChrome(
+    accent: InstanceCardAccent,
+    isSelected: Boolean = false,
+    shape: RoundedCornerShape = RoundedCornerShape(8.dp),
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val style = instanceCardStyle(accent)
+    val pulseAlpha = animatedCardPulseAlpha(accent)
+    val accentBorder = style.borderColor.copy(alpha = style.borderColor.alpha * pulseAlpha)
+    val borderColor = if (isSelected) BrandRed else accentBorder
+    val borderWidth = if (isSelected) 2.dp else style.borderWidth
+    Box(
+        modifier = modifier
+            .border(borderWidth, borderColor, shape)
+            .background(style.surfaceBrush, shape)
+    ) {
+        content()
+    }
+}
+
+private data class InstanceCardStyle(
+    val borderWidth: Dp,
+    val borderColor: Color,
+    val surfaceBrush: Brush
+)
+
+private fun instanceCardStyle(accent: InstanceCardAccent): InstanceCardStyle = when (accent) {
+    InstanceCardAccent.ERROR -> InstanceCardStyle(
+        2.dp,
+        SessionErrorBorder.copy(alpha = 0.9f),
+        Brush.verticalGradient(listOf(SessionErrorSurface, SessionErrorGlow))
+    )
+    InstanceCardAccent.STOPPED_IDLE -> InstanceCardStyle(
+        1.dp,
+        TableHeaderBg,
+        Brush.linearGradient(listOf(SurfaceDark, SurfaceDark))
+    )
+    InstanceCardAccent.STOPPED_NEUTRAL -> InstanceCardStyle(
+        2.dp,
+        TradeNeutralBorder,
+        Brush.verticalGradient(listOf(TradeNeutralSurface, TradeNeutralGlow))
+    )
+    InstanceCardAccent.STOPPED_WIN -> InstanceCardStyle(
+        2.dp,
+        MarketOpenBorder.copy(alpha = 0.9f),
+        Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))
+    )
+    InstanceCardAccent.STOPPED_LOSS -> InstanceCardStyle(
+        2.dp,
+        TradeRedBorder.copy(alpha = 0.9f),
+        Brush.verticalGradient(listOf(TradeRedSurface, TradeRedGlow))
+    )
+    InstanceCardAccent.RUNNING_FLAT -> InstanceCardStyle(
+        2.dp,
+        TradeBlueBorder.copy(alpha = 0.85f),
+        Brush.verticalGradient(listOf(TradeBlueSurface, TradeBlueGlow))
+    )
+    InstanceCardAccent.RUNNING_IN_THE_MONEY -> InstanceCardStyle(
+        2.dp,
+        MarketOpenBorder,
+        Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))
+    )
+    InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY -> InstanceCardStyle(
+        2.dp,
+        TradeRedBorder,
+        Brush.verticalGradient(listOf(TradeRedSurface, TradeRedGlow))
+    )
+}
+
+private fun instanceChipColor(accent: InstanceCardAccent): Color = when (accent) {
+    InstanceCardAccent.ERROR -> SessionErrorBorder
+    InstanceCardAccent.STOPPED_IDLE -> TextSecondary
+    InstanceCardAccent.STOPPED_NEUTRAL -> TradeNeutralBorder
+    InstanceCardAccent.STOPPED_WIN,
+    InstanceCardAccent.RUNNING_IN_THE_MONEY -> MarketOpenBorder
+    InstanceCardAccent.RUNNING_FLAT -> TradeBlueBorder
+    InstanceCardAccent.STOPPED_LOSS,
+    InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY -> TradeRedBorder
+}
+
+@Composable
+private fun InstanceStateChip(
+    label: String,
+    accent: InstanceCardAccent,
+    compact: Boolean = false
+) {
+    val baseColor = instanceChipColor(accent)
+    val pulseAlpha = animatedCardPulseAlpha(accent)
+    val color = baseColor.copy(alpha = baseColor.alpha * pulseAlpha)
+    val dotSize = if (compact) 5.dp else 8.dp
+    val fontSize = if (compact) 9.sp else 12.sp
+    val spacing = if (compact) 4.dp else 6.dp
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(spacing)) {
+        Box(
+            modifier = Modifier
+                .size(dotSize)
+                .background(color, RoundedCornerShape(50))
+        )
+        Text(
+            label,
+            color = color,
+            fontSize = fontSize,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 
@@ -143,6 +421,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
 private fun StrategiesHeader(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
     onAddInstance: () -> Unit
 ) {
     Row(
@@ -165,6 +444,13 @@ private fun StrategiesHeader(
                 onValueChange = onSearchChange,
                 placeholder = { Text("Search instances...", color = TextSecondary) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = onClearSearch) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search", tint = TextSecondary)
+                        }
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = DarkBackground,
                     unfocusedContainerColor = DarkBackground,
@@ -213,7 +499,9 @@ private fun StrategyTypeFilterRow(
 private fun InstanceFilterRow(
     filter: InstanceFilter,
     onFilterChange: (InstanceFilter) -> Unit,
-    instanceCount: Int
+    filteredCount: Int,
+    totalCount: Int,
+    hasActiveFilters: Boolean
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -237,7 +525,11 @@ private fun InstanceFilterRow(
                 onClick = { onFilterChange(InstanceFilter.STOPPED) }
             )
         }
-        Text("$instanceCount shown", fontSize = 12.sp, color = TextSecondary)
+        Text(
+            if (hasActiveFilters) "$filteredCount of $totalCount" else "$totalCount total",
+            fontSize = 12.sp,
+            color = TextSecondary
+        )
     }
 }
 
@@ -259,68 +551,135 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
+private fun CompactAutoStartToggle(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tint = when {
+        !enabled -> TextSecondary.copy(alpha = 0.4f)
+        checked -> GainGreen
+        else -> TextSecondary
+    }
+    IconButton(
+        onClick = { onCheckedChange(!checked) },
+        enabled = enabled,
+        modifier = modifier
+            .size(20.dp)
+            .testTag("AutoStartToggle")
+    ) {
+        Icon(
+            imageVector = Icons.Default.Schedule,
+            contentDescription = if (checked) "Auto-start on" else "Auto-start off",
+            tint = tint,
+            modifier = Modifier.size(14.dp)
+        )
+    }
+}
+
+@Composable
 private fun StrategyInstanceCard(
     row: StrategyInstanceRowUi,
     isSelected: Boolean,
+    globalAutoStartEnabled: Boolean,
     onSelect: () -> Unit,
-    onToggleRun: () -> Unit
+    onToggleRun: () -> Unit,
+    onAutoStartChange: (Boolean) -> Unit
 ) {
-    val borderColor = if (isSelected) BrandRed else TableHeaderBg
-    Column(
+    val cardShape = RoundedCornerShape(6.dp)
+    InstanceCardChrome(
+        accent = row.cardAccent,
+        isSelected = isSelected,
+        shape = cardShape,
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onSelect)
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
-            .background(if (isSelected) TableHeaderBg else DarkBackground, RoundedCornerShape(8.dp))
-            .padding(12.dp)
+            .testTag("StrategyInstanceCard-${row.id}")
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(row.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(4.dp))
-                StrategyTypePill(row.strategyTypeLabel)
-            }
-            IconButton(onClick = onToggleRun, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    imageVector = if (row.status == InstanceStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = if (row.status == InstanceStatus.RUNNING) "Stop" else "Start",
-                    tint = if (row.status == InstanceStatus.RUNNING) LossRed else GainGreen
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            StatusChip(row.status)
-            Column(horizontalAlignment = Alignment.End) {
-                Text("Total P&L", fontSize = 10.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(2.dp))
+        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
-                    row.formattedTotalPnL,
-                    color = if (row.isPositiveTotalPnL) GainGreen else LossRed,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp
+                    row.name,
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+                IconButton(
+                    onClick = onToggleRun,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (row.status == InstanceStatus.RUNNING) {
+                            Icons.Default.Stop
+                        } else {
+                            Icons.Default.PlayArrow
+                        },
+                        contentDescription = if (row.status == InstanceStatus.RUNNING) "Stop" else "Start",
+                        tint = if (row.status == InstanceStatus.RUNNING) LossRed else GainGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                InstanceStateChip(
+                    label = row.statusChipLabel,
+                    accent = row.cardAccent,
+                    compact = true
+                )
+                CompactAutoStartToggle(
+                    checked = row.autoStartOnMarketOpen,
+                    enabled = globalAutoStartEnabled,
+                    onCheckedChange = onAutoStartChange
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                CompactInstanceStat(
+                    label = "Win",
+                    value = row.formattedWinRate,
+                    valueColor = winRateColor(row.winRateIsPositive)
+                )
+                CompactInstanceStat(
+                    label = "P&L",
+                    value = row.formattedTotalPnL,
+                    valueColor = if (row.isPositiveTotalPnL) GainGreen else LossRed
                 )
             }
         }
-        if (row.liveTradeSummary != null) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(row.liveTradeSummary, color = TextSecondary, fontSize = 11.sp, maxLines = 1)
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        InstanceRollupRow(row)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(row.paramsSummary, color = TextSecondary, fontSize = 12.sp)
-        if (row.status == InstanceStatus.RUNNING) {
-            Text("${row.tradesToday} trades today", color = TextSecondary, fontSize = 11.sp)
-        }
+    }
+}
+
+private fun winRateColor(winRateIsPositive: Boolean?): Color = when (winRateIsPositive) {
+    true -> MarketOpenBorder
+    false -> TradeRedBorder
+    null -> TextSecondary
+}
+
+@Composable
+private fun CompactInstanceStat(
+    label: String,
+    value: String,
+    valueColor: Color
+) {
+    Column(horizontalAlignment = Alignment.End) {
+        Text(label, fontSize = 8.sp, color = TextSecondary, lineHeight = 9.sp)
+        Text(
+            value,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = valueColor,
+            maxLines = 1,
+            lineHeight = 11.sp
+        )
     }
 }
 
@@ -368,23 +727,6 @@ private fun StrategyTypePill(label: String) {
 }
 
 @Composable
-private fun StatusChip(status: InstanceStatus) {
-    val (label, color) = when (status) {
-        InstanceStatus.RUNNING -> "Running" to GainGreen
-        InstanceStatus.STOPPED -> "Stopped" to TextSecondary
-        InstanceStatus.ERROR -> "Error" to LossRed
-    }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(color, RoundedCornerShape(50))
-        )
-        Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
 private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -398,13 +740,17 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun StrategyInstanceDetail(
     instance: StrategyInstance,
+    cardPresentation: InstanceCardPresentation?,
     detailTab: StrategyDetailTab,
+    globalAutoStartEnabled: Boolean,
     performance: PerformanceUiState?,
     liveExecution: LiveExecutionUiState?,
+    liveBroker: LiveBrokerUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
     onRunHeaderClick: (RunSortColumn) -> Unit,
+    onDeletePerformanceRun: (String, String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -487,19 +833,28 @@ private fun StrategyInstanceDetail(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(20.dp)
         ) {
             when (detailTab) {
-                StrategyDetailTab.CONFIGURATION -> ConfigurationTab(instance, onUpdate)
+                StrategyDetailTab.CONFIGURATION -> ConfigurationTab(
+                    instance = instance,
+                    globalAutoStartEnabled = globalAutoStartEnabled,
+                    onUpdate = onUpdate
+                )
                 StrategyDetailTab.LIVE -> LiveTab(
+                    instance = instance,
                     liveExecution = liveExecution,
+                    liveBroker = liveBroker,
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
                 )
                 StrategyDetailTab.PERFORMANCE -> PerformanceTab(
                     performance = performance,
-                    onRunHeaderClick = onRunHeaderClick
+                    onRunHeaderClick = onRunHeaderClick,
+                    onDeleteRun = { runId -> onDeletePerformanceRun(instance.id, runId) }
                 )
             }
         }
@@ -513,7 +868,9 @@ private fun StrategyInstanceDetail(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("Last update: ${instance.live.updatedAt}", fontSize = 11.sp, color = TextSecondary)
-            StatusChip(instance.status)
+            val chipLabel = cardPresentation?.chipLabel ?: "Stopped"
+            val chipAccent = cardPresentation?.accent ?: InstanceCardAccent.STOPPED_IDLE
+            InstanceStateChip(label = chipLabel, accent = chipAccent)
         }
     }
 }
@@ -521,11 +878,20 @@ private fun StrategyInstanceDetail(
 @Composable
 private fun ConfigurationTab(
     instance: StrategyInstance,
+    globalAutoStartEnabled: Boolean,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit
 ) {
     val canEdit = instance.status != InstanceStatus.RUNNING
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!globalAutoStartEnabled) {
+            Text(
+                "Global auto-start is OFF (top bar). Per-instance settings are saved but won't run until re-enabled.",
+                fontSize = 12.sp,
+                color = LossRed,
+                lineHeight = 15.sp
+            )
+        }
         ConfigField(
             label = "Symbol",
             value = instance.symbol,
@@ -534,11 +900,18 @@ private fun ConfigurationTab(
         )
         if (!canEdit) {
             Text(
-                "Stop the instance to edit max at risk.",
+                "Stop the instance to edit configuration.",
                 fontSize = 12.sp,
                 color = TextSecondary
             )
         }
+        AutoStartOnMarketOpenField(
+            checked = instance.autoStartOnMarketOpen,
+            enabled = canEdit && globalAutoStartEnabled,
+            onCheckedChange = { enabled ->
+                onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
+            }
+        )
         ConfigField(
             label = "Max at risk (\$)",
             value = instance.maxDollars.toString(),
@@ -549,32 +922,834 @@ private fun ConfigurationTab(
                 }
             }
         )
+        if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+            TouchTurnMarketOpenTimers(symbol = instance.symbol)
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnMarketOpenTimers(symbol: String) {
+    val marketZone = SymbolMarkets.zoneId(symbol)
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(symbol, marketZone) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
+    val elapsedSinceOpen = remember(marketZone, tick) {
+        TouchTurnLogic.millisSinceLastMarketOpenWallClock(marketZone)
+    }
+    val untilNextOpen = remember(marketZone, tick) {
+        TouchTurnLogic.millisUntilNextMarketOpen(marketZone)
+    }
+    val nextOpenLabel = remember(marketZone, tick) {
+        TouchTurnLogic.nextMarketOpenLocalLabel(marketZone)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceDark, RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .testTag("TouchTurnMarketOpenTimers"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "Market session (${TouchTurnLogic.marketOpenZoneAbbrev(marketZone)})",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("TouchTurnSinceMarketOpen"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Since market open", fontSize = 10.sp, color = TextSecondary)
+            Text(
+                TouchTurnLogic.formatElapsedSinceMarketOpen(elapsedSinceOpen),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.testTag("TouchTurnSinceMarketOpenElapsed")
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("TouchTurnUntilNextMarketOpen"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Next open at $nextOpenLabel",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                TouchTurnLogic.formatCountdownToNextMarketOpen(untilNextOpen),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFB74D),
+                modifier = Modifier.testTag("TouchTurnUntilNextMarketOpenCountdown")
+            )
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbol: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .testTag("TouchTurnFirstCandleSection"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "Touch Turn — session open",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+        when {
+            session == null -> Text(
+                "Loading Touch Turn session from IB…",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            session.status == TouchTurnCandleStatus.LOADING -> Text(
+                "Loading opening bar and 14-day ADR from IB…",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            session.status == TouchTurnCandleStatus.FAILED -> Text(
+                session.errorMessage ?: "Failed to load session data.",
+                fontSize = 12.sp,
+                color = LossRed
+            )
+            session.candle != null -> {
+                var tick by remember { mutableIntStateOf(0) }
+                LaunchedEffect(session.candle.time, session.marketZoneId) {
+                    while (true) {
+                        delay(1_000)
+                        tick++
+                    }
+                }
+                val closeStatus = remember(session, tick) { session.candleCloseStatus() }
+                val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
+                val entryWindow = remember(session, tick) { session.entryWindowStatus() }
+                val entryRemainingSec = remember(session, tick) {
+                    TouchTurnLogic.entryWindowRemainingMillis(session.candle, session.marketZoneId)
+                        ?.let { (it / 1000).toInt() }
+                }
+                val candle = session.candle
+                val currency = session.currencyCode
+                val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
+
+                TouchTurnPanelGroup(
+                    title = "Opening 15-minute bar",
+                    testTag = "TouchTurnOpeningBarGroup",
+                    compact = true
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                candle.time?.let { time ->
+                                    Text(time, fontSize = 10.sp, color = TextSecondary, maxLines = 1)
+                                }
+                                val closeColor = when (closeStatus) {
+                                    FirstCandleCloseStatus.CLOSED -> GainGreen
+                                    FirstCandleCloseStatus.FORMING -> Color(0xFFFFB74D)
+                                    FirstCandleCloseStatus.UNKNOWN -> TextSecondary
+                                }
+                                Text(
+                                    TouchTurnLogic.closeStatusLabel(closeStatus),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = closeColor,
+                                    modifier = Modifier.testTag("TouchTurnCandleCloseStatus")
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("TouchTurnDirectionPrices"),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TouchTurnMetric("Open", fmt(candle.open), Modifier.weight(1f), compact = true)
+                                TouchTurnMetric("Close", fmt(candle.close), Modifier.weight(1f), compact = true)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TouchTurnMetric("High", fmt(candle.high), Modifier.weight(1f), compact = true)
+                                TouchTurnMetric("Low", fmt(candle.low), Modifier.weight(1f), compact = true)
+                                TouchTurnMetric("Range", fmt(candle.range), Modifier.weight(1f), compact = true)
+                            }
+                        }
+                        session.firstCandleColor()?.let { color ->
+                            FirstCandleStick(
+                                candle = candle,
+                                color = color,
+                                modifier = Modifier
+                                    .testTag("TouchTurnCandleColor")
+                                    .size(width = 28.dp, height = 52.dp)
+                            )
+                        }
+                    }
+                }
+
+                TouchTurnPanelGroup(
+                    title = "Liquidity bar check",
+                    testTag = "TouchTurnLiquidityGroup",
+                    compact = true
+                ) {
+                    session.adr14?.let { adr ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TouchTurnMetric("ADR (14d)", fmt(adr), Modifier.weight(1f), compact = true)
+                            TouchTurnMetric("25% thresh.", fmt(session.rangeThreshold), Modifier.weight(1f), compact = true)
+                        }
+                    }
+                    when (liquidityEval) {
+                        LiquidityCandleEvaluation.AWAITING_CLOSE -> {
+                            Text(
+                                "Waiting for bar to close…",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFFFB74D),
+                                modifier = Modifier.testTag("TouchTurnLiquidityStatus")
+                            )
+                        }
+                        LiquidityCandleEvaluation.LIQUIDITY -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    TouchTurnLogic.liquidityEvaluationLabel(liquidityEval),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = GainGreen,
+                                    modifier = Modifier.testTag("TouchTurnLiquidityStatus")
+                                )
+                                Text(
+                                    "${fmt(candle.range)} > ${fmt(session.rangeThreshold)}",
+                                    fontSize = 10.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        LiquidityCandleEvaluation.NOT_LIQUIDITY -> {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    TouchTurnLogic.liquidityEvaluationLabel(liquidityEval),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextSecondary,
+                                    modifier = Modifier.testTag("TouchTurnLiquidityStatus")
+                                )
+                                Text(
+                                    "${fmt(candle.range)} ≤ ${fmt(session.rangeThreshold)}",
+                                    fontSize = 10.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        LiquidityCandleEvaluation.UNKNOWN -> {
+                            Text(
+                                TouchTurnLogic.liquidityEvaluationLabel(liquidityEval),
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                modifier = Modifier.testTag("TouchTurnLiquidityStatus")
+                            )
+                        }
+                    }
+                    if (closeStatus == FirstCandleCloseStatus.CLOSED) {
+                        val windowColor = when (entryWindow) {
+                            TouchTurnEntryWindowStatus.WITHIN_WINDOW -> GainGreen
+                            TouchTurnEntryWindowStatus.EXPIRED -> LossRed
+                            else -> TextSecondary
+                        }
+                        Text(
+                            buildString {
+                                append(TouchTurnLogic.entryWindowStatusLabel(entryWindow))
+                                if (entryWindow == TouchTurnEntryWindowStatus.WITHIN_WINDOW && entryRemainingSec != null) {
+                                    append(" — ${entryRemainingSec}s left")
+                                }
+                            },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = windowColor,
+                            modifier = Modifier.testTag("TouchTurnEntryWindowStatus")
+                        )
+                    }
+                }
+
+                if (liquidityEval == LiquidityCandleEvaluation.LIQUIDITY &&
+                    entryWindow == TouchTurnEntryWindowStatus.EXPIRED
+                ) {
+                    TouchTurnEntryWindowAlert(
+                        message = TouchTurnLogic.entryWindowExpiredAlert(candle, session.marketZoneId),
+                        modifier = Modifier.testTag("TouchTurnEntryWindowAlert")
+                    )
+                }
+
+                if (liquidityEval == LiquidityCandleEvaluation.LIQUIDITY &&
+                    entryWindow == TouchTurnEntryWindowStatus.WITHIN_WINDOW
+                ) {
+                    val orderSetup = remember(session, tick) {
+                        session.setup?.takeIf { it.isLiquidityCandle }
+                            ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
+                    }
+                    TouchTurnPanelGroup(
+                        title = "Order preview (not sent)",
+                        testTag = "TouchTurnOrderPreviewGroup",
+                        compact = true
+                    ) {
+                        Text(
+                            "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}",
+                            fontSize = 10.sp,
+                            color = TextSecondary,
+                            lineHeight = 13.sp
+                        )
+                        if (orderSetup.isActionable) {
+                            TouchTurnOrderPreviewChart(
+                                candle = candle,
+                                setup = orderSetup,
+                                fmt = fmt,
+                                modifier = Modifier.testTag("TouchTurnOrderPreviewChart")
+                            )
+                        } else {
+                            Text(
+                                "Flat opening candle — no directional entry.",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                if (session.entryOrdersPermitted == true) {
+                    val cancelOutcome = session.noPositionBracketCancelOutcome
+                    val cancelRemainingMs = remember(session, tick) { session.noPositionCancelMillisRemaining() }
+                    when (cancelOutcome) {
+                        TouchTurnNoPositionCancelOutcome.WOULD_CANCEL_LOGGED -> {
+                            TouchTurnEntryWindowAlert(
+                                message = TouchTurnLogic.noPositionCancelAlert(
+                                    session.sessionDate,
+                                    session.marketZoneId,
+                                    symbol
+                                ),
+                                modifier = Modifier.testTag("TouchTurnNoPositionCancelAlert")
+                            )
+                        }
+                        TouchTurnNoPositionCancelOutcome.KEPT_HAS_POSITION -> {
+                            Text(
+                                TouchTurnLogic.noPositionCancelOutcomeLabel(cancelOutcome),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = GainGreen,
+                                modifier = Modifier.testTag("TouchTurnNoPositionCancelStatus")
+                            )
+                        }
+                        TouchTurnNoPositionCancelOutcome.PENDING,
+                        null -> {
+                            cancelRemainingMs?.let { remaining ->
+                                Text(
+                                    TouchTurnLogic.noPositionCancelPendingLabel(remaining),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFFFFB74D),
+                                    modifier = Modifier.testTag("TouchTurnNoPositionCancelPending")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnEntryWindowAlert(message: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(LossRed.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+            .border(1.dp, LossRed.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            Icons.Default.Warning,
+            contentDescription = null,
+            tint = LossRed,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            message,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+            lineHeight = 14.sp
+        )
+    }
+}
+
+@Composable
+private fun TouchTurnPanelGroup(
+    title: String,
+    testTag: String,
+    compact: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceDark, RoundedCornerShape(6.dp))
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
+            .padding(if (compact) 8.dp else 12.dp)
+            .testTag(testTag),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
+    ) {
+        Text(
+            title,
+            fontSize = if (compact) 11.sp else 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BrandRed
+        )
+        if (!compact) {
+            HorizontalDivider(color = TableHeaderBg)
+        }
+        content()
+    }
+}
+
+@Composable
+private fun FirstCandleStick(
+    candle: OhlcBar,
+    color: FirstCandleColor,
+    modifier: Modifier = Modifier
+) {
+    val bodyColor = when (color) {
+        FirstCandleColor.GREEN -> CandleGreen
+        FirstCandleColor.RED -> CandleRed
+        FirstCandleColor.DOJI -> TextSecondary
+    }
+    val minBodyPx = with(androidx.compose.ui.platform.LocalDensity.current) { 4.dp.toPx() }
+
+    Canvas(modifier = modifier) {
+        val centerX = size.width / 2f
+        val height = size.height
+        val bodyWidth = size.width * 0.42f
+        val range = (candle.high - candle.low).toFloat().coerceAtLeast(0.0001f)
+
+        fun y(price: Double): Float {
+            val fraction = ((candle.high - price) / range).toFloat()
+            return (fraction * height).coerceIn(0f, height)
+        }
+
+        val yHigh = y(candle.high)
+        val yLow = y(candle.low)
+        val yOpen = y(candle.open)
+        val yClose = y(candle.close)
+        val wickStroke = 2.dp.toPx()
+
+        drawLine(
+            color = bodyColor,
+            start = Offset(centerX, yHigh),
+            end = Offset(centerX, yLow),
+            strokeWidth = wickStroke
+        )
+
+        when (color) {
+            FirstCandleColor.DOJI -> {
+                val halfW = bodyWidth / 2f
+                drawLine(
+                    color = bodyColor,
+                    start = Offset(centerX - halfW, yClose),
+                    end = Offset(centerX + halfW, yClose),
+                    strokeWidth = wickStroke
+                )
+            }
+            else -> {
+                val top = minOf(yOpen, yClose)
+                val bottom = maxOf(yOpen, yClose)
+                val bodyHeight = (bottom - top).coerceAtLeast(minBodyPx)
+                drawRect(
+                    color = bodyColor,
+                    topLeft = Offset(centerX - bodyWidth / 2f, top),
+                    size = Size(bodyWidth, bodyHeight)
+                )
+            }
+        }
+    }
+}
+
+private data class TouchTurnPriceLevel(
+    val price: Double,
+    val label: String,
+    val color: Color,
+    val strokeWidthDp: Float = 2f
+)
+
+@Composable
+private fun TouchTurnOrderPreviewChart(
+    candle: OhlcBar,
+    setup: TouchTurnBracketSetup,
+    fmt: (Double) -> String,
+    modifier: Modifier = Modifier
+) {
+    val entryColor = Color(0xFF42A5F5)
+    val bodyColor = when (setup.candleColor) {
+        FirstCandleColor.GREEN -> CandleGreen
+        FirstCandleColor.RED -> CandleRed
+        FirstCandleColor.DOJI -> TextSecondary
+    }
+    val prices = listOf(
+        candle.high,
+        candle.low,
+        candle.open,
+        candle.close,
+        setup.entry,
+        setup.stopLoss,
+        setup.takeProfit
+    )
+    val pad = candle.range * 0.15
+    val priceTop = prices.max() + pad
+    val priceBottom = prices.min() - pad
+    val span = (priceTop - priceBottom).coerceAtLeast(0.0001)
+    fun yFraction(price: Double): Float =
+        ((priceTop - price) / span).toFloat().coerceIn(0f, 1f)
+
+    val levels = listOf(
+        TouchTurnPriceLevel(candle.high, "High", TextSecondary.copy(alpha = 0.55f), 1f),
+        TouchTurnPriceLevel(candle.low, "Low", TextSecondary.copy(alpha = 0.55f), 1f),
+        TouchTurnPriceLevel(
+            setup.entry,
+            "Entry (${TouchTurnLogic.tradeSideLabel(setup.side)})",
+            entryColor,
+            2.5f
+        ),
+        TouchTurnPriceLevel(
+            setup.takeProfit,
+            "Take profit (${TouchTurnLogic.takeProfitFibLabel(setup.candleColor)})",
+            GainGreen,
+            2.5f
+        ),
+        TouchTurnPriceLevel(setup.stopLoss, "Stop loss", LossRed, 2.5f)
+    )
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(148.dp)
+    ) {
+        val chartHeight = maxHeight
+        val labelColumnWidth = 96.dp
+        val chartWidth = (maxWidth - labelColumnWidth).coerceAtLeast(80.dp)
+
+        Canvas(
+            modifier = Modifier
+                .width(chartWidth)
+                .fillMaxHeight()
+        ) {
+            val candleLeft = size.width * 0.34f
+            val candleWidth = size.width * 0.28f
+            val centerX = candleLeft + candleWidth / 2f
+            fun y(price: Double): Float {
+                val fraction = ((priceTop - price) / span).toFloat()
+                return (fraction * size.height).coerceIn(0f, size.height)
+            }
+
+            drawRect(
+                color = TableHeaderBg.copy(alpha = 0.4f),
+                topLeft = Offset(candleLeft, y(candle.high)),
+                size = Size(candleWidth, y(candle.low) - y(candle.high))
+            )
+
+            val wickStroke = 2.dp.toPx()
+            drawLine(
+                color = bodyColor,
+                start = Offset(centerX, y(candle.high)),
+                end = Offset(centerX, y(candle.low)),
+                strokeWidth = wickStroke
+            )
+            val yOpen = y(candle.open)
+            val yClose = y(candle.close)
+            val top = minOf(yOpen, yClose)
+            val bottom = maxOf(yOpen, yClose)
+            val minBodyPx = 4.dp.toPx()
+            drawRect(
+                color = bodyColor,
+                topLeft = Offset(centerX - candleWidth * 0.42f, top),
+                size = Size(candleWidth * 0.84f, (bottom - top).coerceAtLeast(minBodyPx))
+            )
+
+            levels.forEach { level ->
+                val yPos = y(level.price)
+                drawLine(
+                    color = level.color,
+                    start = Offset(0f, yPos),
+                    end = Offset(size.width, yPos),
+                    strokeWidth = level.strokeWidthDp.dp.toPx()
+                )
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            levels.sortedByDescending { it.price }.forEach { level ->
+                val yOffset = chartHeight * yFraction(level.price) - 9.dp
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(x = chartWidth, y = yOffset)
+                        .width(labelColumnWidth)
+                        .padding(start = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(level.label, fontSize = 8.sp, color = level.color, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(fmt(level.price), fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color.White)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TouchTurnLegendDot("Bar", bodyColor)
+            TouchTurnLegendDot("Entry", entryColor)
+            TouchTurnLegendDot("TP", GainGreen)
+            TouchTurnLegendDot("SL", LossRed)
+            val sideLabel = if (setup.side == TouchTurnTradeSide.SHORT) "Short" else "Long"
+            Text(sideLabel, fontSize = 9.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnLegendDot(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(color, RoundedCornerShape(2.dp))
+        )
+        Text(label, fontSize = 9.sp, color = TextSecondary)
+    }
+}
+
+@Composable
+private fun TouchTurnMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    Column(modifier = modifier) {
+        Text(label, fontSize = if (compact) 9.sp else 10.sp, color = TextSecondary, maxLines = 1)
+        Text(
+            value,
+            fontSize = if (compact) 11.sp else 13.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+            maxLines = 1
+        )
     }
 }
 
 @Composable
 private fun LiveTab(
+    instance: StrategyInstance,
     liveExecution: LiveExecutionUiState?,
+    liveBroker: LiveBrokerUiState?,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
-    if (liveExecution == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No live data.", color = TextSecondary, fontSize = 13.sp)
-        }
-        return
-    }
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (instance.status != InstanceStatus.RUNNING) {
+            Text(
+                "Start the instance to view live session data.",
+                color = TextSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.testTag("LiveTabStoppedHint")
+            )
+        } else {
+            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+                TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
+            }
 
-    if (liveExecution.showPanel) {
-        LiveTradePanel(
-            live = liveExecution,
-            onAdjustStop = onAdjustStop,
-            onClosePosition = onClosePosition
-        )
-    } else if (!liveExecution.isRunning) {
-        Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
-    } else {
-        Text("No open trade — watching for signal.", color = TextSecondary, fontSize = 13.sp)
+            liveBroker?.let { broker ->
+                LiveBrokerSection(broker)
+            }
+
+            when {
+                liveExecution == null -> {
+                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
+                        Text("No live data.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+                liveExecution.showPanel -> {
+                    LiveTradePanel(
+                        live = liveExecution,
+                        onAdjustStop = onAdjustStop,
+                        onClosePosition = onClosePosition
+                    )
+                }
+                !liveExecution.isRunning -> {
+                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
+                        Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+                else -> {
+                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
+                        Text("No open trade — watching for signal.", color = TextSecondary, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveBrokerSection(broker: LiveBrokerUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("LiveBrokerSection"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        broker.statusMessage?.let { message ->
+            Text(message, fontSize = 11.sp, color = TextSecondary)
+        }
+
+        TouchTurnPanelGroup(
+            title = "IB position (${broker.symbol})",
+            testTag = "LiveBrokerPositionGroup",
+            compact = true
+        ) {
+            val position = broker.position
+            if (position == null) {
+                Text(
+                    if (broker.isConnected) "No open position for this symbol." else "Position unavailable.",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("LiveBrokerNoPosition")
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            position.companyName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            maxLines = 1
+                        )
+                        Text(
+                            "${position.sideLabel} ${position.quantity} · ${position.symbol}",
+                            fontSize = 10.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    Text(
+                        position.formattedUnrealizedPnL,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (position.isPositivePnL) GainGreen else LossRed,
+                        modifier = Modifier.testTag("LiveBrokerPositionPnL")
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TouchTurnMetric("Avg", position.formattedAvgPrice, Modifier.weight(1f), compact = true)
+                    TouchTurnMetric("Mkt", position.formattedMarketPrice, Modifier.weight(1f), compact = true)
+                    position.formattedDailyChange?.let { change ->
+                        TouchTurnMetric("Day", change, Modifier.weight(1f), compact = true)
+                    }
+                }
+            }
+        }
+
+        TouchTurnPanelGroup(
+            title = "Open orders (${broker.symbol})",
+            testTag = "LiveBrokerOrdersGroup",
+            compact = true
+        ) {
+            if (broker.openOrders.isEmpty()) {
+                Text(
+                    if (broker.isConnected) "No open orders for this symbol." else "Orders unavailable.",
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("LiveBrokerNoOrders")
+                )
+            } else {
+                broker.openOrders.forEachIndexed { index, order ->
+                    if (index > 0) {
+                        HorizontalDivider(color = TableHeaderBg.copy(alpha = 0.6f))
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("LiveBrokerOrder_${order.orderId}"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
+                            Text("#${order.orderId}", fontSize = 9.sp, color = TextSecondary)
+                        }
+                        Text(
+                            order.status,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFFFB74D)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -761,7 +1936,8 @@ private fun LivePriceCell(label: String, value: String?, modifier: Modifier = Mo
 @Composable
 private fun PerformanceTab(
     performance: PerformanceUiState?,
-    onRunHeaderClick: (RunSortColumn) -> Unit
+    onRunHeaderClick: (RunSortColumn) -> Unit,
+    onDeleteRun: (runId: String) -> Unit
 ) {
     if (performance == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -771,7 +1947,7 @@ private fun PerformanceTab(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -795,7 +1971,8 @@ private fun PerformanceTab(
         RunBlotterTable(
             performance = performance,
             onHeaderClick = onRunHeaderClick,
-            modifier = Modifier.weight(1f)
+            onDeleteRun = onDeleteRun,
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
@@ -899,16 +2076,84 @@ private fun ConfigDropdown(
 }
 
 @Composable
+private fun AutoStartOnMarketOpenField(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("AutoStartOnMarketOpenField"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(
+                checkedColor = BrandRed,
+                checkmarkColor = Color.White
+            ),
+            modifier = Modifier.testTag("AutoStartOnMarketOpenCheckbox")
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Auto-start when market opens",
+                fontSize = 13.sp,
+                color = if (enabled) Color.White else TextSecondary,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "Starts this instance at 09:30 RTH in the symbol's market timezone.",
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun StartBlockedByPositionDialog(
+    alert: StartBlockedByPositionAlert,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("StartBlockedByPositionDialog"),
+        containerColor = SurfaceDark,
+        title = {
+            Text("Cannot start instance", color = Color.White, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(alert.summary, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
+                Text(alert.positionDetails, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(alert.reason, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("OK")
+            }
+        }
+    )
+}
+
+@Composable
 private fun AddStrategyInstanceDialog(
     onDismiss: () -> Unit,
     defaultMaxDollarsFor: (StrategyType) -> Int,
-    onCreate: (StrategyType, String, Int) -> Unit
+    onCreate: (StrategyType, String, Int, Boolean) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
     var symbol by remember { mutableStateOf("") }
     var maxDollarsText by remember {
         mutableStateOf(defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString())
     }
+    var autoStartOnMarketOpen by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -936,12 +2181,17 @@ private fun AddStrategyInstanceDialog(
                     value = maxDollarsText,
                     onValueChange = { maxDollarsText = it }
                 )
+                AutoStartOnMarketOpenField(
+                    checked = autoStartOnMarketOpen,
+                    enabled = true,
+                    onCheckedChange = { autoStartOnMarketOpen = it }
+                )
             }
         },
         confirmButton = {
             val maxDollars = maxDollarsText.toIntOrNull() ?: 0
             Button(
-                onClick = { onCreate(selectedStrategyType, symbol, maxDollars) },
+                onClick = { onCreate(selectedStrategyType, symbol, maxDollars, autoStartOnMarketOpen) },
                 enabled = symbol.isNotBlank() && maxDollars > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyInstanceButton")

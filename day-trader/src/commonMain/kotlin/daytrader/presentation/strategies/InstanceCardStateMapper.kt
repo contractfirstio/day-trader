@@ -1,0 +1,100 @@
+package daytrader.presentation.strategies
+
+import daytrader.data.StrategyCatalog
+import daytrader.domain.ExecutionState
+import daytrader.domain.InstanceStatus
+import daytrader.domain.RunStatus
+import daytrader.domain.StrategyInstance
+import daytrader.domain.riskReward
+
+object InstanceCardStateMapper {
+    private const val NEUTRAL_PNL_EPSILON = 0.005
+
+    fun resolve(
+        instance: StrategyInstance,
+        sessionDate: String,
+        brokerUnrealizedPnL: Double? = null
+    ): InstanceCardPresentation = when (instance.status) {
+        InstanceStatus.ERROR -> InstanceCardPresentation(
+            accent = InstanceCardAccent.ERROR,
+            chipLabel = "Error"
+        )
+        InstanceStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
+        InstanceStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
+    }
+
+    private fun stoppedPresentation(
+        instance: StrategyInstance,
+        sessionDate: String
+    ): InstanceCardPresentation {
+        val run = lastClosedRunForSession(instance, sessionDate)
+        if (run == null) {
+            return InstanceCardPresentation(
+                accent = InstanceCardAccent.STOPPED_IDLE,
+                chipLabel = "Stopped"
+            )
+        }
+        return when {
+            run.pnl > NEUTRAL_PNL_EPSILON -> InstanceCardPresentation(
+                accent = InstanceCardAccent.STOPPED_WIN,
+                chipLabel = "Win"
+            )
+            run.pnl < -NEUTRAL_PNL_EPSILON -> InstanceCardPresentation(
+                accent = InstanceCardAccent.STOPPED_LOSS,
+                chipLabel = "Loss"
+            )
+            else -> InstanceCardPresentation(
+                accent = InstanceCardAccent.STOPPED_NEUTRAL,
+                chipLabel = "Neutral"
+            )
+        }
+    }
+
+    private fun runningPresentation(
+        instance: StrategyInstance,
+        brokerUnrealizedPnL: Double?
+    ): InstanceCardPresentation {
+        if (instance.live.state != ExecutionState.FILLED) {
+            return InstanceCardPresentation(
+                accent = InstanceCardAccent.RUNNING_FLAT,
+                chipLabel = "Running"
+            )
+        }
+        val unrealized = openPositionUnrealizedPnL(instance, brokerUnrealizedPnL)
+        if (unrealized == null) {
+            return InstanceCardPresentation(
+                accent = InstanceCardAccent.RUNNING_FLAT,
+                chipLabel = "Running"
+            )
+        }
+        return if (unrealized >= 0) {
+            InstanceCardPresentation(
+                accent = InstanceCardAccent.RUNNING_IN_THE_MONEY,
+                chipLabel = "In the money"
+            )
+        } else {
+            InstanceCardPresentation(
+                accent = InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY,
+                chipLabel = "Out of the money"
+            )
+        }
+    }
+
+    private fun openPositionUnrealizedPnL(
+        instance: StrategyInstance,
+        brokerUnrealizedPnL: Double?
+    ): Double? {
+        if (brokerUnrealizedPnL != null) return brokerUnrealizedPnL
+        return instance.live.riskReward(
+            maxDollars = instance.maxDollars,
+            rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
+        ).unrealizedPnL
+    }
+
+    private fun lastClosedRunForSession(
+        instance: StrategyInstance,
+        sessionDate: String
+    ) = instance.performance
+        .filter { it.status == RunStatus.CLOSED && it.date == sessionDate }
+        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+}

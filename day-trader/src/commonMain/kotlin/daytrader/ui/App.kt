@@ -23,13 +23,24 @@ fun App(
     ibGateway: IbGatewayConnection,
     positionRepository: PositionRepository
 ) {
-    val dependencies = rememberAppDependencies(positionRepository)
+    val dependencies = rememberAppDependencies(
+        positionRepository = positionRepository,
+        touchTurnMarketData = ibGateway
+    )
     var currentScreen by remember { mutableStateOf(AppScreen.POSITIONS) }
+    val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
+    val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = DarkBackground) {
             Column(modifier = Modifier.fillMaxSize()) {
-                ConnectionStatusBar(ibGateway = ibGateway)
+                AppTopBar(
+                    ibGateway = ibGateway,
+                    selectedMarketZoneId = selectedMarketZoneId,
+                    onMarketClick = dependencies.marketFilter::toggle,
+                    globalAutoStartEnabled = strategiesUi.globalAutoStartEnabled,
+                    onGlobalAutoStartChange = dependencies.strategiesViewModel::onGlobalAutoStartEnabledChange
+                )
                 Row(modifier = Modifier.fillMaxSize()) {
                     NavigationRail(
                         containerColor = SurfaceDark,
