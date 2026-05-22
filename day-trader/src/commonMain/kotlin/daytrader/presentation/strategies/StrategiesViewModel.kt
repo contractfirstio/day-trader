@@ -361,7 +361,12 @@ class StrategiesViewModel(
                 ?.totalUnrealizedPnL
         }
         val selectedCardPresentation = selected?.let { instance ->
-            InstanceCardStateMapper.resolve(instance, sessionDate, selectedBrokerPnL)
+            InstanceCardStateMapper.resolve(
+                instance,
+                sessionDate,
+                selectedBrokerPnL,
+                ibOpenOrders
+            )
         }
         val performance = selected?.let { instance ->
             PerformanceUiMapper.build(
@@ -376,7 +381,12 @@ class StrategiesViewModel(
             val brokerPnL = SymbolMarkets.findOpenPosition(instance.symbol, ibPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
-            StrategyUiMapper.toRowUi(instance, sessionDate, brokerUnrealizedPnL = brokerPnL)
+            StrategyUiMapper.toRowUi(
+                instance,
+                sessionDate,
+                brokerUnrealizedPnL = brokerPnL,
+                brokerOpenOrders = ibOpenOrders
+            )
         }
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.instanceFilter != InstanceFilter.ALL ||

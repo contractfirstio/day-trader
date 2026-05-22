@@ -376,6 +376,11 @@ private fun instanceCardStyle(accent: InstanceCardAccent): InstanceCardStyle = w
         TradeRedBorder,
         Brush.verticalGradient(listOf(TradeRedSurface, TradeRedGlow))
     )
+    InstanceCardAccent.OPEN_ORDERS -> InstanceCardStyle(
+        2.dp,
+        OpenOrdersBrownBorder,
+        Brush.verticalGradient(listOf(OpenOrdersBrownSurface, OpenOrdersBrownGlow))
+    )
 }
 
 private fun instanceChipColor(accent: InstanceCardAccent): Color = when (accent) {
@@ -387,6 +392,7 @@ private fun instanceChipColor(accent: InstanceCardAccent): Color = when (accent)
     InstanceCardAccent.RUNNING_FLAT -> TradeBlueBorder
     InstanceCardAccent.STOPPED_LOSS,
     InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY -> TradeRedBorder
+    InstanceCardAccent.OPEN_ORDERS -> OpenOrdersBrownBorder
 }
 
 @Composable

@@ -38,3 +38,8 @@ val TradeNeutralGlow = Color(0xFF2A2E32)
 val SessionErrorBorder = Color(0xFFB388FF)
 val SessionErrorSurface = Color(0xFF151020)
 val SessionErrorGlow = Color(0xFF2A1840)
+
+/** Working open orders at IB for the instance symbol (pulse). */
+val OpenOrdersBrownBorder = Color(0xFFA1887F)
+val OpenOrdersBrownSurface = Color(0xFF1A140F)
+val OpenOrdersBrownGlow = Color(0xFF2E2218)
