@@ -2,78 +2,80 @@ package daytrader.domain
 
 fun newStrategyRunId(): String = "run-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
-fun StrategyInstance.inProgressRun(sessionDate: String): StrategyRun? =
-    performance.find { it.date == sessionDate && it.status == RunStatus.IN_PROGRESS }
+fun StrategyInstance.inProgressRun(): StrategyRun? =
+    performance.find { it.status == RunStatus.IN_PROGRESS }
+
+fun StrategyInstance.withoutPerformanceRun(runId: String): StrategyInstance =
+    copy(performance = performance.filterNot { it.id == runId })
 
 fun StrategyInstance.updateInProgressRun(
-    sessionDate: String,
     transform: (StrategyRun) -> StrategyRun
 ): StrategyInstance {
-    val day = inProgressRun(sessionDate) ?: return this
+    val active = inProgressRun() ?: return this
     return copy(
         performance = performance.map { run ->
-            if (run.id == day.id) transform(run) else run
+            if (run.id == active.id) transform(run) else run
         }
     )
 }
 
-fun StrategyInstance.onRunStarted(sessionDate: String): StrategyInstance {
-    val staleClosed = performance.map { run ->
-        if (run.status == RunStatus.IN_PROGRESS && run.date != sessionDate) {
-            run.copy(status = RunStatus.CLOSED)
+/**
+ * Starts a new performance row for this run cycle. Multiple start/stop cycles on the same
+ * calendar [sessionDate] each get their own line when stopped.
+ */
+fun StrategyInstance.onRunStarted(
+    sessionDate: String,
+    startedAt: String = currentRunTimestampIso()
+): StrategyInstance {
+    val withoutStaleInProgress = performance.map { run ->
+        if (run.status == RunStatus.IN_PROGRESS) {
+            run.copy(status = RunStatus.CLOSED, stoppedAt = startedAt)
         } else {
             run
         }
     }
-
-    val inProgressToday = staleClosed.find {
-        it.date == sessionDate && it.status == RunStatus.IN_PROGRESS
-    }
-    if (inProgressToday != null) {
-        return copy(performance = staleClosed, status = InstanceStatus.RUNNING)
-    }
-
-    val closedToday = staleClosed.find {
-        it.date == sessionDate && it.status == RunStatus.CLOSED
-    }
-    if (closedToday != null) {
-        return copy(
-            performance = staleClosed.map { run ->
-                if (run.id == closedToday.id) {
-                    run.copy(status = RunStatus.IN_PROGRESS)
-                } else {
-                    run
-                }
-            },
-            status = InstanceStatus.RUNNING
-        )
-    }
-
     val newRun = StrategyRun(
         id = newStrategyRunId(),
         date = sessionDate,
+        startedAt = startedAt,
         pnl = 0.0,
         trades = 0,
         maxAtRisk = maxDollars,
         status = RunStatus.IN_PROGRESS
     )
     return copy(
-        performance = staleClosed + newRun,
+        performance = withoutStaleInProgress + newRun,
         status = InstanceStatus.RUNNING
     )
 }
 
-fun StrategyInstance.onRunStopped(sessionDate: String): StrategyInstance = copy(
+/** Closes every in-progress performance row for this run cycle. */
+fun StrategyInstance.onRunStopped(
+    stoppedAt: String = currentRunTimestampIso(),
+    snapshot: RunStopSnapshot? = null
+): StrategyInstance = copy(
     performance = performance.map { run ->
-        if (run.date == sessionDate && run.status == RunStatus.IN_PROGRESS) {
-            run.copy(status = RunStatus.CLOSED)
+        if (run.status == RunStatus.IN_PROGRESS) {
+            run.copy(
+                status = RunStatus.CLOSED,
+                stoppedAt = stoppedAt,
+                hadLiquidityCandle = snapshot?.hadLiquidityCandle,
+                ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
+                positionOpened = snapshot?.positionOpened,
+                pnl = snapshot?.sessionPnL ?: run.pnl,
+                trades = snapshot?.trades ?: run.trades
+            )
         } else {
             run
         }
     },
     live = ActiveExecution.flat(),
+    touchTurnSession = null,
     status = InstanceStatus.STOPPED
 )
+
+fun currentRunTimestampIso(): String =
+    java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)
 
 data class RunRollups(
     val totalPnl: Double,

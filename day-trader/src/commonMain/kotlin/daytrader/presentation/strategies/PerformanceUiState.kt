@@ -3,16 +3,20 @@ package daytrader.presentation.strategies
 import daytrader.presentation.positions.SortDirection
 
 enum class RunSortColumn {
-    DATE, PNL, TRADES, AT_RISK
+    START, STOP, LIQUIDITY, ORDERS, PNL
 }
 
 data class StrategyRunRowUi(
     val id: String,
-    val formattedDate: String,
+    val formattedStartTime: String,
+    val formattedStopTime: String,
+    val liquidityCandle: String,
+    val ordersPlaced: String,
     val formattedPnL: String,
     val isPositivePnL: Boolean,
-    val trades: Int,
-    val formattedAtRisk: String
+    val isPnLNothing: Boolean,
+    val isInProgress: Boolean = false,
+    val canDelete: Boolean = false
 )
 
 data class PerformanceUiState(
@@ -21,5 +25,6 @@ data class PerformanceUiState(
     val winRate: String,
     val rows: List<StrategyRunRowUi>,
     val sortColumn: RunSortColumn,
-    val sortDirection: SortDirection
+    val sortDirection: SortDirection,
+    val includeTouchTurnFields: Boolean = false
 )

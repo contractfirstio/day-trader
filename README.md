@@ -126,12 +126,11 @@ Default endpoint: `127.0.0.1:4001` (Gateway paper). Override with environment va
 | `DAY_TRADER_IB_PORT` | `4001` |
 | `DAY_TRADER_IB_CLIENT_ID` | `1` |
 | `DAY_TRADER_IB_ACCOUNT` | *(empty = all accounts)* |
-| `DAY_TRADER_IB_DEBUG` | `false` — extra stack traces on errors |
-| `DAY_TRADER_IB_REDACT_LOGS` | `false` — set to `true` to hide prices/qty/symbols in console |
+| `DAY_TRADER_IB_LOGS` | `false` — set to `true` for connection, positions, ticks, and `[IB]` diagnostics |
+| `DAY_TRADER_IB_DEBUG` | `false` — extra stack traces on errors (requires `DAY_TRADER_IB_LOGS=true`) |
+| `DAY_TRADER_IB_REDACT_LOGS` | `false` — when IB logs are on, set to `true` to hide prices/qty/symbols |
 
-By default, console output includes **`[IB] POSITION_DIAG`** blocks (full prices, magnifier, P&L sanity checks) plus one-line position/portfolio/historical logs. Copy `[IB] POSITION_DIAG` for the UK line when debugging pence/pricing.
-
-Set `DAY_TRADER_IB_REDACT_LOGS=true` before launch if you need shareable logs without financial values.
+By default, console output is limited to **`[TouchTurn]`** planned bracket orders (log-only, not sent to IB). Set `DAY_TRADER_IB_LOGS=true` to restore `[IB]` connection and position logging.
 
 `TwsApi.jar` lives in `day-trader/libs/` (copied from the IB API package).
 

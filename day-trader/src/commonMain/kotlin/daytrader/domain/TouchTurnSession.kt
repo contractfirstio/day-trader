@@ -1,0 +1,847 @@
+package daytrader.domain
+
+import kotlinx.serialization.Serializable
+
+/** Status of the first 15-minute RTH candle fetch for the current session. */
+@Serializable
+enum class TouchTurnCandleStatus {
+    LOADING,
+    READY,
+    FAILED
+}
+
+/** Whether the first 15-minute bar has finished (15 minutes after bar open). */
+@Serializable
+enum class FirstCandleCloseStatus {
+    FORMING,
+    CLOSED,
+    UNKNOWN
+}
+
+/** Liquidity is only evaluated after the first 15-minute bar has closed. */
+@Serializable
+enum class LiquidityCandleEvaluation {
+    AWAITING_CLOSE,
+    LIQUIDITY,
+    NOT_LIQUIDITY,
+    UNKNOWN
+}
+
+/** Whether orders may be placed within [TouchTurnDefaults.ENTRY_WINDOW_AFTER_CLOSE_MS] of bar close. */
+@Serializable
+enum class TouchTurnEntryWindowStatus {
+    AWAITING_BAR_CLOSE,
+    WITHIN_WINDOW,
+    EXPIRED,
+    UNKNOWN
+}
+
+/** Result of the 90-minute no-position bracket cancel check (log-only until IB cancel is wired). */
+@Serializable
+enum class TouchTurnNoPositionCancelOutcome {
+    /** Watching until [TouchTurnDefaults.NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS] after market open. */
+    PENDING,
+    /** No open position at deadline — bracket orders would be cancelled. */
+    WOULD_CANCEL_LOGGED,
+    /** Open position at deadline — brackets are left working. */
+    KEPT_HAS_POSITION
+}
+
+/** Standard candle colour from day open vs 15m bar close. */
+@Serializable
+enum class FirstCandleColor {
+    GREEN,
+    RED,
+    DOJI
+}
+
+@Serializable
+data class OhlcBar(
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    /** IB bar time, e.g. `20250522  09:30:00`. */
+    val time: String? = null
+) {
+    val range: Double get() = high - low
+}
+
+/** Intended trade direction after a liquidity opening bar. */
+@Serializable
+enum class TouchTurnTradeSide {
+    LONG,
+    SHORT
+}
+
+/**
+ * Bracket levels derived from the first 15-minute candle (Touch Turn liquidity setup).
+ * Green bar → short at high, TP at 61.8% of range; red bar → long at low, TP at 38.2% of range.
+ * Stop is half the entry-to-TP distance beyond entry (with a minimum).
+ */
+@Serializable
+data class TouchTurnBracketSetup(
+    val range: Double,
+    val rangeThreshold: Double,
+    val isLiquidityCandle: Boolean,
+    val candleColor: FirstCandleColor,
+    val side: TouchTurnTradeSide,
+    val entry: Double,
+    val stopLoss: Double,
+    val takeProfit: Double
+) {
+    val isActionable: Boolean
+        get() = isLiquidityCandle && candleColor != FirstCandleColor.DOJI
+}
+
+@Serializable
+data class TouchTurnSessionContext(
+    val sessionDate: String,
+    val status: TouchTurnCandleStatus,
+    val candle: OhlcBar? = null,
+    val setup: TouchTurnBracketSetup? = null,
+    val errorMessage: String? = null,
+    /** ISO currency for price display (e.g. HKD on SEHK). */
+    val currencyCode: String = "USD",
+    /** IANA zone for bar close time (e.g. Asia/Hong_Kong). */
+    val marketZoneId: String = "America/New_York",
+    /** Average daily range (high − low) over the last 14 completed sessions. */
+    val adr14: Double? = null,
+    /** Liquidity threshold = [adr14] × [TouchTurnDefaults.ADR_LIQUIDITY_RATIO] (25%). */
+    val rangeThreshold: Double = 0.0,
+    /**
+     * Set when the bar closes: true if evaluation happened inside the 1-minute entry window
+     * and a liquidity bracket could be logged/placed.
+     */
+    val entryOrdersPermitted: Boolean? = null,
+    /**
+     * Set after 90 minutes from RTH open when [entryOrdersPermitted] was true:
+     * cancel logged if no IB position, or kept if a position exists.
+     */
+    val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null
+) {
+    val liquidityThresholdFromAdr: Double?
+        get() = adr14?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
+    fun candleCloseStatus(nowEpochMillis: Long = System.currentTimeMillis()): FirstCandleCloseStatus =
+        TouchTurnLogic.firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis)
+
+    fun liquidityEvaluation(nowEpochMillis: Long = System.currentTimeMillis()): LiquidityCandleEvaluation =
+        TouchTurnLogic.liquidityCandleEvaluation(candle, marketZoneId, rangeThreshold, nowEpochMillis)
+
+    fun firstCandleColor(): FirstCandleColor? = candle?.let { TouchTurnLogic.firstCandleColor(it) }
+
+    fun entryWindowStatus(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnEntryWindowStatus =
+        TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)
+
+    fun noPositionCancelDeadlineEpochMillis(): Long? =
+        TouchTurnLogic.noPositionCancelDeadlineEpochMillis(sessionDate, marketZoneId, candle?.time)
+
+    fun noPositionCancelMillisRemaining(nowEpochMillis: Long = System.currentTimeMillis()): Long? =
+        TouchTurnLogic.noPositionCancelMillisRemaining(sessionDate, marketZoneId, candle?.time, nowEpochMillis)
+
+    /** Live panel: elapsed since the most recent 09:30 RTH open in [marketZoneId] (wall clock). */
+    fun millisSinceLastMarketOpen(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long = TouchTurnLogic.millisSinceLastMarketOpenWallClock(marketZoneId, nowEpochMillis)
+
+    /** Live panel: time until the next 09:30 RTH open in [marketZoneId] (wall clock). */
+    fun millisUntilNextMarketOpen(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long = TouchTurnLogic.millisUntilNextMarketOpen(marketZoneId, nowEpochMillis)
+}
+
+object TouchTurnLogic {
+    const val BAR_DURATION_MINUTES = 15
+    private const val BAR_DURATION_MS = BAR_DURATION_MINUTES * 60 * 1000L
+    private val IB_BAR_TIME_REGEX = Regex("""(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})""")
+
+    /**
+     * IB historical bar `time` is the bar **open** (e.g. `20250522  09:30:00` for 09:30–09:45).
+     * The candle is closed when wall-clock time in [marketZoneId] is at or past open + 15 minutes.
+     */
+    fun firstCandleCloseStatus(
+        candle: OhlcBar?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): FirstCandleCloseStatus {
+        val time = candle?.time ?: return FirstCandleCloseStatus.UNKNOWN
+        val barEndMillis = barEndEpochMillis(time, marketZoneId) ?: return FirstCandleCloseStatus.UNKNOWN
+        return if (nowEpochMillis >= barEndMillis) {
+            FirstCandleCloseStatus.CLOSED
+        } else {
+            FirstCandleCloseStatus.FORMING
+        }
+    }
+
+    fun closeStatusLabel(status: FirstCandleCloseStatus): String = when (status) {
+        FirstCandleCloseStatus.CLOSED -> "Candle closed"
+        FirstCandleCloseStatus.FORMING -> "Candle still forming"
+        FirstCandleCloseStatus.UNKNOWN -> "Close status unknown"
+    }
+
+    fun entryWindowDeadlineEpochMillis(barTime: String, marketZoneId: String): Long? =
+        barEndEpochMillis(barTime, marketZoneId)?.plus(TouchTurnDefaults.ENTRY_WINDOW_AFTER_CLOSE_MS)
+
+    fun entryWindowStatus(
+        candle: OhlcBar?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): TouchTurnEntryWindowStatus {
+        val time = candle?.time ?: return TouchTurnEntryWindowStatus.UNKNOWN
+        val barEnd = barEndEpochMillis(time, marketZoneId) ?: return TouchTurnEntryWindowStatus.UNKNOWN
+        if (nowEpochMillis < barEnd) return TouchTurnEntryWindowStatus.AWAITING_BAR_CLOSE
+        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId) ?: return TouchTurnEntryWindowStatus.UNKNOWN
+        return if (nowEpochMillis <= deadline) {
+            TouchTurnEntryWindowStatus.WITHIN_WINDOW
+        } else {
+            TouchTurnEntryWindowStatus.EXPIRED
+        }
+    }
+
+    fun entryWindowRemainingMillis(
+        candle: OhlcBar?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long? {
+        val time = candle?.time ?: return null
+        val barEnd = barEndEpochMillis(time, marketZoneId) ?: return null
+        if (nowEpochMillis < barEnd) return null
+        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId) ?: return null
+        return (deadline - nowEpochMillis).coerceAtLeast(0)
+    }
+
+    fun entryWindowStatusLabel(status: TouchTurnEntryWindowStatus): String = when (status) {
+        TouchTurnEntryWindowStatus.AWAITING_BAR_CLOSE -> "Entry window opens when the bar closes"
+        TouchTurnEntryWindowStatus.WITHIN_WINDOW -> "Entry window open (1 min after bar close)"
+        TouchTurnEntryWindowStatus.EXPIRED -> "Entry window closed — deadline passed"
+        TouchTurnEntryWindowStatus.UNKNOWN -> "Entry window unknown"
+    }
+
+    fun entryWindowExpiredAlert(
+        candle: OhlcBar?,
+        marketZoneId: String
+    ): String {
+        val time = candle?.time ?: "unknown"
+        return "Orders must be placed within 1 minute of the 15-minute bar close. " +
+            "The entry window for bar $time has expired — no orders will be placed."
+    }
+
+    /**
+     * RTH session open for Touch Turn: first 15m bar open time when known, otherwise 09:30 on [sessionDateIso]
+     * in [marketZoneId] (US / HK regular session).
+     */
+    fun sessionDateIsoInMarketZone(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): String {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        return java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone).toLocalDate().toString()
+    }
+
+    /** Cash equity sessions run Monday–Friday (weekends closed; holidays not excluded). */
+    fun isRthTradingDay(date: java.time.LocalDate): Boolean {
+        val day = date.dayOfWeek
+        return day != java.time.DayOfWeek.SATURDAY && day != java.time.DayOfWeek.SUNDAY
+    }
+
+    fun nextRthTradingDay(date: java.time.LocalDate): java.time.LocalDate {
+        var cursor = date
+        while (!isRthTradingDay(cursor)) {
+            cursor = cursor.plusDays(1)
+        }
+        return cursor
+    }
+
+    fun previousRthTradingDay(date: java.time.LocalDate): java.time.LocalDate {
+        var cursor = date
+        while (!isRthTradingDay(cursor)) {
+            cursor = cursor.minusDays(1)
+        }
+        return cursor
+    }
+
+    /** Today's 09:30 RTH open in [marketZoneId] from wall-clock [nowEpochMillis]; null on weekends. */
+    fun marketOpenEpochMillisForZone(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long? {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        val date = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone).toLocalDate()
+        if (!isRthTradingDay(date)) return null
+        return marketOpenEpochMillis(
+            sessionDateIsoInMarketZone(marketZoneId, nowEpochMillis),
+            marketZoneId,
+            firstCandleBarTime = null
+        )
+    }
+
+    fun marketOpenEpochMillis(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null
+    ): Long? {
+        firstCandleBarTime?.let { barStartEpochMillis(it, marketZoneId) }?.let { return it }
+        return sessionOpenLocalDateTime(sessionDateIso, marketZoneId)?.atZone(java.time.ZoneId.of(marketZoneId))
+            ?.toInstant()
+            ?.toEpochMilli()
+    }
+
+    /**
+     * Most recent RTH open at or before [nowEpochMillis]: today's session open if past it,
+     * otherwise the previous calendar day's 09:30 (weekends/holidays not adjusted).
+     */
+    fun lastMarketOpenEpochMillis(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long? {
+        val todayOpen = marketOpenEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime) ?: return null
+        if (nowEpochMillis >= todayOpen) return todayOpen
+        val parts = sessionDateIso.trim().split("-")
+        if (parts.size != 3) return null
+        return runCatching {
+            val zone = java.time.ZoneId.of(marketZoneId)
+            java.time.LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+                .minusDays(1)
+                .atTime(
+                    TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
+                    TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
+                    0
+                )
+                .atZone(zone)
+                .toInstant()
+                .toEpochMilli()
+        }.getOrNull()
+    }
+
+    fun millisSinceLastMarketOpen(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long? {
+        val open = lastMarketOpenEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime, nowEpochMillis)
+            ?: return null
+        return (nowEpochMillis - open).coerceAtLeast(0)
+    }
+
+    fun formatDurationClock(millis: Long): String {
+        val totalSec = millis / 1000
+        val hours = totalSec / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        return when {
+            hours > 0 -> "${hours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s"
+            minutes > 0 -> "${minutes}m ${seconds.toString().padStart(2, '0')}s"
+            else -> "${seconds}s"
+        }
+    }
+
+    fun formatElapsedSinceMarketOpen(elapsedMillis: Long): String = formatDurationClock(elapsedMillis)
+
+    fun formatCountdownToNextMarketOpen(remainingMillis: Long): String = formatDurationClock(remainingMillis)
+
+    /**
+     * Next scheduled RTH open (09:30) in [marketZoneId] from wall-clock [nowEpochMillis].
+     * Skips Saturday and Sunday in the market's local calendar (holidays not excluded).
+     */
+    fun nextMarketOpenEpochMillis(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        var date = now.toLocalDate()
+        if (!isRthTradingDay(date)) {
+            date = nextRthTradingDay(date)
+            return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+        }
+        val todayOpen = rthOpenOnDate(date, zone)
+        if (now.isBefore(todayOpen)) {
+            return todayOpen.toInstant().toEpochMilli()
+        }
+        date = nextRthTradingDay(date.plusDays(1))
+        return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+    }
+
+    fun millisUntilNextMarketOpen(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long {
+        val next = nextMarketOpenEpochMillis(marketZoneId, nowEpochMillis)
+        return (next - nowEpochMillis).coerceAtLeast(0)
+    }
+
+    /** Whether wall-clock time is within today's RTH cash session (09:30–close local). */
+    fun isRthMarketOpen(
+        session: RthMarketSession,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Boolean = isRthMarketOpen(
+        zoneId = session.zoneId,
+        closeHour = session.closeHour,
+        closeMinute = session.closeMinute,
+        nowEpochMillis = nowEpochMillis
+    )
+
+    fun isRthMarketOpen(
+        zoneId: String,
+        closeHour: Int,
+        closeMinute: Int,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Boolean {
+        val zone = java.time.ZoneId.of(zoneId)
+        val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        if (!isRthTradingDay(now.toLocalDate())) return false
+        val todayOpen = rthOpenOnDate(now.toLocalDate(), zone)
+        val todayClose = rthCloseOnDate(now.toLocalDate(), zone, closeHour, closeMinute)
+        return !now.isBefore(todayOpen) && now.isBefore(todayClose)
+    }
+
+    /** Most recent 09:30 RTH open in [marketZoneId] from wall-clock [nowEpochMillis] (skips weekends). */
+    fun lastMarketOpenEpochMillisWallClock(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
+        var date = now.toLocalDate()
+        if (!isRthTradingDay(date)) {
+            date = previousRthTradingDay(date)
+            return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+        }
+        val todayOpen = rthOpenOnDate(date, zone)
+        val sessionDate = if (!now.isBefore(todayOpen)) {
+            date
+        } else {
+            previousRthTradingDay(date.minusDays(1))
+        }
+        return rthOpenOnDate(sessionDate, zone).toInstant().toEpochMilli()
+    }
+
+    fun millisSinceLastMarketOpenWallClock(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long {
+        val last = lastMarketOpenEpochMillisWallClock(marketZoneId, nowEpochMillis)
+        return (nowEpochMillis - last).coerceAtLeast(0)
+    }
+
+    fun nextMarketOpenLocalLabel(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): String {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        val next = java.time.Instant.ofEpochMilli(nextMarketOpenEpochMillis(marketZoneId, nowEpochMillis))
+            .atZone(zone)
+        val time = next.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+        return "$time ${marketOpenZoneAbbrev(marketZoneId)}"
+    }
+
+    fun marketOpenZoneAbbrev(marketZoneId: String): String = when (marketZoneId) {
+        "Asia/Hong_Kong" -> "HKT"
+        "America/New_York" -> "ET"
+        "Europe/Berlin" -> "CET"
+        else -> marketZoneId
+    }
+
+    private fun rthOpenOnDate(
+        date: java.time.LocalDate,
+        zone: java.time.ZoneId
+    ): java.time.ZonedDateTime =
+        date.atTime(
+            TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
+            TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
+            0
+        ).atZone(zone)
+
+    private fun rthCloseOnDate(
+        date: java.time.LocalDate,
+        zone: java.time.ZoneId,
+        closeHour: Int,
+        closeMinute: Int
+    ): java.time.ZonedDateTime =
+        date.atTime(closeHour, closeMinute, 0).atZone(zone)
+
+    private fun sessionOpenLocalDateTime(
+        sessionDateIso: String,
+        marketZoneId: String
+    ): java.time.LocalDateTime? {
+        val parts = sessionDateIso.trim().split("-")
+        if (parts.size != 3) return null
+        return runCatching {
+            java.time.LocalDateTime.of(
+                parts[0].toInt(),
+                parts[1].toInt(),
+                parts[2].toInt(),
+                TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
+                TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
+                0
+            )
+        }.getOrNull()
+    }
+
+    fun noPositionCancelDeadlineEpochMillis(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null
+    ): Long? = marketOpenEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
+        ?.plus(TouchTurnDefaults.NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS)
+
+    fun noPositionCancelMillisRemaining(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Long? {
+        val deadline = noPositionCancelDeadlineEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
+            ?: return null
+        return (deadline - nowEpochMillis).coerceAtLeast(0)
+    }
+
+    fun isPastNoPositionCancelDeadline(
+        sessionDateIso: String,
+        marketZoneId: String,
+        firstCandleBarTime: String? = null,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Boolean {
+        val deadline = noPositionCancelDeadlineEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
+            ?: return false
+        return nowEpochMillis >= deadline
+    }
+
+    fun noPositionCancelOutcomeLabel(outcome: TouchTurnNoPositionCancelOutcome): String = when (outcome) {
+        TouchTurnNoPositionCancelOutcome.PENDING ->
+            "Bracket cancel check at 90m after open if no position"
+        TouchTurnNoPositionCancelOutcome.WOULD_CANCEL_LOGGED ->
+            "No position at 90m — bracket orders would be cancelled"
+        TouchTurnNoPositionCancelOutcome.KEPT_HAS_POSITION ->
+            "Position open at 90m — brackets kept"
+    }
+
+    fun noPositionCancelPendingLabel(millisRemaining: Long): String {
+        val minutes = (millisRemaining / 60_000).toInt()
+        val seconds = ((millisRemaining % 60_000) / 1000).toInt()
+        return if (minutes > 0) {
+            "90m no-position check in ${minutes}m ${seconds}s"
+        } else {
+            "90m no-position check in ${seconds}s"
+        }
+    }
+
+    fun noPositionCancelAlert(
+        sessionDateIso: String,
+        marketZoneId: String,
+        symbol: String
+    ): String =
+        "No open position for $symbol at 90 minutes after market open ($sessionDateIso, $marketZoneId). " +
+            "Bracket entry, take-profit, and stop orders would be cancelled — cancelOrder not called."
+
+    /**
+     * Liquidity candle ⇔ range (high − low) > [rangeThreshold] (exceeds 25% of 14-day ADR).
+     * Only computed once the bar has closed; while forming, returns [LiquidityCandleEvaluation.AWAITING_CLOSE].
+     */
+    fun liquidityCandleEvaluation(
+        candle: OhlcBar?,
+        marketZoneId: String,
+        rangeThreshold: Double,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): LiquidityCandleEvaluation {
+        return when (firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis)) {
+            FirstCandleCloseStatus.FORMING -> LiquidityCandleEvaluation.AWAITING_CLOSE
+            FirstCandleCloseStatus.UNKNOWN -> LiquidityCandleEvaluation.UNKNOWN
+            FirstCandleCloseStatus.CLOSED -> {
+                val bar = candle ?: return LiquidityCandleEvaluation.UNKNOWN
+                if (isLiquidityCandle(bar, rangeThreshold)) {
+                    LiquidityCandleEvaluation.LIQUIDITY
+                } else {
+                    LiquidityCandleEvaluation.NOT_LIQUIDITY
+                }
+            }
+        }
+    }
+
+    fun isLiquidityCandle(bar: OhlcBar, rangeThreshold: Double): Boolean = bar.range > rangeThreshold
+
+    fun liquidityEvaluationLabel(evaluation: LiquidityCandleEvaluation): String = when (evaluation) {
+        LiquidityCandleEvaluation.AWAITING_CLOSE -> "Liquidity: pending (candle still forming)"
+        LiquidityCandleEvaluation.LIQUIDITY -> "Liquidity candle"
+        LiquidityCandleEvaluation.NOT_LIQUIDITY -> "Not a liquidity candle"
+        LiquidityCandleEvaluation.UNKNOWN -> "Liquidity: unknown"
+    }
+
+    /**
+     * Green/red candle from [OhlcBar.open] (day open) and [OhlcBar.close] (15m bar close):
+     * - Green: close > open
+     * - Red: close < open
+     * - Doji: close == open
+     */
+    fun firstCandleColor(bar: OhlcBar): FirstCandleColor = when {
+        bar.close > bar.open -> FirstCandleColor.GREEN
+        bar.close < bar.open -> FirstCandleColor.RED
+        else -> FirstCandleColor.DOJI
+    }
+
+    fun candleColorLabel(color: FirstCandleColor): String = when (color) {
+        FirstCandleColor.GREEN -> "Green candle (close > open)"
+        FirstCandleColor.RED -> "Red candle (close < open)"
+        FirstCandleColor.DOJI -> "Flat candle (close = open)"
+    }
+
+    /** Epoch millis when the 15-minute bar completes (exclusive end = start + 15m). */
+    fun barEndEpochMillis(barTime: String, marketZoneId: String): Long? =
+        barStartEpochMillis(barTime, marketZoneId)?.plus(BAR_DURATION_MS)
+
+    /**
+     * ADR = mean daily range (high − low) over the last [TouchTurnDefaults.ADR_LOOKBACK_DAYS]
+     * completed sessions. Excludes today's in-progress daily bar when [excludeSessionDayYyyyMmdd] is set.
+     */
+    fun computeAdr14(
+        dailyBars: List<OhlcBar>,
+        excludeSessionDayYyyyMmdd: String? = null
+    ): Result<Double> {
+        val valid = dailyBars
+            .filter { it.high > 0.0 && it.low > 0.0 && it.high >= it.low }
+            .filter { bar ->
+                val day = barDayKey(bar.time) ?: return@filter false
+                excludeSessionDayYyyyMmdd == null || day != excludeSessionDayYyyyMmdd
+            }
+            .sortedBy { barDayKey(it.time).orEmpty() }
+        val lastSessions = valid.takeLast(TouchTurnDefaults.ADR_LOOKBACK_DAYS)
+        if (lastSessions.size < TouchTurnDefaults.ADR_LOOKBACK_DAYS) {
+            return Result.failure(
+                IllegalStateException(
+                    "Need ${TouchTurnDefaults.ADR_LOOKBACK_DAYS} completed daily bars for ADR, got ${lastSessions.size}"
+                )
+            )
+        }
+        val adr = lastSessions.map { it.range }.average()
+        return Result.success(adr)
+    }
+
+    fun liquidityRangeThreshold(adr14: Double): Double = adr14 * TouchTurnDefaults.ADR_LIQUIDITY_RATIO
+
+    fun barDayKey(barTime: String?): String? {
+        val trimmed = barTime?.trim() ?: return null
+        val match = Regex("""(\d{8})""").find(trimmed) ?: return null
+        return match.groupValues[1]
+    }
+
+    fun barStartEpochMillis(barTime: String, marketZoneId: String): Long? {
+        val match = IB_BAR_TIME_REGEX.find(barTime.trim()) ?: return null
+        val (year, month, day, hour, minute, second) = match.destructured
+        return runCatching {
+            val zone = java.time.ZoneId.of(marketZoneId)
+            java.time.LocalDateTime.of(
+                year.toInt(),
+                month.toInt(),
+                day.toInt(),
+                hour.toInt(),
+                minute.toInt(),
+                second.toInt()
+            ).atZone(zone).toInstant().toEpochMilli()
+        }.getOrNull()
+    }
+
+    /**
+     * @param rangeThreshold Min bar range (high − low) for a liquidity candle, e.g. 25% of 14-day ADR.
+     * @param minStopDistance Minimum entry-to-stop distance (spread / noise protection).
+     */
+    fun computeBracketSetup(
+        bar: OhlcBar,
+        rangeThreshold: Double,
+        minStopDistance: Double = TouchTurnDefaults.MIN_STOP_DISTANCE
+    ): TouchTurnBracketSetup {
+        val range = bar.range
+        val color = firstCandleColor(bar)
+        val liquidity = isLiquidityCandle(bar, rangeThreshold)
+        return when (color) {
+            FirstCandleColor.GREEN -> {
+                val tpDistance = range * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+                val entry = bar.high
+                val takeProfit = entry - tpDistance
+                val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
+                TouchTurnBracketSetup(
+                    range = range,
+                    rangeThreshold = rangeThreshold,
+                    isLiquidityCandle = liquidity,
+                    candleColor = color,
+                    side = TouchTurnTradeSide.SHORT,
+                    entry = entry,
+                    stopLoss = entry + stopDistance,
+                    takeProfit = takeProfit
+                )
+            }
+            FirstCandleColor.RED -> {
+                val tpDistance = range * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_RED
+                val entry = bar.low
+                val takeProfit = entry + tpDistance
+                val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
+                TouchTurnBracketSetup(
+                    range = range,
+                    rangeThreshold = rangeThreshold,
+                    isLiquidityCandle = liquidity,
+                    candleColor = color,
+                    side = TouchTurnTradeSide.LONG,
+                    entry = entry,
+                    stopLoss = entry - stopDistance,
+                    takeProfit = takeProfit
+                )
+            }
+            FirstCandleColor.DOJI -> TouchTurnBracketSetup(
+                range = range,
+                rangeThreshold = rangeThreshold,
+                isLiquidityCandle = liquidity,
+                candleColor = color,
+                side = TouchTurnTradeSide.LONG,
+                entry = bar.close,
+                stopLoss = bar.close,
+                takeProfit = bar.close
+            )
+        }
+    }
+
+    fun tradeSideLabel(side: TouchTurnTradeSide): String = when (side) {
+        TouchTurnTradeSide.LONG -> "Long"
+        TouchTurnTradeSide.SHORT -> "Short"
+    }
+
+    fun takeProfitFibLabel(color: FirstCandleColor): String = when (color) {
+        FirstCandleColor.GREEN -> "61.8%"
+        FirstCandleColor.RED -> "38.2%"
+        FirstCandleColor.DOJI -> "—"
+    }
+
+    fun orderPreviewSummary(setup: TouchTurnBracketSetup): String {
+        val action = tradeSideLabel(setup.side).lowercase()
+        val fibPct = takeProfitFibLabel(setup.candleColor)
+        return when (setup.candleColor) {
+            FirstCandleColor.GREEN ->
+                "Green liquidity bar → $action at bar high, take profit at $fibPct of range below entry, stop half that distance above high."
+            FirstCandleColor.RED ->
+                "Red liquidity bar → $action at bar low, take profit at $fibPct of range above entry, stop half that distance below low."
+            FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."
+        }
+    }
+}
+
+object TouchTurnDefaults {
+    const val ADR_LOOKBACK_DAYS = 14
+    /** Liquidity when first 15m range exceeds this fraction of 14-day ADR. */
+    const val ADR_LIQUIDITY_RATIO = 0.25
+    const val MIN_STOP_DISTANCE = 0.05
+    /** Green (short) liquidity bar: take-profit distance as fraction of bar range. */
+    const val TAKE_PROFIT_FIB_RATIO_GREEN = 0.618
+    /** Red (long) liquidity bar: take-profit distance as fraction of bar range. */
+    const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
+    /** Max time after bar close to log or place Touch Turn entry orders. */
+    const val ENTRY_WINDOW_AFTER_CLOSE_MS = 60_000L
+    /** Cancel resting brackets if still flat this long after RTH open (no IB cancel yet — log only). */
+    const val NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS = 90L * 60 * 1000
+    const val RTH_SESSION_OPEN_HOUR = 9
+    const val RTH_SESSION_OPEN_MINUTE = 30
+}
+
+fun StrategyInstance.beginTouchTurnSession(sessionDate: String): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    return copy(
+        touchTurnSession = TouchTurnSessionContext(
+            sessionDate = sessionDate,
+            status = TouchTurnCandleStatus.LOADING
+        )
+    )
+}
+
+fun StrategyInstance.withTouchTurnCandle(
+    sessionDate: String,
+    candle: OhlcBar,
+    adr14: Double,
+    rangeThreshold: Double = TouchTurnLogic.liquidityRangeThreshold(adr14)
+): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold)
+    return copy(
+        touchTurnSession = TouchTurnSessionContext(
+            sessionDate = sessionDate,
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            setup = setup,
+            adr14 = adr14,
+            rangeThreshold = rangeThreshold
+        )
+    )
+}
+
+/** Stores fetched first 15-minute candle only (no bracket setup until the bar closes). */
+fun StrategyInstance.withFirstFifteenMinuteCandle(
+    sessionDate: String,
+    candle: OhlcBar,
+    adr14: Double,
+    currencyCode: String = "USD",
+    marketZoneId: String = "America/New_York"
+): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val threshold = TouchTurnLogic.liquidityRangeThreshold(adr14)
+    return copy(
+        touchTurnSession = TouchTurnSessionContext(
+            sessionDate = sessionDate,
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            currencyCode = currencyCode,
+            marketZoneId = marketZoneId,
+            adr14 = adr14,
+            rangeThreshold = threshold
+        )
+    )
+}
+
+/** Persists bracket setup and liquidity flag once the first candle has closed. */
+fun StrategyInstance.withLiquidityEvaluatedIfClosed(
+    nowEpochMillis: Long = System.currentTimeMillis()
+): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    val candle = session.candle ?: return this
+    if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
+    if (session.setup != null) return this
+    val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
+    val windowStatus = TouchTurnLogic.entryWindowStatus(candle, session.marketZoneId, nowEpochMillis)
+    val entryOrdersPermitted = windowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW &&
+        setup.isLiquidityCandle &&
+        setup.isActionable
+    return copy(
+        touchTurnSession = session.copy(
+            setup = setup,
+            entryOrdersPermitted = entryOrdersPermitted,
+            noPositionBracketCancelOutcome = if (entryOrdersPermitted) {
+                TouchTurnNoPositionCancelOutcome.PENDING
+            } else {
+                null
+            }
+        )
+    )
+}
+
+fun StrategyInstance.withNoPositionBracketCancelEvaluated(
+    outcome: TouchTurnNoPositionCancelOutcome
+): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    return copy(touchTurnSession = session.copy(noPositionBracketCancelOutcome = outcome))
+}
+
+fun StrategyInstance.withTouchTurnCandleFailed(
+    sessionDate: String,
+    message: String
+): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    return copy(
+        touchTurnSession = TouchTurnSessionContext(
+            sessionDate = sessionDate,
+            status = TouchTurnCandleStatus.FAILED,
+            errorMessage = message
+        )
+    )
+}

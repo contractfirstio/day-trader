@@ -1,6 +1,7 @@
 package daytrader.presentation
 
 import daytrader.domain.CurrencyCodes
+import daytrader.domain.RunStatus
 
 object Formatters {
     fun currency(amount: Double, showSign: Boolean = false): String =
@@ -47,6 +48,9 @@ object Formatters {
     fun paramsSummary(symbol: String, maxDollars: Int): String =
         "$symbol · \$${String.format("%,d", maxDollars)} max"
 
+    fun price(value: Double?): String =
+        value?.let { String.format("%.2f", it) } ?: "—"
+
     fun maxAtRisk(maxDollars: Int): String = "\$${String.format("%,d", maxDollars)}"
 
     fun sessionDateLabel(isoDate: String): String {
@@ -70,6 +74,59 @@ object Formatters {
             else -> return isoDate
         }
         return "$day $monthLabel"
+    }
+
+    fun runSessionLabel(
+        date: String,
+        startedAt: String,
+        stoppedAt: String,
+        status: RunStatus
+    ): String {
+        val day = sessionDateLabel(date)
+        val startTime = startedAt.runTimeFromIso()
+        val stopTime = stoppedAt.runTimeFromIso()
+        val timeRange = when {
+            startTime != null && stopTime != null -> "$startTime–$stopTime"
+            startTime != null -> "$startTime–…"
+            else -> null
+        }
+        return when {
+            status == RunStatus.IN_PROGRESS && timeRange != null ->
+                "$day · $timeRange · In progress"
+            status == RunStatus.IN_PROGRESS -> "$day · In progress"
+            timeRange != null -> "$day · $timeRange"
+            else -> day
+        }
+    }
+
+    fun runStartTimeDisplay(startedAt: String): String =
+        startedAt.runTimeFromIso() ?: "—"
+
+    fun runStopTimeDisplay(stoppedAt: String, inProgress: Boolean): String = when {
+        inProgress -> "—"
+        else -> stoppedAt.runTimeFromIso() ?: "—"
+    }
+
+    private fun String.runTimeFromIso(): String? {
+        val tIndex = indexOf('T')
+        if (tIndex < 0 || length < tIndex + 6) return null
+        return substring(tIndex + 1, tIndex + 6)
+    }
+
+    fun yesNo(value: Boolean?): String = when (value) {
+        true -> "Yes"
+        false -> "No"
+        null -> "—"
+    }
+
+    /** Shows "Nothing" when there is no meaningful P&L for the run. */
+    fun runPnLDisplay(pnl: Double, positionOpened: Boolean?): String {
+        val hasPnL = kotlin.math.abs(pnl) >= 0.01
+        return if (hasPnL) {
+            currency(pnl, showSign = true)
+        } else {
+            "Nothing"
+        }
     }
 
     fun percentOfMax(pnl: Double, maxDollars: Int): String {

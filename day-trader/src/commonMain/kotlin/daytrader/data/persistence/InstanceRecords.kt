@@ -15,13 +15,52 @@ data class InstanceRecord(
     val status: String,
     val configuration: ConfigurationRecord,
     val live: LiveRecord,
-    val performance: List<PerformanceDayRecord> = emptyList()
+    val performance: List<PerformanceDayRecord> = emptyList(),
+    val touchTurnSession: TouchTurnSessionRecord? = null
+)
+
+@Serializable
+data class TouchTurnSessionRecord(
+    val sessionDate: String,
+    val status: String,
+    val candle: OhlcBarRecord? = null,
+    val setup: TouchTurnBracketSetupRecord? = null,
+    val errorMessage: String? = null,
+    val currencyCode: String = "USD",
+    val marketZoneId: String = "America/New_York",
+    val adr14: Double? = null,
+    val rangeThreshold: Double = 0.0,
+    val entryOrdersPermitted: Boolean? = null,
+    val noPositionBracketCancelOutcome: String? = null
+)
+
+@Serializable
+data class OhlcBarRecord(
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val time: String? = null
+)
+
+@Serializable
+data class TouchTurnBracketSetupRecord(
+    val range: Double,
+    val rangeThreshold: Double,
+    val isLiquidityCandle: Boolean,
+    val entry: Double,
+    val stopLoss: Double,
+    val takeProfit: Double,
+    val candleColor: String? = null,
+    val side: String? = null
 )
 
 @Serializable
 data class ConfigurationRecord(
     val symbol: String,
-    val maxAtRisk: Int
+    val maxAtRisk: Int,
+    val autoStartOnMarketOpen: Boolean = false,
+    val lastAutoStartSessionDate: String? = null
 )
 
 @Serializable
@@ -41,17 +80,20 @@ data class LiveRecord(
 data class PerformanceDayRecord(
     val id: String,
     val date: String,
+    val startedAt: String = "",
+    val stoppedAt: String = "",
     val pnl: Double,
     val trades: Int,
     val maxAtRisk: Int,
-    val status: String
+    val status: String,
+    val hadLiquidityCandle: Boolean? = null,
+    val ordersPlacedForCandle: Boolean? = null,
+    val positionOpened: Boolean? = null
 )
 
 @Serializable
 data class StrategiesScreenDocument(
     val selectedInstanceId: String? = null,
-    val search: String = "",
-    val statusFilter: String = "all",
-    val strategyFilter: StrategyType? = null,
-    val detailTab: String = "configuration"
+    val detailTab: String = "configuration",
+    val globalAutoStartEnabled: Boolean = true
 )

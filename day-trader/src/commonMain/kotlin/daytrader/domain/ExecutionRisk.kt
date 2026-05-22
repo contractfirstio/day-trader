@@ -95,7 +95,7 @@ fun ActiveExecution.realizedPnL(): Double {
 fun StrategyInstance.withClosedPosition(sessionDate: String): StrategyInstance {
     if (live.state != ExecutionState.FILLED) return this
     return copy(live = ActiveExecution.flat(updatedAt = "Demo"))
-        .updateInProgressRun(sessionDate) { day ->
+        .updateInProgressRun { day ->
             day.copy(trades = day.trades + 1)
         }
 }

@@ -12,24 +12,37 @@ object StrategyUiMapper {
     fun displayName(instance: StrategyInstance): String =
         instanceDisplayName(instance.strategyType, instance.symbol)
 
-    fun toRowUi(instance: StrategyInstance, sessionDate: String): StrategyInstanceRowUi {
+    fun toRowUi(
+        instance: StrategyInstance,
+        sessionDate: String,
+        brokerUnrealizedPnL: Double? = null
+    ): StrategyInstanceRowUi {
         val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
         val rollup = closedRuns.rollups(sessionDate)
+        val card = InstanceCardStateMapper.resolve(instance, sessionDate, brokerUnrealizedPnL)
         return StrategyInstanceRowUi(
             id = instance.id,
             name = displayName(instance),
             strategyTypeLabel = StrategyCatalog.displayName(instance.strategyType),
             status = instance.status,
+            cardAccent = card.accent,
+            statusChipLabel = card.chipLabel,
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             isPositiveTotalPnL = rollup.totalPnl >= 0,
             paramsSummary = Formatters.paramsSummary(instance.symbol, instance.maxDollars),
-            tradesToday = instance.inProgressRun(sessionDate)?.trades ?: 0,
+            tradesToday = instance.inProgressRun()?.trades ?: 0,
             liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text,
             formattedRollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
             isPositiveRollup7d = rollup.pnl7d >= 0,
             formattedRollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             isPositiveRollup30d = rollup.pnl30d >= 0,
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.closedDays)
+            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.closedDays),
+            winRateIsPositive = when {
+                rollup.closedDays == 0 -> null
+                rollup.winDays * 2 >= rollup.closedDays -> true
+                else -> false
+            },
+            autoStartOnMarketOpen = instance.autoStartOnMarketOpen
         )
     }
 

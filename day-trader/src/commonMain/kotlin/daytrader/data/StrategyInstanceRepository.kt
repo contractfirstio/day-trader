@@ -8,4 +8,6 @@ interface StrategyInstanceRepository {
     fun add(instance: StrategyInstance)
     fun update(id: String, transform: (StrategyInstance) -> StrategyInstance)
     fun remove(id: String)
+    /** Writes the current instance list to disk immediately (e.g. after start/stop). */
+    fun flushPersistence() {}
 }

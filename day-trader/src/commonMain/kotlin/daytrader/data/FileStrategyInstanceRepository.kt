@@ -43,6 +43,10 @@ class FileStrategyInstanceRepository(
         writer.schedule(_instances.value)
     }
 
+    override fun flushPersistence() {
+        writer.persistNow(_instances.value)
+    }
+
     private fun loadInitial(): List<StrategyInstance> {
         AppFileSystem.ensureAppDataDirectory()
         val fromNew = JsonFileStore.readInstances()

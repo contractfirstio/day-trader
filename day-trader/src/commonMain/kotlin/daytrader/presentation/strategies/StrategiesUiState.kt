@@ -20,6 +20,8 @@ data class StrategyInstanceRowUi(
     val name: String,
     val strategyTypeLabel: String,
     val status: daytrader.domain.InstanceStatus,
+    val cardAccent: InstanceCardAccent,
+    val statusChipLabel: String,
     val formattedTotalPnL: String,
     val isPositiveTotalPnL: Boolean,
     val paramsSummary: String,
@@ -29,13 +31,21 @@ data class StrategyInstanceRowUi(
     val isPositiveRollup7d: Boolean,
     val formattedRollup30d: String,
     val isPositiveRollup30d: Boolean,
-    val formattedWinRate: String
+    val formattedWinRate: String,
+    /** null when no closed runs; true when win rate is at least 50%. */
+    val winRateIsPositive: Boolean? = null,
+    val autoStartOnMarketOpen: Boolean = false
 )
 
 data class StrategiesUiState(
     val filteredRows: List<StrategyInstanceRowUi> = emptyList(),
     val filteredCount: Int = 0,
+    val totalCount: Int = 0,
+    val hasActiveFilters: Boolean = false,
+    val selectedMarketZoneId: String? = null,
+    val selectedMarketLabel: String? = null,
     val selectedInstance: StrategyInstance? = null,
+    val selectedCardPresentation: InstanceCardPresentation? = null,
     val searchQuery: String = "",
     val instanceFilter: InstanceFilter = InstanceFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
@@ -43,5 +53,8 @@ data class StrategiesUiState(
     val showAddDialog: Boolean = false,
     val selectedInstanceId: String? = null,
     val performance: PerformanceUiState? = null,
-    val liveExecution: LiveExecutionUiState? = null
+    val liveExecution: LiveExecutionUiState? = null,
+    val liveBroker: LiveBrokerUiState? = null,
+    val startBlockedAlert: StartBlockedByPositionAlert? = null,
+    val globalAutoStartEnabled: Boolean = true
 )

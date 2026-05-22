@@ -22,7 +22,9 @@ data class StrategiesAppState(
     val searchQuery: String = "",
     val instanceFilter: InstanceFilter = InstanceFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
-    val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION
+    val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
+    /** Master switch: when false, no instance auto-starts at market open. */
+    val globalAutoStartEnabled: Boolean = true
 )
 
 interface StrategiesAppStateRepository {
