@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.BrokerOpenOrder
 import daytrader.domain.ActiveExecution
 import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
@@ -95,6 +96,101 @@ class InstanceCardStateMapperTest {
         val card = InstanceCardStateMapper.resolve(instance, sessionDate)
         assertEquals(InstanceCardAccent.STOPPED_LOSS, card.accent)
         assertEquals("Loss", card.chipLabel)
+    }
+
+    @Test
+    fun openOrders_brownPulse_whenBrokerHasMatchingOrders() {
+        val instance = instance(status = InstanceStatus.RUNNING, live = ActiveExecution.flat())
+        val orders = listOf(
+            BrokerOpenOrder(
+                orderId = 1,
+                symbol = "TSLA",
+                action = "BUY",
+                quantity = 10,
+                filled = 0,
+                remaining = 10,
+                orderType = "LMT",
+                limitPrice = 250.0,
+                stopPrice = null,
+                status = "Submitted",
+                currency = "USD"
+            )
+        )
+        val card = InstanceCardStateMapper.resolve(instance, sessionDate, brokerOpenOrders = orders)
+        assertEquals(InstanceCardAccent.OPEN_ORDERS, card.accent)
+        assertEquals("Open order", card.chipLabel)
+    }
+
+    @Test
+    fun openOrders_overridesInTheMoney_whenFilledAndOrdersWorking() {
+        val instance = instance(
+            status = InstanceStatus.RUNNING,
+            live = ActiveExecution(
+                state = ExecutionState.FILLED,
+                side = TradeSide.LONG,
+                quantity = 10,
+                entryPrice = 100.0,
+                marketPrice = 105.0
+            )
+        )
+        val orders = listOf(
+            BrokerOpenOrder(
+                orderId = 1,
+                symbol = "TSLA",
+                action = "SELL",
+                quantity = 10,
+                filled = 0,
+                remaining = 10,
+                orderType = "LMT",
+                limitPrice = 110.0,
+                stopPrice = null,
+                status = "Submitted",
+                currency = "USD"
+            ),
+            BrokerOpenOrder(
+                orderId = 2,
+                symbol = "TSLA",
+                action = "SELL",
+                quantity = 10,
+                filled = 0,
+                remaining = 10,
+                orderType = "STP",
+                limitPrice = null,
+                stopPrice = 95.0,
+                status = "Submitted",
+                currency = "USD"
+            )
+        )
+        val card = InstanceCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            brokerUnrealizedPnL = 42.0,
+            brokerOpenOrders = orders
+        )
+        assertEquals(InstanceCardAccent.OPEN_ORDERS, card.accent)
+        assertEquals("2 open orders", card.chipLabel)
+    }
+
+    @Test
+    fun running_flat_whenOpenOrdersAreForAnotherSymbol() {
+        val instance = instance(status = InstanceStatus.RUNNING, live = ActiveExecution.flat())
+        val orders = listOf(
+            BrokerOpenOrder(
+                orderId = 1,
+                symbol = "AAPL",
+                action = "BUY",
+                quantity = 5,
+                filled = 0,
+                remaining = 5,
+                orderType = "LMT",
+                limitPrice = 180.0,
+                stopPrice = null,
+                status = "Submitted",
+                currency = "USD"
+            )
+        )
+        val card = InstanceCardStateMapper.resolve(instance, sessionDate, brokerOpenOrders = orders)
+        assertEquals(InstanceCardAccent.RUNNING_FLAT, card.accent)
     }
 
     @Test

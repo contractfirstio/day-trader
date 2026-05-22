@@ -1,5 +1,7 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.BrokerOpenOrder
+import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
@@ -13,14 +15,40 @@ object InstanceCardStateMapper {
     fun resolve(
         instance: StrategyInstance,
         sessionDate: String,
-        brokerUnrealizedPnL: Double? = null
-    ): InstanceCardPresentation = when (instance.status) {
-        InstanceStatus.ERROR -> InstanceCardPresentation(
-            accent = InstanceCardAccent.ERROR,
-            chipLabel = "Error"
+        brokerUnrealizedPnL: Double? = null,
+        brokerOpenOrders: List<BrokerOpenOrder> = emptyList()
+    ): InstanceCardPresentation {
+        if (instance.status == InstanceStatus.ERROR) {
+            return InstanceCardPresentation(
+                accent = InstanceCardAccent.ERROR,
+                chipLabel = "Error"
+            )
+        }
+        openOrdersPresentation(instance, brokerOpenOrders)?.let { return it }
+        return when (instance.status) {
+            InstanceStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
+            InstanceStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
+            InstanceStatus.ERROR -> InstanceCardPresentation(
+                accent = InstanceCardAccent.ERROR,
+                chipLabel = "Error"
+            )
+        }
+    }
+
+    private fun openOrdersPresentation(
+        instance: StrategyInstance,
+        brokerOpenOrders: List<BrokerOpenOrder>
+    ): InstanceCardPresentation? {
+        val orders = SymbolMarkets.openOrdersForSymbol(instance.symbol, brokerOpenOrders)
+        if (orders.isEmpty()) return null
+        val chipLabel = when (orders.size) {
+            1 -> "Open order"
+            else -> "${orders.size} open orders"
+        }
+        return InstanceCardPresentation(
+            accent = InstanceCardAccent.OPEN_ORDERS,
+            chipLabel = chipLabel
         )
-        InstanceStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
-        InstanceStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
     }
 
     private fun stoppedPresentation(

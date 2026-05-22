@@ -9,7 +9,9 @@ enum class InstanceCardAccent {
     STOPPED_NEUTRAL,
     RUNNING_FLAT,
     RUNNING_IN_THE_MONEY,
-    RUNNING_OUT_OF_THE_MONEY
+    RUNNING_OUT_OF_THE_MONEY,
+    /** IB has working open orders for this instance's symbol. */
+    OPEN_ORDERS
 }
 
 data class InstanceCardPresentation(
@@ -23,6 +25,7 @@ val InstanceCardAccent.isPulsing: Boolean
         InstanceCardAccent.RUNNING_FLAT,
         InstanceCardAccent.RUNNING_IN_THE_MONEY,
         InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY,
-        InstanceCardAccent.STOPPED_NEUTRAL -> true
+        InstanceCardAccent.STOPPED_NEUTRAL,
+        InstanceCardAccent.OPEN_ORDERS -> true
         else -> false
     }

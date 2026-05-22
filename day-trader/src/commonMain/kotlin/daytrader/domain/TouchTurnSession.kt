@@ -36,10 +36,9 @@ enum class TouchTurnEntryWindowStatus {
     UNKNOWN
 }
 
-/** Result of the 90-minute no-position bracket cancel check (log-only until IB cancel is wired). */
+/** Legacy Touch Turn session field (superseded by [InstanceRunStopLogic] auto-stop). */
 @Serializable
 enum class TouchTurnNoPositionCancelOutcome {
-    /** Watching until [TouchTurnDefaults.NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS] after market open. */
     PENDING,
     /** No open position at deadline — bracket orders would be cancelled. */
     WOULD_CANCEL_LOGGED,
@@ -114,10 +113,7 @@ data class TouchTurnSessionContext(
      * and a liquidity bracket could be logged/placed.
      */
     val entryOrdersPermitted: Boolean? = null,
-    /**
-     * Set after 90 minutes from RTH open when [entryOrdersPermitted] was true:
-     * cancel logged if no IB position, or kept if a position exists.
-     */
+    /** Legacy; superseded by [InstanceRunStopLogic] auto-stop. */
     val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null
 ) {
     val liquidityThresholdFromAdr: Double?
@@ -132,12 +128,6 @@ data class TouchTurnSessionContext(
 
     fun entryWindowStatus(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnEntryWindowStatus =
         TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)
-
-    fun noPositionCancelDeadlineEpochMillis(): Long? =
-        TouchTurnLogic.noPositionCancelDeadlineEpochMillis(sessionDate, marketZoneId, candle?.time)
-
-    fun noPositionCancelMillisRemaining(nowEpochMillis: Long = System.currentTimeMillis()): Long? =
-        TouchTurnLogic.noPositionCancelMillisRemaining(sessionDate, marketZoneId, candle?.time, nowEpochMillis)
 
     /** Live panel: elapsed since the most recent 09:30 RTH open in [marketZoneId] (wall clock). */
     fun millisSinceLastMarketOpen(
@@ -286,6 +276,20 @@ object TouchTurnLogic {
         return sessionOpenLocalDateTime(sessionDateIso, marketZoneId)?.atZone(java.time.ZoneId.of(marketZoneId))
             ?.toInstant()
             ?.toEpochMilli()
+    }
+
+    /** Today's RTH cash session close in [marketZoneId] for [sessionDateIso]. */
+    fun marketCloseEpochMillis(
+        sessionDateIso: String,
+        marketZoneId: String
+    ): Long? {
+        val session = RthMarketSessions.forZoneId(marketZoneId)
+        val openLocal = sessionOpenLocalDateTime(sessionDateIso, marketZoneId) ?: return null
+        val zone = java.time.ZoneId.of(marketZoneId)
+        val date = openLocal.toLocalDate()
+        return rthCloseOnDate(date, zone, session.closeHour, session.closeMinute)
+            .toInstant()
+            .toEpochMilli()
     }
 
     /**
@@ -482,62 +486,6 @@ object TouchTurnLogic {
             )
         }.getOrNull()
     }
-
-    fun noPositionCancelDeadlineEpochMillis(
-        sessionDateIso: String,
-        marketZoneId: String,
-        firstCandleBarTime: String? = null
-    ): Long? = marketOpenEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
-        ?.plus(TouchTurnDefaults.NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS)
-
-    fun noPositionCancelMillisRemaining(
-        sessionDateIso: String,
-        marketZoneId: String,
-        firstCandleBarTime: String? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
-    ): Long? {
-        val deadline = noPositionCancelDeadlineEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
-            ?: return null
-        return (deadline - nowEpochMillis).coerceAtLeast(0)
-    }
-
-    fun isPastNoPositionCancelDeadline(
-        sessionDateIso: String,
-        marketZoneId: String,
-        firstCandleBarTime: String? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
-    ): Boolean {
-        val deadline = noPositionCancelDeadlineEpochMillis(sessionDateIso, marketZoneId, firstCandleBarTime)
-            ?: return false
-        return nowEpochMillis >= deadline
-    }
-
-    fun noPositionCancelOutcomeLabel(outcome: TouchTurnNoPositionCancelOutcome): String = when (outcome) {
-        TouchTurnNoPositionCancelOutcome.PENDING ->
-            "Bracket cancel check at 90m after open if no position"
-        TouchTurnNoPositionCancelOutcome.WOULD_CANCEL_LOGGED ->
-            "No position at 90m — bracket orders would be cancelled"
-        TouchTurnNoPositionCancelOutcome.KEPT_HAS_POSITION ->
-            "Position open at 90m — brackets kept"
-    }
-
-    fun noPositionCancelPendingLabel(millisRemaining: Long): String {
-        val minutes = (millisRemaining / 60_000).toInt()
-        val seconds = ((millisRemaining % 60_000) / 1000).toInt()
-        return if (minutes > 0) {
-            "90m no-position check in ${minutes}m ${seconds}s"
-        } else {
-            "90m no-position check in ${seconds}s"
-        }
-    }
-
-    fun noPositionCancelAlert(
-        sessionDateIso: String,
-        marketZoneId: String,
-        symbol: String
-    ): String =
-        "No open position for $symbol at 90 minutes after market open ($sessionDateIso, $marketZoneId). " +
-            "Bracket entry, take-profit, and stop orders would be cancelled — cancelOrder not called."
 
     /**
      * Liquidity candle ⇔ range (high − low) > [rangeThreshold] (exceeds 25% of 14-day ADR).
@@ -738,8 +686,6 @@ object TouchTurnDefaults {
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
     /** Max time after bar close to log or place Touch Turn entry orders. */
     const val ENTRY_WINDOW_AFTER_CLOSE_MS = 60_000L
-    /** Cancel resting brackets if still flat this long after RTH open (no IB cancel yet — log only). */
-    const val NO_POSITION_BRACKET_CANCEL_AFTER_OPEN_MS = 90L * 60 * 1000
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
 }
@@ -814,12 +760,7 @@ fun StrategyInstance.withLiquidityEvaluatedIfClosed(
     return copy(
         touchTurnSession = session.copy(
             setup = setup,
-            entryOrdersPermitted = entryOrdersPermitted,
-            noPositionBracketCancelOutcome = if (entryOrdersPermitted) {
-                TouchTurnNoPositionCancelOutcome.PENDING
-            } else {
-                null
-            }
+            entryOrdersPermitted = entryOrdersPermitted
         )
     )
 }

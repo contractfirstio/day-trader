@@ -41,4 +41,10 @@ object SymbolMarkets {
 
     fun findOpenPosition(instanceSymbol: String, positions: List<BrokerPosition>): BrokerPosition? =
         positions.firstOrNull { pos -> symbolsMatch(instanceSymbol, pos.symbol) && pos.quantity != 0 }
+
+    fun openOrdersForSymbol(instanceSymbol: String, orders: List<BrokerOpenOrder>): List<BrokerOpenOrder> =
+        orders.filter { order -> symbolsMatch(instanceSymbol, order.symbol) }
+
+    fun hasOpenOrders(instanceSymbol: String, orders: List<BrokerOpenOrder>): Boolean =
+        openOrdersForSymbol(instanceSymbol, orders).isNotEmpty()
 }

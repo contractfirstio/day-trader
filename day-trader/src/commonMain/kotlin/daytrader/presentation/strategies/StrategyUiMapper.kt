@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.BrokerOpenOrder
 import daytrader.data.StrategyCatalog
 import daytrader.domain.RunStatus
 import daytrader.domain.StrategyInstance
@@ -15,11 +16,17 @@ object StrategyUiMapper {
     fun toRowUi(
         instance: StrategyInstance,
         sessionDate: String,
-        brokerUnrealizedPnL: Double? = null
+        brokerUnrealizedPnL: Double? = null,
+        brokerOpenOrders: List<BrokerOpenOrder> = emptyList()
     ): StrategyInstanceRowUi {
         val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
         val rollup = closedRuns.rollups(sessionDate)
-        val card = InstanceCardStateMapper.resolve(instance, sessionDate, brokerUnrealizedPnL)
+        val card = InstanceCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            brokerUnrealizedPnL,
+            brokerOpenOrders
+        )
         return StrategyInstanceRowUi(
             id = instance.id,
             name = displayName(instance),

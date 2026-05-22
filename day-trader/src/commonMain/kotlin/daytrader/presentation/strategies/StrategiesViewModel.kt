@@ -9,7 +9,9 @@ import daytrader.broker.BrokerPosition
 import daytrader.broker.IbConnectionState
 import daytrader.broker.IbGatewayConnection
 import daytrader.data.InstanceRunController
+import daytrader.data.InstanceRunStopWatcher
 import daytrader.data.MarketOpenAutoStarter
+import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.TouchTurnSessionBootstrap
 import daytrader.domain.StrategyInstance
@@ -130,6 +132,11 @@ class StrategiesViewModel(
                 }
             }
         ).start()
+
+        touchTurnMarketData?.let { gateway ->
+            InstanceRunStopWatcher(gateway, repository, scope).start()
+            PreMarketClosePositionWatcher(gateway, repository, scope).start()
+        }
     }
 
     fun onGlobalAutoStartEnabledChange(enabled: Boolean) {
@@ -361,7 +368,12 @@ class StrategiesViewModel(
                 ?.totalUnrealizedPnL
         }
         val selectedCardPresentation = selected?.let { instance ->
-            InstanceCardStateMapper.resolve(instance, sessionDate, selectedBrokerPnL)
+            InstanceCardStateMapper.resolve(
+                instance,
+                sessionDate,
+                selectedBrokerPnL,
+                ibOpenOrders
+            )
         }
         val performance = selected?.let { instance ->
             PerformanceUiMapper.build(
@@ -376,7 +388,12 @@ class StrategiesViewModel(
             val brokerPnL = SymbolMarkets.findOpenPosition(instance.symbol, ibPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
-            StrategyUiMapper.toRowUi(instance, sessionDate, brokerUnrealizedPnL = brokerPnL)
+            StrategyUiMapper.toRowUi(
+                instance,
+                sessionDate,
+                brokerUnrealizedPnL = brokerPnL,
+                brokerOpenOrders = ibOpenOrders
+            )
         }
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.instanceFilter != InstanceFilter.ALL ||

@@ -25,4 +25,15 @@ object StrategyCatalog {
         StrategyType.QUICK_FLIP_SCALPER -> 1.5
     }
 
+    /**
+     * Minutes after RTH open to auto-stop when flat (no IB position and no open orders).
+     * If a position exists, the instance keeps running until today's RTH close, then stops.
+     */
+    fun stopAfterMinOpen(type: StrategyType): Int = when (type) {
+        StrategyType.TOUCH_AND_TURN_SCALPER -> 90
+        StrategyType.QUICK_FLIP_SCALPER -> 90
+    }
+
+    /** Minutes before RTH close to log (and eventually send) market closes for open IB positions. */
+    const val CLOSE_POSITIONS_BEFORE_MARKET_CLOSE_MIN = 5
 }
