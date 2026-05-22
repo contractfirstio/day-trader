@@ -12,13 +12,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.broker.IbConnectionState
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TextSecondary
 
 @Composable
-fun PositionsScreen(viewModel: PositionsViewModel) {
+fun PositionsScreen(
+    viewModel: PositionsViewModel,
+    connectionState: IbConnectionState
+) {
     val uiState by viewModel.uiState.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
@@ -45,14 +49,39 @@ fun PositionsScreen(viewModel: PositionsViewModel) {
                 onHeaderClick = viewModel::onHeaderClick
             )
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(
-                    count = uiState.rows.size,
-                    key = { index: Int -> uiState.rows[index].symbol }
-                ) { index: Int ->
-                    BlotterRow(position = uiState.rows[index])
-                    if (index < uiState.rows.size - 1) {
-                        HorizontalDivider(color = DarkBackground, thickness = 1.dp)
+            if (uiState.rows.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    Text(
+                        text = when (connectionState) {
+                            is IbConnectionState.Connected ->
+                                "No open positions reported by IB Gateway."
+                            IbConnectionState.Connecting ->
+                                "Loading positions from IB Gateway…"
+                            is IbConnectionState.Error ->
+                                "Positions unavailable — fix IB connection and reconnect."
+                            IbConnectionState.Disconnected ->
+                                "Connect to IB Gateway to load positions."
+                        },
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(
+                        count = uiState.rows.size,
+                        key = { index: Int ->
+                            val row = uiState.rows[index]
+                            "${row.symbol}|${row.companyName}"
+                        }
+                    ) { index: Int ->
+                        BlotterRow(position = uiState.rows[index])
+                        if (index < uiState.rows.size - 1) {
+                            HorizontalDivider(color = DarkBackground, thickness = 1.dp)
+                        }
                     }
                 }
             }

@@ -7,7 +7,9 @@ data class Position(
     val avgPrice: Double,
     val marketPrice: Double,
     val dailyChangePct: Double,
-    val totalUnrealizedPnL: Double
+    val totalUnrealizedPnL: Double,
+    /** ISO currency for prices and unrealized P&L (e.g. GBP for LSE). */
+    val currency: String = "USD"
 ) {
     val marketValue: Double get() = quantity * marketPrice
 }
