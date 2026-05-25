@@ -126,6 +126,13 @@ export DAY_TRADER_BROKER=emulator
 
 The emulator starts with an empty positions blotter and seeded working orders (including SPY bracket legs). Order fills can open positions over time. It streams synthetic market ticks every ~2s and answers Touch Turn historical requests (first 15-minute candle and 14-day ADR).
 
+For Touch Turn, the first 15-minute bar is **time-shifted** so it closes after a short wall-clock delay (default **10 seconds**), while the app still treats it as a normal 15-minute bar. That lets you see “candle forming” → “closed” → liquidity → entry window in under a minute. Override with:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `DAY_TRADER_EMULATOR_CANDLE_CLOSE_SEC` | `10` | Seconds until the synthetic first 15m bar closes |
+| `off` or `0` | — | Use today’s 09:30 bar instead (often already closed) |
+
 ## IB Gateway connection
 
 When `DAY_TRADER_BROKER` is `ib` (default), the desktop app connects to IB Gateway (or TWS) in the background. Status appears in the top bar:

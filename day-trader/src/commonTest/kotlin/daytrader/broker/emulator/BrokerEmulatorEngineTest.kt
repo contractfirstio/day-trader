@@ -1,5 +1,8 @@
 package daytrader.broker.emulator
 
+import daytrader.broker.SymbolMarkets
+import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.TouchTurnLogic
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
 import kotlin.test.Test
@@ -43,7 +46,11 @@ class BrokerEmulatorEngineTest {
         assertEquals(1L, ready.requestId)
         val bar = ready.result.getOrThrow()
         assertTrue(bar.high >= bar.low)
-        assertTrue(bar.time?.contains("09:30") == true)
+        val zone = SymbolMarkets.zoneId("SPY")
+        assertEquals(
+            FirstCandleCloseStatus.FORMING,
+            TouchTurnLogic.firstCandleCloseStatus(bar, zone)
+        )
     }
 
     @Test

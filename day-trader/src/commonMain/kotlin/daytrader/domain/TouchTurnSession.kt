@@ -144,7 +144,8 @@ data class TouchTurnSessionContext(
 
 object TouchTurnLogic {
     const val BAR_DURATION_MINUTES = 15
-    private const val BAR_DURATION_MS = BAR_DURATION_MINUTES * 60 * 1000L
+    const val FIRST_CANDLE_BAR_DURATION_MS = BAR_DURATION_MINUTES * 60 * 1000L
+    private const val BAR_DURATION_MS = FIRST_CANDLE_BAR_DURATION_MS
     private val IB_BAR_TIME_REGEX = Regex("""(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})""")
 
     /**
@@ -591,6 +592,20 @@ object TouchTurnLogic {
                 second.toInt()
             ).atZone(zone).toInstant().toEpochMilli()
         }.getOrNull()
+    }
+
+    /** IB historical bar open timestamp, e.g. `20250522  09:30:00`. */
+    fun formatIbBarOpenTime(epochMillis: Long, marketZoneId: String): String {
+        val zdt = java.time.Instant.ofEpochMilli(epochMillis)
+            .atZone(java.time.ZoneId.of(marketZoneId))
+        return "%04d%02d%02d  %02d:%02d:%02d".format(
+            zdt.year,
+            zdt.monthValue,
+            zdt.dayOfMonth,
+            zdt.hour,
+            zdt.minute,
+            zdt.second
+        )
     }
 
     /**

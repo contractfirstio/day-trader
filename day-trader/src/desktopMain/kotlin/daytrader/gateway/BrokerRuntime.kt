@@ -1,6 +1,7 @@
 package daytrader.gateway
 
 import daytrader.broker.DesktopIbGatewayConnection
+import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorBrokerAdapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ data class BrokerRuntime(
                 BrokerKind.EMULATOR -> EmulatorBrokerAdapter(
                     emit = { queues.inbound.offer(it) },
                     receiveCommand = { queues.outbound.take() },
+                    config = BrokerEmulatorConfig.fromEnvironment(),
                     scope = scope
                 )
             }

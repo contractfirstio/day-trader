@@ -68,7 +68,17 @@ class BrokerEmulatorEngine(
         val result = if (instrument == null) {
             Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
         } else {
-            EmulatorHistoricalData.firstFifteenMinuteCandle(trimmed, instrument)
+            val candleResult = EmulatorHistoricalData.firstFifteenMinuteCandle(
+                symbol = trimmed,
+                instrument = instrument,
+                config = config
+            )
+            candleResult.onSuccess { bar ->
+                config.firstCandleSecondsUntilClose?.let { seconds ->
+                    EmulatorLog.firstCandleScheduled(trimmed, bar.time.orEmpty(), seconds)
+                }
+            }
+            candleResult
         }
         emit(GatewayEvent.FirstFifteenMinuteCandleReady(requestId, result))
     }

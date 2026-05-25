@@ -10,9 +10,12 @@ import kotlin.math.sin
 internal object EmulatorHistoricalData {
     private const val ADR_SESSION_COUNT = 16
 
-    fun firstFifteenMinuteCandle(symbol: String, instrument: EmulatorInstrument): Result<OhlcBar> {
-        val sessionYmd = sessionDayYyyyMmDd()
-        val barTime = barTimeForSession(sessionYmd, instrument.marketZoneId)
+    fun firstFifteenMinuteCandle(
+        symbol: String,
+        instrument: EmulatorInstrument,
+        config: BrokerEmulatorConfig,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Result<OhlcBar> {
         val profile = symbolProfile(symbol)
         val ref = instrument.referencePrice
         val range = ref * profile.intradayRangePct
@@ -20,6 +23,11 @@ internal object EmulatorHistoricalData {
         val close = open + range * profile.closeBias
         val high = maxOf(open, close) + range * 0.15
         val low = minOf(open, close) - range * 0.10
+        val barTime = resolveFirstCandleBarTime(
+            marketZoneId = instrument.marketZoneId,
+            secondsUntilClose = config.firstCandleSecondsUntilClose,
+            nowEpochMillis = nowEpochMillis
+        )
         return Result.success(
             OhlcBar(
                 open = open,
@@ -37,11 +45,29 @@ internal object EmulatorHistoricalData {
         return TouchTurnLogic.computeAdr14(dailyBars, excludeSessionDayYyyyMmdd = sessionYmd)
     }
 
+    /**
+     * Sets bar open so that [TouchTurnLogic.firstCandleCloseStatus] becomes CLOSED after
+     * [secondsUntilClose] (bar end = now + secondsUntilClose, bar start = end − 15m).
+     */
+    internal fun resolveFirstCandleBarTime(
+        marketZoneId: String,
+        secondsUntilClose: Long?,
+        nowEpochMillis: Long
+    ): String {
+        val accelerated = secondsUntilClose
+        if (accelerated != null && accelerated > 0) {
+            val barEnd = nowEpochMillis + accelerated * 1_000L
+            val barOpen = barEnd - TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
+            return TouchTurnLogic.formatIbBarOpenTime(barOpen, marketZoneId)
+        }
+        val sessionYmd = sessionDayYyyyMmDd()
+        return barTimeForSession(sessionYmd, marketZoneId)
+    }
+
     fun buildDailyBars(symbol: String, instrument: EmulatorInstrument, excludeDay: String): List<OhlcBar> {
         val profile = symbolProfile(symbol)
         val ref = instrument.referencePrice
         val days = (1..ADR_SESSION_COUNT).map { offset ->
-            val dayNum = (excludeDay.takeLast(2).toIntOrNull() ?: 20) - (ADR_SESSION_COUNT - offset)
             val ymd = offsetDayYmd(excludeDay, offset - ADR_SESSION_COUNT)
             val range = ref * profile.dailyRangePct * (0.85 + 0.3 * sin(offset.toDouble()))
             val open = ref + range * sin(offset * 0.7)
