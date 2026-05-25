@@ -6,6 +6,7 @@ import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnNoPositionCancelOutcome
+import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
 
@@ -24,7 +25,8 @@ internal object TouchTurnPersistence {
             rangeThreshold = record.rangeThreshold,
             entryOrdersPermitted = record.entryOrdersPermitted,
             ordersPlacedForSession = record.ordersPlacedForSession,
-            noPositionBracketCancelOutcome = parseNoPositionCancelOutcome(record.noPositionBracketCancelOutcome)
+            noPositionBracketCancelOutcome = parseNoPositionCancelOutcome(record.noPositionBracketCancelOutcome),
+            milestones = record.milestones?.toDomain() ?: TouchTurnMilestoneTimestamps()
         )
     }
 
@@ -42,9 +44,40 @@ internal object TouchTurnPersistence {
             rangeThreshold = context.rangeThreshold,
             entryOrdersPermitted = context.entryOrdersPermitted,
             ordersPlacedForSession = context.ordersPlacedForSession,
-            noPositionBracketCancelOutcome = context.noPositionBracketCancelOutcome?.name?.lowercase()
+            noPositionBracketCancelOutcome = context.noPositionBracketCancelOutcome?.name?.lowercase(),
+            milestones = context.milestones.toRecord()
         )
     }
+
+    fun milestonesToDomain(record: TouchTurnMilestoneTimestampsRecord): TouchTurnMilestoneTimestamps =
+        record.toDomain()
+
+    fun milestonesToRecord(milestones: TouchTurnMilestoneTimestamps): TouchTurnMilestoneTimestampsRecord =
+        milestones.toRecord()
+
+    private fun TouchTurnMilestoneTimestampsRecord.toDomain(): TouchTurnMilestoneTimestamps =
+        TouchTurnMilestoneTimestamps(
+            startingSessionAt = startingSessionAt,
+            dataReadyAt = dataReadyAt,
+            dataFailedAt = dataFailedAt,
+            barClosedAt = barClosedAt,
+            liquidityEvaluatedAt = liquidityEvaluatedAt,
+            ordersPlacedAt = ordersPlacedAt,
+            positionOpenedAt = positionOpenedAt,
+            closingSessionAt = closingSessionAt
+        )
+
+    private fun TouchTurnMilestoneTimestamps.toRecord(): TouchTurnMilestoneTimestampsRecord =
+        TouchTurnMilestoneTimestampsRecord(
+            startingSessionAt = startingSessionAt,
+            dataReadyAt = dataReadyAt,
+            dataFailedAt = dataFailedAt,
+            barClosedAt = barClosedAt,
+            liquidityEvaluatedAt = liquidityEvaluatedAt,
+            ordersPlacedAt = ordersPlacedAt,
+            positionOpenedAt = positionOpenedAt,
+            closingSessionAt = closingSessionAt
+        )
 
     private fun parseNoPositionCancelOutcome(value: String?): TouchTurnNoPositionCancelOutcome? {
         value ?: return null

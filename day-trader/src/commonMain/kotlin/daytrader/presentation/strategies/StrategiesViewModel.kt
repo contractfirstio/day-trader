@@ -27,6 +27,7 @@ import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.resolveStopSnapshot
 import daytrader.domain.onSessionStopped
+import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.domain.withClosedPosition
 import daytrader.domain.withStopPrice
@@ -110,6 +111,7 @@ class StrategiesViewModel(
             gateway.positions
                 .onEach {
                     brokerPositions = it
+                    recordTouchTurnPositionMilestones(it)
                     emitUiState()
                 }
                 .launchIn(scope)
@@ -370,6 +372,16 @@ class StrategiesViewModel(
 
     private fun syncDeploymentsFromRepository() {
         deployments = repository.deployments.value
+    }
+
+    private fun recordTouchTurnPositionMilestones(positions: List<AccountPosition>) {
+        for (instance in repository.deployments.value) {
+            if (instance.status != DeploymentStatus.RUNNING) continue
+            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (!SymbolMarkets.hasOpenPosition(instance.symbol, positions)) continue
+            if (instance.touchTurnSession?.milestones?.positionOpenedAt != null) continue
+            repository.update(instance.id) { it.withTouchTurnPositionOpenedIfNeeded() }
+        }
     }
 
     private fun emitUiState() {

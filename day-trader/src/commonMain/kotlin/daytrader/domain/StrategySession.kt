@@ -18,5 +18,7 @@ data class StrategySession(
     /** Whether a broker (or demo) position was open when the run stopped. */
     val positionOpened: Boolean? = null,
     /** Broker fills for this run cycle (symbol-scoped), for post-session P&L verification. */
-    val sessionTrades: List<SessionTrade> = emptyList()
+    val sessionTrades: List<SessionTrade> = emptyList(),
+    /** Touch Turn pipeline milestone timestamps captured when this run stopped. */
+    val touchTurnMilestones: TouchTurnMilestoneTimestamps? = null
 )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1564,7 +1565,10 @@ private fun LiveTab(
             LiveTradingPositionPnLHeader(
                 symbol = instance.symbol,
                 broker = liveBroker,
-                liveExecution = liveExecution
+                liveExecution = liveExecution,
+                touchTurnInstance = instance.takeIf {
+                    it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
+                }
             )
 
             when {
@@ -1612,14 +1616,36 @@ private fun LiveTab(
                 TouchTurnSessionAutoStopStatus(instance = instance)
             }
         } else {
-            liveSessionTrades?.let { trades ->
-                LiveSessionTradesSection(trades, inProgress = false, compact = false)
-            } ?: Text(
-                "Start a session to view broker data. After a session ends, fills appear here for P&L verification.",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.testTag("LiveTabStoppedHint")
-            )
+            val closedPipeline = remember(instance.sessionHistory, instance.id) {
+                if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+                    TouchTurnStatusBreadcrumbMapper.pipelineForLastClosedSession(instance)
+                } else {
+                    null
+                }
+            }
+            if (closedPipeline != null) {
+                LiveTradingPositionPnLHeader(
+                    symbol = instance.symbol,
+                    broker = liveBroker,
+                    liveExecution = liveExecution,
+                    breadcrumbStepsOverride = closedPipeline,
+                    sessionEnded = true
+                )
+            }
+            if (liveSessionTrades != null) {
+                LiveSessionTradesSection(
+                    liveSessionTrades,
+                    inProgress = false,
+                    compact = false
+                )
+            } else if (closedPipeline == null) {
+                Text(
+                    "Start a session to view broker data. After a session ends, fills appear here for P&L verification.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.testTag("LiveTabStoppedHint")
+                )
+            }
         }
     }
 }
@@ -1669,7 +1695,10 @@ private fun resolveLivePositionPnL(
 private fun LiveTradingPositionPnLHeader(
     symbol: String,
     broker: LiveBrokerUiState?,
-    liveExecution: LiveExecutionUiState?
+    liveExecution: LiveExecutionUiState?,
+    touchTurnInstance: StrategyDeployment? = null,
+    breadcrumbStepsOverride: List<TouchTurnBreadcrumbStep>? = null,
+    sessionEnded: Boolean = false
 ) {
     val display = resolveLivePositionPnL(symbol, broker, liveExecution)
     val pnlColor = if (display.hasOpenPosition) {
@@ -1682,7 +1711,30 @@ private fun LiveTradingPositionPnLHeader(
     } else {
         SurfaceDark
     }
-    Row(
+    var breadcrumbTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(touchTurnInstance?.id, touchTurnInstance?.touchTurnSession?.candle?.time) {
+        if (touchTurnInstance == null || breadcrumbStepsOverride != null) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            breadcrumbTick++
+        }
+    }
+    val hasOpenOrders = broker?.openOrders?.isNotEmpty() == true
+    val breadcrumbSteps = breadcrumbStepsOverride ?: remember(
+        touchTurnInstance,
+        display.hasOpenPosition,
+        hasOpenOrders,
+        breadcrumbTick
+    ) {
+        touchTurnInstance?.let { instance ->
+            TouchTurnStatusBreadcrumbMapper.steps(
+                instance = instance,
+                hasOpenPosition = display.hasOpenPosition,
+                hasOpenOrders = hasOpenOrders
+            )
+        }
+    }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(headerBg, RoundedCornerShape(8.dp))
@@ -1693,34 +1745,49 @@ private fun LiveTradingPositionPnLHeader(
             )
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .testTag("LiveTradingPositionPnLHeader"),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                "Position P&L",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = BrandRed,
-                letterSpacing = 0.3.sp
-            )
-            Text(
-                display.subtitle,
-                fontSize = 11.sp,
-                color = TextSecondary,
-                maxLines = 2
+        if (breadcrumbSteps != null) {
+            TouchTurnStatusBreadcrumbRow(
+                steps = breadcrumbSteps,
+                modifier = Modifier.testTag("TouchTurnStatusBreadcrumb")
             )
         }
-        Text(
-            display.pnlText,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = pnlColor,
-            modifier = Modifier.testTag("LiveTradingPositionPnLValue")
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    if (sessionEnded) "Session ended" else "Position P&L",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = BrandRed,
+                    letterSpacing = 0.3.sp
+                )
+                Text(
+                    if (sessionEnded) {
+                        "Pipeline log for last run · $symbol"
+                    } else {
+                        display.subtitle
+                    },
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    maxLines = 2
+                )
+            }
+            Text(
+                display.pnlText,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = pnlColor,
+                modifier = Modifier.testTag("LiveTradingPositionPnLValue")
+            )
+        }
     }
 }
 
@@ -2107,6 +2174,7 @@ private fun PerformanceTab(
             modifier = Modifier.fillMaxWidth()
         )
 
+        SessionHistoryTouchTurnPipelineLog(sessionHistory = sessionHistory)
         SessionHistoryTradeDetail(sessionHistory = sessionHistory)
     }
 }

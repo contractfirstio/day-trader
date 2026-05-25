@@ -25,6 +25,19 @@ object SessionHistoryUiMapper {
             .map { toRowUi(it, includeTouchTurnFields, selectedRunId) }
         val rollup = closedSessions.rollups(sessionDate)
         val selectedRun = displaySessions.find { it.id == selectedRunId }
+        val selectedPipeline = selectedRun
+            ?.takeIf { includeTouchTurnFields && it.status == SessionStatus.CLOSED }
+            ?.touchTurnMilestones
+            ?.let { milestones ->
+                TouchTurnStatusBreadcrumbMapper.stepsFromHistory(
+                    milestones = milestones,
+                    startedAt = selectedRun.startedAt,
+                    stoppedAt = selectedRun.stoppedAt,
+                    hadLiquidityCandle = selectedRun.hadLiquidityCandle,
+                    ordersPlacedForCandle = selectedRun.ordersPlacedForCandle,
+                    positionOpened = selectedRun.positionOpened
+                )
+            }
         val selectedDetail = selectedRun
             ?.takeIf { it.sessionTrades.isNotEmpty() }
             ?.let { run ->
@@ -49,7 +62,8 @@ object SessionHistoryUiMapper {
             sortDirection = sortDirection,
             includeTouchTurnFields = includeTouchTurnFields,
             selectedRunId = selectedRunId,
-            selectedSessionTradeDetail = selectedDetail
+            selectedSessionTradeDetail = selectedDetail,
+            selectedTouchTurnPipeline = selectedPipeline
         )
     }
 
@@ -73,6 +87,9 @@ object SessionHistoryUiMapper {
             tradeSideLabel = tradeSide,
             tradeSummary = tradeSummary,
             hasTradeDetail = run.sessionTrades.isNotEmpty(),
+            hasPipelineLog = includeTouchTurnFields &&
+                !inProgress &&
+                run.touchTurnMilestones != null,
             isSelected = run.id == selectedRunId,
             liquidityCandle = if (includeTouchTurnFields && !inProgress) {
                 Formatters.yesNo(run.hadLiquidityCandle)

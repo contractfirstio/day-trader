@@ -110,6 +110,33 @@ fun SessionHistoryTradeDetail(
 }
 
 @Composable
+fun SessionHistoryTouchTurnPipelineLog(
+    sessionHistory: SessionHistoryUiState,
+    modifier: Modifier = Modifier
+) {
+    val steps = sessionHistory.selectedTouchTurnPipeline ?: return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(SurfaceDark, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("SessionHistoryTouchTurnPipelineLog")
+    ) {
+        Text(
+            "Session pipeline log",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TouchTurnStatusBreadcrumbRow(
+            steps = steps,
+            modifier = Modifier.testTag("SessionHistoryTouchTurnPipelineBreadcrumb")
+        )
+    }
+}
+
+@Composable
 private fun SessionHistoryBlotterHeader(
     activeSortColumn: SessionHistorySortColumn,
     sortDirection: SortDirection,
@@ -194,7 +221,7 @@ private fun SessionHistoryBlotterRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(rowBg)
-            .clickable(enabled = row.hasTradeDetail) { onSelectRun(row.id) }
+            .clickable(enabled = row.hasTradeDetail || row.hasPipelineLog) { onSelectRun(row.id) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("SessionHistoryBlotterRow-${row.id}"),
         verticalAlignment = Alignment.CenterVertically

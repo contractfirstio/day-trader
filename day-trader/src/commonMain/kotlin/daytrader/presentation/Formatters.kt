@@ -102,6 +102,9 @@ object Formatters {
     fun runStartTimeDisplay(startedAt: String): String =
         startedAt.runTimeFromIso() ?: "—"
 
+    /** Short HH:mm from an ISO local date-time milestone (e.g. breadcrumb step time). */
+    fun milestoneTimeFromIso(iso: String?): String? = iso?.runTimeFromIso()
+
     fun runStopTimeDisplay(stoppedAt: String, inProgress: Boolean): String = when {
         inProgress -> "—"
         else -> stoppedAt.runTimeFromIso() ?: "—"

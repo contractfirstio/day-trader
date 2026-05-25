@@ -13,6 +13,7 @@ data class StrategySessionRowUi(
     val tradeSideLabel: String?,
     val tradeSummary: String?,
     val hasTradeDetail: Boolean,
+    val hasPipelineLog: Boolean = false,
     val liquidityCandle: String,
     val ordersPlaced: String,
     val formattedPnL: String,
@@ -33,5 +34,7 @@ data class SessionHistoryUiState(
     val sortDirection: SortDirection,
     val includeTouchTurnFields: Boolean = false,
     val selectedRunId: String? = null,
-    val selectedSessionTradeDetail: SessionTradeDetailUiState? = null
+    val selectedSessionTradeDetail: SessionTradeDetailUiState? = null,
+    /** Touch Turn pipeline log for the selected closed session (from persisted milestones). */
+    val selectedTouchTurnPipeline: List<TouchTurnBreadcrumbStep>? = null
 )

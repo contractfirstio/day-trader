@@ -93,6 +93,19 @@ data class TouchTurnBracketSetup(
         get() = isLiquidityCandle && candleColor != FirstCandleColor.DOJI
 }
 
+/** Wall-clock ISO local timestamps when each Touch Turn pipeline step completed. */
+@Serializable
+data class TouchTurnMilestoneTimestamps(
+    val startingSessionAt: String? = null,
+    val dataReadyAt: String? = null,
+    val dataFailedAt: String? = null,
+    val barClosedAt: String? = null,
+    val liquidityEvaluatedAt: String? = null,
+    val ordersPlacedAt: String? = null,
+    val positionOpenedAt: String? = null,
+    val closingSessionAt: String? = null
+)
+
 @Serializable
 data class TouchTurnSessionContext(
     val sessionDate: String,
@@ -100,6 +113,7 @@ data class TouchTurnSessionContext(
     val candle: OhlcBar? = null,
     val setup: TouchTurnBracketSetup? = null,
     val errorMessage: String? = null,
+    val milestones: TouchTurnMilestoneTimestamps = TouchTurnMilestoneTimestamps(),
     /** ISO currency for price display (e.g. HKD on SEHK). */
     val currencyCode: String = "USD",
     /** IANA zone for bar close time (e.g. Asia/Hong_Kong). */
@@ -707,10 +721,12 @@ object TouchTurnDefaults {
 
 fun StrategyDeployment.beginTouchTurnSession(sessionDate: String): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val startedAt = inProgressSession()?.startedAt ?: currentSessionTimestampIso()
     return copy(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
-            status = TouchTurnCandleStatus.LOADING
+            status = TouchTurnCandleStatus.LOADING,
+            milestones = TouchTurnMilestoneTimestamps(startingSessionAt = startedAt)
         )
     )
 }
@@ -745,6 +761,8 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val threshold = TouchTurnLogic.liquidityRangeThreshold(adr14)
+    val prior = touchTurnSession?.milestones
+    val at = currentSessionTimestampIso()
     return copy(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
@@ -753,7 +771,11 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
             currencyCode = currencyCode,
             marketZoneId = marketZoneId,
             adr14 = adr14,
-            rangeThreshold = threshold
+            rangeThreshold = threshold,
+            milestones = TouchTurnMilestoneTimestamps(
+                startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
+                dataReadyAt = at
+            )
         )
     )
 }
@@ -769,10 +791,18 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     if (session.setup != null) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
     val entryOrdersPermitted = setup.isLiquidityCandle && setup.isActionable
+    val at = currentSessionTimestampIso()
+    val milestones = session.milestones.let { m ->
+        m.copy(
+            barClosedAt = m.barClosedAt ?: at,
+            liquidityEvaluatedAt = at
+        )
+    }
     return copy(
         touchTurnSession = session.copy(
             setup = setup,
-            entryOrdersPermitted = entryOrdersPermitted
+            entryOrdersPermitted = entryOrdersPermitted,
+            milestones = milestones
         )
     )
 }
@@ -780,7 +810,37 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
 fun StrategyDeployment.withOrdersPlacedForSession(): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
-    return copy(touchTurnSession = session.copy(ordersPlacedForSession = true))
+    val at = currentSessionTimestampIso()
+    val milestones = session.milestones.copy(
+        ordersPlacedAt = session.milestones.ordersPlacedAt ?: at
+    )
+    return copy(touchTurnSession = session.copy(ordersPlacedForSession = true, milestones = milestones))
+}
+
+/** Records when the broker first reports an open position for this run. */
+fun StrategyDeployment.withTouchTurnPositionOpenedIfNeeded(): StrategyDeployment {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    if (session.milestones.positionOpenedAt != null) return this
+    val at = currentSessionTimestampIso()
+    return copy(
+        touchTurnSession = session.copy(
+            milestones = session.milestones.copy(positionOpenedAt = at)
+        )
+    )
+}
+
+/** Records when the run enters the closing / auto-stop phase. */
+fun StrategyDeployment.withTouchTurnClosingMilestoneIfNeeded(): StrategyDeployment {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    if (session.milestones.closingSessionAt != null) return this
+    val at = currentSessionTimestampIso()
+    return copy(
+        touchTurnSession = session.copy(
+            milestones = session.milestones.copy(closingSessionAt = at)
+        )
+    )
 }
 
 fun StrategyDeployment.withNoPositionBracketCancelEvaluated(
@@ -796,11 +856,17 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
     message: String
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val prior = touchTurnSession?.milestones
+    val at = currentSessionTimestampIso()
     return copy(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
             status = TouchTurnCandleStatus.FAILED,
-            errorMessage = message
+            errorMessage = message,
+            milestones = TouchTurnMilestoneTimestamps(
+                startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
+                dataFailedAt = at
+            )
         )
     )
 }

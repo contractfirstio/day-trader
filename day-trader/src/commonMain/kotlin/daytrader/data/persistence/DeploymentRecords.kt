@@ -32,7 +32,20 @@ data class TouchTurnSessionRecord(
     val rangeThreshold: Double = 0.0,
     val entryOrdersPermitted: Boolean? = null,
     val ordersPlacedForSession: Boolean = false,
-    val noPositionBracketCancelOutcome: String? = null
+    val noPositionBracketCancelOutcome: String? = null,
+    val milestones: TouchTurnMilestoneTimestampsRecord? = null
+)
+
+@Serializable
+data class TouchTurnMilestoneTimestampsRecord(
+    val startingSessionAt: String? = null,
+    val dataReadyAt: String? = null,
+    val dataFailedAt: String? = null,
+    val barClosedAt: String? = null,
+    val liquidityEvaluatedAt: String? = null,
+    val ordersPlacedAt: String? = null,
+    val positionOpenedAt: String? = null,
+    val closingSessionAt: String? = null
 )
 
 @Serializable
@@ -90,7 +103,8 @@ data class SessionHistoryRecord(
     val hadLiquidityCandle: Boolean? = null,
     val ordersPlacedForCandle: Boolean? = null,
     val positionOpened: Boolean? = null,
-    val sessionTrades: List<SessionTradeRecord> = emptyList()
+    val sessionTrades: List<SessionTradeRecord> = emptyList(),
+    val touchTurnMilestones: TouchTurnMilestoneTimestampsRecord? = null
 )
 
 @Serializable

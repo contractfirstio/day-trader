@@ -76,6 +76,34 @@ class SessionStopSnapshotTest {
     }
 
     @Test
+    fun onSessionStopped_persistsTouchTurnMilestonesOnSessionHistory() {
+        val milestones = TouchTurnMilestoneTimestamps(
+            startingSessionAt = "2026-05-22T09:30:00",
+            dataReadyAt = "2026-05-22T09:30:08",
+            barClosedAt = "2026-05-22T09:45:01",
+            liquidityEvaluatedAt = "2026-05-22T09:45:02",
+            ordersPlacedAt = "2026-05-22T09:45:03",
+            closingSessionAt = "2026-05-22T11:00:00"
+        )
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).onSessionStarted("2026-05-22").copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-22",
+                status = TouchTurnCandleStatus.READY,
+                milestones = milestones
+            )
+        )
+
+        val stopped = instance.onSessionStopped()
+
+        assertEquals(milestones, stopped.sessionHistory.single().touchTurnMilestones)
+        assertNull(stopped.touchTurnSession)
+    }
+
+    @Test
     fun onSessionStopped_persistsSnapshotOnPerformanceRow() {
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,

@@ -12,6 +12,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.inProgressSession
 import daytrader.domain.onSessionStopped
+import daytrader.domain.withTouchTurnClosingMilestoneIfNeeded
 import daytrader.gateway.BrokerFill
 import daytrader.domain.resolveStopSnapshot
 import kotlinx.coroutines.CoroutineScope
@@ -56,13 +57,19 @@ class DeploymentSessionStopWatcher(
             val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance.symbol, positions)
             val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, openOrders)
             val sessionTrades = sessionTradesForRun(instance, fills)
-            if (DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
-                    instance = instance,
-                    sessionTrades = sessionTrades,
-                    hasOpenPosition = hasOpenPosition,
-                    hasOpenOrders = hasOpenOrders
-                )
-            ) {
+            val stopAfterTrade = DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
+                instance = instance,
+                sessionTrades = sessionTrades,
+                hasOpenPosition = hasOpenPosition,
+                hasOpenOrders = hasOpenOrders
+            )
+            val stopAfterDeadline =
+                DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, now) ==
+                    DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE
+            if (stopAfterTrade || stopAfterDeadline) {
+                stampClosingMilestone(instance.id)
+            }
+            if (stopAfterTrade) {
                 stopInstance(instance, positions)
                 continue
             }
@@ -88,6 +95,10 @@ class DeploymentSessionStopWatcher(
                 fills = fills
             )
         )
+    }
+
+    private fun stampClosingMilestone(instanceId: String) {
+        repository.update(instanceId) { it.withTouchTurnClosingMilestoneIfNeeded() }
     }
 
     private fun stopInstance(instance: StrategyDeployment, positions: List<AccountPosition>) {

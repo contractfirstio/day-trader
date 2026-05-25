@@ -53,7 +53,8 @@ object DeploymentPersistence {
             hadLiquidityCandle = record.hadLiquidityCandle,
             ordersPlacedForCandle = record.ordersPlacedForCandle,
             positionOpened = record.positionOpened,
-            sessionTrades = record.sessionTrades.map(::toSessionTradeDomain)
+            sessionTrades = record.sessionTrades.map(::toSessionTradeDomain),
+            touchTurnMilestones = record.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToDomain)
         )
 
     private fun toSessionHistoryRecord(day: StrategySession): SessionHistoryRecord =
@@ -69,7 +70,8 @@ object DeploymentPersistence {
             hadLiquidityCandle = day.hadLiquidityCandle,
             ordersPlacedForCandle = day.ordersPlacedForCandle,
             positionOpened = day.positionOpened,
-            sessionTrades = day.sessionTrades.map(::toSessionTradeRecord)
+            sessionTrades = day.sessionTrades.map(::toSessionTradeRecord),
+            touchTurnMilestones = day.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToRecord)
         )
 
     private fun toSessionTradeDomain(record: SessionTradeRecord): SessionTrade =

@@ -69,7 +69,11 @@ fun StrategyDeployment.onSessionStopped(
                     trades.isNotEmpty() -> trades.size
                     else -> snapshot?.trades ?: session.trades
                 },
-                sessionTrades = trades
+                sessionTrades = trades,
+                touchTurnMilestones = when (strategyType) {
+                    StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurnSession?.milestones
+                    StrategyType.QUICK_FLIP_SCALPER -> null
+                }
             )
         } else {
             session
