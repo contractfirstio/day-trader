@@ -21,6 +21,7 @@ import daytrader.data.TouchTurnSessionBootstrap
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.instanceDisplayName
@@ -205,7 +206,27 @@ class StrategiesViewModel(
     }
 
     fun onDetailTabChange(tab: StrategyDetailTab) {
+        if (tab == StrategyDetailTab.SESSION_HISTORY) {
+            ensureSessionHistorySelection()
+        }
         appStateRepository.update { it.copy(detailTab = tab) }
+        emitUiState()
+    }
+
+    private fun ensureSessionHistorySelection() {
+        val instance = repository.deployments.value.find {
+            it.id == appStateRepository.state.value.selectedDeploymentId
+        } ?: return
+        ensureSessionHistorySelectionFor(instance)
+    }
+
+    private fun ensureSessionHistorySelectionFor(instance: StrategyDeployment) {
+        if (selectedSessionHistoryId != null) return
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
+        selectedSessionHistoryId = instance.sessionHistory
+            .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
+            .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+            ?.id
     }
 
     fun onShowAddDialog() {
@@ -411,6 +432,11 @@ class StrategiesViewModel(
         }
 
         val selected = selectedId?.let { id -> filtered.find { it.id == id } }
+        if (selected != null &&
+            appStateRepository.state.value.detailTab == StrategyDetailTab.SESSION_HISTORY
+        ) {
+            ensureSessionHistorySelectionFor(selected)
+        }
         val sessionDate = currentSessionDateIso()
         val selectedBrokerPnL = selected?.let { instance ->
             SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)

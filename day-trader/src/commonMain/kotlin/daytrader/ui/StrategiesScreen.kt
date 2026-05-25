@@ -2174,7 +2174,14 @@ private fun PerformanceTab(
             modifier = Modifier.fillMaxWidth()
         )
 
-        SessionHistoryTouchTurnPipelineLog(sessionHistory = sessionHistory)
+        if (sessionHistory.includeTouchTurnFields) {
+            Text(
+                "Each session shows its Touch Turn pipeline (HH:mm = when that step completed).",
+                fontSize = 11.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("SessionHistoryPipelineHint")
+            )
+        }
         SessionHistoryTradeDetail(sessionHistory = sessionHistory)
     }
 }

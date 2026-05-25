@@ -110,33 +110,6 @@ fun SessionHistoryTradeDetail(
 }
 
 @Composable
-fun SessionHistoryTouchTurnPipelineLog(
-    sessionHistory: SessionHistoryUiState,
-    modifier: Modifier = Modifier
-) {
-    val steps = sessionHistory.selectedTouchTurnPipeline ?: return
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(SurfaceDark, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("SessionHistoryTouchTurnPipelineLog")
-    ) {
-        Text(
-            "Session pipeline log",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        TouchTurnStatusBreadcrumbRow(
-            steps = steps,
-            modifier = Modifier.testTag("SessionHistoryTouchTurnPipelineBreadcrumb")
-        )
-    }
-}
-
-@Composable
 private fun SessionHistoryBlotterHeader(
     activeSortColumn: SessionHistorySortColumn,
     sortDirection: SortDirection,
@@ -217,15 +190,21 @@ private fun SessionHistoryBlotterRow(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val rowBg = if (row.isSelected) TableHeaderBg.copy(alpha = 0.5f) else Color.Transparent
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(rowBg)
-            .clickable(enabled = row.hasTradeDetail || row.hasPipelineLog) { onSelectRun(row.id) }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("SessionHistoryBlotterRow-${row.id}"),
-        verticalAlignment = Alignment.CenterVertically
+            .testTag("SessionHistoryBlotterRow-${row.id}")
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = row.hasTradeDetail || row.hasPipelineLog) {
+                    onSelectRun(row.id)
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         RunCell(row.formattedStartTime, Modifier.weight(0.85f), row.isInProgress)
         RunCell(row.formattedStopTime, Modifier.weight(0.85f), row.isInProgress)
         SessionHistoryTradeCell(row, Modifier.weight(1.1f))
@@ -264,6 +243,15 @@ private fun SessionHistoryBlotterRow(
             }
         } else {
             Spacer(modifier = Modifier.width(40.dp))
+        }
+        }
+        row.pipelineSteps?.let { steps ->
+            TouchTurnStatusBreadcrumbRow(
+                steps = steps,
+                modifier = Modifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                    .testTag("SessionHistoryBlotterRowPipeline-${row.id}")
+            )
         }
     }
 

@@ -25,19 +25,6 @@ object SessionHistoryUiMapper {
             .map { toRowUi(it, includeTouchTurnFields, selectedRunId) }
         val rollup = closedSessions.rollups(sessionDate)
         val selectedRun = displaySessions.find { it.id == selectedRunId }
-        val selectedPipeline = selectedRun
-            ?.takeIf { includeTouchTurnFields && it.status == SessionStatus.CLOSED }
-            ?.touchTurnMilestones
-            ?.let { milestones ->
-                TouchTurnStatusBreadcrumbMapper.stepsFromHistory(
-                    milestones = milestones,
-                    startedAt = selectedRun.startedAt,
-                    stoppedAt = selectedRun.stoppedAt,
-                    hadLiquidityCandle = selectedRun.hadLiquidityCandle,
-                    ordersPlacedForCandle = selectedRun.ordersPlacedForCandle,
-                    positionOpened = selectedRun.positionOpened
-                )
-            }
         val selectedDetail = selectedRun
             ?.takeIf { it.sessionTrades.isNotEmpty() }
             ?.let { run ->
@@ -62,8 +49,7 @@ object SessionHistoryUiMapper {
             sortDirection = sortDirection,
             includeTouchTurnFields = includeTouchTurnFields,
             selectedRunId = selectedRunId,
-            selectedSessionTradeDetail = selectedDetail,
-            selectedTouchTurnPipeline = selectedPipeline
+            selectedSessionTradeDetail = selectedDetail
         )
     }
 
@@ -80,6 +66,20 @@ object SessionHistoryUiMapper {
         }
         val isPnLFlat = formattedPnL == Formatters.FLAT_PNL_LABEL
         val (tradeSide, tradeSummary) = SessionTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
+        val pipelineSteps = if (includeTouchTurnFields && !inProgress) {
+            run.touchTurnMilestones?.let { milestones ->
+                TouchTurnStatusBreadcrumbMapper.stepsFromHistory(
+                    milestones = milestones,
+                    startedAt = run.startedAt,
+                    stoppedAt = run.stoppedAt,
+                    hadLiquidityCandle = run.hadLiquidityCandle,
+                    ordersPlacedForCandle = run.ordersPlacedForCandle,
+                    positionOpened = run.positionOpened
+                )
+            }
+        } else {
+            null
+        }
         return StrategySessionRowUi(
             id = run.id,
             formattedStartTime = Formatters.runStartTimeDisplay(run.startedAt),
@@ -105,7 +105,8 @@ object SessionHistoryUiMapper {
             isPositivePnL = run.pnl > 0.005,
             isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
-            canDelete = !inProgress
+            canDelete = !inProgress,
+            pipelineSteps = pipelineSteps
         )
     }
 
