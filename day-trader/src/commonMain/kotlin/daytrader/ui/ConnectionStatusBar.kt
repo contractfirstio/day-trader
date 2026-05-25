@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayConnectionState
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
@@ -39,7 +40,7 @@ fun ConnectionStatusBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = brokerStatusLabel(state),
+            text = brokerStatusLabel(state, brokerGateway.brokerId),
             style = MaterialTheme.typography.bodyMedium,
             color = brokerStatusColor(state)
         )
@@ -80,11 +81,17 @@ private fun BrokerReconnectButton(
     }
 }
 
-private fun brokerStatusLabel(state: GatewayConnectionState): String = when (state) {
-    GatewayConnectionState.Disconnected -> "Not Connected to Broker"
-    GatewayConnectionState.Connecting -> "Connecting to Broker…"
-    GatewayConnectionState.Connected -> "Connected to Broker"
-    is GatewayConnectionState.Error -> "Not Connected to Broker"
+private fun brokerStatusLabel(state: GatewayConnectionState, brokerId: BrokerId): String {
+    val brokerName = when (brokerId) {
+        BrokerId.EMULATOR -> "Broker Emulator"
+        BrokerId.INTERACTIVE_BROKERS -> "Broker"
+    }
+    return when (state) {
+        GatewayConnectionState.Disconnected -> "Not Connected to $brokerName"
+        GatewayConnectionState.Connecting -> "Connecting to $brokerName…"
+        GatewayConnectionState.Connected -> "Connected to $brokerName"
+        is GatewayConnectionState.Error -> "Not Connected to $brokerName"
+    }
 }
 
 private fun brokerStatusColor(state: GatewayConnectionState): Color = when (state) {

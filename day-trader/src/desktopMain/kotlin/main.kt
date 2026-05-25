@@ -1,25 +1,77 @@
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import daytrader.data.GatewayPositionRepository
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
 import daytrader.ui.App
+import daytrader.ui.BrokerSelectionScreen
+
+private sealed interface StartupPhase {
+    data object ChooseBroker : StartupPhase
+    data class Running(val runtime: BrokerRuntime) : StartupPhase
+}
 
 fun main() = application {
-    val brokerRuntime = BrokerRuntime.create()
-    val positionRepository = GatewayPositionRepository(brokerRuntime.gateway)
-    brokerRuntime.start()
+    var phase by remember { mutableStateOf<StartupPhase>(StartupPhase.ChooseBroker) }
+    var pendingSelection by remember { mutableStateOf(BrokerKind.fromEnvironment()) }
+
+    val windowTitle = when (val current = phase) {
+        StartupPhase.ChooseBroker -> "Day Trader — Choose Broker"
+        is StartupPhase.Running -> when (current.runtime.kind) {
+            BrokerKind.EMULATOR -> "Day Trader (Broker Emulator)"
+            BrokerKind.INTERACTIVE_BROKERS -> "Day Trader"
+        }
+    }
+
+    val windowState = rememberWindowState(size = DpSize(680.dp, 620.dp))
+    LaunchedEffect(phase) {
+        windowState.size = when (phase) {
+            StartupPhase.ChooseBroker -> DpSize(680.dp, 620.dp)
+            is StartupPhase.Running -> DpSize(2234.dp, 1357.dp)
+        }
+    }
 
     Window(
         onCloseRequest = {
-            brokerRuntime.shutdown()
+            if (phase is StartupPhase.Running) {
+                (phase as StartupPhase.Running).runtime.shutdown()
+            }
             exitApplication()
         },
-        title = "Day Trader",
-        state = rememberWindowState(size = DpSize(2234.dp, 1357.dp))
+        title = windowTitle,
+        state = windowState
     ) {
-        App(brokerGateway = brokerRuntime.gateway, positionRepository = positionRepository)
+        MaterialTheme {
+            when (val current = phase) {
+                StartupPhase.ChooseBroker -> BrokerSelectionScreen(
+                    selected = pendingSelection,
+                    onSelect = { pendingSelection = it },
+                    onContinue = {
+                        val runtime = BrokerRuntime.create(pendingSelection)
+                        runtime.start()
+                        phase = StartupPhase.Running(runtime)
+                    }
+                )
+
+                is StartupPhase.Running -> {
+                    val positionRepository = remember(current.runtime) {
+                        GatewayPositionRepository(current.runtime.gateway)
+                    }
+                    App(
+                        brokerGateway = current.runtime.gateway,
+                        positionRepository = positionRepository
+                    )
+                }
+            }
+        }
     }
 }

@@ -106,9 +106,29 @@ export DAY_TRADER_DATA_DIR=/tmp/day-trader-dev
 - **JDK 17+** (recommended for Kotlin 2.0 and Compose Desktop)
 - No Android SDK required — desktop JVM target only
 
+## Broker selection
+
+On launch, the app shows a **broker selection** screen: **Interactive Brokers** or **Broker Emulator**. Click **Continue** to connect with your choice.
+
+Optionally pre-select a card with `DAY_TRADER_BROKER`:
+
+| Value | Backend |
+|-------|---------|
+| `ib` *(default pre-selection)* | Interactive Brokers via IB Gateway / TWS |
+| `emulator`, `sim`, or `mock` | In-memory broker emulator (no Gateway required) |
+
+Example:
+
+```bash
+export DAY_TRADER_BROKER=emulator
+./gradlew :day-trader:run
+```
+
+The emulator seeds US and HK positions, working orders (including SPY bracket legs), streams synthetic market ticks every ~2s, and answers Touch Turn historical requests (first 15-minute candle and 14-day ADR).
+
 ## IB Gateway connection
 
-On launch the desktop app connects to IB Gateway (or TWS) in the background. Status appears in the top bar:
+When `DAY_TRADER_BROKER` is `ib` (default), the desktop app connects to IB Gateway (or TWS) in the background. Status appears in the top bar:
 
 - **Connecting…** — socket open, waiting for API handshake (`nextValidId`)
 - **Connected (next order id N)** — positions requested automatically; blotter updates as ticks arrive

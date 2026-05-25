@@ -4,6 +4,8 @@ import daytrader.domain.OhlcBar
 import kotlinx.coroutines.flow.StateFlow
 
 interface BrokerGateway {
+    val brokerId: BrokerId
+
     val connectionState: StateFlow<GatewayConnectionState>
 
     val positions: StateFlow<List<AccountPosition>>

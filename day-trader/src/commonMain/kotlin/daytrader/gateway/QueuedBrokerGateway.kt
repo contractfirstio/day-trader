@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 class QueuedBrokerGateway(
     private val sendCommand: (GatewayCommand) -> Unit,
     private val receiveEventBlocking: () -> GatewayEvent,
+    override val brokerId: BrokerId,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : BrokerGateway {
 
