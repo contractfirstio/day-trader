@@ -7,7 +7,7 @@ enum class BrokerId {
     companion object {
         fun from(kind: BrokerKind): BrokerId = when (kind) {
             BrokerKind.INTERACTIVE_BROKERS -> INTERACTIVE_BROKERS
-            BrokerKind.EMULATOR -> EMULATOR
+            BrokerKind.EMULATOR, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> EMULATOR
         }
     }
 }

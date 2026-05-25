@@ -44,6 +44,7 @@ import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.InstanceRunStopLogic
+import daytrader.domain.TouchTurnRunStopLogic
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
 import kotlinx.coroutines.delay
@@ -1496,10 +1497,10 @@ private fun TouchTurnMetric(
 }
 
 @Composable
-private fun SessionAutoStopStatus(instance: StrategyInstance) {
-    val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(instance.strategyType)
-    var tick by remember(instance.id, stopAfterMinOpen) { mutableIntStateOf(0) }
-    LaunchedEffect(instance.id, stopAfterMinOpen) {
+private fun TouchTurnSessionAutoStopStatus(instance: StrategyInstance) {
+    val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER) ?: return
+    var tick by remember(instance.id) { mutableIntStateOf(0) }
+    LaunchedEffect(instance.id) {
         while (true) {
             delay(1_000)
             tick++
@@ -1507,10 +1508,10 @@ private fun SessionAutoStopStatus(instance: StrategyInstance) {
     }
     val sessionDate = remember(instance, tick) { InstanceRunStopLogic.sessionDateForRunningInstance(instance) }
     val openEpoch = remember(instance, sessionDate) {
-        sessionDate?.let { InstanceRunStopLogic.sessionOpenEpochMillis(instance, it) }
+        sessionDate?.let { TouchTurnRunStopLogic.sessionOpenEpochMillis(instance, it) }
     }
-    val remainingMs = remember(openEpoch, stopAfterMinOpen, tick) {
-        openEpoch?.let { InstanceRunStopLogic.millisUntilStopAfterOpen(it, stopAfterMinOpen) }
+    val remainingMs = remember(openEpoch, tick) {
+        openEpoch?.let { TouchTurnRunStopLogic.millisUntilStopAfterOpen(it) }
     }
     val pastDeadline = remainingMs == 0L && openEpoch != null
     Column(
@@ -1519,23 +1520,23 @@ private fun SessionAutoStopStatus(instance: StrategyInstance) {
             .testTag("SessionAutoStopStatus")
     ) {
         Text(
-            "Session auto-stop",
+            "Touch Turn session auto-stop",
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             color = TextSecondary
         )
         Text(
-            "Stops automatically when a trade closes (win or loss). " +
-                "Otherwise flat after ${stopAfterMinOpen}m with no position/orders, or at RTH close if still exposed.",
+            "Stops when a trade closes (win or loss), or ${stopAfterMinOpen}m after RTH open " +
+                "(then cancels working orders and closes any open position).",
             fontSize = 10.sp,
             color = TextSecondary.copy(alpha = 0.85f)
         )
         remainingMs?.let { remaining ->
             Text(
                 if (pastDeadline) {
-                    "Past ${stopAfterMinOpen}m after open — will stop when flat with no IB position or open orders."
+                    "Past ${stopAfterMinOpen}m after open — session will stop and flatten broker orders/position."
                 } else {
-                    InstanceRunStopLogic.pendingStopAfterOpenLabel(remaining, stopAfterMinOpen)
+                    TouchTurnRunStopLogic.pendingStopAfterOpenLabel(remaining)
                 },
                 fontSize = 11.sp,
                 color = if (pastDeadline) Color(0xFFFFB74D) else TextSecondary,
@@ -1608,9 +1609,8 @@ private fun LiveTab(
 
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
                 TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
+                TouchTurnSessionAutoStopStatus(instance = instance)
             }
-
-            SessionAutoStopStatus(instance = instance)
         } else {
             liveSessionTrades?.let { trades ->
                 LiveSessionTradesSection(trades, inProgress = false, compact = false)

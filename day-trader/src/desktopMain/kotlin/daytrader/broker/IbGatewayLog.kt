@@ -77,6 +77,18 @@ internal object IbGatewayLog {
         info("Touch Turn bracket not placed: $reason")
     }
 
+    fun sessionOrdersCancelled(symbol: String, orderIds: List<Int>) {
+        info("Session stop — cancel requested for $symbol orders=$orderIds")
+    }
+
+    fun sessionPositionClosePlaced(symbol: String, orderId: Int, action: String, quantity: Int) {
+        info("Session stop — market close $action $quantity $symbol orderId=$orderId")
+    }
+
+    fun sessionPositionCloseSkipped(symbol: String, reason: String) {
+        info("Session stop — position close skipped for $symbol: $reason")
+    }
+
     fun requestingPositions() {
         info("Requesting positions")
     }

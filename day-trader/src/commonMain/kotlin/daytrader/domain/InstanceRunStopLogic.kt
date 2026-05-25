@@ -1,18 +1,16 @@
 package daytrader.domain
 
-import daytrader.gateway.AccountPosition
-import daytrader.gateway.WorkingOrder
-import daytrader.broker.SymbolMarkets
-
-enum class SessionStopAction {
-    /** Before stop-after-open deadline, or still within session with exposure. */
+/** Cross-strategy run-stop outcomes; strategy-specific rules live in per-type helpers (e.g. [TouchTurnRunStopLogic]). */
+enum class InstanceRunStopAction {
+    /** Keep running (no stop rule matched). */
     CONTINUE,
     /** Bracket/trade cycle finished (win or loss known) — stop immediately. */
     STOP_TRADE_OUTCOME_KNOWN,
-    /** Past deadline with no position and no open orders — stop the instance. */
-    STOP_FLAT_AFTER_OPEN,
-    /** Had exposure after deadline and RTH session has closed — stop the instance. */
-    STOP_AT_MARKET_CLOSE
+    /**
+     * Touch Turn only: past [StrategyCatalog.stopAfterMinOpen] after session open — stop and
+     * flatten (cancel working orders and close any open position for the symbol).
+     */
+    STOP_AFTER_OPEN_DEADLINE
 }
 
 object InstanceRunStopLogic {
@@ -50,71 +48,16 @@ object InstanceRunStopLogic {
             ?: instance.touchTurnSession?.sessionDate
             ?: instance.lastAutoStartSessionDate
 
-    fun sessionOpenEpochMillis(
+    /**
+     * Strategy-specific deadline stop (e.g. Touch Turn 90m after open). Returns null when the
+     * strategy has no open-deadline rule.
+     */
+    fun evaluateDeadlineForInstance(
         instance: StrategyInstance,
-        sessionDateIso: String
-    ): Long? {
-        val zoneId = SymbolMarkets.zoneId(instance.symbol)
-        val barTime = instance.touchTurnSession?.candle?.time
-        return TouchTurnLogic.marketOpenEpochMillis(sessionDateIso, zoneId, barTime)
-    }
-
-    fun marketCloseEpochMillis(sessionDateIso: String, marketZoneId: String): Long? =
-        TouchTurnLogic.marketCloseEpochMillis(sessionDateIso, marketZoneId)
-
-    fun stopAfterOpenDeadlineEpochMillis(
-        sessionOpenEpochMillis: Long,
-        stopAfterMinOpen: Int
-    ): Long = sessionOpenEpochMillis + stopAfterMinOpen * 60_000L
-
-    fun evaluate(
-        nowEpochMillis: Long,
-        sessionOpenEpochMillis: Long,
-        marketCloseEpochMillis: Long,
-        stopAfterMinOpen: Int,
-        hasOpenPosition: Boolean,
-        hasOpenOrders: Boolean
-    ): SessionStopAction {
-        val stopDeadline = stopAfterOpenDeadlineEpochMillis(sessionOpenEpochMillis, stopAfterMinOpen)
-        if (nowEpochMillis < stopDeadline) return SessionStopAction.CONTINUE
-        if (!hasOpenPosition && !hasOpenOrders) return SessionStopAction.STOP_FLAT_AFTER_OPEN
-        if (nowEpochMillis >= marketCloseEpochMillis) return SessionStopAction.STOP_AT_MARKET_CLOSE
-        return SessionStopAction.CONTINUE
-    }
-
-    fun evaluateForInstance(
-        instance: StrategyInstance,
-        stopAfterMinOpen: Int,
-        positions: List<AccountPosition>,
-        openOrders: List<WorkingOrder>,
         nowEpochMillis: Long = System.currentTimeMillis()
-    ): SessionStopAction? {
-        val sessionDate = sessionDateForRunningInstance(instance) ?: return null
-        val open = sessionOpenEpochMillis(instance, sessionDate) ?: return null
-        val close = marketCloseEpochMillis(sessionDate, SymbolMarkets.zoneId(instance.symbol)) ?: return null
-        return evaluate(
-            nowEpochMillis = nowEpochMillis,
-            sessionOpenEpochMillis = open,
-            marketCloseEpochMillis = close,
-            stopAfterMinOpen = stopAfterMinOpen,
-            hasOpenPosition = SymbolMarkets.hasOpenPosition(instance.symbol, positions),
-            hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, openOrders)
-        )
-    }
-
-    fun millisUntilStopAfterOpen(
-        sessionOpenEpochMillis: Long,
-        stopAfterMinOpen: Int,
-        nowEpochMillis: Long = System.currentTimeMillis()
-    ): Long {
-        val deadline = stopAfterOpenDeadlineEpochMillis(sessionOpenEpochMillis, stopAfterMinOpen)
-        return (deadline - nowEpochMillis).coerceAtLeast(0)
-    }
-
-    fun pendingStopAfterOpenLabel(millisRemaining: Long, stopAfterMinOpen: Int): String {
-        val minutes = (millisRemaining / 60_000).toInt()
-        val seconds = ((millisRemaining % 60_000) / 1000).toInt()
-        val timing = if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
-        return "Auto-stop if flat in $timing (${stopAfterMinOpen}m after open)"
+    ): InstanceRunStopAction? = when (instance.strategyType) {
+        StrategyType.TOUCH_AND_TURN_SCALPER ->
+            TouchTurnRunStopLogic.evaluateOpenDeadline(instance, nowEpochMillis)
+        StrategyType.QUICK_FLIP_SCALPER -> null
     }
 }

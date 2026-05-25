@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
 import daytrader.ui.theme.BrandRed
@@ -21,11 +22,16 @@ import daytrader.ui.theme.SurfaceDark
 @Composable
 fun App(
     brokerGateway: BrokerGateway,
-    positionRepository: PositionRepository
+    positionRepository: PositionRepository,
+    brokerKind: BrokerKind,
+    touchTurnSessionGateway: BrokerGateway = brokerGateway,
+    ensureLiveMarketData: ((String) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
-        touchTurnMarketData = brokerGateway
+        brokerGateway = brokerGateway,
+        touchTurnSessionGateway = touchTurnSessionGateway,
+        ensureLiveMarketData = ensureLiveMarketData
     )
     var currentScreen by remember { mutableStateOf(AppScreen.POSITIONS) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
@@ -36,6 +42,7 @@ fun App(
             Column(modifier = Modifier.fillMaxSize()) {
                 AppTopBar(
                     brokerGateway = brokerGateway,
+                    brokerKind = brokerKind,
                     selectedMarketZoneId = selectedMarketZoneId,
                     onMarketClick = dependencies.marketFilter::toggle,
                     globalAutoStartEnabled = strategiesUi.globalAutoStartEnabled,

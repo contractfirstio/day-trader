@@ -29,6 +29,7 @@ fun main() = application {
         StartupPhase.ChooseBroker -> "Day Trader — Choose Broker"
         is StartupPhase.Running -> when (current.runtime.kind) {
             BrokerKind.EMULATOR -> "Day Trader (Broker Emulator)"
+            BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Day Trader (Paper · Live IB Data)"
             BrokerKind.INTERACTIVE_BROKERS -> "Day Trader"
         }
     }
@@ -70,7 +71,11 @@ fun main() = application {
                     }
                     App(
                         brokerGateway = current.runtime.gateway,
-                        positionRepository = positionRepository
+                        positionRepository = positionRepository,
+                        brokerKind = current.runtime.kind,
+                        touchTurnSessionGateway = current.runtime.marketDataGateway
+                            ?: current.runtime.gateway,
+                        ensureLiveMarketData = current.runtime.ensureLiveMarketData
                     )
                 }
             }

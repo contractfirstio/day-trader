@@ -45,7 +45,7 @@ object TouchTurnOrderLog {
         val side = TouchTurnLogic.tradeSideLabel(setup.side)
         val submissionLabel = when (brokerGateway?.brokerId) {
             BrokerId.INTERACTIVE_BROKERS -> "submitted to Interactive Brokers"
-            BrokerId.EMULATOR -> "placed with Broker Emulator"
+            BrokerId.EMULATOR -> "placed with Broker Emulator (paper)"
             else -> "planned only (no broker connected)"
         }
         line(
@@ -61,7 +61,7 @@ object TouchTurnOrderLog {
         when (brokerGateway?.brokerId) {
             BrokerId.EMULATOR -> {
                 brokerGateway.placeTouchTurnBracket(plan)
-                line("  (emulator — bracket working orders placed; entry fills on market ticks)")
+                line("  (paper emulator — bracket fills when IB live price crosses limit/stop)")
             }
             BrokerId.INTERACTIVE_BROKERS -> {
                 brokerGateway.placeTouchTurnBracket(plan)

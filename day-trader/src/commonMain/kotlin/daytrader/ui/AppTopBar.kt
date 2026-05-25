@@ -5,10 +5,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 
 @Composable
 fun AppTopBar(
     brokerGateway: BrokerGateway,
+    brokerKind: BrokerKind,
     selectedMarketZoneId: String?,
     onMarketClick: (String) -> Unit,
     globalAutoStartEnabled: Boolean,
@@ -22,6 +24,7 @@ fun AppTopBar(
         )
         ConnectionStatusBar(
             brokerGateway = brokerGateway,
+            brokerKind = brokerKind,
             globalAutoStartEnabled = globalAutoStartEnabled,
             onGlobalAutoStartChange = onGlobalAutoStartChange
         )

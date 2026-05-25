@@ -19,9 +19,11 @@ import kotlinx.coroutines.launch
  * then evaluates liquidity once that bar has closed (range > 25% of ADR).
  */
 class TouchTurnSessionBootstrap(
-    private val gateway: BrokerGateway,
+    private val sessionGateway: BrokerGateway,
+    private val executionGateway: BrokerGateway = sessionGateway,
     private val repository: StrategyInstanceRepository,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val ensureLiveMarketData: ((String) -> Unit)? = null
 ) {
     fun loadFirstCandle(instanceId: String, sessionDate: String) {
         scope.launch {
@@ -29,7 +31,8 @@ class TouchTurnSessionBootstrap(
             if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
 
             val symbol = instance.symbol
-            val adrResult = gateway.fetchFourteenDayAdr(symbol)
+            ensureLiveMarketData?.invoke(symbol)
+            val adrResult = sessionGateway.fetchFourteenDayAdr(symbol)
             val adr14 = adrResult.getOrElse { error ->
                 repository.update(instanceId) { current ->
                     current.withTouchTurnCandleFailed(
@@ -40,7 +43,7 @@ class TouchTurnSessionBootstrap(
                 return@launch
             }
 
-            val candleResult = gateway.fetchFirstFifteenMinuteCandle(symbol)
+            val candleResult = sessionGateway.fetchFirstFifteenMinuteCandle(symbol)
             val currency = SymbolMarkets.currencyCode(symbol)
             val zoneId = SymbolMarkets.zoneId(symbol)
             repository.update(instanceId) { current ->
@@ -91,7 +94,7 @@ class TouchTurnSessionBootstrap(
                         maxDollars = updated.maxDollars,
                         currencyCode = session?.currencyCode ?: SymbolMarkets.currencyCode(updated.symbol),
                         setup = session?.setup,
-                        brokerGateway = gateway
+                        brokerGateway = executionGateway
                     )
                     if (ordersPlaced) updated.withOrdersPlacedForSession() else updated
                 }

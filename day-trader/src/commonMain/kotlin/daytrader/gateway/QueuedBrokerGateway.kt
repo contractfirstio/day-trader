@@ -79,6 +79,18 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.PlaceTouchTurnBracket(plan))
     }
 
+    override fun cancelOpenOrdersForSymbol(symbol: String) {
+        sendCommand(GatewayCommand.CancelOpenOrdersForSymbol(symbol))
+    }
+
+    override fun closeOpenPositionForSymbol(symbol: String) {
+        sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol))
+    }
+
+    override fun flattenSymbolForSymbol(symbol: String) {
+        sendCommand(GatewayCommand.FlattenSymbolForSymbol(symbol))
+    }
+
     override fun refreshFills() {
         sendCommand(GatewayCommand.RequestExecutions)
     }

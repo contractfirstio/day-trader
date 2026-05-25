@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import daytrader.gateway.BrokerGateway
-import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
@@ -26,6 +26,7 @@ import daytrader.ui.theme.TextSecondary
 @Composable
 fun ConnectionStatusBar(
     brokerGateway: BrokerGateway,
+    brokerKind: BrokerKind,
     globalAutoStartEnabled: Boolean,
     onGlobalAutoStartChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -43,9 +44,9 @@ fun ConnectionStatusBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BrokerModeBadge(brokerId = brokerGateway.brokerId)
+            BrokerModeBadge(brokerId = brokerGateway.brokerId, brokerKind = brokerKind)
             Text(
-                text = brokerStatusLabel(state, brokerGateway.brokerId),
+                text = brokerStatusLabel(state, brokerKind),
                 style = MaterialTheme.typography.bodyMedium,
                 color = brokerStatusColor(state)
             )
@@ -87,10 +88,11 @@ private fun BrokerReconnectButton(
     }
 }
 
-private fun brokerStatusLabel(state: GatewayConnectionState, brokerId: BrokerId): String {
-    val brokerName = when (brokerId) {
-        BrokerId.EMULATOR -> "Broker Emulator"
-        BrokerId.INTERACTIVE_BROKERS -> "Interactive Brokers"
+private fun brokerStatusLabel(state: GatewayConnectionState, brokerKind: BrokerKind): String {
+    val brokerName = when (brokerKind) {
+        BrokerKind.INTERACTIVE_BROKERS -> "Interactive Brokers"
+        BrokerKind.EMULATOR -> "Broker Emulator"
+        BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper Trading (Live IB Data)"
     }
     return when (state) {
         GatewayConnectionState.Disconnected -> "Not Connected to $brokerName"

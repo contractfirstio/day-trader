@@ -12,7 +12,9 @@ import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EReader
 import com.ib.client.Order
+import com.ib.client.OrderCancel
 import com.ib.client.OrderState
+import com.ib.client.Types
 import com.ib.client.TickAttrib
 import com.ib.client.TickType
 import com.ib.client.protobuf.AccountDataEndProto
@@ -57,8 +59,13 @@ import kotlin.math.roundToInt
 class DesktopIbGatewayConnection(
     private val queues: BlockingGatewayQueues,
     private val config: IbGatewayConfig = IbGatewayConfig.fromEnvironment(),
+    private val connectionMode: IbConnectionMode = IbConnectionMode.FULL,
+    private val onLiveMark: ((symbol: String, marketPrice: Double, priorClose: Double?) -> Unit)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : BrokerAdapter, DefaultEWrapper() {
+
+    private val marketDataOnly: Boolean
+        get() = connectionMode == IbConnectionMode.MARKET_DATA_ONLY
 
     override val brokerId: BrokerId = BrokerId.INTERACTIVE_BROKERS
 
@@ -115,6 +122,9 @@ class DesktopIbGatewayConnection(
     private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
     private val adrGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val lastTickDiagAtMs = ConcurrentHashMap<String, Long>()
+    /** Keys for symbol-only streaming (paper/hybrid emulator marks). */
+    private val streamSymbolByMktDataKey = ConcurrentHashMap<String, String>()
+    private val pendingStreamSymbols = ConcurrentHashMap.newKeySet<String>()
     private val nextMktDataReqId = AtomicInteger(MKT_DATA_REQ_ID_START)
     private val nextContractDetailsReqId = AtomicInteger(CONTRACT_DETAILS_REQ_ID_START)
     private val nextHistoricalReqId = AtomicInteger(HISTORICAL_REQ_ID_START)
@@ -151,9 +161,33 @@ class DesktopIbGatewayConnection(
                         scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
-                    is GatewayCommand.PlaceTouchTurnBracket ->
-                        placeTouchTurnBracket(command.plan)
-                    GatewayCommand.RequestExecutions -> scheduleExecutionsRefresh()
+                    is GatewayCommand.PlaceTouchTurnBracket -> {
+                        if (marketDataOnly) {
+                            IbGatewayLog.touchTurnBracketSkipped(
+                                "Market-data-only IB connection (use emulator for orders)"
+                            )
+                        } else {
+                            placeTouchTurnBracket(command.plan)
+                        }
+                    }
+                    is GatewayCommand.CancelOpenOrdersForSymbol -> {
+                        if (!marketDataOnly) {
+                            cancelOpenOrdersForSymbol(command.symbol)
+                        }
+                    }
+                    is GatewayCommand.CloseOpenPositionForSymbol -> {
+                        if (!marketDataOnly) {
+                            closeOpenPositionForSymbol(command.symbol)
+                        }
+                    }
+                    is GatewayCommand.FlattenSymbolForSymbol -> {
+                        if (!marketDataOnly) {
+                            flattenSymbolForSymbol(command.symbol)
+                        }
+                    }
+                    GatewayCommand.RequestExecutions -> {
+                        if (!marketDataOnly) scheduleExecutionsRefresh()
+                    }
                 }
             }
         }
@@ -272,8 +306,15 @@ class DesktopIbGatewayConnection(
         nextOrderId.set(orderId)
         emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
-        // Bootstrap: one outbound IB message per paced action (under rate limits).
-        paced { client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN) }
+        paced {
+            client.reqMarketDataType(
+                if (marketDataOnly) MARKET_DATA_TYPE_LIVE else MARKET_DATA_TYPE_DELAYED_FROZEN
+            )
+        }
+        if (marketDataOnly) {
+            flushPendingStreamSubscriptions()
+            return
+        }
         paced { client.reqAccountUpdates(true, config.accountCode) }
         paced { requestPositions() }
         paced { requestOpenOrders() }
@@ -693,9 +734,58 @@ class DesktopIbGatewayConnection(
         if (priceUpdated) {
             IbGatewayLog.tickPrice(key, field, price)
             openPositions[key]?.let { logPositionDiagThrottled(it, "tick") }
-            publishPositions(immediate = false)
+            forwardLiveMarkIfNeeded(key)
+            if (!marketDataOnly) {
+                publishPositions(immediate = false)
+            }
         }
     }
+
+    private fun forwardLiveMarkIfNeeded(key: String) {
+        val listener = onLiveMark ?: return
+        val symbol = resolveSymbolForMarketDataKey(key) ?: return
+        val mkt = marketPrices[key] ?: return
+        val close = priorCloses[key]
+        listener(symbol, mkt, close)
+    }
+
+    private fun resolveSymbolForMarketDataKey(key: String): String? =
+        openPositions[key]?.symbol ?: streamSymbolByMktDataKey[key]
+
+    /**
+     * Subscribes to IB streaming quotes for [symbol] (used by hybrid paper mode for emulator marks).
+     */
+    fun ensureStreamingMarketData(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank()) return
+        if (!client.isConnected) {
+            pendingStreamSymbols.add(norm)
+            return
+        }
+        subscribeStreamingMarketData(norm)
+    }
+
+    private fun flushPendingStreamSubscriptions() {
+        val symbols = pendingStreamSymbols.toList()
+        pendingStreamSymbols.clear()
+        symbols.forEach { subscribeStreamingMarketData(it) }
+    }
+
+    private fun subscribeStreamingMarketData(norm: String) {
+        val key = streamingOnlyKey(norm)
+        if (keyToMktDataReqId.containsKey(key)) return
+        val reqId = nextMktDataReqId.getAndIncrement()
+        mktDataReqIdToKey[reqId] = key
+        keyToMktDataReqId[key] = reqId
+        streamSymbolByMktDataKey[key] = norm
+        val contract = IbContractMapper.stockForHistorical(norm)
+        requestPacer.enqueue {
+            if (!client.isConnected) return@enqueue
+            client.reqMktData(reqId, IbContractMapper.forDataRequest(contract), "", false, false, null)
+        }
+    }
+
+    private fun streamingOnlyKey(symbol: String): String = "STREAM:$symbol"
 
     private fun updateMidPrice(key: String): Boolean {
         val bid = bidPrices[key]
@@ -777,6 +867,7 @@ class DesktopIbGatewayConnection(
     private fun cancelMarketData(key: String) {
         val reqId = keyToMktDataReqId.remove(key) ?: return
         mktDataReqIdToKey.remove(reqId)
+        streamSymbolByMktDataKey.remove(key)
         requestPacer.enqueue {
             if (client.isConnected) {
                 client.cancelMktData(reqId)
@@ -806,6 +897,8 @@ class DesktopIbGatewayConnection(
         priorCloses.clear()
         bidPrices.clear()
         askPrices.clear()
+        streamSymbolByMktDataKey.clear()
+        pendingStreamSymbols.clear()
     }
 
     private fun cancelAllContractDetailsPaced() {
@@ -1063,6 +1156,7 @@ class DesktopIbGatewayConnection(
     }
 
     private fun publishOpenOrders() {
+        if (marketDataOnly) return
         emit(GatewayEvent.OpenOrdersSnapshot(openOrdersById.values.sortedBy { it.orderId }))
     }
 
@@ -1097,6 +1191,59 @@ class DesktopIbGatewayConnection(
             )
             scheduleExecutionsRefresh()
         }
+    }
+
+    private fun cancelOpenOrdersForSymbol(symbol: String) {
+        if (!client.isConnected) return
+        val toCancel = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+        if (toCancel.isEmpty()) return
+        val orderCancel = OrderCancel()
+        toCancel.forEach { working ->
+            openOrdersById.remove(working.orderId)
+            paced {
+                if (!client.isConnected) return@paced
+                client.cancelOrder(working.orderId, orderCancel)
+            }
+        }
+        publishOpenOrders()
+        IbGatewayLog.sessionOrdersCancelled(symbol, toCancel.map { it.orderId })
+    }
+
+    private fun flattenSymbolForSymbol(symbol: String) {
+        cancelOpenOrdersForSymbol(symbol)
+        closeOpenPositionForSymbol(symbol)
+    }
+
+    private fun closeOpenPositionForSymbol(symbol: String) {
+        if (!client.isConnected) return
+        val open = openPositions.values.firstOrNull { pos ->
+            SymbolMarkets.symbolsMatch(symbol, pos.symbol) && pos.quantity != 0
+        } ?: return
+        val orderId = allocateOrderIds(1) ?: run {
+            IbGatewayLog.sessionPositionCloseSkipped(symbol, "Order id not ready")
+            return
+        }
+        val closeQty = kotlin.math.abs(open.quantity)
+        val action = if (open.quantity > 0) "SELL" else "BUY"
+        val order = Order()
+        order.orderId(orderId)
+        order.clientId(config.clientId)
+        order.action(action)
+        order.orderType("MKT")
+        order.totalQuantity(Decimal.get(closeQty.toLong()))
+        order.tif(Types.TimeInForce.DAY)
+        order.goodTillDate("")
+        order.transmit(true)
+        if (config.accountCode.isNotBlank()) {
+            order.account(config.accountCode)
+        }
+        val contract = IbContractMapper.forDataRequest(IbContractMapper.clone(open.contract))
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(orderId, contract, order)
+            scheduleExecutionsRefresh()
+        }
+        IbGatewayLog.sessionPositionClosePlaced(symbol, orderId, action, closeQty)
     }
 
     private fun registerBracketOrderIds(
@@ -1192,6 +1339,7 @@ class DesktopIbGatewayConnection(
     }
 
     private fun publishFills() {
+        if (marketDataOnly) return
         emit(
             GatewayEvent.FillsSnapshot(
                 fillsByExecId.values.sortedWith(
@@ -1310,6 +1458,7 @@ class DesktopIbGatewayConnection(
     }
 
     private fun doPublishPositions() {
+        if (marketDataOnly) return
         val published = openPositions.values
             .map { open ->
                 val broker = toAccountPosition(open)
@@ -1624,6 +1773,8 @@ class DesktopIbGatewayConnection(
         const val TICK_DIAG_MIN_INTERVAL_MS = 5_000L
         /** Delayed data; when the market is closed, shows the last delayed quote (not zero). */
         const val MARKET_DATA_TYPE_DELAYED_FROZEN = 4
+        /** Real-time quotes (hybrid paper mode). Falls back per IB subscription. */
+        const val MARKET_DATA_TYPE_LIVE = 1
 
         val INFO_ERROR_CODES = setOf(
             2104, 2106, 2107, 2158,

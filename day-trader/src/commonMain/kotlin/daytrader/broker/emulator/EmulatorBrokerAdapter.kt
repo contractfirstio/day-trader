@@ -16,12 +16,17 @@ class EmulatorBrokerAdapter(
     private val emit: (GatewayEvent) -> Unit,
     private val receiveCommand: suspend () -> GatewayCommand,
     private val config: BrokerEmulatorConfig = BrokerEmulatorConfig.Default,
+    private val onSymbolNeedsLiveQuotes: (String) -> Unit = {},
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : BrokerAdapter {
 
     override val brokerId: BrokerId = BrokerId.EMULATOR
 
-    private val engine = BrokerEmulatorEngine(config = config, emit = emit)
+    private val engine = BrokerEmulatorEngine(
+        config = config,
+        emit = emit,
+        onSymbolNeedsLiveQuotes = onSymbolNeedsLiveQuotes
+    )
     private var commandLoopJob: Job? = null
     private var marketJob: Job? = null
     private var orderJob: Job? = null
@@ -47,6 +52,12 @@ class EmulatorBrokerAdapter(
                         launch { engine.fetchFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.PlaceTouchTurnBracket ->
                         engine.placeTouchTurnBracket(command.plan)
+                    is GatewayCommand.CancelOpenOrdersForSymbol ->
+                        engine.cancelOpenOrdersForSymbol(command.symbol)
+                    is GatewayCommand.CloseOpenPositionForSymbol ->
+                        engine.closeOpenPositionForSymbol(command.symbol)
+                    is GatewayCommand.FlattenSymbolForSymbol ->
+                        engine.flattenSymbolForSymbol(command.symbol)
                     GatewayCommand.RequestExecutions -> engine.republishFills()
                 }
             }
@@ -66,6 +77,12 @@ class EmulatorBrokerAdapter(
                     engine.runOrderProgressStep()
                 }
             }
+        }
+    }
+
+    fun ingestLiveMark(symbol: String, marketPrice: Double, priorClose: Double?) {
+        scope.launch(Dispatchers.Default) {
+            engine.ingestLiveMark(symbol, marketPrice, priorClose)
         }
     }
 

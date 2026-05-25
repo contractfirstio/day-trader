@@ -15,7 +15,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import daytrader.ui.theme.BrandRed
+import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.TradeBlueBorder
 import daytrader.ui.theme.TradeBlueSurface
 
@@ -25,16 +27,23 @@ private val LiveAccent = Color(0xFFFFB300)
 @Composable
 fun BrokerModeBadge(
     brokerId: BrokerId,
+    brokerKind: BrokerKind = BrokerKind.EMULATOR,
     modifier: Modifier = Modifier
 ) {
-    val (label, borderColor, surfaceColor, textColor) = when (brokerId) {
-        BrokerId.INTERACTIVE_BROKERS -> BrokerModeBadgeStyle(
+    val (label, borderColor, surfaceColor, textColor) = when {
+        brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> BrokerModeBadgeStyle(
+            label = "PAPER · LIVE IB",
+            borderColor = LiveAccent,
+            surfaceColor = Color(0xFF1A2218),
+            textColor = GainGreen
+        )
+        brokerId == BrokerId.INTERACTIVE_BROKERS -> BrokerModeBadgeStyle(
             label = "LIVE · IB",
             borderColor = BrandRed,
             surfaceColor = Color(0xFF2A1214),
             textColor = LiveAccent
         )
-        BrokerId.EMULATOR -> BrokerModeBadgeStyle(
+        else -> BrokerModeBadgeStyle(
             label = "SIM · EMULATOR",
             borderColor = TradeBlueBorder,
             surfaceColor = TradeBlueSurface,

@@ -26,12 +26,12 @@ object StrategyCatalog {
     }
 
     /**
-     * Minutes after RTH open to auto-stop when flat (no IB position and no open orders).
-     * If a position exists, the instance keeps running until today's RTH close, then stops.
+     * Touch Turn only: minutes after RTH open (from the first 15m candle) to auto-stop and flatten.
+     * Other strategies return null (no open-deadline auto-stop).
      */
-    fun stopAfterMinOpen(type: StrategyType): Int = when (type) {
+    fun stopAfterMinOpen(type: StrategyType): Int? = when (type) {
         StrategyType.TOUCH_AND_TURN_SCALPER -> 90
-        StrategyType.QUICK_FLIP_SCALPER -> 90
+        StrategyType.QUICK_FLIP_SCALPER -> null
     }
 
     /** Minutes before RTH close to log (and eventually send) market closes for open IB positions. */

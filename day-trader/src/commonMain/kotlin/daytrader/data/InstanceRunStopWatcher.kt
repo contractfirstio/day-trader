@@ -7,7 +7,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.currentRunTimestampIso
 import daytrader.domain.InstanceRunStopLogic
 import daytrader.domain.InstanceStatus
-import daytrader.domain.SessionStopAction
+import daytrader.domain.InstanceRunStopAction
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyInstance
 import daytrader.domain.inProgressRun
@@ -21,8 +21,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Auto-stops running instances per [StrategyCatalog.stopAfterMinOpen]:
- * flat (no IB position and no open orders) after the deadline, or at RTH close if still exposed.
+ * Auto-stops running instances: strategy-specific rules (e.g. Touch Turn 90m open deadline) and
+ * shared trade-outcome completion when flat.
  */
 class InstanceRunStopWatcher(
     private val gateway: BrokerGateway,
@@ -66,19 +66,11 @@ class InstanceRunStopWatcher(
                 stopInstance(instance, positions)
                 continue
             }
-            val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(instance.strategyType)
-            val action = InstanceRunStopLogic.evaluateForInstance(
-                instance = instance,
-                stopAfterMinOpen = stopAfterMinOpen,
-                positions = positions,
-                openOrders = openOrders,
-                nowEpochMillis = now
-            ) ?: continue
-            when (action) {
-                SessionStopAction.CONTINUE,
-                SessionStopAction.STOP_TRADE_OUTCOME_KNOWN -> Unit
-                SessionStopAction.STOP_FLAT_AFTER_OPEN,
-                SessionStopAction.STOP_AT_MARKET_CLOSE -> stopInstance(instance, positions)
+            when (InstanceRunStopLogic.evaluateDeadlineForInstance(instance, now)) {
+                InstanceRunStopAction.STOP_AFTER_OPEN_DEADLINE -> stopInstance(instance, positions)
+                InstanceRunStopAction.CONTINUE,
+                InstanceRunStopAction.STOP_TRADE_OUTCOME_KNOWN,
+                null -> Unit
             }
         }
     }
@@ -99,6 +91,7 @@ class InstanceRunStopWatcher(
     }
 
     private fun stopInstance(instance: StrategyInstance, positions: List<AccountPosition>) {
+        SessionStopOrderCleanup.flattenSymbolForSession(gateway, instance.symbol)
         val brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, positions)
         val stoppedAt = currentRunTimestampIso()
         val sessionTrades = SessionTradeMatcher.captureForRunStop(

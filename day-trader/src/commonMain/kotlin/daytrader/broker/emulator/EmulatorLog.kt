@@ -32,4 +32,14 @@ internal object EmulatorLog {
             "[Emulator] Order $orderId filled $qty $symbol @ $price — position qty=$positionQty"
         )
     }
+
+    fun sessionOrdersCancelled(symbol: String, count: Int) {
+        println("[Emulator] Session stop — cancelled $count open order(s) for $symbol")
+    }
+
+    fun sessionPositionClosed(symbol: String, action: String, quantity: Int, price: Double) {
+        println(
+            "[Emulator] Session stop — market $action $quantity $symbol @ $price to flatten position"
+        )
+    }
 }

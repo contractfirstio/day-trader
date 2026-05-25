@@ -19,19 +19,31 @@ data class AppDependencies(
 @Composable
 fun rememberAppDependencies(
     positionRepository: PositionRepository,
-    touchTurnMarketData: BrokerGateway? = null
+    brokerGateway: BrokerGateway? = null,
+    touchTurnSessionGateway: BrokerGateway? = null,
+    ensureLiveMarketData: ((String) -> Unit)? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyInstanceRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
-    return remember(strategyRepository, appStateRepository, marketFilter, positionRepository, touchTurnMarketData) {
+    return remember(
+        strategyRepository,
+        appStateRepository,
+        marketFilter,
+        positionRepository,
+        brokerGateway,
+        touchTurnSessionGateway,
+        ensureLiveMarketData
+    ) {
         AppDependencies(
             marketFilter = marketFilter,
             strategiesViewModel = StrategiesViewModel(
                 repository = strategyRepository,
                 appStateRepository = appStateRepository,
                 marketFilter = marketFilter,
-                touchTurnMarketData = touchTurnMarketData
+                brokerGateway = brokerGateway,
+                touchTurnSessionGateway = touchTurnSessionGateway,
+                ensureLiveMarketData = ensureLiveMarketData
             ),
             positionsViewModel = PositionsViewModel(positionRepository)
         )

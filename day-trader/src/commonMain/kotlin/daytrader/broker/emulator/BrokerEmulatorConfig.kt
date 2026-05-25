@@ -28,7 +28,12 @@ data class BrokerEmulatorConfig(
      * seconds (wall clock). The bar is still 15 minutes long in domain logic.
      * Null = legacy fixed today 09:30 open (often already closed).
      */
-    val firstCandleSecondsUntilClose: Long? = 10L
+    val firstCandleSecondsUntilClose: Long? = 10L,
+    /**
+     * When true, [BrokerEmulatorEngine] does not synthesize price walks; marks come from
+     * [BrokerEmulatorEngine.ingestLiveMark] (hybrid paper + live IB data mode).
+     */
+    val useLiveIbMarketData: Boolean = false
 ) {
     companion object {
         val Default = BrokerEmulatorConfig()
@@ -41,6 +46,14 @@ data class BrokerEmulatorConfig(
                 Default.copy(firstCandleSecondsUntilClose = seconds)
             }
         }
+
+        fun forLiveIbMarketData(): BrokerEmulatorConfig =
+            fromEnvironment().copy(
+                useLiveIbMarketData = true,
+                firstCandleSecondsUntilClose = null,
+                simulateOrderProgress = false,
+                bracketExitSpreadWidenFactor = 1.0
+            )
 
         internal fun parseFirstCandleSecondsUntilClose(raw: String?): Long? =
             when {

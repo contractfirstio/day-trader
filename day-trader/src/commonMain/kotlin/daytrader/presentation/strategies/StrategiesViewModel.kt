@@ -13,6 +13,7 @@ import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.WorkingOrder
 import daytrader.data.InstanceRunController
 import daytrader.data.InstanceRunStopWatcher
+import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.MarketOpenAutoStarter
 import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.MarketOpenCountdownWatcher
@@ -47,11 +48,20 @@ class StrategiesViewModel(
     private val repository: StrategyInstanceRepository,
     private val appStateRepository: StrategiesAppStateRepository,
     private val marketFilter: MarketFilterState,
-    touchTurnMarketData: BrokerGateway? = null
+    private val brokerGateway: BrokerGateway? = null,
+    touchTurnSessionGateway: BrokerGateway? = null,
+    ensureLiveMarketData: ((String) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val touchTurnBootstrap = touchTurnMarketData?.let { gateway ->
-        TouchTurnSessionBootstrap(gateway, repository, scope)
+    private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+    private val touchTurnBootstrap = sessionGateway?.let { session ->
+        TouchTurnSessionBootstrap(
+            sessionGateway = session,
+            executionGateway = brokerGateway ?: session,
+            repository = repository,
+            scope = scope,
+            ensureLiveMarketData = ensureLiveMarketData
+        )
     }
 
     private var appState = StrategiesAppState()
@@ -96,7 +106,7 @@ class StrategiesViewModel(
         selectedMarketZoneId = marketFilter.selectedZoneId.value
         emitUiState()
 
-        touchTurnMarketData?.let { gateway ->
+        brokerGateway?.let { gateway ->
             gateway.positions
                 .onEach {
                     brokerPositions = it
@@ -144,7 +154,7 @@ class StrategiesViewModel(
             }
         ).start()
 
-        touchTurnMarketData?.let { gateway ->
+        brokerGateway?.let { gateway ->
             InstanceRunStopWatcher(gateway, repository, scope).start()
             PreMarketClosePositionWatcher(gateway, repository, scope).start()
         }
@@ -248,6 +258,9 @@ class StrategiesViewModel(
         }
         val brokerPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
         val hadOpenPosition = brokerPosition != null
+        if (wasRunning) {
+            brokerGateway?.let { SessionStopOrderCleanup.flattenSymbolForSession(it, existing.symbol) }
+        }
         repository.update(id) { current ->
             if (current.status == InstanceStatus.RUNNING) {
                 val stoppedAt = currentRunTimestampIso()

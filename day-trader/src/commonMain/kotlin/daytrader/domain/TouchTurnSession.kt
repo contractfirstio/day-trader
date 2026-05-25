@@ -36,7 +36,7 @@ enum class TouchTurnEntryWindowStatus {
     UNKNOWN
 }
 
-/** Legacy Touch Turn session field (superseded by [InstanceRunStopLogic] auto-stop). */
+/** Legacy Touch Turn session field (superseded by [TouchTurnRunStopLogic] open-deadline auto-stop). */
 @Serializable
 enum class TouchTurnNoPositionCancelOutcome {
     PENDING,
