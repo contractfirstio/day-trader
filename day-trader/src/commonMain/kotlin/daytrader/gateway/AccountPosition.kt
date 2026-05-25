@@ -1,6 +1,6 @@
-package daytrader.broker
+package daytrader.gateway
 
-data class BrokerPosition(
+data class AccountPosition(
     val account: String,
     val symbol: String,
     val companyName: String,

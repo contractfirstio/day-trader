@@ -21,15 +21,18 @@ import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
-import kotlinx.coroutines.CompletableDeferred
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BlockingGatewayQueues
+import daytrader.gateway.BrokerAdapter
+import daytrader.gateway.BrokerId
+import daytrader.gateway.GatewayCommand
+import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.GatewayEvent
+import daytrader.gateway.WorkingOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -47,9 +50,17 @@ import kotlin.math.roundToInt
  * enrichment requests (contract details + snapshot market data for PnL/names).
  */
 class DesktopIbGatewayConnection(
+    private val queues: BlockingGatewayQueues,
     private val config: IbGatewayConfig = IbGatewayConfig.fromEnvironment(),
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-) : IbGatewayConnection, DefaultEWrapper() {
+) : BrokerAdapter, DefaultEWrapper() {
+
+    override val brokerId: BrokerId = BrokerId.INTERACTIVE_BROKERS
+
+    @Volatile
+    private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
+
+    private var commandLoopJob: Job? = null
 
     private val signal = EJavaSignal()
     private val client = EClientSocket(this, signal)
@@ -65,17 +76,8 @@ class DesktopIbGatewayConnection(
     @Volatile
     private var positionsLoadFinished = false
 
-    private val _state = MutableStateFlow<IbConnectionState>(IbConnectionState.Disconnected)
-    override val state: StateFlow<IbConnectionState> = _state.asStateFlow()
-
-    private val _positions = MutableStateFlow<List<BrokerPosition>>(emptyList())
-    override val positions: StateFlow<List<BrokerPosition>> = _positions.asStateFlow()
-
-    private val _openOrders = MutableStateFlow<List<BrokerOpenOrder>>(emptyList())
-    override val openOrders: StateFlow<List<BrokerOpenOrder>> = _openOrders.asStateFlow()
-
     private val openPositions = ConcurrentHashMap<String, OpenPosition>()
-    private val openOrdersById = ConcurrentHashMap<Int, BrokerOpenOrder>()
+    private val openOrdersById = ConcurrentHashMap<Int, WorkingOrder>()
     @Volatile
     private var openOrdersLoadFinished = false
     private val marketPrices = ConcurrentHashMap<String, Double>()
@@ -92,12 +94,10 @@ class DesktopIbGatewayConnection(
     private val historicalLastBarClose = ConcurrentHashMap<Int, Double>()
     private val touchTurnHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val touchTurnHistoricalSymbol = ConcurrentHashMap<Int, String>()
-    private val touchTurnHistoricalDeferred =
-        ConcurrentHashMap<Int, CompletableDeferred<Result<OhlcBar>>>()
+    private val touchTurnGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val adrHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
-    private val adrHistoricalDeferred =
-        ConcurrentHashMap<Int, CompletableDeferred<Result<Double>>>()
+    private val adrGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val lastTickDiagAtMs = ConcurrentHashMap<String, Long>()
     private val nextMktDataReqId = AtomicInteger(MKT_DATA_REQ_ID_START)
     private val nextContractDetailsReqId = AtomicInteger(CONTRACT_DETAILS_REQ_ID_START)
@@ -108,39 +108,78 @@ class DesktopIbGatewayConnection(
     private var publishDebounceJob: Job? = null
     private var historicalFallbackJob: Job? = null
 
-    override fun connect() {
-        scope.launch {
-            connectMutex.withLock { performConnect() }
-        }
-    }
-
-    override fun disconnect() {
-        scope.launch {
-            connectMutex.withLock { performDisconnect() }
-        }
-    }
-
-    override fun reconnect() {
-        scope.launch {
-            connectMutex.withLock {
-                performDisconnect()
-                delay(IbRequestPacer.RECONNECT_DELAY_MS)
-                performConnect()
+    override fun start() {
+        commandLoopJob = scope.launch(Dispatchers.IO) {
+            while (true) {
+                when (val command = queues.outbound.take()) {
+                    GatewayCommand.Connect -> scope.launch {
+                        connectMutex.withLock { performConnect() }
+                    }
+                    GatewayCommand.Disconnect -> scope.launch {
+                        connectMutex.withLock { performDisconnect() }
+                    }
+                    GatewayCommand.Reconnect -> scope.launch {
+                        connectMutex.withLock {
+                            performDisconnect()
+                            delay(IbRequestPacer.RECONNECT_DELAY_MS)
+                            performConnect()
+                        }
+                    }
+                    GatewayCommand.Shutdown -> {
+                        runBlocking {
+                            connectMutex.withLock { performDisconnect() }
+                        }
+                        return@launch
+                    }
+                    is GatewayCommand.FetchFourteenDayAdr ->
+                        scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
+                    is GatewayCommand.FetchFirstFifteenMinuteCandle ->
+                        scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
+                }
             }
         }
     }
 
-    override suspend fun fetchFourteenDayAdr(symbol: String): Result<Double> {
+    override fun shutdown() {
+        queues.outbound.offer(GatewayCommand.Shutdown)
+        commandLoopJob?.cancel()
+        commandLoopJob = null
+        runBlocking {
+            connectMutex.withLock { performDisconnect() }
+        }
+    }
+
+    private fun emit(event: GatewayEvent) {
+        queues.inbound.offer(event)
+    }
+
+    private fun emitConnectionState(state: GatewayConnectionState) {
+        connectionState = state
+        emit(GatewayEvent.ConnectionStateChanged(state))
+    }
+
+    private suspend fun requestFourteenDayAdr(gatewayRequestId: Long, symbol: String) {
         if (!client.isConnected) {
-            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+            emit(
+                GatewayEvent.FourteenDayAdrReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("Not connected to IB Gateway"))
+                )
+            )
+            return
         }
         val trimmed = symbol.trim().uppercase()
         if (trimmed.isBlank()) {
-            return Result.failure(IllegalArgumentException("Symbol is blank"))
+            emit(
+                GatewayEvent.FourteenDayAdrReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalArgumentException("Symbol is blank"))
+                )
+            )
+            return
         }
         val reqId = nextAdrHistoricalReqId.getAndIncrement()
-        val deferred = CompletableDeferred<Result<Double>>()
-        adrHistoricalDeferred[reqId] = deferred
+        adrGatewayRequestId[reqId] = gatewayRequestId
         adrHistoricalSymbol[reqId] = trimmed
         val contract = IbContractMapper.stockForHistorical(trimmed)
         requestPacer.enqueue {
@@ -161,25 +200,30 @@ class DesktopIbGatewayConnection(
                 null
             )
         }
-        return try {
-            withTimeout(ADR_HISTORICAL_TIMEOUT_MS) { deferred.await() }
-        } catch (e: Exception) {
-            cancelAdrHistorical(reqId)
-            Result.failure(e)
-        }
     }
 
-    override suspend fun fetch(symbol: String): Result<OhlcBar> {
+    private suspend fun requestFirstFifteenMinuteCandle(gatewayRequestId: Long, symbol: String) {
         if (!client.isConnected) {
-            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+            emit(
+                GatewayEvent.FirstFifteenMinuteCandleReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("Not connected to IB Gateway"))
+                )
+            )
+            return
         }
         val trimmed = symbol.trim().uppercase()
         if (trimmed.isBlank()) {
-            return Result.failure(IllegalArgumentException("Symbol is blank"))
+            emit(
+                GatewayEvent.FirstFifteenMinuteCandleReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalArgumentException("Symbol is blank"))
+                )
+            )
+            return
         }
         val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
-        val deferred = CompletableDeferred<Result<OhlcBar>>()
-        touchTurnHistoricalDeferred[reqId] = deferred
+        touchTurnGatewayRequestId[reqId] = gatewayRequestId
         touchTurnHistoricalSymbol[reqId] = trimmed
         val contract = IbContractMapper.stockForHistorical(trimmed)
         requestPacer.enqueue {
@@ -203,22 +247,10 @@ class DesktopIbGatewayConnection(
                 null
             )
         }
-        return try {
-            withTimeout(TOUCH_TURN_HISTORICAL_TIMEOUT_MS) { deferred.await() }
-        } catch (e: Exception) {
-            cancelTouchTurnHistorical(reqId)
-            Result.failure(e)
-        }
-    }
-
-    fun shutdown() {
-        runBlocking {
-            connectMutex.withLock { performDisconnect() }
-        }
     }
 
     override fun nextValidId(orderId: Int) {
-        _state.value = IbConnectionState.Connected(nextOrderId = orderId)
+        emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
         // Delayed-frozen: last delayed quote when the exchange is closed (US/UK overnight).
         client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN)
@@ -266,8 +298,8 @@ class DesktopIbGatewayConnection(
     override fun connectionClosed() {
         stopReader()
         clearPositionState()
-        if (_state.value !is IbConnectionState.Disconnected) {
-            _state.value = IbConnectionState.Disconnected
+        if (connectionState !is GatewayConnectionState.Disconnected) {
+            emitConnectionState(GatewayConnectionState.Disconnected)
         }
         IbGatewayLog.connectionClosed()
     }
@@ -363,13 +395,13 @@ class DesktopIbGatewayConnection(
 
     override fun historicalData(reqId: Int, bar: Bar) {
         try {
-            if (adrHistoricalDeferred.containsKey(reqId)) {
+            if (adrGatewayRequestId.containsKey(reqId)) {
                 if (bar.high() > 0.0 && bar.low() > 0.0) {
                     adrHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
                 }
                 return
             }
-            if (touchTurnHistoricalDeferred.containsKey(reqId)) {
+            if (touchTurnGatewayRequestId.containsKey(reqId)) {
                 if (bar.high() > 0.0 && bar.low() > 0.0) {
                     touchTurnHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
                 }
@@ -385,11 +417,11 @@ class DesktopIbGatewayConnection(
 
     override fun historicalDataEnd(reqId: Int, start: String?, end: String?) {
         try {
-            if (adrHistoricalDeferred.containsKey(reqId)) {
+            if (adrGatewayRequestId.containsKey(reqId)) {
                 completeAdrHistorical(reqId)
                 return
             }
-            if (touchTurnHistoricalDeferred.containsKey(reqId)) {
+            if (touchTurnGatewayRequestId.containsKey(reqId)) {
                 completeTouchTurnHistorical(reqId)
                 return
             }
@@ -461,18 +493,26 @@ class DesktopIbGatewayConnection(
         failAdrHistorical(reqId, errorMsg)
 
         when {
-            errorCode == 100 -> _state.value = IbConnectionState.Error(
-                "IB API rate limit exceeded (50 messages/sec). Slowing down requests."
+            errorCode == 100 -> emitConnectionState(
+                GatewayConnectionState.Error(
+                    "IB API rate limit exceeded (50 messages/sec). Slowing down requests."
+                )
             )
-            errorCode == 101 -> _state.value = IbConnectionState.Error(
-                "IB market data line limit reached. Reduce active subscriptions or close other clients."
+            errorCode == 101 -> emitConnectionState(
+                GatewayConnectionState.Error(
+                    "IB market data line limit reached. Reduce active subscriptions or close other clients."
+                )
             )
-            errorCode == 502 -> _state.value = IbConnectionState.Error(
-                "Cannot connect to IB Gateway at ${config.endpoint}. Is Gateway running and API enabled?"
+            errorCode == 502 -> emitConnectionState(
+                GatewayConnectionState.Error(
+                    "Cannot connect to IB Gateway at ${config.endpoint}. Is Gateway running and API enabled?"
+                )
             )
-            errorCode in FATAL_ERROR_CODES -> _state.value = IbConnectionState.Error("[$errorCode] $errorMsg")
-            _state.value is IbConnectionState.Connecting && reqId == -1 -> {
-                _state.value = IbConnectionState.Error("[$errorCode] $errorMsg")
+            errorCode in FATAL_ERROR_CODES -> emitConnectionState(
+                GatewayConnectionState.Error("[$errorCode] $errorMsg")
+            )
+            connectionState is GatewayConnectionState.Connecting && reqId == -1 -> {
+                emitConnectionState(GatewayConnectionState.Error("[$errorCode] $errorMsg"))
             }
         }
     }
@@ -619,20 +659,24 @@ class DesktopIbGatewayConnection(
     }
 
     private suspend fun performConnect() {
-        if (_state.value is IbConnectionState.Connecting || _state.value is IbConnectionState.Connected) {
+        if (connectionState is GatewayConnectionState.Connecting ||
+            connectionState is GatewayConnectionState.Connected
+        ) {
             return
         }
 
         enrichmentScheduled = false
         positionsLoadFinished = false
-        _state.value = IbConnectionState.Connecting
+        emitConnectionState(GatewayConnectionState.Connecting)
         IbGatewayLog.connecting(config.endpoint, config.clientId)
 
         try {
             client.eConnect(config.host, config.port, config.clientId)
             if (!client.isConnected) {
-                _state.value = IbConnectionState.Error(
-                    "eConnect returned but socket is not connected (${config.endpoint})"
+                emitConnectionState(
+                    GatewayConnectionState.Error(
+                        "eConnect returned but socket is not connected (${config.endpoint})"
+                    )
                 )
                 return
             }
@@ -640,7 +684,7 @@ class DesktopIbGatewayConnection(
             IbGatewayLog.connected(config.endpoint, config.clientId)
             startReader()
         } catch (e: Exception) {
-            _state.value = IbConnectionState.Error(e.message ?: "Connect failed")
+            emitConnectionState(GatewayConnectionState.Error(e.message ?: "Connect failed"))
             logCallbackFailure("performConnect", e)
         }
     }
@@ -658,7 +702,7 @@ class DesktopIbGatewayConnection(
             client.eDisconnect()
         }
         clearPositionState()
-        _state.value = IbConnectionState.Disconnected
+        emitConnectionState(GatewayConnectionState.Disconnected)
         IbGatewayLog.disconnected()
     }
 
@@ -678,7 +722,7 @@ class DesktopIbGatewayConnection(
         priorCloses.clear()
         bidPrices.clear()
         askPrices.clear()
-        _positions.value = emptyList()
+        emit(GatewayEvent.PositionsSnapshot(emptyList()))
         IbGatewayLog.requestingPositions()
         client.reqPositions()
     }
@@ -738,31 +782,34 @@ class DesktopIbGatewayConnection(
     }
 
     private fun cancelAllTouchTurnHistoricalImmediate() {
-        touchTurnHistoricalDeferred.keys.toList().forEach { reqId ->
+        touchTurnGatewayRequestId.keys.toList().forEach { reqId ->
             cancelTouchTurnHistorical(reqId)
         }
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
-        touchTurnHistoricalDeferred.clear()
+        touchTurnGatewayRequestId.clear()
         cancelAllAdrHistoricalImmediate()
     }
 
     private fun cancelAllAdrHistoricalImmediate() {
-        adrHistoricalDeferred.keys.toList().forEach { reqId ->
+        adrGatewayRequestId.keys.toList().forEach { reqId ->
             cancelAdrHistorical(reqId)
         }
         adrHistoricalBars.clear()
         adrHistoricalSymbol.clear()
-        adrHistoricalDeferred.clear()
+        adrGatewayRequestId.clear()
     }
 
     private fun cancelAdrHistorical(reqId: Int) {
         adrHistoricalBars.remove(reqId)
         adrHistoricalSymbol.remove(reqId)
-        adrHistoricalDeferred.remove(reqId)?.let { deferred ->
-            if (!deferred.isCompleted) {
-                deferred.complete(Result.failure(IllegalStateException("ADR request cancelled")))
-            }
+        adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
+            emit(
+                GatewayEvent.FourteenDayAdrReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("ADR request cancelled"))
+                )
+            )
         }
         if (client.isConnected) {
             runCatching { client.cancelHistoricalData(reqId) }
@@ -772,29 +819,35 @@ class DesktopIbGatewayConnection(
     private fun failAdrHistorical(reqId: Int, message: String) {
         adrHistoricalBars.remove(reqId)
         adrHistoricalSymbol.remove(reqId)
-        adrHistoricalDeferred.remove(reqId)?.let { deferred ->
-            if (!deferred.isCompleted) {
-                deferred.complete(Result.failure(IllegalStateException(message)))
-            }
+        adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
+            emit(
+                GatewayEvent.FourteenDayAdrReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException(message))
+                )
+            )
         }
     }
 
     private fun completeAdrHistorical(reqId: Int) {
-        val deferred = adrHistoricalDeferred.remove(reqId) ?: return
+        val gatewayRequestId = adrGatewayRequestId.remove(reqId) ?: return
         val symbol = adrHistoricalSymbol.remove(reqId)
         val bars = adrHistoricalBars.remove(reqId).orEmpty().map { it.toTouchTurnOhlcBar() }
         val sessionDay = sessionDayYyyyMmDd(symbol)
         val adrResult = TouchTurnLogic.computeAdr14(bars, excludeSessionDayYyyyMmdd = sessionDay)
-        deferred.complete(adrResult)
+        emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, adrResult))
     }
 
     private fun cancelTouchTurnHistorical(reqId: Int) {
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
-        touchTurnHistoricalDeferred.remove(reqId)?.let { deferred ->
-            if (!deferred.isCompleted) {
-                deferred.complete(Result.failure(IllegalStateException("Historical request cancelled")))
-            }
+        touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
+            emit(
+                GatewayEvent.FirstFifteenMinuteCandleReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("Historical request cancelled"))
+                )
+            )
         }
         if (client.isConnected) {
             runCatching { client.cancelHistoricalData(reqId) }
@@ -804,15 +857,18 @@ class DesktopIbGatewayConnection(
     private fun failTouchTurnHistorical(reqId: Int, message: String) {
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
-        touchTurnHistoricalDeferred.remove(reqId)?.let { deferred ->
-            if (!deferred.isCompleted) {
-                deferred.complete(Result.failure(IllegalStateException(message)))
-            }
+        touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
+            emit(
+                GatewayEvent.FirstFifteenMinuteCandleReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException(message))
+                )
+            )
         }
     }
 
     private fun completeTouchTurnHistorical(reqId: Int) {
-        val deferred = touchTurnHistoricalDeferred.remove(reqId) ?: return
+        val gatewayRequestId = touchTurnGatewayRequestId.remove(reqId) ?: return
         val symbol = touchTurnHistoricalSymbol.remove(reqId)
         val bars = touchTurnHistoricalBars.remove(reqId).orEmpty()
         val sessionDay = sessionDayYyyyMmDd(symbol)
@@ -825,14 +881,22 @@ class DesktopIbGatewayConnection(
         val first = candidates.minByOrNull { barTimeSortKey(it.time()) }
         if (first == null) {
             val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
-            deferred.complete(
-                Result.failure(
-                    IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
+            emit(
+                GatewayEvent.FirstFifteenMinuteCandleReady(
+                    gatewayRequestId,
+                    Result.failure(
+                        IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
+                    )
                 )
             )
             return
         }
-        deferred.complete(Result.success(first.toTouchTurnOhlcBar()))
+        emit(
+            GatewayEvent.FirstFifteenMinuteCandleReady(
+                gatewayRequestId,
+                Result.success(first.toTouchTurnOhlcBar())
+            )
+        )
     }
 
     private fun clearPositionState() {
@@ -842,9 +906,9 @@ class DesktopIbGatewayConnection(
         cancelAllTouchTurnHistoricalImmediate()
         cancelAllAdrHistoricalImmediate()
         openPositions.clear()
-        _positions.value = emptyList()
+        emit(GatewayEvent.PositionsSnapshot(emptyList()))
         openOrdersById.clear()
-        _openOrders.value = emptyList()
+        emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         openOrdersLoadFinished = false
         enrichmentScheduled = false
         positionsLoadFinished = false
@@ -856,7 +920,7 @@ class DesktopIbGatewayConnection(
         if (!client.isConnected) return
         openOrdersLoadFinished = false
         openOrdersById.clear()
-        _openOrders.value = emptyList()
+        emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         IbGatewayLog.requestingOpenOrders()
         client.reqAllOpenOrders()
     }
@@ -872,7 +936,7 @@ class DesktopIbGatewayConnection(
             openOrdersById.remove(orderId)
             return
         }
-        openOrdersById[orderId] = toBrokerOpenOrder(orderId, contract, order, orderState)
+        openOrdersById[orderId] = toWorkingOrder(orderId, contract, order, orderState)
         publishOpenOrders()
     }
 
@@ -905,20 +969,20 @@ class DesktopIbGatewayConnection(
     }
 
     private fun publishOpenOrders() {
-        _openOrders.value = openOrdersById.values.sortedBy { it.orderId }
+        emit(GatewayEvent.OpenOrdersSnapshot(openOrdersById.values.sortedBy { it.orderId }))
     }
 
-    private fun toBrokerOpenOrder(
+    private fun toWorkingOrder(
         orderId: Int,
         contract: Contract,
         order: Order,
         orderState: OrderState
-    ): BrokerOpenOrder {
+    ): WorkingOrder {
         val total = decimalToInt(order.totalQuantity())
         val filled = decimalToInt(order.filledQuantity())
         val limit = order.lmtPrice().takeIf { it > 0 }
         val stop = order.auxPrice().takeIf { it > 0 }
-        return BrokerOpenOrder(
+        return WorkingOrder(
             orderId = orderId,
             symbol = resolveSymbol(contract),
             action = order.getAction().orEmpty(),
@@ -1017,7 +1081,7 @@ class DesktopIbGatewayConnection(
     private fun doPublishPositions() {
         val published = openPositions.values
             .map { open ->
-                val broker = toBrokerPosition(open)
+                val broker = toAccountPosition(open)
                 if (IbGatewayLog.isPositionDiagEnabled()) {
                     logPositionDiag(open, "publish_blotter", broker)
                 }
@@ -1025,7 +1089,7 @@ class DesktopIbGatewayConnection(
             }
             .sortedBy { it.symbol }
 
-        _positions.value = published
+        emit(GatewayEvent.PositionsSnapshot(published))
     }
 
     private fun scheduleHistoricalFallbackPass() {
@@ -1118,7 +1182,7 @@ class DesktopIbGatewayConnection(
     private fun logPositionDiag(
         open: OpenPosition,
         trigger: String,
-        blotter: BrokerPosition? = null
+        blotter: AccountPosition? = null
     ) {
         if (!IbGatewayLog.isPositionDiagEnabled()) return
         try {
@@ -1131,7 +1195,7 @@ class DesktopIbGatewayConnection(
     private fun buildPositionDiagSnapshot(
         open: OpenPosition,
         trigger: String,
-        blotter: BrokerPosition? = null
+        blotter: AccountPosition? = null
     ): PositionDiagSnapshot {
         val key = open.key
         val magnifier = open.priceMagnifier
@@ -1167,7 +1231,7 @@ class DesktopIbGatewayConnection(
                 open.quantity, avgRaw, marketRaw,
                 IbPriceScale.PriceMagnifiers(magnifier, magnifier)
             )
-        val published = blotter ?: toBrokerPosition(open)
+        val published = blotter ?: toAccountPosition(open)
         val portfolioDistinct = portfolioMkt != null && portfolioMkt > 0.0 &&
             portfolioMarketDistinctFromAvg(open, portfolioMkt)
 
@@ -1217,7 +1281,7 @@ class DesktopIbGatewayConnection(
         )
     }
 
-    private fun toBrokerPosition(open: OpenPosition): BrokerPosition {
+    private fun toAccountPosition(open: OpenPosition): AccountPosition {
         val key = open.key
         val contractMagnifier = open.priceMagnifier
         val (marketRaw, _) = resolveMarketRawAndSource(open, key)
@@ -1235,7 +1299,7 @@ class DesktopIbGatewayConnection(
             magnifiers = magnifiers
         )
         val displayCurrency = IbPriceScale.displayCurrency(open.contract.currency().orEmpty())
-        return BrokerPosition(
+        return AccountPosition(
             account = open.account,
             symbol = open.symbol,
             companyName = open.companyName,

@@ -15,8 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import daytrader.broker.IbConnectionState
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.BrokerGateway
+import daytrader.gateway.GatewayConnectionState
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
@@ -24,12 +24,12 @@ import daytrader.ui.theme.TextSecondary
 
 @Composable
 fun ConnectionStatusBar(
-    ibGateway: IbGatewayConnection,
+    brokerGateway: BrokerGateway,
     globalAutoStartEnabled: Boolean,
     onGlobalAutoStartChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val state by ibGateway.state.collectAsState()
+    val state by brokerGateway.connectionState.collectAsState()
 
     Row(
         modifier = modifier
@@ -53,7 +53,7 @@ fun ConnectionStatusBar(
             )
             BrokerReconnectButton(
                 state = state,
-                onReconnect = ibGateway::reconnect
+                onReconnect = brokerGateway::reconnect
             )
         }
     }
@@ -61,16 +61,16 @@ fun ConnectionStatusBar(
 
 @Composable
 private fun BrokerReconnectButton(
-    state: IbConnectionState,
+    state: GatewayConnectionState,
     onReconnect: () -> Unit
 ) {
-    if (state !is IbConnectionState.Disconnected && state !is IbConnectionState.Error) {
+    if (state !is GatewayConnectionState.Disconnected && state !is GatewayConnectionState.Error) {
         return
     }
-    val label = if (state is IbConnectionState.Disconnected) "Connect" else "Reconnect"
+    val label = if (state is GatewayConnectionState.Disconnected) "Connect" else "Reconnect"
     Button(
         onClick = onReconnect,
-        enabled = state !is IbConnectionState.Connecting,
+        enabled = state !is GatewayConnectionState.Connecting,
         colors = ButtonDefaults.buttonColors(
             containerColor = SurfaceDark,
             contentColor = Color.White
@@ -80,16 +80,16 @@ private fun BrokerReconnectButton(
     }
 }
 
-private fun brokerStatusLabel(state: IbConnectionState): String = when (state) {
-    IbConnectionState.Disconnected -> "Not Connected to Broker"
-    IbConnectionState.Connecting -> "Connecting to Broker…"
-    is IbConnectionState.Connected -> "Connected to Broker"
-    is IbConnectionState.Error -> "Not Connected to Broker"
+private fun brokerStatusLabel(state: GatewayConnectionState): String = when (state) {
+    GatewayConnectionState.Disconnected -> "Not Connected to Broker"
+    GatewayConnectionState.Connecting -> "Connecting to Broker…"
+    GatewayConnectionState.Connected -> "Connected to Broker"
+    is GatewayConnectionState.Error -> "Not Connected to Broker"
 }
 
-private fun brokerStatusColor(state: IbConnectionState): Color = when (state) {
-    IbConnectionState.Disconnected -> TextSecondary
-    IbConnectionState.Connecting -> Color(0xFFFFB300)
-    is IbConnectionState.Connected -> GainGreen
-    is IbConnectionState.Error -> LossRed
+private fun brokerStatusColor(state: GatewayConnectionState): Color = when (state) {
+    GatewayConnectionState.Disconnected -> TextSecondary
+    GatewayConnectionState.Connecting -> Color(0xFFFFB300)
+    GatewayConnectionState.Connected -> GainGreen
+    is GatewayConnectionState.Error -> LossRed
 }

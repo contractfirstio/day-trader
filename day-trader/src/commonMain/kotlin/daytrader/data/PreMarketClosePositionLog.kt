@@ -1,12 +1,12 @@
 package daytrader.data
 
-import daytrader.broker.BrokerPosition
+import daytrader.gateway.AccountPosition
 import daytrader.presentation.Formatters
 
 /** Console log for positions that would be closed before RTH cash session end. */
 object PreMarketClosePositionLog {
     fun logWouldClosePosition(
-        position: BrokerPosition,
+        position: AccountPosition,
         sessionDateIso: String,
         marketZoneId: String,
         minutesBeforeClose: Int = StrategyCatalog.CLOSE_POSITIONS_BEFORE_MARKET_CLOSE_MIN,
@@ -16,7 +16,7 @@ object PreMarketClosePositionLog {
     }
 
     private fun wouldClosePositionMessage(
-        position: BrokerPosition,
+        position: AccountPosition,
         sessionDateIso: String,
         marketZoneId: String,
         minutesBeforeClose: Int,

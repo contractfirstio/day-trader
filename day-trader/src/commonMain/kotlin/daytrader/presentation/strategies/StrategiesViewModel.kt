@@ -4,10 +4,10 @@ import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
-import daytrader.broker.BrokerOpenOrder
-import daytrader.broker.BrokerPosition
-import daytrader.broker.IbConnectionState
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerGateway
+import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.WorkingOrder
 import daytrader.data.InstanceRunController
 import daytrader.data.InstanceRunStopWatcher
 import daytrader.data.MarketOpenAutoStarter
@@ -44,7 +44,7 @@ class StrategiesViewModel(
     private val repository: StrategyInstanceRepository,
     private val appStateRepository: StrategiesAppStateRepository,
     private val marketFilter: MarketFilterState,
-    touchTurnMarketData: IbGatewayConnection? = null
+    touchTurnMarketData: BrokerGateway? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val touchTurnBootstrap = touchTurnMarketData?.let { gateway ->
@@ -56,9 +56,9 @@ class StrategiesViewModel(
     private var instances: List<StrategyInstance> = emptyList()
     private var runSortColumn = RunSortColumn.START
     private var runSortDirection = SortDirection.DESCENDING
-    private var ibPositions: List<BrokerPosition> = emptyList()
-    private var ibOpenOrders: List<BrokerOpenOrder> = emptyList()
-    private var ibConnection: IbConnectionState = IbConnectionState.Disconnected
+    private var brokerPositions: List<AccountPosition> = emptyList()
+    private var brokerOpenOrders: List<WorkingOrder> = emptyList()
+    private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var startBlockedAlert: StartBlockedByPositionAlert? = null
     private var selectedMarketZoneId: String? = null
 
@@ -94,19 +94,19 @@ class StrategiesViewModel(
         touchTurnMarketData?.let { gateway ->
             gateway.positions
                 .onEach {
-                    ibPositions = it
+                    brokerPositions = it
                     emitUiState()
                 }
                 .launchIn(scope)
             gateway.openOrders
                 .onEach {
-                    ibOpenOrders = it
+                    brokerOpenOrders = it
                     emitUiState()
                 }
                 .launchIn(scope)
-            gateway.state
+            gateway.connectionState
                 .onEach {
-                    ibConnection = it
+                    brokerConnection = it
                     emitUiState()
                 }
                 .launchIn(scope)
@@ -121,9 +121,9 @@ class StrategiesViewModel(
             scope = scope,
             isGlobalAutoStartEnabled = { appState.globalAutoStartEnabled },
             canStartInstance = { instance ->
-                when (ibConnection) {
-                    IbConnectionState.Connecting -> false
-                    else -> !SymbolMarkets.hasOpenPosition(instance.symbol, ibPositions)
+                when (brokerConnection) {
+                    GatewayConnectionState.Connecting -> false
+                    else -> !SymbolMarkets.hasOpenPosition(instance.symbol, brokerPositions)
                 }
             },
             onInstanceAutoStarted = { instanceId ->
@@ -222,14 +222,14 @@ class StrategiesViewModel(
         val existing = repository.instances.value.find { it.id == id } ?: return
         val wasRunning = existing.status == InstanceStatus.RUNNING
         if (!wasRunning) {
-            val blockingPosition = SymbolMarkets.findOpenPosition(existing.symbol, ibPositions)
+            val blockingPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
             if (blockingPosition != null) {
                 startBlockedAlert = StartBlockedAlertMapper.from(existing, blockingPosition)
                 emitUiState()
                 return
             }
         }
-        val brokerPosition = SymbolMarkets.findOpenPosition(existing.symbol, ibPositions)
+        val brokerPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
         val hadOpenPosition = brokerPosition != null
         repository.update(id) { current ->
             if (current.status == InstanceStatus.RUNNING) {
@@ -363,7 +363,7 @@ class StrategiesViewModel(
         val selected = selectedId?.let { id -> filtered.find { it.id == id } }
         val sessionDate = currentSessionDateIso()
         val selectedBrokerPnL = selected?.let { instance ->
-            SymbolMarkets.findOpenPosition(instance.symbol, ibPositions)
+            SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
         }
@@ -372,7 +372,7 @@ class StrategiesViewModel(
                 instance,
                 sessionDate,
                 selectedBrokerPnL,
-                ibOpenOrders
+                brokerOpenOrders
             )
         }
         val performance = selected?.let { instance ->
@@ -385,14 +385,14 @@ class StrategiesViewModel(
         }
 
         val listRows = filtered.map { instance ->
-            val brokerPnL = SymbolMarkets.findOpenPosition(instance.symbol, ibPositions)
+            val brokerPnL = SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
             StrategyUiMapper.toRowUi(
                 instance,
                 sessionDate,
                 brokerUnrealizedPnL = brokerPnL,
-                brokerOpenOrders = ibOpenOrders
+                brokerOpenOrders = brokerOpenOrders
             )
         }
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
@@ -421,9 +421,9 @@ class StrategiesViewModel(
                 liveBroker = selected?.let { instance ->
                     LiveBrokerUiMapper.forSymbol(
                         symbol = instance.symbol,
-                        positions = ibPositions,
-                        openOrders = ibOpenOrders,
-                        connection = ibConnection
+                        positions = brokerPositions,
+                        openOrders = brokerOpenOrders,
+                        connection = brokerConnection
                     )
                 },
                 startBlockedAlert = startBlockedAlert,

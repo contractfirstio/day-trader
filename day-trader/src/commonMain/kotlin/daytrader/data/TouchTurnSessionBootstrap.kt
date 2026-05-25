@@ -1,6 +1,6 @@
 package daytrader.data
 
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.BrokerGateway
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.InstanceStatus
@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
  * then evaluates liquidity once that bar has closed (range > 25% of ADR).
  */
 class TouchTurnSessionBootstrap(
-    private val gateway: IbGatewayConnection,
+    private val gateway: BrokerGateway,
     private val repository: StrategyInstanceRepository,
     private val scope: CoroutineScope
 ) {
@@ -39,7 +39,7 @@ class TouchTurnSessionBootstrap(
                 return@launch
             }
 
-            val candleResult = gateway.fetch(symbol)
+            val candleResult = gateway.fetchFirstFifteenMinuteCandle(symbol)
             val currency = SymbolMarkets.currencyCode(symbol)
             val zoneId = SymbolMarkets.zoneId(symbol)
             repository.update(instanceId) { current ->

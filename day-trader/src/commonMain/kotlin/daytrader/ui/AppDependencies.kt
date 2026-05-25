@@ -2,7 +2,7 @@ package daytrader.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.BrokerGateway
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyInstanceRepository
 import daytrader.data.PositionRepository
@@ -19,7 +19,7 @@ data class AppDependencies(
 @Composable
 fun rememberAppDependencies(
     positionRepository: PositionRepository,
-    touchTurnMarketData: IbGatewayConnection? = null
+    touchTurnMarketData: BrokerGateway? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyInstanceRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }

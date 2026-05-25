@@ -1,9 +1,9 @@
 package daytrader.presentation.strategies
 
-import daytrader.broker.BrokerOpenOrder
-import daytrader.broker.BrokerPosition
-import daytrader.broker.IbConnectionState
 import daytrader.broker.SymbolMarkets
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
 
 data class LivePositionUi(
@@ -37,11 +37,11 @@ data class LiveBrokerUiState(
 object LiveBrokerUiMapper {
     fun forSymbol(
         symbol: String,
-        positions: List<BrokerPosition>,
-        openOrders: List<BrokerOpenOrder>,
-        connection: IbConnectionState
+        positions: List<AccountPosition>,
+        openOrders: List<WorkingOrder>,
+        connection: GatewayConnectionState
     ): LiveBrokerUiState {
-        val isConnected = connection is IbConnectionState.Connected
+        val isConnected = connection is GatewayConnectionState.Connected
         val position = positions
             .firstOrNull { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
             ?.let(::toPositionUi)
@@ -51,10 +51,10 @@ object LiveBrokerUiMapper {
             .map(::toOrderUi)
 
         val statusMessage = when (connection) {
-            IbConnectionState.Disconnected -> "Connect to IB Gateway to load position and orders."
-            IbConnectionState.Connecting -> "Loading position and orders from IB…"
-            is IbConnectionState.Error -> "IB unavailable — ${connection.message}"
-            is IbConnectionState.Connected -> null
+            GatewayConnectionState.Disconnected -> "Connect to your broker to load position and orders."
+            GatewayConnectionState.Connecting -> "Loading position and orders from broker…"
+            is GatewayConnectionState.Error -> "Broker unavailable — ${connection.message}"
+            GatewayConnectionState.Connected -> null
         }
 
         return LiveBrokerUiState(
@@ -66,32 +66,32 @@ object LiveBrokerUiMapper {
         )
     }
 
-    fun positionUi(broker: BrokerPosition): LivePositionUi = toPositionUi(broker)
+    fun positionUi(account: AccountPosition): LivePositionUi = toPositionUi(account)
 
-    private fun toPositionUi(broker: BrokerPosition): LivePositionUi {
+    private fun toPositionUi(account: AccountPosition): LivePositionUi {
         val side = when {
-            broker.quantity > 0 -> "Long"
-            broker.quantity < 0 -> "Short"
+            account.quantity > 0 -> "Long"
+            account.quantity < 0 -> "Short"
             else -> "Flat"
         }
-        val daily = broker.priorClose?.let { close ->
-            if (close > 0) Formatters.percent(broker.dailyChangePct) else null
+        val daily = account.priorClose?.let { close ->
+            if (close > 0) Formatters.percent(account.dailyChangePct) else null
         }
         return LivePositionUi(
-            symbol = broker.symbol,
-            companyName = broker.companyName,
+            symbol = account.symbol,
+            companyName = account.companyName,
             sideLabel = side,
-            quantity = kotlin.math.abs(broker.quantity),
-            formattedAvgPrice = Formatters.moneyPlain(broker.avgPrice, broker.currency),
-            formattedMarketPrice = Formatters.moneyPlain(broker.marketPrice, broker.currency),
-            formattedUnrealizedPnL = Formatters.money(broker.totalUnrealizedPnL, broker.currency, showSign = true),
-            unrealizedPnL = broker.totalUnrealizedPnL,
-            isPositivePnL = broker.totalUnrealizedPnL >= 0,
+            quantity = kotlin.math.abs(account.quantity),
+            formattedAvgPrice = Formatters.moneyPlain(account.avgPrice, account.currency),
+            formattedMarketPrice = Formatters.moneyPlain(account.marketPrice, account.currency),
+            formattedUnrealizedPnL = Formatters.money(account.totalUnrealizedPnL, account.currency, showSign = true),
+            unrealizedPnL = account.totalUnrealizedPnL,
+            isPositivePnL = account.totalUnrealizedPnL >= 0,
             formattedDailyChange = daily
         )
     }
 
-    private fun toOrderUi(order: BrokerOpenOrder): LiveOpenOrderUi {
+    private fun toOrderUi(order: WorkingOrder): LiveOpenOrderUi {
         val price = orderPriceLabel(order)
         val qty = if (order.filled > 0) {
             "${order.filled}/${order.quantity} filled"
@@ -117,7 +117,7 @@ object LiveBrokerUiMapper {
         )
     }
 
-    private fun orderPriceLabel(order: BrokerOpenOrder): String? {
+    private fun orderPriceLabel(order: WorkingOrder): String? {
         val currency = order.currency
         return when {
             order.limitPrice != null && order.limitPrice > 0 ->

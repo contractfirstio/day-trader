@@ -1,6 +1,6 @@
-package daytrader.broker
+package daytrader.gateway
 
-data class BrokerOpenOrder(
+data class WorkingOrder(
     val orderId: Int,
     val symbol: String,
     val action: String,

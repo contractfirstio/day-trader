@@ -1,6 +1,6 @@
 package daytrader.data
 
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.BrokerGateway
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.InstanceStatus
 import daytrader.domain.PreMarketCloseLogic
@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
  * minutes before that market's RTH close. Does not call IB yet.
  */
 class PreMarketClosePositionWatcher(
-    private val gateway: IbGatewayConnection,
+    private val gateway: BrokerGateway,
     private val repository: StrategyInstanceRepository,
     private val scope: CoroutineScope
 ) {

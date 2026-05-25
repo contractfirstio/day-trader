@@ -1,5 +1,8 @@
 package daytrader.broker
 
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.WorkingOrder
+
 object SymbolMarkets {
     /** HK listings on IB: numeric symbol (e.g. `700`, `0700`, `9988`, `0700.HK`). */
     fun isHongKong(symbol: String): Boolean {
@@ -36,15 +39,15 @@ object SymbolMarkets {
         return false
     }
 
-    fun hasOpenPosition(instanceSymbol: String, positions: List<BrokerPosition>): Boolean =
+    fun hasOpenPosition(instanceSymbol: String, positions: List<AccountPosition>): Boolean =
         findOpenPosition(instanceSymbol, positions) != null
 
-    fun findOpenPosition(instanceSymbol: String, positions: List<BrokerPosition>): BrokerPosition? =
+    fun findOpenPosition(instanceSymbol: String, positions: List<AccountPosition>): AccountPosition? =
         positions.firstOrNull { pos -> symbolsMatch(instanceSymbol, pos.symbol) && pos.quantity != 0 }
 
-    fun openOrdersForSymbol(instanceSymbol: String, orders: List<BrokerOpenOrder>): List<BrokerOpenOrder> =
+    fun openOrdersForSymbol(instanceSymbol: String, orders: List<WorkingOrder>): List<WorkingOrder> =
         orders.filter { order -> symbolsMatch(instanceSymbol, order.symbol) }
 
-    fun hasOpenOrders(instanceSymbol: String, orders: List<BrokerOpenOrder>): Boolean =
+    fun hasOpenOrders(instanceSymbol: String, orders: List<WorkingOrder>): Boolean =
         openOrdersForSymbol(instanceSymbol, orders).isNotEmpty()
 }

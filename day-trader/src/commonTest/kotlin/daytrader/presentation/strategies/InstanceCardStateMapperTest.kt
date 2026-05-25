@@ -1,6 +1,6 @@
 package daytrader.presentation.strategies
 
-import daytrader.broker.BrokerOpenOrder
+import daytrader.gateway.WorkingOrder
 import daytrader.domain.ActiveExecution
 import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
@@ -102,7 +102,7 @@ class InstanceCardStateMapperTest {
     fun openOrders_brownPulse_whenBrokerHasMatchingOrders() {
         val instance = instance(status = InstanceStatus.RUNNING, live = ActiveExecution.flat())
         val orders = listOf(
-            BrokerOpenOrder(
+            WorkingOrder(
                 orderId = 1,
                 symbol = "TSLA",
                 action = "BUY",
@@ -134,7 +134,7 @@ class InstanceCardStateMapperTest {
             )
         )
         val orders = listOf(
-            BrokerOpenOrder(
+            WorkingOrder(
                 orderId = 1,
                 symbol = "TSLA",
                 action = "SELL",
@@ -147,7 +147,7 @@ class InstanceCardStateMapperTest {
                 status = "Submitted",
                 currency = "USD"
             ),
-            BrokerOpenOrder(
+            WorkingOrder(
                 orderId = 2,
                 symbol = "TSLA",
                 action = "SELL",
@@ -175,7 +175,7 @@ class InstanceCardStateMapperTest {
     fun running_flat_whenOpenOrdersAreForAnotherSymbol() {
         val instance = instance(status = InstanceStatus.RUNNING, live = ActiveExecution.flat())
         val orders = listOf(
-            BrokerOpenOrder(
+            WorkingOrder(
                 orderId = 1,
                 symbol = "AAPL",
                 action = "BUY",

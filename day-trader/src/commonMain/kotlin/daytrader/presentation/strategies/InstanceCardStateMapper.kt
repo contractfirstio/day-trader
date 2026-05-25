@@ -1,6 +1,6 @@
 package daytrader.presentation.strategies
 
-import daytrader.broker.BrokerOpenOrder
+import daytrader.gateway.WorkingOrder
 import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
@@ -16,7 +16,7 @@ object InstanceCardStateMapper {
         instance: StrategyInstance,
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
-        brokerOpenOrders: List<BrokerOpenOrder> = emptyList()
+        brokerOpenOrders: List<WorkingOrder> = emptyList()
     ): InstanceCardPresentation {
         if (instance.status == InstanceStatus.ERROR) {
             return InstanceCardPresentation(
@@ -37,7 +37,7 @@ object InstanceCardStateMapper {
 
     private fun openOrdersPresentation(
         instance: StrategyInstance,
-        brokerOpenOrders: List<BrokerOpenOrder>
+        brokerOpenOrders: List<WorkingOrder>
     ): InstanceCardPresentation? {
         val orders = SymbolMarkets.openOrdersForSymbol(instance.symbol, brokerOpenOrders)
         if (orders.isEmpty()) return null

@@ -1,8 +1,8 @@
 package daytrader.data
 
-import daytrader.broker.BrokerPosition
-import daytrader.broker.IbGatewayConnection
 import daytrader.domain.Position
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerGateway
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 
-class IbPositionRepository(
-    gateway: IbGatewayConnection,
+class GatewayPositionRepository(
+    gateway: BrokerGateway,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : PositionRepository {
 
@@ -22,20 +22,20 @@ class IbPositionRepository(
 
     init {
         gateway.positions
-            .onEach { brokerPositions ->
-                _positions.value = brokerPositions.map(::toDomain)
+            .onEach { accountPositions ->
+                _positions.value = accountPositions.map(::toDomain)
             }
             .launchIn(scope)
     }
 
-    private fun toDomain(broker: BrokerPosition): Position = Position(
-        symbol = broker.symbol,
-        companyName = broker.companyName,
-        quantity = broker.quantity,
-        avgPrice = broker.avgPrice,
-        marketPrice = broker.marketPrice,
-        dailyChangePct = broker.dailyChangePct,
-        totalUnrealizedPnL = broker.totalUnrealizedPnL,
-        currency = broker.currency
+    private fun toDomain(account: AccountPosition): Position = Position(
+        symbol = account.symbol,
+        companyName = account.companyName,
+        quantity = account.quantity,
+        avgPrice = account.avgPrice,
+        marketPrice = account.marketPrice,
+        dailyChangePct = account.dailyChangePct,
+        totalUnrealizedPnL = account.totalUnrealizedPnL,
+        currency = account.currency
     )
 }

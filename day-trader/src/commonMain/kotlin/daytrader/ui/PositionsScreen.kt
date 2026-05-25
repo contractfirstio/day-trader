@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import daytrader.broker.IbConnectionState
+import daytrader.gateway.GatewayConnectionState
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.SurfaceDark
@@ -21,7 +21,7 @@ import daytrader.ui.theme.TextSecondary
 @Composable
 fun PositionsScreen(
     viewModel: PositionsViewModel,
-    connectionState: IbConnectionState
+    connectionState: GatewayConnectionState
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -56,14 +56,14 @@ fun PositionsScreen(
                 ) {
                     Text(
                         text = when (connectionState) {
-                            is IbConnectionState.Connected ->
-                                "No open positions reported by IB Gateway."
-                            IbConnectionState.Connecting ->
-                                "Loading positions from IB Gateway…"
-                            is IbConnectionState.Error ->
-                                "Positions unavailable — fix IB connection and reconnect."
-                            IbConnectionState.Disconnected ->
-                                "Connect to IB Gateway to load positions."
+                            GatewayConnectionState.Connected ->
+                                "No open positions reported by your broker."
+                            GatewayConnectionState.Connecting ->
+                                "Loading positions from broker…"
+                            is GatewayConnectionState.Error ->
+                                "Positions unavailable — fix broker connection and reconnect."
+                            GatewayConnectionState.Disconnected ->
+                                "Connect to your broker to load positions."
                         },
                         color = TextSecondary,
                         fontSize = 14.sp

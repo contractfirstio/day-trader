@@ -1,7 +1,7 @@
 package daytrader.domain
 
-import daytrader.broker.BrokerOpenOrder
-import daytrader.broker.BrokerPosition
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.WorkingOrder
 import daytrader.broker.SymbolMarkets
 
 enum class SessionStopAction {
@@ -54,8 +54,8 @@ object InstanceRunStopLogic {
     fun evaluateForInstance(
         instance: StrategyInstance,
         stopAfterMinOpen: Int,
-        positions: List<BrokerPosition>,
-        openOrders: List<BrokerOpenOrder>,
+        positions: List<AccountPosition>,
+        openOrders: List<WorkingOrder>,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): SessionStopAction? {
         val sessionDate = sessionDateForRunningInstance(instance) ?: return null

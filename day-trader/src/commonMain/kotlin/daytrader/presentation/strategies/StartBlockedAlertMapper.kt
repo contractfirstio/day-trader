@@ -1,6 +1,6 @@
 package daytrader.presentation.strategies
 
-import daytrader.broker.BrokerPosition
+import daytrader.gateway.AccountPosition
 import daytrader.domain.StrategyInstance
 import daytrader.domain.instanceDisplayName
 
@@ -14,7 +14,7 @@ data class StartBlockedByPositionAlert(
 )
 
 object StartBlockedAlertMapper {
-    fun from(instance: StrategyInstance, position: BrokerPosition): StartBlockedByPositionAlert {
+    fun from(instance: StrategyInstance, position: AccountPosition): StartBlockedByPositionAlert {
         val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
         val positionUi = LiveBrokerUiMapper.positionUi(position)
         val summary =

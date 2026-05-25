@@ -1,6 +1,6 @@
 package daytrader.presentation.strategies
 
-import daytrader.broker.BrokerPosition
+import daytrader.gateway.AccountPosition
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyInstance
@@ -17,7 +17,7 @@ class StartBlockedAlertMapperTest {
         maxDollars = 500
     )
 
-    private val position = BrokerPosition(
+    private val position = AccountPosition(
         account = "DU123",
         symbol = "700",
         companyName = "Tencent",

@@ -1,6 +1,6 @@
 package daytrader.domain
 
-import daytrader.broker.BrokerOpenOrder
+import daytrader.gateway.WorkingOrder
 import daytrader.data.StrategyCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -123,7 +123,7 @@ class InstanceRunStopLogicTest {
             stopAfterMinOpen = 90,
             positions = emptyList(),
             openOrders = listOf(
-                BrokerOpenOrder(
+                WorkingOrder(
                     orderId = 1,
                     symbol = "TSLA",
                     action = "BUY",

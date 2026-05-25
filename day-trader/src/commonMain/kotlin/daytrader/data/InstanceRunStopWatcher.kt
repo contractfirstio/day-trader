@@ -1,7 +1,7 @@
 package daytrader.data
 
-import daytrader.broker.BrokerPosition
-import daytrader.broker.IbGatewayConnection
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerGateway
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.InstanceRunStopLogic
 import daytrader.domain.InstanceStatus
@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  * flat (no IB position and no open orders) after the deadline, or at RTH close if still exposed.
  */
 class InstanceRunStopWatcher(
-    private val gateway: IbGatewayConnection,
+    private val gateway: BrokerGateway,
     private val repository: StrategyInstanceRepository,
     private val scope: CoroutineScope
 ) {
@@ -54,7 +54,7 @@ class InstanceRunStopWatcher(
         }
     }
 
-    private fun stopInstance(instance: StrategyInstance, positions: List<BrokerPosition>) {
+    private fun stopInstance(instance: StrategyInstance, positions: List<AccountPosition>) {
         val brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, positions)
         repository.update(instance.id) { current ->
             val snapshot = current.resolveStopSnapshot(
