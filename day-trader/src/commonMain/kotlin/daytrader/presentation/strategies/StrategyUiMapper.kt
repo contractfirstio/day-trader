@@ -41,6 +41,8 @@ object StrategyUiMapper {
             liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text,
             formattedRollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
             isPositiveRollup7d = rollup.pnl7d >= 0,
+            formattedRollup14d = Formatters.currency(rollup.pnl14d, showSign = true),
+            isPositiveRollup14d = rollup.pnl14d >= 0,
             formattedRollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             isPositiveRollup30d = rollup.pnl30d >= 0,
             formattedWinRate = Formatters.winRate(rollup.winDays, rollup.closedDays),

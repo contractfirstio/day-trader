@@ -85,14 +85,14 @@ object InstanceCardStateMapper {
         if (instance.live.state != ExecutionState.FILLED) {
             return InstanceCardPresentation(
                 accent = InstanceCardAccent.RUNNING_FLAT,
-                chipLabel = "Running"
+                chipLabel = "Active"
             )
         }
         val unrealized = openPositionUnrealizedPnL(instance, brokerUnrealizedPnL)
         if (unrealized == null) {
             return InstanceCardPresentation(
                 accent = InstanceCardAccent.RUNNING_FLAT,
-                chipLabel = "Running"
+                chipLabel = "Active"
             )
         }
         return if (unrealized >= 0) {

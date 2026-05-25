@@ -84,7 +84,7 @@ private fun BrokerReconnectButton(
 private fun brokerStatusLabel(state: GatewayConnectionState, brokerId: BrokerId): String {
     val brokerName = when (brokerId) {
         BrokerId.EMULATOR -> "Broker Emulator"
-        BrokerId.INTERACTIVE_BROKERS -> "Broker"
+        BrokerId.INTERACTIVE_BROKERS -> "Interactive Brokers"
     }
     return when (state) {
         GatewayConnectionState.Disconnected -> "Not Connected to $brokerName"

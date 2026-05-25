@@ -68,7 +68,11 @@ fun RunBlotterTable(
                     .padding(24.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("No runs yet — start and stop the instance to record a session.", color = TextSecondary, fontSize = 13.sp)
+                Text(
+                    "No sessions yet — start the deployment and stop to log P&L.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
             }
         } else {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -102,7 +106,7 @@ fun PerformanceRunTradeDetail(
             .testTag("PerformanceRunTradeDetail")
     ) {
         Text(
-            "Trade details",
+            "Session fills",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = TextSecondary
@@ -127,10 +131,10 @@ private fun RunBlotterHeader(
             .testTag("RunBlotterHeader"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RunHeaderCell("Start time", RunSortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
-        RunHeaderCell("Stop time", RunSortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        RunHeaderCell("Session start", RunSortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        RunHeaderCell("Session end", RunSortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
         Text(
-            "Trade",
+            "Position",
             modifier = Modifier.weight(1.1f),
             color = TextSecondary,
             fontWeight = FontWeight.Bold,
@@ -140,7 +144,7 @@ private fun RunBlotterHeader(
             RunHeaderCell("Liquidity candle", RunSortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
             RunHeaderCell("Orders placed", RunSortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
         }
-        RunHeaderCell("P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
+        RunHeaderCell("Realized P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
         Spacer(modifier = Modifier.width(40.dp))
     }
 }
@@ -216,7 +220,7 @@ private fun RunBlotterRow(
                 .testTag("RunBlotterRowPnL-${row.id}"),
             color = when {
                 row.isInProgress -> TextSecondary
-                row.isPnLNothing -> TextSecondary
+                row.isPnLFlat -> TextSecondary
                 row.isPositivePnL -> GainGreen
                 row.formattedPnL == "—" -> TextSecondary
                 else -> LossRed
@@ -254,11 +258,11 @@ private fun RunBlotterRow(
             onDismissRequest = { showDeleteConfirm = false },
             containerColor = SurfaceDark,
             title = {
-                Text("Delete performance record?", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Delete session?", color = Color.White, fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
-                    "Remove the session ($timeLabel) from this instance's performance history? This cannot be undone.",
+                    "Remove this session ($timeLabel) from the deployment's session history? This cannot be undone.",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
@@ -311,7 +315,7 @@ private fun RowScope.RunTradeCell(row: StrategyRunRowUi, modifier: Modifier) {
         }
         if (row.hasTradeDetail && !row.isSelected) {
             Text(
-                "Tap for fills",
+                "Fills & P&L",
                 fontSize = 9.sp,
                 color = TextSecondary.copy(alpha = 0.7f)
             )

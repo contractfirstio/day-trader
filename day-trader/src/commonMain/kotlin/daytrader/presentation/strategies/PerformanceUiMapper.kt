@@ -32,7 +32,7 @@ object PerformanceUiMapper {
                 RunTradeDetailUiMapper.fromSessionTrades(
                     trades = run.sessionTrades,
                     lifecycleLabel = if (inProgress) {
-                        "Run in progress"
+                        "Session open"
                     } else {
                         "Session ${run.date} · ${Formatters.runStartTimeDisplay(run.startedAt)}"
                     }
@@ -41,6 +41,7 @@ object PerformanceUiMapper {
 
         return PerformanceUiState(
             rollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
+            rollup14d = Formatters.currency(rollup.pnl14d, showSign = true),
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             winRate = Formatters.winRate(rollup.winDays, rollup.closedDays),
             rows = sortedRows,
@@ -63,7 +64,7 @@ object PerformanceUiMapper {
         } else {
             Formatters.runPnLDisplay(run.pnl, run.positionOpened)
         }
-        val isPnLNothing = formattedPnL == "Nothing"
+        val isPnLFlat = formattedPnL == Formatters.FLAT_PNL_LABEL
         val (tradeSide, tradeSummary) = RunTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
         return StrategyRunRowUi(
             id = run.id,
@@ -85,7 +86,7 @@ object PerformanceUiMapper {
             },
             formattedPnL = formattedPnL,
             isPositivePnL = run.pnl > 0.005,
-            isPnLNothing = isPnLNothing,
+            isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
             canDelete = !inProgress
         )

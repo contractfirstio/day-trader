@@ -23,7 +23,7 @@ data class StrategiesAppState(
     val instanceFilter: InstanceFilter = InstanceFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
-    /** Master switch: when false, no instance auto-starts at market open. */
+    /** Master switch: when false, no deployment auto-starts at market open. */
     val globalAutoStartEnabled: Boolean = true
 )
 

@@ -39,8 +39,8 @@ fun BlotterHeader(
             .testTag("BlotterTableHeaderRow"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        HeaderCell("Name", SortableColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(2f), onClick = onHeaderClick)
-        HeaderCell("Ticker", SortableColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(1f), onClick = onHeaderClick)
+        HeaderCell("Company", SortableColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(2f), onClick = onHeaderClick)
+        HeaderCell("Symbol", SortableColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(1f), onClick = onHeaderClick)
         HeaderCell("Unrealized P&L", SortableColumn.UNREALIZED_PNL, activeSortColumn, sortDirection, Modifier.weight(1.2f), alignEnd = true, onClick = onHeaderClick)
     }
 }

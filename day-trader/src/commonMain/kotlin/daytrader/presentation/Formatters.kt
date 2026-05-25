@@ -46,7 +46,7 @@ object Formatters {
     }
 
     fun paramsSummary(symbol: String, maxDollars: Int): String =
-        "$symbol · \$${String.format("%,d", maxDollars)} max"
+        "$symbol · \$${String.format("%,d", maxDollars)} risk budget"
 
     fun price(value: Double?): String =
         value?.let { String.format("%.2f", it) } ?: "—"
@@ -119,15 +119,17 @@ object Formatters {
         null -> "—"
     }
 
-    /** Shows "Nothing" when there is no meaningful P&L for the run. */
+    /** Shows [FLAT_PNL_LABEL] when there is no meaningful realized P&L for the session. */
     fun runPnLDisplay(pnl: Double, positionOpened: Boolean?): String {
         val hasPnL = kotlin.math.abs(pnl) >= 0.01
         return if (hasPnL) {
             currency(pnl, showSign = true)
         } else {
-            "Nothing"
+            FLAT_PNL_LABEL
         }
     }
+
+    const val FLAT_PNL_LABEL = "Flat"
 
     fun percentOfMax(pnl: Double, maxDollars: Int): String {
         if (maxDollars <= 0) return "—"

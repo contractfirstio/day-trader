@@ -20,7 +20,7 @@ class InstanceCardStateMapperTest {
         val instance = instance(status = InstanceStatus.RUNNING, live = ActiveExecution.flat())
         val card = InstanceCardStateMapper.resolve(instance, sessionDate)
         assertEquals(InstanceCardAccent.RUNNING_FLAT, card.accent)
-        assertEquals("Running", card.chipLabel)
+        assertEquals("Active", card.chipLabel)
     }
 
     @Test

@@ -21,16 +21,16 @@ object StrategiesAppStatePersistence {
 
     private fun parseDetailTab(value: String): StrategyDetailTab =
         when (value.lowercase()) {
-            "activity", "live" -> StrategyDetailTab.LIVE
-            "performance" -> StrategyDetailTab.PERFORMANCE
+            "activity", "live", "trading" -> StrategyDetailTab.LIVE
+            "performance", "session_history", "session history" -> StrategyDetailTab.PERFORMANCE
             "configuration", "config" -> StrategyDetailTab.CONFIGURATION
             else -> runCatching { StrategyDetailTab.valueOf(value.uppercase()) }
                 .getOrDefault(StrategyDetailTab.CONFIGURATION)
         }
 
     private fun detailTabLabel(tab: StrategyDetailTab): String = when (tab) {
-        StrategyDetailTab.CONFIGURATION -> "configuration"
-        StrategyDetailTab.LIVE -> "live"
-        StrategyDetailTab.PERFORMANCE -> "performance"
+        StrategyDetailTab.CONFIGURATION -> "config"
+        StrategyDetailTab.LIVE -> "trading"
+        StrategyDetailTab.PERFORMANCE -> "session_history"
     }
 }

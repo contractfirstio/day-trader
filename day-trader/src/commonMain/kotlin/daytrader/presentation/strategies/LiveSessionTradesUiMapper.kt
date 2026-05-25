@@ -43,7 +43,7 @@ object LiveSessionTradesUiMapper {
                 if (trades.isEmpty() && unrealized == 0.0) return null
                 fromTrades(
                     symbol = symbol,
-                    runLabel = "In progress",
+                    runLabel = "Session open",
                     lifecycleLabel = lifecycleLabel(trades, unrealized, brokerPosition),
                     trades = trades,
                     unrealizedPnL = unrealized,

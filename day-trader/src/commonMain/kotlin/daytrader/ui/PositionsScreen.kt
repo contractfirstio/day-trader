@@ -26,14 +26,11 @@ fun PositionsScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-        Column {
-            Text("Current Positions", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("Fully Sortable Blotter", fontSize = 13.sp, color = TextSecondary)
-        }
+        Text("Current Positions", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text("Open Positions (${uiState.rows.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        Text("Positions (${uiState.rows.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
 
         Spacer(modifier = Modifier.height(16.dp))
 

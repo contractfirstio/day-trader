@@ -17,7 +17,7 @@ data class StrategyRunRowUi(
     val ordersPlaced: String,
     val formattedPnL: String,
     val isPositivePnL: Boolean,
-    val isPnLNothing: Boolean,
+    val isPnLFlat: Boolean,
     val isInProgress: Boolean = false,
     val canDelete: Boolean = false,
     val isSelected: Boolean = false
@@ -25,6 +25,7 @@ data class StrategyRunRowUi(
 
 data class PerformanceUiState(
     val rollup7d: String,
+    val rollup14d: String,
     val rollup30d: String,
     val winRate: String,
     val rows: List<StrategyRunRowUi>,

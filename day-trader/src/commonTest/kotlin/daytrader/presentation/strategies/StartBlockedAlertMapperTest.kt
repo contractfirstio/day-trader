@@ -49,5 +49,6 @@ class StartBlockedAlertMapperTest {
         assertContains(alert.positionDetails, "Tencent")
         assertContains(alert.positionDetails, "Long")
         assertContains(alert.reason, "flat")
+        assertContains(alert.reason, "deployment")
     }
 }

@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
-
 class StrategyRunLogicTest {
     private val base = defaultStrategyInstance(
         strategyType = StrategyType.QUICK_FLIP_SCALPER,
@@ -63,6 +62,32 @@ class StrategyRunLogicTest {
         val updated = started.updateInProgressRun { it.copy(trades = 3, pnl = 12.5) }
         assertEquals(3, updated.inProgressRun()?.trades)
         assertEquals(12.5, updated.inProgressRun()?.pnl)
+    }
+
+    @Test
+    fun rollups_includes14dWindow() {
+        val runs = listOf(
+            StrategyRun(
+                id = "r1",
+                date = "2026-05-20",
+                pnl = 10.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = RunStatus.CLOSED
+            ),
+            StrategyRun(
+                id = "r2",
+                date = "2026-05-10",
+                pnl = 5.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = RunStatus.CLOSED
+            )
+        )
+        val rollup = runs.rollups(asOfSessionDate = "2026-05-22")
+        assertEquals(15.0, rollup.pnl14d)
+        assertEquals(10.0, rollup.pnl7d)
+        assertEquals(15.0, rollup.pnl30d)
     }
 
     @Test

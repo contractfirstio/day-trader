@@ -29,6 +29,8 @@ data class StrategyInstanceRowUi(
     val liveTradeSummary: String?,
     val formattedRollup7d: String,
     val isPositiveRollup7d: Boolean,
+    val formattedRollup14d: String,
+    val isPositiveRollup14d: Boolean,
     val formattedRollup30d: String,
     val isPositiveRollup30d: Boolean,
     val formattedWinRate: String,

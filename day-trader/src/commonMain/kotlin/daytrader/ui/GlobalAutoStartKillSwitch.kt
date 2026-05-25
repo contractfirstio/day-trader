@@ -54,7 +54,7 @@ fun GlobalAutoStartKillSwitch(
             )
             if (!enabled) {
                 Text(
-                    text = "No instances will start at market open",
+                    text = "Auto-start disabled for all deployments",
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary,
                     fontSize = 10.sp,

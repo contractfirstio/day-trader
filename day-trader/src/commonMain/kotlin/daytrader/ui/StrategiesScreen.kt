@@ -124,9 +124,9 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             ) {
                 Text(
                     if (uiState.hasActiveFilters) {
-                        "Instances (${uiState.filteredCount} of ${uiState.totalCount})"
+                        "Deployments (${uiState.filteredCount} of ${uiState.totalCount})"
                     } else {
-                        "Instances (${uiState.totalCount})"
+                        "Deployments (${uiState.totalCount})"
                     },
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -137,7 +137,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 if (uiState.filteredRows.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            "No instances match your filter.",
+                            "No deployments match your filter.",
                             color = TextSecondary,
                             fontSize = 13.sp
                         )
@@ -264,7 +264,7 @@ private fun ActiveFiltersBanner(
         if (instanceFilter != InstanceFilter.ALL) {
             add(
                 when (instanceFilter) {
-                    InstanceFilter.RUNNING -> "running only"
+                    InstanceFilter.RUNNING -> "active only"
                     InstanceFilter.STOPPED -> "stopped only"
                     InstanceFilter.ALL -> ""
                 }
@@ -283,7 +283,7 @@ private fun ActiveFiltersBanner(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                "Filters active — showing $filteredCount of $totalCount instances",
+                "Filters active — showing $filteredCount of $totalCount deployments",
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
@@ -440,20 +440,13 @@ private fun StrategiesHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text("Strategies", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text(
-                "Run multiple instances of hardcoded strategies",
-                fontSize = 13.sp,
-                color = TextSecondary
-            )
-        }
+        Text("Strategies", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Search instances...", color = TextSecondary) },
+                placeholder = { Text("Search symbol or strategy...", color = TextSecondary) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -479,7 +472,7 @@ private fun StrategiesHeader(
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Add instance", color = Color.White, fontSize = 13.sp)
+                Text("Deploy strategy", color = Color.White, fontSize = 13.sp)
             }
         }
     }
@@ -526,7 +519,7 @@ private fun InstanceFilterRow(
                 onClick = { onFilterChange(InstanceFilter.ALL) }
             )
             FilterChip(
-                label = "Running",
+                label = "Active",
                 selected = filter == InstanceFilter.RUNNING,
                 onClick = { onFilterChange(InstanceFilter.RUNNING) }
             )
@@ -655,12 +648,12 @@ private fun StrategyInstanceCard(
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 CompactInstanceStat(
-                    label = "Win",
+                    label = "Win %",
                     value = row.formattedWinRate,
                     valueColor = winRateColor(row.winRateIsPositive)
                 )
                 CompactInstanceStat(
-                    label = "P&L",
+                    label = "Net P&L",
                     value = row.formattedTotalPnL,
                     valueColor = if (row.isPositiveTotalPnL) GainGreen else LossRed
                 )
@@ -700,9 +693,10 @@ private fun InstanceRollupRow(row: StrategyInstanceRowUi) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        InstanceRollupCell("7d", row.formattedRollup7d, row.isPositiveRollup7d)
-        InstanceRollupCell("30d", row.formattedRollup30d, row.isPositiveRollup30d)
-        InstanceRollupCell("Win", row.formattedWinRate)
+        InstanceRollupCell("7D", row.formattedRollup7d, row.isPositiveRollup7d)
+        InstanceRollupCell("14D", row.formattedRollup14d, row.isPositiveRollup14d)
+        InstanceRollupCell("30D", row.formattedRollup30d, row.isPositiveRollup30d)
+        InstanceRollupCell("Win %", row.formattedWinRate)
     }
 }
 
@@ -743,7 +737,7 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.TouchApp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Select an instance or add a strategy", color = TextSecondary, fontSize = 14.sp)
+            Text("Select a deployment", color = TextSecondary, fontSize = 14.sp)
         }
     }
 }
@@ -806,7 +800,7 @@ private fun StrategyInstanceDetail(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (instance.status == InstanceStatus.RUNNING) "Stop" else "Start")
+                        Text(if (instance.status == InstanceStatus.RUNNING) "End session" else "Start session")
                     }
                     OutlinedButton(onClick = onDuplicate, shape = RoundedCornerShape(6.dp)) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -831,14 +825,7 @@ private fun StrategyInstanceDetail(
                     selected = detailTab == tab,
                     onClick = { onTabChange(tab) },
                     text = {
-                        Text(
-                            when (tab) {
-                                StrategyDetailTab.CONFIGURATION -> "Configuration"
-                                StrategyDetailTab.LIVE -> "Live"
-                                StrategyDetailTab.PERFORMANCE -> "Performance"
-                            },
-                            fontSize = 13.sp
-                        )
+                        Text(tab.displayLabel(), fontSize = 13.sp)
                     }
                 )
             }
@@ -901,7 +888,7 @@ private fun ConfigurationTab(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!globalAutoStartEnabled) {
             Text(
-                "Global auto-start is OFF (top bar). Per-instance settings are saved but won't run until re-enabled.",
+                "Global auto-start is OFF (top bar). Per-deployment settings are saved but won't run until re-enabled.",
                 fontSize = 12.sp,
                 color = LossRed,
                 lineHeight = 15.sp
@@ -915,7 +902,7 @@ private fun ConfigurationTab(
         )
         if (!canEdit) {
             Text(
-                "Stop the instance to edit configuration.",
+                "End the session to edit configuration.",
                 fontSize = 12.sp,
                 color = TextSecondary
             )
@@ -928,7 +915,7 @@ private fun ConfigurationTab(
             }
         )
         ConfigField(
-            label = "Max at risk (\$)",
+            label = "Risk budget (\$)",
             value = instance.maxDollars.toString(),
             enabled = canEdit,
             onValueChange = { value ->
@@ -1600,12 +1587,12 @@ private fun LiveTab(
                 }
                 !liveExecution.isRunning -> {
                     if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
-                        Text("Instance is stopped.", color = TextSecondary, fontSize = 13.sp)
+                        Text("Session stopped.", color = TextSecondary, fontSize = 13.sp)
                     }
                 }
                 else -> {
                     if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
-                        Text("No open trade — watching for signal.", color = TextSecondary, fontSize = 13.sp)
+                        Text("Flat — awaiting setup.", color = TextSecondary, fontSize = 13.sp)
                     }
                 }
             }
@@ -1613,7 +1600,7 @@ private fun LiveTab(
             liveSessionTrades?.let { trades ->
                 LiveSessionTradesSection(trades, inProgress = false)
             } ?: Text(
-                "Start the instance to view live broker data. After a session stops, fills for that run appear here for P&L verification.",
+                "Start a session to view broker data. After a session ends, fills appear here for P&L verification.",
                 color = TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.testTag("LiveTabStoppedHint")
@@ -1639,7 +1626,7 @@ private fun LiveSessionTradesSection(
     ) {
         trades.runLabel?.let { label ->
             Text(
-                if (inProgress) "Run in progress" else "Last run · $label",
+                if (inProgress) "Session open" else "Last session · $label",
                 fontSize = 10.sp,
                 color = TextSecondary,
                 modifier = Modifier.testTag("LiveSessionTradesRunLabel")
@@ -1784,7 +1771,7 @@ private fun LiveTradePanel(
             .testTag("LiveTradePanel"),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Live trade", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        Text("Active trade", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
         Text(live.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
 
         when (live.state) {
@@ -1903,7 +1890,7 @@ private fun ClosePositionButton(
         colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
         shape = RoundedCornerShape(6.dp)
     ) {
-        Text("Close position", fontWeight = FontWeight.SemiBold)
+        Text("Exit position", fontWeight = FontWeight.SemiBold)
     }
 
     if (showConfirm) {
@@ -1912,11 +1899,11 @@ private fun ClosePositionButton(
             onDismissRequest = { showConfirm = false },
             containerColor = SurfaceDark,
             title = {
-                Text("Close position?", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Exit position?", color = Color.White, fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
-                    "Close this position at market? $pnlHint",
+                    "Exit this position at market? $pnlHint",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
@@ -1929,7 +1916,7 @@ private fun ClosePositionButton(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
                 ) {
-                    Text("Close at market")
+                    Text("Exit at market")
                 }
             },
             dismissButton = {
@@ -1959,7 +1946,7 @@ private fun PerformanceTab(
 ) {
     if (performance == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No performance data.", color = TextSecondary, fontSize = 13.sp)
+            Text("No session history.", color = TextSecondary, fontSize = 13.sp)
         }
         return
     }
@@ -1970,17 +1957,22 @@ private fun PerformanceTab(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PerformanceStatCard(
-                label = "7d P&L",
+                label = "7D P&L",
                 value = performance.rollup7d,
                 modifier = Modifier.weight(1f)
             )
             PerformanceStatCard(
-                label = "30d P&L",
+                label = "14D P&L",
+                value = performance.rollup14d,
+                modifier = Modifier.weight(1f)
+            )
+            PerformanceStatCard(
+                label = "30D P&L",
                 value = performance.rollup30d,
                 modifier = Modifier.weight(1f)
             )
             PerformanceStatCard(
-                label = "Win rate",
+                label = "Win %",
                 value = performance.winRate,
                 modifier = Modifier.weight(1f)
             )
@@ -2127,7 +2119,7 @@ private fun AutoStartOnMarketOpenField(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                "Starts this instance at 09:30 RTH in the symbol's market timezone.",
+                "Starts this deployment at 09:30 RTH in the symbol's market timezone.",
                 fontSize = 11.sp,
                 color = TextSecondary,
                 lineHeight = 14.sp
@@ -2146,7 +2138,7 @@ private fun StartBlockedByPositionDialog(
         modifier = Modifier.testTag("StartBlockedByPositionDialog"),
         containerColor = SurfaceDark,
         title = {
-            Text("Cannot start instance", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Cannot start deployment", color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2180,7 +2172,7 @@ private fun AddStrategyInstanceDialog(
         onDismissRequest = onDismiss,
         containerColor = SurfaceDark,
         title = {
-            Text("Add strategy instance", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("Deploy strategy", color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2198,7 +2190,7 @@ private fun AddStrategyInstanceDialog(
                 HorizontalDivider(color = TableHeaderBg)
                 ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
                 ConfigField(
-                    label = "Max at risk (\$)",
+                    label = "Risk budget (\$)",
                     value = maxDollarsText,
                     onValueChange = { maxDollarsText = it }
                 )

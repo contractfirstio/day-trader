@@ -86,6 +86,7 @@ fun currentRunTimestampIso(): String =
 data class RunRollups(
     val totalPnl: Double,
     val pnl7d: Double,
+    val pnl14d: Double,
     val pnl30d: Double,
     val winDays: Int,
     val closedDays: Int
@@ -99,10 +100,12 @@ fun List<StrategyRun>.rollups(asOfSessionDate: String): RunRollups {
     }
     val closed = relevant.filter { it.status == RunStatus.CLOSED }
     val within30 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 30 }
+    val within14 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 14 }
     val within7 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 7 }
     return RunRollups(
         totalPnl = closed.sumOf { it.pnl },
         pnl7d = within7.sumOf { it.pnl },
+        pnl14d = within14.sumOf { it.pnl },
         pnl30d = within30.sumOf { it.pnl },
         winDays = closed.count { it.pnl > 0 },
         closedDays = closed.size

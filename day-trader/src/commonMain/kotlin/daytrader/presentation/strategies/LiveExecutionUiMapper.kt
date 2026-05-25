@@ -17,14 +17,14 @@ object LiveExecutionUiMapper {
         )
 
         val headline = when {
-            !isRunning -> "Instance stopped"
+            !isRunning -> "Session stopped"
             execution.state == ExecutionState.FILLED -> {
                 val entry = execution.entryPrice?.let { Formatters.currencyPlain(it) } ?: "—"
                 "${execution.side.label()} ${execution.quantity} ${instance.symbol} @ $entry"
             }
             execution.state == ExecutionState.WORKING ->
                 "${execution.side.label()} ${execution.quantity} ${instance.symbol} — order working"
-            else -> "No open trade — watching for signal"
+            else -> "Flat — awaiting setup"
         }
 
         val canManage = isRunning && execution.state == ExecutionState.FILLED
@@ -44,7 +44,7 @@ object LiveExecutionUiMapper {
             formattedUpside = risk.upsideDollars?.let { Formatters.currency(it, showSign = true) },
             formattedUnrealized = risk.unrealizedPnL?.let { Formatters.currency(it, showSign = true) },
             isUnrealizedPositive = (risk.unrealizedPnL ?: 0.0) >= 0,
-            riskPercentOfMax = risk.riskPercentOfMax?.let { "${String.format("%.0f", it)}% of max" }
+            riskPercentOfMax = risk.riskPercentOfMax?.let { "${String.format("%.0f", it)}% of risk budget" }
         )
     }
 

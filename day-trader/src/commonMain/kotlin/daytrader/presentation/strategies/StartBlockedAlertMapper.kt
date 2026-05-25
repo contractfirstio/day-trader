@@ -31,8 +31,8 @@ object StartBlockedAlertMapper {
             }
         }
         val reason =
-            "Strategy instances must start from a flat position. Close or flatten this holding in IB " +
-                "before starting the instance."
+            "Deployments must start from a flat position. Close or flatten this holding in Interactive Brokers " +
+                "before starting the deployment."
         return StartBlockedByPositionAlert(
             instanceDisplayName = displayName,
             instanceSymbol = instance.symbol,
