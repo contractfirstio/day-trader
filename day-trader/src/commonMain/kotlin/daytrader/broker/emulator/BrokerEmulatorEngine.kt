@@ -159,13 +159,15 @@ class BrokerEmulatorEngine(
         val takeProfit = EmulatorBracketPlanAdjuster.takeProfitPrice(adjustedPlan) ?: ceiling
         val stopLoss = EmulatorBracketPlanAdjuster.stopLossPrice(adjustedPlan) ?: floor
         val towardTp = EmulatorBracketPlanAdjuster.towardTakeProfitDirection(adjustedPlan)
+        val targetExit = pickBracketExitTarget()
         bracketPriceWalks[symbol] = BracketPriceWalk(
             floor = floor,
             ceiling = ceiling,
             takeProfitPrice = takeProfit,
             stopLossPrice = stopLoss,
             towardTakeProfitDirection = towardTp,
-            direction = biasedWalkDirection(towardTp)
+            targetExit = targetExit,
+            direction = directionTowardTarget(towardTp, targetExit)
         )
         EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice, floor, ceiling)
         fillEntryImmediately(entryId)
@@ -271,8 +273,27 @@ class BrokerEmulatorEngine(
         return hasActiveBracketExits && hasPosition
     }
 
-    private fun biasedWalkDirection(towardTakeProfit: Int): Int =
-        if (random.nextDouble() < config.bracketWalkTakeProfitBias) towardTakeProfit else -towardTakeProfit
+    private fun pickBracketExitTarget(): BracketExitTarget =
+        if (random.nextDouble() < config.bracketExitTakeProfitProbability) {
+            BracketExitTarget.TAKE_PROFIT
+        } else {
+            BracketExitTarget.STOP_LOSS
+        }
+
+    private fun directionTowardTarget(towardTakeProfit: Int, target: BracketExitTarget): Int =
+        when (target) {
+            BracketExitTarget.TAKE_PROFIT -> towardTakeProfit
+            BracketExitTarget.STOP_LOSS -> -towardTakeProfit
+        }
+
+    private fun walkDirection(walk: BracketPriceWalk): Int {
+        val towardTarget = directionTowardTarget(walk.towardTakeProfitDirection, walk.targetExit)
+        return if (random.nextDouble() < config.bracketWalkSteerTowardTargetProbability) {
+            towardTarget
+        } else {
+            -towardTarget
+        }
+    }
 
     private fun advanceBracketPriceWalk(symbol: String, walk: BracketPriceWalk): Double {
         val range = walk.ceiling - walk.floor
@@ -288,18 +309,19 @@ class BrokerEmulatorEngine(
             walk.direction = bounceDirectionFromBoundary(walk, hitTakeProfitSide = walk.takeProfitPrice <= walk.floor + 1e-9)
         }
         if (random.nextDouble() < config.bracketWalkDirectionFlipChance) {
-            walk.direction = biasedWalkDirection(walk.towardTakeProfitDirection)
+            walk.direction = walkDirection(walk)
         }
         return next.coerceIn(walk.floor, walk.ceiling)
     }
 
-    /** After touching a bracket bound, usually head back toward take-profit. */
+    /** After touching a bracket bound, steer back toward the pre-selected exit target. */
     private fun bounceDirectionFromBoundary(walk: BracketPriceWalk, hitTakeProfitSide: Boolean): Int {
-        return if (hitTakeProfitSide) {
-            -walk.towardTakeProfitDirection
-        } else {
-            biasedWalkDirection(walk.towardTakeProfitDirection)
+        val towardTarget = directionTowardTarget(walk.towardTakeProfitDirection, walk.targetExit)
+        val hitTargetSide = when (walk.targetExit) {
+            BracketExitTarget.TAKE_PROFIT -> hitTakeProfitSide
+            BracketExitTarget.STOP_LOSS -> !hitTakeProfitSide
         }
+        return if (hitTargetSide) -towardTarget else towardTarget
     }
 
     private fun tickSymbolsForMarketData(): Set<String> =

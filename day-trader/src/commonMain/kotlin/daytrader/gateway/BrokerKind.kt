@@ -10,6 +10,13 @@ enum class BrokerKind {
             EMULATOR -> "Broker Emulator"
         }
 
+    /** Subdirectory under the app data root — keeps IB and emulator JSON separate on disk. */
+    val dataDirectorySegment: String
+        get() = when (this) {
+            INTERACTIVE_BROKERS -> "interactive-brokers"
+            EMULATOR -> "emulator"
+        }
+
     companion object {
         fun fromEnvironment(raw: String? = brokerEnvValue()): BrokerKind =
             when (raw?.trim()?.lowercase()) {

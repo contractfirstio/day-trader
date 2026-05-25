@@ -12,6 +12,7 @@ import androidx.compose.ui.window.rememberWindowState
 import daytrader.data.GatewayPositionRepository
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
+import daytrader.platform.AppFileSystem
 import daytrader.ui.App
 import daytrader.ui.BrokerSelectionScreen
 
@@ -56,6 +57,7 @@ fun main() = application {
                     selected = pendingSelection,
                     onSelect = { pendingSelection = it },
                     onContinue = {
+                        AppFileSystem.configureDataScope(pendingSelection)
                         val runtime = BrokerRuntime.create(pendingSelection)
                         runtime.start()
                         phase = StartupPhase.Running(runtime)

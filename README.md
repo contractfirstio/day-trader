@@ -86,13 +86,22 @@ On first launch, strategy instances are loaded from disk or seeded from `mockStr
 
 ### Data directory
 
-Default locations (override with `DAY_TRADER_DATA_DIR`):
+Persistence is scoped by broker so IB and emulator state never share the same JSON files. After you choose a broker on the startup screen, data is written under a broker-specific subdirectory.
 
-| OS      | Path                                        |
+Default base locations (override with `DAY_TRADER_DATA_DIR`):
+
+| OS      | Base path                                   |
 |---------|---------------------------------------------|
 | macOS   | `~/Library/Application Support/Day Trader/` |
 | Windows | `%APPDATA%\Day Trader\`                     |
 | Linux   | `~/.local/share/day-trader/`                |
+
+| Broker               | Subdirectory            | Example (macOS)                                                                      |
+|----------------------|-------------------------|--------------------------------------------------------------------------------------|
+| Interactive Brokers  | `interactive-brokers/`  | `~/Library/Application Support/Day Trader/interactive-brokers/instances.json`      |
+| Broker Emulator      | `emulator/`             | `~/Library/Application Support/Day Trader/emulator/instances.json`                   |
+
+On first launch with Interactive Brokers, any legacy JSON files that still live at the base directory (from before this split) are moved into `interactive-brokers/` automatically.
 
 Example:
 

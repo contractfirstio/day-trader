@@ -1,7 +1,9 @@
 package daytrader.broker.emulator
 
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnBracketSetup
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.GatewayEvent
@@ -97,19 +99,22 @@ class BrokerEmulatorBracketTest {
     }
 
     @Test
-    fun bracketWalk_takeProfitBias_closesViaTakeProfitMoreOftenThanStop() = runBlocking {
+    fun bracketWalk_touchTurnGeometry_balancedWinsAndLosses() = runBlocking {
+        val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)!!
         var takeProfitExits = 0
         var stopLossExits = 0
-        repeat(24) { seed ->
+        repeat(40) { seed ->
             val events = mutableListOf<GatewayEvent>()
             val engine = BrokerEmulatorEngine(
                 config = BrokerEmulatorConfig(
                     connectDelayMs = 1,
                     simulateOrderProgress = false,
                     bracketWalkStepPctOfRange = 0.18,
-                    bracketWalkDirectionFlipChance = 0.35,
+                    bracketWalkDirectionFlipChance = 0.2,
                     bracketExitSpreadWidenFactor = 1.35,
-                    bracketWalkTakeProfitBias = 0.70
+                    bracketExitTakeProfitProbability = 0.5,
+                    bracketWalkSteerTowardTargetProbability = 0.88
                 ),
                 emit = { events.add(it) },
                 random = Random(seed)
@@ -117,16 +122,6 @@ class BrokerEmulatorBracketTest {
             engine.handleConnect()
             engine.finishConnect()
 
-            val setup = TouchTurnBracketSetup(
-                range = 2.0,
-                rangeThreshold = 0.5,
-                isLiquidityCandle = true,
-                candleColor = FirstCandleColor.GREEN,
-                side = TouchTurnTradeSide.LONG,
-                entry = 100.0,
-                stopLoss = 99.0,
-                takeProfit = 101.0
-            )
             val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
             engine.placeTouchTurnBracket(plan)
             engine.runMarketTick()
@@ -146,10 +141,17 @@ class BrokerEmulatorBracketTest {
             val tp = EmulatorBracketPlanAdjuster.takeProfitPrice(widened)!!
             val sl = EmulatorBracketPlanAdjuster.stopLossPrice(widened)!!
             when {
-                kotlin.math.abs(exitFill.price - tp) < 0.02 -> takeProfitExits++
-                kotlin.math.abs(exitFill.price - sl) < 0.02 -> stopLossExits++
+                kotlin.math.abs(exitFill.price - tp) < 0.05 -> takeProfitExits++
+                kotlin.math.abs(exitFill.price - sl) < 0.05 -> stopLossExits++
             }
         }
-        assertTrue(takeProfitExits > stopLossExits, "TP=$takeProfitExits SL=$stopLossExits")
+        assertTrue(
+            takeProfitExits in 12..28,
+            "expected ~50% TP exits over 40 runs, got TP=$takeProfitExits SL=$stopLossExits"
+        )
+        assertTrue(
+            stopLossExits in 12..28,
+            "expected ~50% SL exits over 40 runs, got TP=$takeProfitExits SL=$stopLossExits"
+        )
     }
 }

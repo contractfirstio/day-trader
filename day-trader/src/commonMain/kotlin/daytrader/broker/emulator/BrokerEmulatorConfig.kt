@@ -12,8 +12,14 @@ data class BrokerEmulatorConfig(
     val bracketWalkDirectionFlipChance: Double = 0.25,
     /** Emulator widens stop and take-profit away from entry (>1 = wider bracket). */
     val bracketExitSpreadWidenFactor: Double = 1.35,
-    /** Probability the bracket price walk moves toward take-profit (vs stop) when choosing direction. */
-    val bracketWalkTakeProfitBias: Double = 0.70,
+    /**
+     * When placing a bracket, probability the simulated exit is take-profit (vs stop).
+     * Set to 0.5 because entry is closer to stop than TP in Touch Turn math — an unbiased
+     * random walk would skew heavily toward stop losses.
+     */
+    val bracketExitTakeProfitProbability: Double = 0.5,
+    /** How often each tick steps toward the pre-selected [BracketExitTarget] (vs oscillating away). */
+    val bracketWalkSteerTowardTargetProbability: Double = 0.88,
     val historicalDelayMs: Long = 120L,
     val simulateOrderProgress: Boolean = true,
     val orderProgressIntervalMs: Long = 8_000L,
