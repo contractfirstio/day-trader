@@ -7,6 +7,8 @@ import daytrader.broker.SymbolMarkets
 enum class SessionStopAction {
     /** Before stop-after-open deadline, or still within session with exposure. */
     CONTINUE,
+    /** Bracket/trade cycle finished (win or loss known) — stop immediately. */
+    STOP_TRADE_OUTCOME_KNOWN,
     /** Past deadline with no position and no open orders — stop the instance. */
     STOP_FLAT_AFTER_OPEN,
     /** Had exposure after deadline and RTH session has closed — stop the instance. */
@@ -14,6 +16,35 @@ enum class SessionStopAction {
 }
 
 object InstanceRunStopLogic {
+    /**
+     * True when this run had a completed round-trip (entry + exit fill), is flat, and
+     * session P&L (win/loss) can be recorded on stop.
+     */
+    fun shouldStopAfterTradeOutcome(
+        instance: StrategyInstance,
+        sessionTrades: List<SessionTrade>,
+        hasOpenPosition: Boolean,
+        hasOpenOrders: Boolean
+    ): Boolean {
+        if (hasOpenPosition || hasOpenOrders) return false
+        if (!hadTradeActivity(instance, sessionTrades)) return false
+        return tradeCycleComplete(sessionTrades)
+    }
+
+    fun hadTradeActivity(instance: StrategyInstance, sessionTrades: List<SessionTrade>): Boolean =
+        when (instance.strategyType) {
+            StrategyType.TOUCH_AND_TURN_SCALPER ->
+                instance.touchTurnSession?.sessionOrdersPlaced() == true
+            StrategyType.QUICK_FLIP_SCALPER ->
+                sessionTrades.isNotEmpty() || instance.live.state == ExecutionState.FILLED
+        }
+
+    fun tradeCycleComplete(sessionTrades: List<SessionTrade>): Boolean {
+        val hasEntry = sessionTrades.any { it.parentOrderId == 0 }
+        val hasExit = sessionTrades.any { it.parentOrderId != 0 }
+        return hasEntry && hasExit
+    }
+
     fun sessionDateForRunningInstance(instance: StrategyInstance): String? =
         instance.inProgressRun()?.date
             ?: instance.touchTurnSession?.sessionDate

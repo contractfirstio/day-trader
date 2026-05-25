@@ -8,10 +8,22 @@ internal object EmulatorLog {
         )
     }
 
-    fun bracketPlaced(symbol: String, orderIds: List<Int>, entryPrice: Double) {
+    fun bracketPlaced(
+        symbol: String,
+        orderIds: List<Int>,
+        entryPrice: Double,
+        walkFloor: Double,
+        walkCeiling: Double
+    ) {
         println(
             "[Emulator] Touch Turn bracket placed for $symbol (orders $orderIds); " +
-                "market set to $entryPrice — entry fills when ticks cross limit"
+                "market set to $entryPrice — after entry, price walks $walkFloor..$walkCeiling"
+        )
+    }
+
+    fun bracketExitWalkStarted(symbol: String, floor: Double, ceiling: Double) {
+        println(
+            "[Emulator] $symbol position open — price walking $floor..$ceiling to trigger TP or STOP"
         )
     }
 

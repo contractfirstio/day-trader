@@ -5,6 +5,7 @@ import daytrader.domain.ExecutionState
 import daytrader.domain.InstanceStatus
 import daytrader.domain.RunStatus
 import daytrader.domain.StrategyInstance
+import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyRun
 import daytrader.domain.TradeSide
 
@@ -51,7 +52,8 @@ object InstancePersistence {
             status = parseRunStatus(record.status),
             hadLiquidityCandle = record.hadLiquidityCandle,
             ordersPlacedForCandle = record.ordersPlacedForCandle,
-            positionOpened = record.positionOpened
+            positionOpened = record.positionOpened,
+            sessionTrades = record.sessionTrades.map(::toSessionTradeDomain)
         )
 
     private fun toPerformanceRecord(day: StrategyRun): PerformanceDayRecord =
@@ -66,7 +68,38 @@ object InstancePersistence {
             status = runStatusLabel(day.status),
             hadLiquidityCandle = day.hadLiquidityCandle,
             ordersPlacedForCandle = day.ordersPlacedForCandle,
-            positionOpened = day.positionOpened
+            positionOpened = day.positionOpened,
+            sessionTrades = day.sessionTrades.map(::toSessionTradeRecord)
+        )
+
+    private fun toSessionTradeDomain(record: SessionTradeRecord): SessionTrade =
+        SessionTrade(
+            execId = record.execId,
+            orderId = record.orderId,
+            permId = record.permId,
+            parentOrderId = record.parentOrderId,
+            side = record.side,
+            quantity = record.quantity,
+            price = record.price,
+            time = record.time,
+            currency = record.currency,
+            commission = record.commission,
+            realizedPnL = record.realizedPnL
+        )
+
+    private fun toSessionTradeRecord(trade: SessionTrade): SessionTradeRecord =
+        SessionTradeRecord(
+            execId = trade.execId,
+            orderId = trade.orderId,
+            permId = trade.permId,
+            parentOrderId = trade.parentOrderId,
+            side = trade.side,
+            quantity = trade.quantity,
+            price = trade.price,
+            time = trade.time,
+            currency = trade.currency,
+            commission = trade.commission,
+            realizedPnL = trade.realizedPnL
         )
 
     private fun toLiveDomain(record: LiveRecord): ActiveExecution =

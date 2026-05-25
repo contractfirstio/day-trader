@@ -42,7 +42,6 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
-import daytrader.domain.TouchTurnEntryWindowStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.InstanceRunStopLogic
 import daytrader.domain.TouchTurnSessionContext
@@ -176,10 +175,12 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 performance = uiState.performance,
                 liveExecution = uiState.liveExecution,
                 liveBroker = uiState.liveBroker,
+                liveSessionTrades = uiState.liveSessionTrades,
                 onTabChange = viewModel::onDetailTabChange,
                 onUpdateInstance = viewModel::onUpdateInstance,
                 onStartStop = viewModel::onToggleRun,
                 onRunHeaderClick = viewModel::onRunHeaderClick,
+                onSelectPerformanceRun = viewModel::onSelectPerformanceRun,
                 onDeletePerformanceRun = viewModel::onDeletePerformanceRun,
                 onAdjustStop = viewModel::onAdjustStop,
                 onClosePosition = viewModel::onClosePosition,
@@ -202,10 +203,12 @@ private fun StrategyInstanceDetailPanel(
     performance: PerformanceUiState?,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
+    liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdateInstance: (String, (StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: (String) -> Unit,
     onRunHeaderClick: (RunSortColumn) -> Unit,
+    onSelectPerformanceRun: (String) -> Unit,
     onDeletePerformanceRun: (String, String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
@@ -229,10 +232,12 @@ private fun StrategyInstanceDetailPanel(
                 performance = performance,
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
+                liveSessionTrades = liveSessionTrades,
                 onTabChange = onTabChange,
                 onUpdate = { transform -> onUpdateInstance(selectedInstance.id, transform) },
                 onStartStop = { onStartStop(selectedInstance.id) },
                 onRunHeaderClick = onRunHeaderClick,
+                onSelectPerformanceRun = onSelectPerformanceRun,
                 onDeletePerformanceRun = onDeletePerformanceRun,
                 onAdjustStop = onAdjustStop,
                 onClosePosition = onClosePosition,
@@ -752,10 +757,12 @@ private fun StrategyInstanceDetail(
     performance: PerformanceUiState?,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
+    liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
     onStartStop: () -> Unit,
     onRunHeaderClick: (RunSortColumn) -> Unit,
+    onSelectPerformanceRun: (String) -> Unit,
     onDeletePerformanceRun: (String, String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
@@ -854,12 +861,14 @@ private fun StrategyInstanceDetail(
                     instance = instance,
                     liveExecution = liveExecution,
                     liveBroker = liveBroker,
+                    liveSessionTrades = liveSessionTrades,
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
                 )
                 StrategyDetailTab.PERFORMANCE -> PerformanceTab(
                     performance = performance,
                     onRunHeaderClick = onRunHeaderClick,
+                    onSelectRun = onSelectPerformanceRun,
                     onDeleteRun = { runId -> onDeletePerformanceRun(instance.id, runId) }
                 )
             }
@@ -1049,11 +1058,6 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 }
                 val closeStatus = remember(session, tick) { session.candleCloseStatus() }
                 val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
-                val entryWindow = remember(session, tick) { session.entryWindowStatus() }
-                val entryRemainingSec = remember(session, tick) {
-                    TouchTurnLogic.entryWindowRemainingMillis(session.candle, session.marketZoneId)
-                        ?.let { (it / 1000).toInt() }
-                }
                 val candle = session.candle
                 val currency = session.currencyCode
                 val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
@@ -1196,38 +1200,10 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                             )
                         }
                     }
-                    if (closeStatus == FirstCandleCloseStatus.CLOSED) {
-                        val windowColor = when (entryWindow) {
-                            TouchTurnEntryWindowStatus.WITHIN_WINDOW -> GainGreen
-                            TouchTurnEntryWindowStatus.EXPIRED -> LossRed
-                            else -> TextSecondary
-                        }
-                        Text(
-                            buildString {
-                                append(TouchTurnLogic.entryWindowStatusLabel(entryWindow))
-                                if (entryWindow == TouchTurnEntryWindowStatus.WITHIN_WINDOW && entryRemainingSec != null) {
-                                    append(" — ${entryRemainingSec}s left")
-                                }
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = windowColor,
-                            modifier = Modifier.testTag("TouchTurnEntryWindowStatus")
-                        )
-                    }
                 }
 
                 if (liquidityEval == LiquidityCandleEvaluation.LIQUIDITY &&
-                    entryWindow == TouchTurnEntryWindowStatus.EXPIRED
-                ) {
-                    TouchTurnEntryWindowAlert(
-                        message = TouchTurnLogic.entryWindowExpiredAlert(candle, session.marketZoneId),
-                        modifier = Modifier.testTag("TouchTurnEntryWindowAlert")
-                    )
-                }
-
-                if (liquidityEval == LiquidityCandleEvaluation.LIQUIDITY &&
-                    entryWindow == TouchTurnEntryWindowStatus.WITHIN_WINDOW
+                    closeStatus == FirstCandleCloseStatus.CLOSED
                 ) {
                     val orderSetup = remember(session, tick) {
                         session.setup?.takeIf { it.isLiquidityCandle }
@@ -1263,33 +1239,6 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
 
             }
         }
-    }
-}
-
-@Composable
-private fun TouchTurnEntryWindowAlert(message: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(LossRed.copy(alpha = 0.12f), RoundedCornerShape(6.dp))
-            .border(1.dp, LossRed.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = null,
-            tint = LossRed,
-            modifier = Modifier.size(18.dp)
-        )
-        Text(
-            message,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-            lineHeight = 14.sp
-        )
     }
 }
 
@@ -1583,16 +1532,21 @@ private fun SessionAutoStopStatus(instance: StrategyInstance) {
             .testTag("SessionAutoStopStatus")
     ) {
         Text(
-            "Session auto-stop (${stopAfterMinOpen}m after open)",
+            "Session auto-stop",
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             color = TextSecondary
         )
+        Text(
+            "Stops automatically when a trade closes (win or loss). " +
+                "Otherwise flat after ${stopAfterMinOpen}m with no position/orders, or at RTH close if still exposed.",
+            fontSize = 10.sp,
+            color = TextSecondary.copy(alpha = 0.85f)
+        )
         remainingMs?.let { remaining ->
             Text(
                 if (pastDeadline) {
-                    "Flat with no IB position or open orders — instance will stop. " +
-                        "With exposure, runs until RTH close."
+                    "Past ${stopAfterMinOpen}m after open — will stop when flat with no IB position or open orders."
                 } else {
                     InstanceRunStopLogic.pendingStopAfterOpenLabel(remaining, stopAfterMinOpen)
                 },
@@ -1609,6 +1563,7 @@ private fun LiveTab(
     instance: StrategyInstance,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
+    liveSessionTrades: LiveSessionTradesUiState?,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
@@ -1616,14 +1571,7 @@ private fun LiveTab(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (instance.status != InstanceStatus.RUNNING) {
-            Text(
-                "Start the instance to view live session data.",
-                color = TextSecondary,
-                fontSize = 13.sp,
-                modifier = Modifier.testTag("LiveTabStoppedHint")
-            )
-        } else {
+        if (instance.status == InstanceStatus.RUNNING) {
             SessionAutoStopStatus(instance = instance)
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
                 TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
@@ -1631,6 +1579,10 @@ private fun LiveTab(
 
             liveBroker?.let { broker ->
                 LiveBrokerSection(broker)
+            }
+
+            liveSessionTrades?.let { trades ->
+                LiveSessionTradesSection(trades, inProgress = true)
             }
 
             when {
@@ -1657,7 +1609,46 @@ private fun LiveTab(
                     }
                 }
             }
+        } else {
+            liveSessionTrades?.let { trades ->
+                LiveSessionTradesSection(trades, inProgress = false)
+            } ?: Text(
+                "Start the instance to view live broker data. After a session stops, fills for that run appear here for P&L verification.",
+                color = TextSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.testTag("LiveTabStoppedHint")
+            )
         }
+    }
+}
+
+@Composable
+private fun LiveSessionTradesSection(
+    trades: LiveSessionTradesUiState,
+    inProgress: Boolean
+) {
+    val title = if (inProgress) {
+        "Session trade (${trades.symbol})"
+    } else {
+        "Last session trade (${trades.symbol})"
+    }
+    TouchTurnPanelGroup(
+        title = title,
+        testTag = "LiveSessionTradesSection",
+        compact = true
+    ) {
+        trades.runLabel?.let { label ->
+            Text(
+                if (inProgress) "Run in progress" else "Last run · $label",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("LiveSessionTradesRunLabel")
+            )
+        }
+        RunTradeDetailPanel(
+            detail = trades.tradeDetail,
+            testTagPrefix = "LiveSessionTrade"
+        )
     }
 }
 
@@ -1674,7 +1665,7 @@ private fun LiveBrokerSection(broker: LiveBrokerUiState) {
         }
 
         TouchTurnPanelGroup(
-            title = "IB position (${broker.symbol})",
+            title = "Broker position (${broker.symbol})",
             testTag = "LiveBrokerPositionGroup",
             compact = true
         ) {
@@ -1753,7 +1744,18 @@ private fun LiveBrokerSection(broker: LiveBrokerUiState) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
-                            Text("#${order.orderId}", fontSize = 9.sp, color = TextSecondary)
+                            Text(
+                                buildString {
+                                    append("#")
+                                    append(order.orderId)
+                                    if (order.permId > 0L) {
+                                        append(" · perm ")
+                                        append(order.permId)
+                                    }
+                                },
+                                fontSize = 9.sp,
+                                color = TextSecondary
+                            )
                         }
                         Text(
                             order.status,
@@ -1952,6 +1954,7 @@ private fun LivePriceCell(label: String, value: String?, modifier: Modifier = Mo
 private fun PerformanceTab(
     performance: PerformanceUiState?,
     onRunHeaderClick: (RunSortColumn) -> Unit,
+    onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit
 ) {
     if (performance == null) {
@@ -1986,9 +1989,12 @@ private fun PerformanceTab(
         RunBlotterTable(
             performance = performance,
             onHeaderClick = onRunHeaderClick,
+            onSelectRun = onSelectRun,
             onDeleteRun = onDeleteRun,
             modifier = Modifier.fillMaxWidth()
         )
+
+        PerformanceRunTradeDetail(performance = performance)
     }
 }
 

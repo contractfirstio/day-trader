@@ -2,7 +2,6 @@ package daytrader.data
 
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnBracketSetup
-import daytrader.domain.TouchTurnEntryWindowStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderPlanner
@@ -13,38 +12,25 @@ import daytrader.gateway.BrokerId
 import daytrader.presentation.Formatters
 
 /**
- * Console log for Touch Turn bracket orders that would be placed after a liquidity candle.
- * Does not call IB [placeOrder]. Orders are only logged inside the 1-minute entry window.
+ * Console log for Touch Turn bracket orders placed after a liquidity candle closes.
+ * Does not call IB [placeOrder] (emulator places working orders via [BrokerGateway.placeTouchTurnBracket]).
  */
 object TouchTurnOrderLog {
+    /** @return true when a liquidity bracket was logged/placed. */
     fun logAfterLiquidityEvaluation(
         instanceId: String,
         symbol: String,
         sessionDate: String,
         maxDollars: Int,
         currencyCode: String,
-        candle: OhlcBar?,
-        marketZoneId: String,
         setup: TouchTurnBracketSetup?,
-        brokerGateway: BrokerGateway? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
-    ) {
-        if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return
-
-        when (TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)) {
-            TouchTurnEntryWindowStatus.EXPIRED -> {
-                line(
-                    "ALERT instance=$instanceId symbol=$symbol session=$sessionDate — " +
-                        TouchTurnLogic.entryWindowExpiredAlert(candle, marketZoneId)
-                )
-            }
-            TouchTurnEntryWindowStatus.WITHIN_WINDOW -> {
-                val plan = TouchTurnOrderPlanner.buildOrderPlan(symbol, setup, maxDollars, currencyCode)
-                    ?: return
-                logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)
-            }
-            else -> Unit
-        }
+        brokerGateway: BrokerGateway? = null
+    ): Boolean {
+        if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return false
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(symbol, setup, maxDollars, currencyCode)
+            ?: return false
+        logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)
+        return true
     }
 
     private fun logPlannedBracket(

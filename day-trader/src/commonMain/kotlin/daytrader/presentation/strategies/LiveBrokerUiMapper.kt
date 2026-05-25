@@ -21,6 +21,7 @@ data class LivePositionUi(
 
 data class LiveOpenOrderUi(
     val orderId: Int,
+    val permId: Long = 0L,
     val action: String,
     val summary: String,
     val status: String
@@ -111,6 +112,7 @@ object LiveBrokerUiMapper {
         }
         return LiveOpenOrderUi(
             orderId = order.orderId,
+            permId = order.permId,
             action = order.action,
             summary = summary,
             status = order.status

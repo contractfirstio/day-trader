@@ -209,38 +209,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun entryWindow_withinOneMinuteAfterBarClose() {
-        val bar = OhlcBar(
-            open = 400.0,
-            high = 410.0,
-            low = 399.0,
-            close = 405.0,
-            time = "20250522  09:30:00"
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val status = TouchTurnLogic.entryWindowStatus(bar, "Asia/Hong_Kong", barEnd + 30_000)
-        assertEquals(TouchTurnEntryWindowStatus.WITHIN_WINDOW, status)
-        assertEquals(30_000L, TouchTurnLogic.entryWindowRemainingMillis(bar, "Asia/Hong_Kong", barEnd + 30_000))
-    }
-
-    @Test
-    fun entryWindow_expiredAfterOneMinute() {
-        val bar = OhlcBar(
-            open = 400.0,
-            high = 410.0,
-            low = 399.0,
-            close = 405.0,
-            time = "20250522  09:30:00"
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val deadline = barEnd + TouchTurnDefaults.ENTRY_WINDOW_AFTER_CLOSE_MS
-        val status = TouchTurnLogic.entryWindowStatus(bar, "Asia/Hong_Kong", deadline + 1)
-        assertEquals(TouchTurnEntryWindowStatus.EXPIRED, status)
-        assertEquals(0L, TouchTurnLogic.entryWindowRemainingMillis(bar, "Asia/Hong_Kong", deadline + 1))
-    }
-
-    @Test
-    fun entryOrdersPermitted_onlyWithinWindowAndLiquidity() {
+    fun entryOrdersPermitted_whenLiquidityActionableAfterBarClose() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0, time = "20250522  09:30:00")
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
         val instance = defaultStrategyInstance(
@@ -257,10 +226,10 @@ class TouchTurnLogicTest {
                 marketZoneId = "Asia/Hong_Kong"
             )
         )
-        val within = instance.withLiquidityEvaluatedIfClosed(barEnd + 10_000)
-        assertEquals(true, within.touchTurnSession?.entryOrdersPermitted)
-        val expired = instance.withLiquidityEvaluatedIfClosed(barEnd + 90_000)
-        assertEquals(false, expired.touchTurnSession?.entryOrdersPermitted)
+        val evaluated = instance.withLiquidityEvaluatedIfClosed(barEnd + 10_000)
+        assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
+        val lateEval = instance.withLiquidityEvaluatedIfClosed(barEnd + 90_000)
+        assertEquals(true, lateEval.touchTurnSession?.entryOrdersPermitted)
     }
 
     @Test

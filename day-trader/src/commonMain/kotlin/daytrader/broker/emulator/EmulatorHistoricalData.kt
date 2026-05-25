@@ -16,7 +16,8 @@ internal object EmulatorHistoricalData {
         config: BrokerEmulatorConfig,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): Result<OhlcBar> {
-        val profile = symbolProfile(symbol)
+        val sessionYmd = sessionDayYyyyMmDd()
+        val profile = symbolProfile(symbol, sessionYmd)
         val ref = instrument.referencePrice
         val range = ref * profile.intradayRangePct
         val open = ref - range * profile.openBias
@@ -65,7 +66,7 @@ internal object EmulatorHistoricalData {
     }
 
     fun buildDailyBars(symbol: String, instrument: EmulatorInstrument, excludeDay: String): List<OhlcBar> {
-        val profile = symbolProfile(symbol)
+        val profile = symbolProfile(symbol, excludeDay)
         val ref = instrument.referencePrice
         val days = (1..ADR_SESSION_COUNT).map { offset ->
             val ymd = offsetDayYmd(excludeDay, offset - ADR_SESSION_COUNT)
@@ -124,23 +125,24 @@ internal object EmulatorHistoricalData {
         return "%04d%02d%02d".format(y, m, d)
     }
 
-    private fun symbolProfile(symbol: String): SymbolProfile {
+    /**
+     * First-candle close vs open uses [sessionYmd] xor symbol hash so green (→ short) and red (→ long)
+     * are ~50/50 per symbol across sessions and across the catalog on a given day.
+     */
+    internal fun symbolProfile(symbol: String, sessionYmd: String): SymbolProfile {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val hash = abs(norm.hashCode())
         val liquid = norm in LIQUID_SYMBOLS
+        val greenCandle = abs(norm.hashCode() xor sessionYmd.hashCode()) % 2 == 0
         return SymbolProfile(
             intradayRangePct = if (liquid) 0.018 else 0.012,
             dailyRangePct = if (liquid) 0.022 else 0.016,
             openBias = if (hash % 2 == 0) 0.35 else -0.25,
-            closeBias = when {
-                liquid && hash % 3 != 0 -> 0.55
-                hash % 3 == 0 -> -0.45
-                else -> 0.15
-            }
+            closeBias = if (greenCandle) 0.55 else -0.45
         )
     }
 
-    private data class SymbolProfile(
+    internal data class SymbolProfile(
         val intradayRangePct: Double,
         val dailyRangePct: Double,
         val openBias: Double,

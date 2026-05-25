@@ -9,6 +9,8 @@ sealed interface GatewayEvent {
 
     data class OpenOrdersSnapshot(val orders: List<WorkingOrder>) : GatewayEvent
 
+    data class FillsSnapshot(val fills: List<BrokerFill>) : GatewayEvent
+
     data class FirstFifteenMinuteCandleReady(
         val requestId: Long,
         val result: Result<OhlcBar>

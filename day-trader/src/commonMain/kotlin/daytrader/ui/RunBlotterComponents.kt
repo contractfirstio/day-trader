@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.positions.SortDirection
@@ -45,6 +46,7 @@ import daytrader.ui.theme.TextSecondary
 fun RunBlotterTable(
     performance: PerformanceUiState,
     onHeaderClick: (RunSortColumn) -> Unit,
+    onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -74,6 +76,7 @@ fun RunBlotterTable(
                     RunBlotterRow(
                         row = row,
                         showTouchTurnColumns = performance.includeTouchTurnFields,
+                        onSelectRun = onSelectRun,
                         onDeleteRun = onDeleteRun
                     )
                     if (index < performance.rows.size - 1) {
@@ -82,6 +85,30 @@ fun RunBlotterTable(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun PerformanceRunTradeDetail(
+    performance: PerformanceUiState,
+    modifier: Modifier = Modifier
+) {
+    val detail = performance.selectedRunTradeDetail ?: return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(SurfaceDark, RoundedCornerShape(8.dp))
+            .padding(12.dp)
+            .testTag("PerformanceRunTradeDetail")
+    ) {
+        Text(
+            "Trade details",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextSecondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        RunTradeDetailPanel(detail, testTagPrefix = "PerformanceTrade")
     }
 }
 
@@ -100,13 +127,20 @@ private fun RunBlotterHeader(
             .testTag("RunBlotterHeader"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RunHeaderCell("Start time", RunSortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
-        RunHeaderCell("Stop time", RunSortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
+        RunHeaderCell("Start time", RunSortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        RunHeaderCell("Stop time", RunSortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        Text(
+            "Trade",
+            modifier = Modifier.weight(1.1f),
+            color = TextSecondary,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp
+        )
         if (showTouchTurnColumns) {
-            RunHeaderCell("Liquidity candle", RunSortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(1f), onClick = onHeaderClick)
-            RunHeaderCell("Orders placed", RunSortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(1f), onClick = onHeaderClick)
+            RunHeaderCell("Liquidity candle", RunSortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
+            RunHeaderCell("Orders placed", RunSortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
         }
-        RunHeaderCell("P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.9f), alignEnd = true, onClick = onHeaderClick)
+        RunHeaderCell("P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
         Spacer(modifier = Modifier.width(40.dp))
     }
 }
@@ -141,8 +175,8 @@ private fun RowScope.RunHeaderCell(
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = if (direction == SortDirection.ASCENDING) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
-                contentDescription = null,
                 tint = GainGreen,
+                contentDescription = null,
                 modifier = Modifier.size(11.dp)
             )
         }
@@ -153,27 +187,32 @@ private fun RowScope.RunHeaderCell(
 private fun RunBlotterRow(
     row: StrategyRunRowUi,
     showTouchTurnColumns: Boolean,
+    onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    val rowBg = if (row.isSelected) TableHeaderBg.copy(alpha = 0.5f) else Color.Transparent
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .background(rowBg)
+            .clickable(enabled = row.hasTradeDetail) { onSelectRun(row.id) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("RunBlotterRow-${row.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RunCell(row.formattedStartTime, Modifier.weight(0.9f), row.isInProgress)
-        RunCell(row.formattedStopTime, Modifier.weight(0.9f), row.isInProgress)
+        RunCell(row.formattedStartTime, Modifier.weight(0.85f), row.isInProgress)
+        RunCell(row.formattedStopTime, Modifier.weight(0.85f), row.isInProgress)
+        RunTradeCell(row, Modifier.weight(1.1f))
         if (showTouchTurnColumns) {
-            RunCell(row.liquidityCandle, Modifier.weight(1f), row.isInProgress)
-            RunCell(row.ordersPlaced, Modifier.weight(1f), row.isInProgress)
+            RunCell(row.liquidityCandle, Modifier.weight(0.9f), row.isInProgress)
+            RunCell(row.ordersPlaced, Modifier.weight(0.9f), row.isInProgress)
         }
         Text(
             text = row.formattedPnL,
             modifier = Modifier
-                .weight(0.9f)
+                .weight(0.75f)
                 .testTag("RunBlotterRowPnL-${row.id}"),
             color = when {
                 row.isInProgress -> TextSecondary
@@ -241,6 +280,42 @@ private fun RunBlotterRow(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun RowScope.RunTradeCell(row: StrategyRunRowUi, modifier: Modifier) {
+    Column(modifier = modifier) {
+        row.tradeSideLabel?.let { side ->
+            Text(
+                text = side,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = when (side) {
+                    "Long" -> GainGreen
+                    "Short" -> LossRed
+                    else -> Color.White
+                },
+                modifier = Modifier.testTag("RunBlotterTradeSide-${row.id}")
+            )
+        } ?: Text("—", fontSize = 12.sp, color = TextSecondary)
+        row.tradeSummary?.let { summary ->
+            Text(
+                text = summary,
+                fontSize = 10.sp,
+                color = if (row.isInProgress) TextSecondary else Color(0xFFB0BEC5),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("RunBlotterTradeSummary-${row.id}")
+            )
+        }
+        if (row.hasTradeDetail && !row.isSelected) {
+            Text(
+                "Tap for fills",
+                fontSize = 9.sp,
+                color = TextSecondary.copy(alpha = 0.7f)
+            )
+        }
     }
 }
 

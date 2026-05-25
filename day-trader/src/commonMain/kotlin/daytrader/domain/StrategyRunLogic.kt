@@ -52,10 +52,12 @@ fun StrategyInstance.onRunStarted(
 /** Closes every in-progress performance row for this run cycle. */
 fun StrategyInstance.onRunStopped(
     stoppedAt: String = currentRunTimestampIso(),
-    snapshot: RunStopSnapshot? = null
+    snapshot: RunStopSnapshot? = null,
+    sessionTrades: List<SessionTrade> = emptyList()
 ): StrategyInstance = copy(
     performance = performance.map { run ->
         if (run.status == RunStatus.IN_PROGRESS) {
+            val trades = sessionTrades.ifEmpty { snapshot?.sessionTrades ?: emptyList() }
             run.copy(
                 status = RunStatus.CLOSED,
                 stoppedAt = stoppedAt,
@@ -63,7 +65,11 @@ fun StrategyInstance.onRunStopped(
                 ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
                 positionOpened = snapshot?.positionOpened,
                 pnl = snapshot?.sessionPnL ?: run.pnl,
-                trades = snapshot?.trades ?: run.trades
+                trades = when {
+                    trades.isNotEmpty() -> trades.size
+                    else -> snapshot?.trades ?: run.trades
+                },
+                sessionTrades = trades
             )
         } else {
             run

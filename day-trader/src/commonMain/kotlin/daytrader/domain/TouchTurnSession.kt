@@ -108,14 +108,14 @@ data class TouchTurnSessionContext(
     val adr14: Double? = null,
     /** Liquidity threshold = [adr14] × [TouchTurnDefaults.ADR_LIQUIDITY_RATIO] (25%). */
     val rangeThreshold: Double = 0.0,
-    /**
-     * Set when the bar closes: true if evaluation happened inside the 1-minute entry window
-     * and a liquidity bracket could be logged/placed.
-     */
+    /** Set when the bar closes: true if a liquidity bracket was eligible to be logged/placed. */
     val entryOrdersPermitted: Boolean? = null,
-    /** Legacy; superseded by [InstanceRunStopLogic] auto-stop. */
+    /** True when bracket orders were actually logged/placed for this session. */
+    val ordersPlacedForSession: Boolean = false,
+    /** After entry window: whether an open position existed (only evaluated when [ordersPlacedForSession]). */
     val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null
 ) {
+    fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
     val liquidityThresholdFromAdr: Double?
         get() = adr14?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
     fun candleCloseStatus(nowEpochMillis: Long = System.currentTimeMillis()): FirstCandleCloseStatus =
@@ -768,16 +768,19 @@ fun StrategyInstance.withLiquidityEvaluatedIfClosed(
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
-    val windowStatus = TouchTurnLogic.entryWindowStatus(candle, session.marketZoneId, nowEpochMillis)
-    val entryOrdersPermitted = windowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW &&
-        setup.isLiquidityCandle &&
-        setup.isActionable
+    val entryOrdersPermitted = setup.isLiquidityCandle && setup.isActionable
     return copy(
         touchTurnSession = session.copy(
             setup = setup,
             entryOrdersPermitted = entryOrdersPermitted
         )
     )
+}
+
+fun StrategyInstance.withOrdersPlacedForSession(): StrategyInstance {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    return copy(touchTurnSession = session.copy(ordersPlacedForSession = true))
 }
 
 fun StrategyInstance.withNoPositionBracketCancelEvaluated(

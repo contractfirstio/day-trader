@@ -29,6 +29,9 @@ class QueuedBrokerGateway(
     private val _openOrders = MutableStateFlow<List<WorkingOrder>>(emptyList())
     override val openOrders: StateFlow<List<WorkingOrder>> = _openOrders.asStateFlow()
 
+    private val _fills = MutableStateFlow<List<BrokerFill>>(emptyList())
+    override val fills: StateFlow<List<BrokerFill>> = _fills.asStateFlow()
+
     private var nextRequestId = 1L
     private val requestIdLock = Any()
     private val pendingCandles = mutableMapOf<Long, CompletableDeferred<Result<OhlcBar>>>()
@@ -94,6 +97,7 @@ class QueuedBrokerGateway(
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
             is GatewayEvent.PositionsSnapshot -> _positions.value = event.positions
             is GatewayEvent.OpenOrdersSnapshot -> _openOrders.value = event.orders
+            is GatewayEvent.FillsSnapshot -> _fills.value = event.fills
             is GatewayEvent.FirstFifteenMinuteCandleReady -> {
                 pendingCandles.remove(event.requestId)?.complete(event.result)
             }

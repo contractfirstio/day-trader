@@ -187,6 +187,8 @@ internal data class EmulatorOrder(
 ) {
     fun toWorkingOrder(): daytrader.gateway.WorkingOrder = daytrader.gateway.WorkingOrder(
         orderId = orderId,
+        permId = orderId.toLong(),
+        parentOrderId = parentId,
         symbol = symbol,
         action = action,
         quantity = quantity,

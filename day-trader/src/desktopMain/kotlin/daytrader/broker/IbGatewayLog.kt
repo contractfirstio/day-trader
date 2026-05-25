@@ -70,6 +70,14 @@ internal object IbGatewayLog {
         info("Open orders load complete count=$count")
     }
 
+    fun requestingExecutions(reqId: Int) {
+        info("Requesting executions reqId=$reqId")
+    }
+
+    fun executionsLoadComplete(count: Int) {
+        info("Executions load complete count=$count")
+    }
+
     fun positionsLoadComplete(openCount: Int) {
         info("Positions load complete openCount=$openCount")
     }

@@ -1,10 +1,13 @@
 package daytrader.broker
 
 import com.ib.client.Bar
+import com.ib.client.CommissionAndFeesReport
 import com.ib.client.Contract
 import com.ib.client.ContractDetails
 import com.ib.client.Decimal
 import com.ib.client.DefaultEWrapper
+import com.ib.client.Execution
+import com.ib.client.ExecutionFilter
 import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EReader
@@ -22,6 +25,7 @@ import com.ib.client.protobuf.TickPriceProto
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
 import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerFill
 import daytrader.gateway.BlockingGatewayQueues
 import daytrader.gateway.BrokerAdapter
 import daytrader.gateway.BrokerId
@@ -78,6 +82,8 @@ class DesktopIbGatewayConnection(
 
     private val openPositions = ConcurrentHashMap<String, OpenPosition>()
     private val openOrdersById = ConcurrentHashMap<Int, WorkingOrder>()
+    private val fillsByExecId = ConcurrentHashMap<String, BrokerFill>()
+    private val executionsReqId = AtomicInteger(9_001)
     @Volatile
     private var openOrdersLoadFinished = false
     private val marketPrices = ConcurrentHashMap<String, Double>()
@@ -258,6 +264,32 @@ class DesktopIbGatewayConnection(
         client.reqAccountUpdates(true, config.accountCode)
         requestPositions()
         requestOpenOrders()
+        requestExecutions()
+    }
+
+    override fun execDetails(reqId: Int, contract: Contract, execution: Execution) {
+        try {
+            applyExecution(contract, execution)
+        } catch (e: Exception) {
+            logCallbackFailure("execDetails", e)
+        }
+    }
+
+    override fun execDetailsEnd(reqId: Int) {
+        try {
+            publishFills()
+            IbGatewayLog.executionsLoadComplete(fillsByExecId.size)
+        } catch (e: Exception) {
+            logCallbackFailure("execDetailsEnd", e)
+        }
+    }
+
+    override fun commissionAndFeesReport(report: CommissionAndFeesReport) {
+        try {
+            applyCommissionReport(report)
+        } catch (e: Exception) {
+            logCallbackFailure("commissionAndFeesReport", e)
+        }
     }
 
     override fun openOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
@@ -290,7 +322,7 @@ class DesktopIbGatewayConnection(
         mktCapPrice: Double
     ) {
         try {
-            applyOrderStatus(orderId, status, filled, remaining)
+            applyOrderStatus(orderId, status, filled, remaining, permId, parentId)
         } catch (e: Exception) {
             logCallbackFailure("orderStatus", e)
         }
@@ -910,6 +942,8 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         openOrdersById.clear()
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        fillsByExecId.clear()
+        emit(GatewayEvent.FillsSnapshot(emptyList()))
         openOrdersLoadFinished = false
         enrichmentScheduled = false
         positionsLoadFinished = false
@@ -941,7 +975,14 @@ class DesktopIbGatewayConnection(
         publishOpenOrders()
     }
 
-    private fun applyOrderStatus(orderId: Int, status: String, filled: Decimal, remaining: Decimal) {
+    private fun applyOrderStatus(
+        orderId: Int,
+        status: String,
+        filled: Decimal,
+        remaining: Decimal,
+        permId: Long,
+        parentId: Int
+    ) {
         if (isTerminalOrderStatus(status)) {
             openOrdersById.remove(orderId)
             publishOpenOrders()
@@ -957,7 +998,9 @@ class DesktopIbGatewayConnection(
         openOrdersById[orderId] = existing.copy(
             status = status,
             filled = decimalToInt(filled),
-            remaining = remainingQty
+            remaining = remainingQty,
+            permId = permId.takeIf { it > 0 } ?: existing.permId,
+            parentOrderId = parentId.takeIf { it > 0 } ?: existing.parentOrderId
         )
         publishOpenOrders()
     }
@@ -973,6 +1016,65 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.OpenOrdersSnapshot(openOrdersById.values.sortedBy { it.orderId }))
     }
 
+    private fun requestExecutions() {
+        if (!client.isConnected) return
+        val reqId = executionsReqId.incrementAndGet()
+        val filter = ExecutionFilter().apply {
+            clientId(config.clientId)
+            if (config.accountCode.isNotBlank()) {
+                acctCode(config.accountCode)
+            }
+        }
+        IbGatewayLog.requestingExecutions(reqId)
+        client.reqExecutions(reqId, filter)
+    }
+
+    private fun applyExecution(contract: Contract, execution: Execution) {
+        val execId = execution.execId().orEmpty()
+        if (execId.isBlank()) return
+        val symbol = resolveSymbol(contract)
+        val qty = decimalToInt(execution.shares())
+        if (qty <= 0) return
+        val existing = fillsByExecId[execId]
+        fillsByExecId[execId] = BrokerFill(
+            execId = execId,
+            orderId = execution.orderId(),
+            permId = execution.permId(),
+            parentOrderId = existing?.parentOrderId ?: 0,
+            symbol = symbol,
+            side = execution.side().orEmpty(),
+            quantity = qty,
+            price = execution.price(),
+            time = execution.time().orEmpty(),
+            currency = contract.currency().orEmpty().ifBlank { "USD" },
+            commission = existing?.commission,
+            realizedPnL = existing?.realizedPnL
+        )
+        publishFills()
+    }
+
+    private fun applyCommissionReport(report: CommissionAndFeesReport) {
+        val execId = report.execId().orEmpty()
+        if (execId.isBlank()) return
+        val existing = fillsByExecId[execId] ?: return
+        fillsByExecId[execId] = existing.copy(
+            commission = report.commissionAndFees(),
+            realizedPnL = report.realizedPNL(),
+            currency = report.currency().orEmpty().ifBlank { existing.currency }
+        )
+        publishFills()
+    }
+
+    private fun publishFills() {
+        emit(
+            GatewayEvent.FillsSnapshot(
+                fillsByExecId.values.sortedWith(
+                    compareBy<BrokerFill> { it.time }.thenBy { it.execId }
+                )
+            )
+        )
+    }
+
     private fun toWorkingOrder(
         orderId: Int,
         contract: Contract,
@@ -985,6 +1087,8 @@ class DesktopIbGatewayConnection(
         val stop = order.auxPrice().takeIf { it > 0 }
         return WorkingOrder(
             orderId = orderId,
+            permId = order.permId(),
+            parentOrderId = order.parentId(),
             symbol = resolveSymbol(contract),
             action = order.getAction().orEmpty(),
             quantity = total,

@@ -13,6 +13,8 @@ interface BrokerGateway {
 
     val openOrders: StateFlow<List<WorkingOrder>>
 
+    val fills: StateFlow<List<BrokerFill>>
+
     fun connect()
 
     fun disconnect()

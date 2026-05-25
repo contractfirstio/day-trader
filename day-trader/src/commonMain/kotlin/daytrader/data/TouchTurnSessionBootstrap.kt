@@ -7,6 +7,7 @@ import daytrader.domain.InstanceStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
+import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -79,22 +80,20 @@ class TouchTurnSessionBootstrap(
                 if (session.candleCloseStatus() != FirstCandleCloseStatus.CLOSED) continue
 
                 val evaluatedAt = System.currentTimeMillis()
+                var ordersPlaced = false
                 repository.update(instanceId) { current ->
                     val updated = current.withLiquidityEvaluatedIfClosed(evaluatedAt)
                     val session = updated.touchTurnSession
-                    TouchTurnOrderLog.logAfterLiquidityEvaluation(
+                    ordersPlaced = TouchTurnOrderLog.logAfterLiquidityEvaluation(
                         instanceId = updated.id,
                         symbol = updated.symbol,
                         sessionDate = session?.sessionDate ?: sessionDate,
                         maxDollars = updated.maxDollars,
                         currencyCode = session?.currencyCode ?: SymbolMarkets.currencyCode(updated.symbol),
-                        candle = session?.candle,
-                        marketZoneId = session?.marketZoneId ?: SymbolMarkets.zoneId(updated.symbol),
                         setup = session?.setup,
-                        brokerGateway = gateway,
-                        nowEpochMillis = evaluatedAt
+                        brokerGateway = gateway
                     )
-                    updated
+                    if (ordersPlaced) updated.withOrdersPlacedForSession() else updated
                 }
                 return@launch
             }

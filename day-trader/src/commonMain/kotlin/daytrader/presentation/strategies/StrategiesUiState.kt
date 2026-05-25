@@ -55,6 +55,7 @@ data class StrategiesUiState(
     val performance: PerformanceUiState? = null,
     val liveExecution: LiveExecutionUiState? = null,
     val liveBroker: LiveBrokerUiState? = null,
+    val liveSessionTrades: LiveSessionTradesUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
     val globalAutoStartEnabled: Boolean = true
 )

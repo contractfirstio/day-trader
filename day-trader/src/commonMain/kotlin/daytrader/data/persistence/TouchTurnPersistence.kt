@@ -23,6 +23,7 @@ internal object TouchTurnPersistence {
             adr14 = record.adr14,
             rangeThreshold = record.rangeThreshold,
             entryOrdersPermitted = record.entryOrdersPermitted,
+            ordersPlacedForSession = record.ordersPlacedForSession,
             noPositionBracketCancelOutcome = parseNoPositionCancelOutcome(record.noPositionBracketCancelOutcome)
         )
     }
@@ -40,6 +41,7 @@ internal object TouchTurnPersistence {
             adr14 = context.adr14,
             rangeThreshold = context.rangeThreshold,
             entryOrdersPermitted = context.entryOrdersPermitted,
+            ordersPlacedForSession = context.ordersPlacedForSession,
             noPositionBracketCancelOutcome = context.noPositionBracketCancelOutcome?.name?.lowercase()
         )
     }

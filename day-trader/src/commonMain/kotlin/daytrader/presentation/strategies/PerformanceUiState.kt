@@ -10,13 +10,17 @@ data class StrategyRunRowUi(
     val id: String,
     val formattedStartTime: String,
     val formattedStopTime: String,
+    val tradeSideLabel: String?,
+    val tradeSummary: String?,
+    val hasTradeDetail: Boolean,
     val liquidityCandle: String,
     val ordersPlaced: String,
     val formattedPnL: String,
     val isPositivePnL: Boolean,
     val isPnLNothing: Boolean,
     val isInProgress: Boolean = false,
-    val canDelete: Boolean = false
+    val canDelete: Boolean = false,
+    val isSelected: Boolean = false
 )
 
 data class PerformanceUiState(
@@ -26,5 +30,7 @@ data class PerformanceUiState(
     val rows: List<StrategyRunRowUi>,
     val sortColumn: RunSortColumn,
     val sortDirection: SortDirection,
-    val includeTouchTurnFields: Boolean = false
+    val includeTouchTurnFields: Boolean = false,
+    val selectedRunId: String? = null,
+    val selectedRunTradeDetail: RunTradeDetailUiState? = null
 )

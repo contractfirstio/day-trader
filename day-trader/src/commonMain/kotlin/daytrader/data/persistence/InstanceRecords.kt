@@ -31,6 +31,7 @@ data class TouchTurnSessionRecord(
     val adr14: Double? = null,
     val rangeThreshold: Double = 0.0,
     val entryOrdersPermitted: Boolean? = null,
+    val ordersPlacedForSession: Boolean = false,
     val noPositionBracketCancelOutcome: String? = null
 )
 
@@ -88,7 +89,23 @@ data class PerformanceDayRecord(
     val status: String,
     val hadLiquidityCandle: Boolean? = null,
     val ordersPlacedForCandle: Boolean? = null,
-    val positionOpened: Boolean? = null
+    val positionOpened: Boolean? = null,
+    val sessionTrades: List<SessionTradeRecord> = emptyList()
+)
+
+@Serializable
+data class SessionTradeRecord(
+    val execId: String,
+    val orderId: Int,
+    val permId: Long,
+    val parentOrderId: Int = 0,
+    val side: String,
+    val quantity: Int,
+    val price: Double,
+    val time: String,
+    val currency: String = "USD",
+    val commission: Double? = null,
+    val realizedPnL: Double? = null
 )
 
 @Serializable

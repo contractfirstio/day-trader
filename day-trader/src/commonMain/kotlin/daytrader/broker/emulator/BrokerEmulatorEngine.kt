@@ -4,6 +4,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.gateway.BrokerFill
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
 import kotlinx.coroutines.delay
@@ -28,6 +29,8 @@ class BrokerEmulatorEngine(
     private var orderSimRunning = false
     private val dynamicInstruments = mutableMapOf<String, EmulatorInstrument>()
     private val bracketManagedOrderIds = mutableSetOf<Int>()
+    private val bracketPriceWalks = mutableMapOf<String, BracketPriceWalk>()
+    private val sessionFills = mutableListOf<BrokerFill>()
 
     fun handleConnect() {
         if (connected) return
@@ -52,9 +55,12 @@ class BrokerEmulatorEngine(
         positions.clear()
         orders.clear()
         bracketManagedOrderIds.clear()
+        bracketPriceWalks.clear()
         dynamicInstruments.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        sessionFills.clear()
+        emit(GatewayEvent.FillsSnapshot(emptyList()))
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Disconnected))
     }
 
@@ -105,8 +111,12 @@ class BrokerEmulatorEngine(
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         if (!connected) return
-        val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
-        val entryLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return
+        val adjustedPlan = EmulatorBracketPlanAdjuster.widenExits(
+            plan = plan,
+            spreadWidenFactor = config.bracketExitSpreadWidenFactor
+        )
+        val symbol = SymbolMarkets.normalizeSymbol(adjustedPlan.symbol)
+        val entryLeg = adjustedPlan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return
         val entryPrice = entryLeg.price
 
         orders.entries.removeIf { (_, order) ->
@@ -114,7 +124,7 @@ class BrokerEmulatorEngine(
         }
         bracketManagedOrderIds.removeIf { id -> orders[id]?.let { SymbolMarkets.symbolsMatch(it.symbol, symbol) } == true }
 
-        ensureInstrument(symbol, plan.currencyCode, entryPrice)
+        ensureInstrument(symbol, adjustedPlan.currencyCode, entryPrice)
         livePrices[symbol] = entryPrice
 
         val entryId = allocateOrderId()
@@ -123,13 +133,13 @@ class BrokerEmulatorEngine(
             orderId = entryId,
             planned = entryLeg,
             symbol = symbol,
-            currency = plan.currencyCode,
+            currency = adjustedPlan.currencyCode,
             parentId = 0,
             status = "Submitted"
         )
 
         val childIds = mutableListOf<Int>()
-        plan.orders.filter { it.role != TouchTurnOrderRole.ENTRY }.forEach { leg ->
+        adjustedPlan.orders.filter { it.role != TouchTurnOrderRole.ENTRY }.forEach { leg ->
             val childId = allocateOrderId()
             childIds.add(childId)
             bracketManagedOrderIds.add(childId)
@@ -137,22 +147,52 @@ class BrokerEmulatorEngine(
                 orderId = childId,
                 planned = leg,
                 symbol = symbol,
-                currency = plan.currencyCode,
+                currency = adjustedPlan.currencyCode,
                 parentId = entryId,
                 status = "PreSubmitted"
             )
         }
 
-        EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice)
+        val legPrices = adjustedPlan.orders.map { it.price }
+        val floor = legPrices.min()
+        val ceiling = legPrices.max()
+        val takeProfit = EmulatorBracketPlanAdjuster.takeProfitPrice(adjustedPlan) ?: ceiling
+        val stopLoss = EmulatorBracketPlanAdjuster.stopLossPrice(adjustedPlan) ?: floor
+        val towardTp = EmulatorBracketPlanAdjuster.towardTakeProfitDirection(adjustedPlan)
+        bracketPriceWalks[symbol] = BracketPriceWalk(
+            floor = floor,
+            ceiling = ceiling,
+            takeProfitPrice = takeProfit,
+            stopLossPrice = stopLoss,
+            towardTakeProfitDirection = towardTp,
+            direction = biasedWalkDirection(towardTp)
+        )
+        EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice, floor, ceiling)
+        fillEntryImmediately(entryId)
+        publishPositions()
         publishOrders()
+    }
+
+    /** Entry limit is placed at [livePrices]; fill right away so bracket children can activate. */
+    private fun fillEntryImmediately(entryOrderId: Int) {
+        val entry = orders[entryOrderId] ?: return
+        if (entry.remaining <= 0 || entry.isTerminal()) return
+        applyFill(entry, entry.remaining)
     }
 
     suspend fun runMarketTick() {
         if (!connected || !ticksRunning) return
+        evaluateOrderFillsOnTick()
         tickSymbolsForMarketData().forEach { symbol ->
-            val current = livePrices[symbol] ?: return@forEach
-            val jitter = 1.0 + random.nextDouble(-config.marketTickJitterPct, config.marketTickJitterPct)
-            livePrices[symbol] = (current * jitter).coerceAtLeast(0.01)
+            val walk = bracketPriceWalks[symbol]
+            if (walk != null && shouldUseBracketPriceWalk(symbol)) {
+                livePrices[symbol] = advanceBracketPriceWalk(symbol, walk)
+            } else {
+                bracketPriceWalks.remove(symbol)
+                val current = livePrices[symbol] ?: return@forEach
+                val jitter = 1.0 + random.nextDouble(-config.marketTickJitterPct, config.marketTickJitterPct)
+                livePrices[symbol] = (current * jitter).coerceAtLeast(0.01)
+            }
         }
         evaluateOrderFillsOnTick()
         refreshPositionMarks()
@@ -208,6 +248,58 @@ class BrokerEmulatorEngine(
             priorClose = referencePrice,
             referencePrice = referencePrice
         ).also { dynamicInstruments[norm] = it }
+    }
+
+    private fun shouldUseBracketPriceWalk(symbol: String): Boolean {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val entryFilled = orders.values.any { order ->
+            bracketManagedOrderIds.contains(order.orderId) &&
+                order.parentId == 0 &&
+                order.status == "Filled" &&
+                SymbolMarkets.symbolsMatch(order.symbol, norm)
+        }
+        if (!entryFilled) return false
+        val hasActiveBracketExits = orders.values.any { order ->
+            bracketManagedOrderIds.contains(order.orderId) &&
+                order.parentId != 0 &&
+                !order.isTerminal() &&
+                SymbolMarkets.symbolsMatch(order.symbol, norm)
+        }
+        val hasPosition = positions.any {
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, norm) && it.quantity != 0
+        }
+        return hasActiveBracketExits && hasPosition
+    }
+
+    private fun biasedWalkDirection(towardTakeProfit: Int): Int =
+        if (random.nextDouble() < config.bracketWalkTakeProfitBias) towardTakeProfit else -towardTakeProfit
+
+    private fun advanceBracketPriceWalk(symbol: String, walk: BracketPriceWalk): Double {
+        val range = walk.ceiling - walk.floor
+        if (range <= 0.0) return livePrices[symbol] ?: walk.floor
+        val current = livePrices[symbol] ?: (walk.floor + walk.ceiling) / 2.0
+        val step = range * config.bracketWalkStepPctOfRange * (0.5 + random.nextDouble())
+        var next = current + walk.direction * step
+        if (next >= walk.ceiling) {
+            next = walk.ceiling
+            walk.direction = bounceDirectionFromBoundary(walk, hitTakeProfitSide = walk.takeProfitPrice >= walk.ceiling - 1e-9)
+        } else if (next <= walk.floor) {
+            next = walk.floor
+            walk.direction = bounceDirectionFromBoundary(walk, hitTakeProfitSide = walk.takeProfitPrice <= walk.floor + 1e-9)
+        }
+        if (random.nextDouble() < config.bracketWalkDirectionFlipChance) {
+            walk.direction = biasedWalkDirection(walk.towardTakeProfitDirection)
+        }
+        return next.coerceIn(walk.floor, walk.ceiling)
+    }
+
+    /** After touching a bracket bound, usually head back toward take-profit. */
+    private fun bounceDirectionFromBoundary(walk: BracketPriceWalk, hitTakeProfitSide: Boolean): Int {
+        return if (hitTakeProfitSide) {
+            -walk.towardTakeProfitDirection
+        } else {
+            biasedWalkDirection(walk.towardTakeProfitDirection)
+        }
     }
 
     private fun tickSymbolsForMarketData(): Set<String> =
@@ -318,6 +410,9 @@ class BrokerEmulatorEngine(
 
     private fun applyFill(order: EmulatorOrder, fillQty: Int) {
         if (fillQty <= 0) return
+        val positionBefore = positions.find {
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, order.symbol)
+        }
         val remaining = order.remaining - fillQty
         val filled = order.filled + fillQty
         val updated = order.copy(
@@ -327,20 +422,89 @@ class BrokerEmulatorEngine(
         )
         updateOrder(updated)
         adjustPositionForFill(order, fillQty)
+        val realizedPnL = computeFillRealizedPnL(positionBefore, order, fillQty)
         if (remaining <= 0 && order.parentId == 0) {
             activateChildOrders(order.orderId)
+            bracketPriceWalks[SymbolMarkets.normalizeSymbol(order.symbol)]?.let { walk ->
+                EmulatorLog.bracketExitWalkStarted(order.symbol, walk.floor, walk.ceiling)
+            }
+        }
+        if (remaining <= 0 && order.parentId != 0) {
+            cancelSiblingBracketOrders(order.parentId, filledOrderId = order.orderId)
+            bracketPriceWalks.remove(SymbolMarkets.normalizeSymbol(order.symbol))
         }
         val positionQty = positions.find {
             SymbolMarkets.symbolsMatch(it.instrument.symbol, order.symbol)
         }?.quantity ?: 0
+        recordFill(order, fillQty, realizedPnL)
+        refreshPositionMarks()
+        publishPositions()
+        publishOrders()
         EmulatorLog.orderFilled(order.symbol, order.orderId, fillQty, order.fillPrice(), positionQty)
+    }
+
+    private fun computeFillRealizedPnL(
+        positionBefore: EmulatorPosition?,
+        order: EmulatorOrder,
+        fillQty: Int
+    ): Double? {
+        val pos = positionBefore ?: return null
+        if (pos.quantity == 0) return null
+        val signedFill = when (order.action.uppercase()) {
+            "BUY" -> fillQty
+            "SELL" -> -fillQty
+            else -> return null
+        }
+        val isClosing = (pos.quantity > 0 && signedFill < 0) || (pos.quantity < 0 && signedFill > 0)
+        if (!isClosing) return null
+        val exitPrice = order.fillPrice()
+        val closeQty = minOf(kotlin.math.abs(signedFill), kotlin.math.abs(pos.quantity))
+        return if (pos.quantity > 0) {
+            (exitPrice - pos.avgPrice) * closeQty
+        } else {
+            (pos.avgPrice - exitPrice) * closeQty
+        }
+    }
+
+    private fun recordFill(order: EmulatorOrder, fillQty: Int, realizedPnL: Double?) {
+        val execId = "emu-${order.orderId}-${sessionFills.size}"
+        sessionFills.add(
+            BrokerFill(
+                execId = execId,
+                orderId = order.orderId,
+                permId = order.orderId.toLong(),
+                parentOrderId = order.parentId,
+                symbol = order.symbol,
+                side = order.action,
+                quantity = fillQty,
+                price = order.fillPrice(),
+                time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+                currency = order.currency,
+                commission = 0.0,
+                realizedPnL = realizedPnL
+            )
+        )
+        publishFills()
+    }
+
+    private fun publishFills() {
+        emit(GatewayEvent.FillsSnapshot(sessionFills.toList()))
     }
 
     private fun EmulatorOrder.fillPrice(): Double =
         limitPrice ?: stopPrice ?: livePrices[SymbolMarkets.normalizeSymbol(symbol)] ?: 0.0
 
+    private fun cancelSiblingBracketOrders(parentOrderId: Int, filledOrderId: Int) {
+        orders.entries.toList().forEach { (id, order) ->
+            if (order.parentId == parentOrderId && id != filledOrderId && !order.isTerminal()) {
+                updateOrder(order.copy(status = "Cancelled"))
+            }
+        }
+        publishOrders()
+    }
+
     private fun activateChildOrders(parentOrderId: Int) {
-        orders.entries.forEach { (id, order) ->
+        orders.entries.toList().forEach { (id, order) ->
             if (order.parentId == parentOrderId && order.status == "PreSubmitted") {
                 orders[id] = order.copy(status = "Submitted")
             }

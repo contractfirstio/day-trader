@@ -2,6 +2,7 @@ package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnLogic
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -45,6 +46,47 @@ class EmulatorHistoricalDataTest {
         ).getOrThrow()
 
         assertTrue(bar.time?.contains("09:30") == true)
+    }
+
+    @Test
+    fun firstCandle_tradeSide_balancedAcrossCatalog() {
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val now = 1_700_000_000_000L
+        var longCount = 0
+        var shortCount = 0
+        EmulatorSeedCatalog.instruments().forEach { (symbol, instrument) ->
+            val bar = EmulatorHistoricalData.firstFifteenMinuteCandle(
+                symbol = symbol,
+                instrument = instrument,
+                config = config,
+                nowEpochMillis = now
+            ).getOrThrow()
+            val adr = EmulatorHistoricalData.fourteenDayAdr(symbol, instrument).getOrThrow()
+            val threshold = TouchTurnLogic.liquidityRangeThreshold(adr)
+            val setup = TouchTurnLogic.computeBracketSetup(bar, threshold)
+            if (!setup.isActionable) return@forEach
+            when (setup.side) {
+                TouchTurnTradeSide.LONG -> longCount++
+                TouchTurnTradeSide.SHORT -> shortCount++
+            }
+        }
+        assertTrue(longCount > 0, "expected at least one long setup in catalog")
+        assertTrue(shortCount > 0, "expected at least one short setup in catalog")
+        val longShare = longCount.toDouble() / (longCount + shortCount)
+        assertTrue(
+            longShare in 0.25..0.75,
+            "long=$longCount short=$shortCount longShare=$longShare (want ~50/50)"
+        )
+    }
+
+    @Test
+    fun symbolProfile_candleColor_flipsWithSessionDay() {
+        val symbol = "AAPL"
+        val greenByDay = (1..14).map { day ->
+            val ymd = "202605%02d".format(day)
+            EmulatorHistoricalData.symbolProfile(symbol, ymd).closeBias > 0
+        }.toSet()
+        assertEquals(2, greenByDay.size, "expected both green and red candles across session days")
     }
 
     @Test

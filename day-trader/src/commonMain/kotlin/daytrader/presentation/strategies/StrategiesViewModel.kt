@@ -4,7 +4,10 @@ import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyInstanceRepository
+import daytrader.broker.SessionTradeMatcher
+import daytrader.domain.currentRunTimestampIso
 import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.WorkingOrder
@@ -58,9 +61,11 @@ class StrategiesViewModel(
     private var runSortDirection = SortDirection.DESCENDING
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
+    private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var startBlockedAlert: StartBlockedByPositionAlert? = null
     private var selectedMarketZoneId: String? = null
+    private var selectedPerformanceRunId: String? = null
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
@@ -101,6 +106,12 @@ class StrategiesViewModel(
             gateway.openOrders
                 .onEach {
                     brokerOpenOrders = it
+                    emitUiState()
+                }
+                .launchIn(scope)
+            gateway.fills
+                .onEach {
+                    brokerFills = it
                     emitUiState()
                 }
                 .launchIn(scope)
@@ -167,12 +178,18 @@ class StrategiesViewModel(
     }
 
     fun onSelectInstance(id: String) {
+        selectedPerformanceRunId = null
         appStateRepository.update {
             it.copy(
                 selectedInstanceId = id,
                 detailTab = StrategyDetailTab.CONFIGURATION
             )
         }
+    }
+
+    fun onSelectPerformanceRun(runId: String) {
+        selectedPerformanceRunId = if (selectedPerformanceRunId == runId) null else runId
+        emitUiState()
     }
 
     fun onDetailTabChange(tab: StrategyDetailTab) {
@@ -233,11 +250,18 @@ class StrategiesViewModel(
         val hadOpenPosition = brokerPosition != null
         repository.update(id) { current ->
             if (current.status == InstanceStatus.RUNNING) {
+                val stoppedAt = currentRunTimestampIso()
+                val sessionTrades = SessionTradeMatcher.captureForRunStop(
+                    instance = current,
+                    fills = brokerFills,
+                    stoppedAt = stoppedAt
+                )
                 val snapshot = current.resolveStopSnapshot(
                     hadOpenBrokerPosition = hadOpenPosition,
-                    brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL
+                    brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
+                    sessionTrades = sessionTrades
                 )
-                current.onRunStopped(snapshot = snapshot)
+                current.onRunStopped(stoppedAt = stoppedAt, snapshot = snapshot)
             } else {
                 InstanceRunController.start(
                     instance = current,
@@ -309,6 +333,7 @@ class StrategiesViewModel(
     }
 
     fun onDeletePerformanceRun(instanceId: String, runId: String) {
+        if (selectedPerformanceRunId == runId) selectedPerformanceRunId = null
         repository.update(instanceId) { it.withoutPerformanceRun(runId) }
         repository.flushPersistence()
         syncInstancesFromRepository()
@@ -380,7 +405,8 @@ class StrategiesViewModel(
                 instance = instance,
                 sessionDate = sessionDate,
                 sortColumn = runSortColumn,
-                sortDirection = runSortDirection
+                sortDirection = runSortDirection,
+                selectedRunId = selectedPerformanceRunId
             )
         }
 
@@ -424,6 +450,13 @@ class StrategiesViewModel(
                         positions = brokerPositions,
                         openOrders = brokerOpenOrders,
                         connection = brokerConnection
+                    )
+                },
+                liveSessionTrades = selected?.let { instance ->
+                    LiveSessionTradesUiMapper.forInstance(
+                        instance = instance,
+                        liveFills = brokerFills,
+                        brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
                     )
                 },
                 startBlockedAlert = startBlockedAlert,
