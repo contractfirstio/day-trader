@@ -47,6 +47,7 @@ class EmulatorBrokerAdapter(
                         launch { engine.fetchFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.PlaceTouchTurnBracket ->
                         engine.placeTouchTurnBracket(command.plan)
+                    GatewayCommand.RequestExecutions -> engine.republishFills()
                 }
             }
         }

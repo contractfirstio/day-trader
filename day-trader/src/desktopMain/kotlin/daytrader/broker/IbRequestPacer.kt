@@ -4,17 +4,27 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
- * Serializes outbound IB API calls so bursts stay under Gateway pacing limits
- * (~50 messages/sec). Default spacing is ~6–7 requests/sec.
+ * Serializes outbound IB API calls with:
+ * 1. A sliding-window cap ([maxMessagesPerSecond], default 25 — under IB's ~50/sec limit)
+ * 2. A minimum gap between consecutive calls ([minIntervalMs], default 50ms)
+ *
+ * Every outbound `client.*` request must go through [enqueue] (one IB message per action).
  */
 internal class IbRequestPacer(
     private val scope: CoroutineScope,
-    private val minIntervalMs: Long = DEFAULT_MIN_INTERVAL_MS
+    maxMessagesPerSecond: Int = IbRateLimits.maxMessagesPerSecond(),
+    minIntervalMs: Long = IbRateLimits.minIntervalMs()
 ) {
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
+    private val maxPerSecond = maxMessagesPerSecond.coerceIn(1, IbRateLimits.IB_HARD_LIMIT_PER_SECOND - 1)
+    private val minInterval = minIntervalMs.coerceAtLeast(1L)
+    private val recentCallTimes = ArrayDeque<Long>()
+    private val windowLock = Any()
+
     @Volatile
     private var drainJob: Job? = null
 
@@ -27,6 +37,9 @@ internal class IbRequestPacer(
         queue.clear()
         drainJob?.cancel()
         drainJob = null
+        synchronized(windowLock) {
+            recentCallTimes.clear()
+        }
     }
 
     private fun startDrainIfNeeded() {
@@ -41,12 +54,12 @@ internal class IbRequestPacer(
     private suspend fun drainQueue() {
         while (true) {
             val action = queue.poll() ?: break
+            awaitRateLimitSlot()
             try {
                 action()
             } catch (e: Exception) {
                 IbGatewayLog.pacerFailure(e)
             }
-            delay(minIntervalMs)
         }
         synchronized(this) {
             if (queue.isNotEmpty()) {
@@ -57,8 +70,44 @@ internal class IbRequestPacer(
         }
     }
 
+    private suspend fun awaitRateLimitSlot() {
+        while (true) {
+            val waitMs = synchronized(windowLock) {
+                val now = System.currentTimeMillis()
+                pruneCallsOlderThan(now - WINDOW_MS)
+                var wait = 0L
+                if (recentCallTimes.isNotEmpty()) {
+                    val sinceLast = now - recentCallTimes.last()
+                    if (sinceLast < minInterval) {
+                        wait = maxOf(wait, minInterval - sinceLast)
+                    }
+                }
+                if (recentCallTimes.size >= maxPerSecond) {
+                    val oldest = recentCallTimes.first()
+                    val untilWindow = WINDOW_MS - (now - oldest)
+                    if (untilWindow > 0) {
+                        wait = maxOf(wait, untilWindow)
+                    }
+                }
+                if (wait > 0L) {
+                    return@synchronized wait
+                }
+                recentCallTimes.addLast(now)
+                0L
+            }
+            if (waitMs <= 0L) return
+            delay(waitMs)
+        }
+    }
+
+    private fun pruneCallsOlderThan(cutoffMs: Long) {
+        while (recentCallTimes.isNotEmpty() && recentCallTimes.first() < cutoffMs) {
+            recentCallTimes.removeFirst()
+        }
+    }
+
     companion object {
-        const val DEFAULT_MIN_INTERVAL_MS = 150L
+        private const val WINDOW_MS = 1_000L
         const val RECONNECT_DELAY_MS = 1_500L
     }
 }

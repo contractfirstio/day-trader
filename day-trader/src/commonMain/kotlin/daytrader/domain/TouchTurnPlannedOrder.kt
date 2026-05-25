@@ -10,17 +10,20 @@ enum class TouchTurnOrderRole {
     STOP_LOSS
 }
 
-/**
- * One leg of the Touch Turn bracket that would be sent to IB.
- * Built for logging only until live order placement is implemented.
- */
+/** Touch Turn orders are always session/day orders — never GTC or other multi-day TIF. */
+object TouchTurnOrderDefaults {
+    const val TIME_IN_FORCE = "DAY"
+}
+
+/** One leg of the Touch Turn bracket sent to IB or the broker emulator. */
 @Serializable
 data class TouchTurnPlannedOrder(
     val role: TouchTurnOrderRole,
     val action: String,
     val orderType: String,
     val quantity: Int,
-    val price: Double
+    val price: Double,
+    val timeInForce: String = TouchTurnOrderDefaults.TIME_IN_FORCE
 )
 
 @Serializable

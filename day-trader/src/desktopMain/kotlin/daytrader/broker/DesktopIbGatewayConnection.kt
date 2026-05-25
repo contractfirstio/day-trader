@@ -24,6 +24,7 @@ import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnOrderPlan
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BlockingGatewayQueues
@@ -70,6 +71,12 @@ class DesktopIbGatewayConnection(
     private val client = EClientSocket(this, signal)
     private val connectMutex = Mutex()
     private val requestPacer = IbRequestPacer(scope)
+    private val executionsRefresh = IbCoalescedPacedRequest(
+        scope = scope,
+        pacer = requestPacer,
+        minIntervalMs = IbRateLimits.executionsRefreshIntervalMs(),
+        action = ::enqueueRequestExecutions
+    )
 
     private var reader: EReader? = null
     @Volatile
@@ -83,7 +90,10 @@ class DesktopIbGatewayConnection(
     private val openPositions = ConcurrentHashMap<String, OpenPosition>()
     private val openOrdersById = ConcurrentHashMap<Int, WorkingOrder>()
     private val fillsByExecId = ConcurrentHashMap<String, BrokerFill>()
+    /** Maps fill [BrokerFill.orderId] to bracket parent order id (0 = entry/parent leg). */
+    private val orderParentByOrderId = ConcurrentHashMap<Int, Int>()
     private val executionsReqId = AtomicInteger(9_001)
+    private val nextOrderId = AtomicInteger(0)
     @Volatile
     private var openOrdersLoadFinished = false
     private val marketPrices = ConcurrentHashMap<String, Double>()
@@ -141,7 +151,9 @@ class DesktopIbGatewayConnection(
                         scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
-                    is GatewayCommand.PlaceTouchTurnBracket -> Unit
+                    is GatewayCommand.PlaceTouchTurnBracket ->
+                        placeTouchTurnBracket(command.plan)
+                    GatewayCommand.RequestExecutions -> scheduleExecutionsRefresh()
                 }
             }
         }
@@ -257,14 +269,15 @@ class DesktopIbGatewayConnection(
     }
 
     override fun nextValidId(orderId: Int) {
+        nextOrderId.set(orderId)
         emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
-        // Delayed-frozen: last delayed quote when the exchange is closed (US/UK overnight).
-        client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN)
-        client.reqAccountUpdates(true, config.accountCode)
-        requestPositions()
-        requestOpenOrders()
-        requestExecutions()
+        // Bootstrap: one outbound IB message per paced action (under rate limits).
+        paced { client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN) }
+        paced { client.reqAccountUpdates(true, config.accountCode) }
+        paced { requestPositions() }
+        paced { requestOpenOrders() }
+        scheduleExecutionsRefresh()
     }
 
     override fun execDetails(reqId: Int, contract: Contract, execution: Execution) {
@@ -323,6 +336,9 @@ class DesktopIbGatewayConnection(
     ) {
         try {
             applyOrderStatus(orderId, status, filled, remaining, permId, parentId)
+            if (status.equals("Filled", ignoreCase = true)) {
+                scheduleExecutionsRefresh()
+            }
         } catch (e: Exception) {
             logCallbackFailure("orderStatus", e)
         }
@@ -724,16 +740,16 @@ class DesktopIbGatewayConnection(
 
     private fun performDisconnect() {
         stopReader()
-        requestPacer.clear()
         if (client.isConnected) {
-            client.reqAccountUpdates(false, config.accountCode)
-            cancelAllMarketDataImmediate()
-            cancelAllContractDetailsImmediate()
-            cancelAllHistoricalImmediate()
-            cancelAllTouchTurnHistoricalImmediate()
-            cancelAllAdrHistoricalImmediate()
+            cancelAllMarketDataPaced()
+            cancelAllContractDetailsPaced()
+            cancelAllHistoricalPaced()
+            cancelAllTouchTurnHistoricalPaced()
+            paced { client.reqAccountUpdates(false, config.accountCode) }
             client.eDisconnect()
         }
+        requestPacer.clear()
+        executionsRefresh.reset()
         clearPositionState()
         emitConnectionState(GatewayConnectionState.Disconnected)
         IbGatewayLog.disconnected()
@@ -743,21 +759,19 @@ class DesktopIbGatewayConnection(
         if (!client.isConnected) return
         enrichmentScheduled = false
         positionsLoadFinished = false
-        requestPacer.clear()
         historicalFallbackJob?.cancel()
         historicalFallbackJob = null
-        cancelAllMarketDataImmediate()
-        cancelAllContractDetailsImmediate()
-        cancelAllHistoricalImmediate()
+        cancelAllMarketDataPaced()
+        cancelAllContractDetailsPaced()
+        cancelAllHistoricalPaced()
         openPositions.clear()
-        marketPrices.clear()
-        historicalPrices.clear()
-        priorCloses.clear()
-        bidPrices.clear()
-        askPrices.clear()
+        clearLocalMarketDataCaches()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
-        IbGatewayLog.requestingPositions()
-        client.reqPositions()
+        paced {
+            if (!client.isConnected) return@paced
+            IbGatewayLog.requestingPositions()
+            client.reqPositions()
+        }
     }
 
     private fun cancelMarketData(key: String) {
@@ -774,38 +788,48 @@ class DesktopIbGatewayConnection(
         askPrices.remove(key)
     }
 
-    private fun cancelAllMarketDataImmediate() {
+    private fun cancelAllMarketDataPaced() {
         keyToMktDataReqId.entries.toList().forEach { (key, reqId) ->
             keyToMktDataReqId.remove(key)
             mktDataReqIdToKey.remove(reqId)
-            if (client.isConnected) {
-                client.cancelMktData(reqId)
+            paced {
+                if (client.isConnected) {
+                    client.cancelMktData(reqId)
+                }
             }
         }
+        clearLocalMarketDataCaches()
+    }
+
+    private fun clearLocalMarketDataCaches() {
         marketPrices.clear()
         priorCloses.clear()
         bidPrices.clear()
         askPrices.clear()
     }
 
-    private fun cancelAllContractDetailsImmediate() {
+    private fun cancelAllContractDetailsPaced() {
         contractDetailsReqIdToKey.keys.toList().forEach { reqId ->
             contractDetailsReqIdToKey.remove(reqId)
-            if (client.isConnected) {
-                client.cancelContractData(reqId)
+            paced {
+                if (client.isConnected) {
+                    client.cancelContractData(reqId)
+                }
             }
         }
         contractDetailsReqIdToKey.clear()
     }
 
-    private fun cancelAllHistoricalImmediate() {
+    private fun cancelAllHistoricalPaced() {
         historicalFallbackJob?.cancel()
         historicalFallbackJob = null
         historicalReqIdToKey.keys.toList().forEach { reqId ->
             historicalReqIdToKey.remove(reqId)
             historicalLastBarClose.remove(reqId)
-            if (client.isConnected) {
-                client.cancelHistoricalData(reqId)
+            paced {
+                if (client.isConnected) {
+                    client.cancelHistoricalData(reqId)
+                }
             }
         }
         historicalPrices.clear()
@@ -814,17 +838,17 @@ class DesktopIbGatewayConnection(
         lastTickDiagAtMs.clear()
     }
 
-    private fun cancelAllTouchTurnHistoricalImmediate() {
+    private fun cancelAllTouchTurnHistoricalPaced() {
         touchTurnGatewayRequestId.keys.toList().forEach { reqId ->
             cancelTouchTurnHistorical(reqId)
         }
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
         touchTurnGatewayRequestId.clear()
-        cancelAllAdrHistoricalImmediate()
+        cancelAllAdrHistoricalPaced()
     }
 
-    private fun cancelAllAdrHistoricalImmediate() {
+    private fun cancelAllAdrHistoricalPaced() {
         adrGatewayRequestId.keys.toList().forEach { reqId ->
             cancelAdrHistorical(reqId)
         }
@@ -844,8 +868,10 @@ class DesktopIbGatewayConnection(
                 )
             )
         }
-        if (client.isConnected) {
-            runCatching { client.cancelHistoricalData(reqId) }
+        paced {
+            if (client.isConnected) {
+                runCatching { client.cancelHistoricalData(reqId) }
+            }
         }
     }
 
@@ -882,8 +908,10 @@ class DesktopIbGatewayConnection(
                 )
             )
         }
-        if (client.isConnected) {
-            runCatching { client.cancelHistoricalData(reqId) }
+        paced {
+            if (client.isConnected) {
+                runCatching { client.cancelHistoricalData(reqId) }
+            }
         }
     }
 
@@ -933,20 +961,32 @@ class DesktopIbGatewayConnection(
     }
 
     private fun clearPositionState() {
-        cancelAllMarketDataImmediate()
-        cancelAllContractDetailsImmediate()
-        cancelAllHistoricalImmediate()
-        cancelAllTouchTurnHistoricalImmediate()
-        cancelAllAdrHistoricalImmediate()
+        mktDataReqIdToKey.clear()
+        keyToMktDataReqId.clear()
+        contractDetailsReqIdToKey.clear()
+        historicalReqIdToKey.clear()
+        historicalPendingKeys.clear()
+        historicalLastBarClose.clear()
+        touchTurnHistoricalBars.clear()
+        touchTurnHistoricalSymbol.clear()
+        touchTurnGatewayRequestId.clear()
+        adrHistoricalBars.clear()
+        adrHistoricalSymbol.clear()
+        adrGatewayRequestId.clear()
+        clearLocalMarketDataCaches()
+        historicalPrices.clear()
+        lastTickDiagAtMs.clear()
         openPositions.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         openOrdersById.clear()
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         fillsByExecId.clear()
+        orderParentByOrderId.clear()
         emit(GatewayEvent.FillsSnapshot(emptyList()))
         openOrdersLoadFinished = false
         enrichmentScheduled = false
         positionsLoadFinished = false
+        nextOrderId.set(0)
         publishDebounceJob?.cancel()
         publishDebounceJob = null
     }
@@ -956,8 +996,11 @@ class DesktopIbGatewayConnection(
         openOrdersLoadFinished = false
         openOrdersById.clear()
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
-        IbGatewayLog.requestingOpenOrders()
-        client.reqAllOpenOrders()
+        paced {
+            if (!client.isConnected) return@paced
+            IbGatewayLog.requestingOpenOrders()
+            client.reqAllOpenOrders()
+        }
     }
 
     private fun applyOpenOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
@@ -971,7 +1014,9 @@ class DesktopIbGatewayConnection(
             openOrdersById.remove(orderId)
             return
         }
-        openOrdersById[orderId] = toWorkingOrder(orderId, contract, order, orderState)
+        val working = toWorkingOrder(orderId, contract, order, orderState)
+        trackOrderParent(orderId, working.parentOrderId)
+        openOrdersById[orderId] = working
         publishOpenOrders()
     }
 
@@ -983,6 +1028,11 @@ class DesktopIbGatewayConnection(
         permId: Long,
         parentId: Int
     ) {
+        val resolvedParent = parentId.takeIf { it > 0 }
+            ?: openOrdersById[orderId]?.parentOrderId?.takeIf { it > 0 }
+            ?: 0
+        trackOrderParent(orderId, resolvedParent)
+
         if (isTerminalOrderStatus(status)) {
             openOrdersById.remove(orderId)
             publishOpenOrders()
@@ -1000,7 +1050,7 @@ class DesktopIbGatewayConnection(
             filled = decimalToInt(filled),
             remaining = remainingQty,
             permId = permId.takeIf { it > 0 } ?: existing.permId,
-            parentOrderId = parentId.takeIf { it > 0 } ?: existing.parentOrderId
+            parentOrderId = resolvedParent
         )
         publishOpenOrders()
     }
@@ -1016,7 +1066,82 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.OpenOrdersSnapshot(openOrdersById.values.sortedBy { it.orderId }))
     }
 
-    private fun requestExecutions() {
+    private fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
+        val submission = IbTouchTurnBracketPlacer.build(
+            client = client,
+            config = config,
+            plan = plan,
+            allocateOrderIds = ::allocateOrderIds
+        ) ?: return
+        registerBracketOrderIds(
+            submission.parentOrderId,
+            submission.takeProfitOrderId,
+            submission.stopLossOrderId
+        )
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
+            IbGatewayLog.touchTurnBracketPlaced(
+                submission.symbol,
+                submission.parentOrderId,
+                submission.takeProfitOrderId,
+                submission.stopLossOrderId
+            )
+            scheduleExecutionsRefresh()
+        }
+    }
+
+    private fun registerBracketOrderIds(
+        parentOrderId: Int,
+        takeProfitOrderId: Int,
+        stopLossOrderId: Int
+    ) {
+        orderParentByOrderId[parentOrderId] = 0
+        orderParentByOrderId[takeProfitOrderId] = parentOrderId
+        orderParentByOrderId[stopLossOrderId] = parentOrderId
+    }
+
+    private fun trackOrderParent(orderId: Int, parentOrderId: Int) {
+        orderParentByOrderId[orderId] = parentOrderId.coerceAtLeast(0)
+    }
+
+    private fun resolveParentOrderId(fillOrderId: Int): Int {
+        orderParentByOrderId[fillOrderId]?.let { return it }
+        openOrdersById[fillOrderId]?.let { order ->
+            return if (order.parentOrderId > 0) order.parentOrderId else 0
+        }
+        return 0
+    }
+
+    /**
+     * Reserves [count] consecutive IB order ids starting at the returned value.
+     * Returns null when disconnected or [nextValidId] has not arrived yet.
+     */
+    private fun allocateOrderIds(count: Int): Int? {
+        while (true) {
+            val start = nextOrderId.get()
+            if (start <= 0) return null
+            val end = start + count
+            if (nextOrderId.compareAndSet(start, end)) return start
+        }
+    }
+
+    private fun paced(action: () -> Unit) = requestPacer.enqueue(action)
+
+    private fun scheduleExecutionsRefresh() {
+        if (!client.isConnected) return
+        executionsRefresh.schedule()
+    }
+
+    private fun enqueueRequestExecutions() {
         if (!client.isConnected) return
         val reqId = executionsReqId.incrementAndGet()
         val filter = ExecutionFilter().apply {
@@ -1036,11 +1161,12 @@ class DesktopIbGatewayConnection(
         val qty = decimalToInt(execution.shares())
         if (qty <= 0) return
         val existing = fillsByExecId[execId]
+        val fillOrderId = execution.orderId()
         fillsByExecId[execId] = BrokerFill(
             execId = execId,
-            orderId = execution.orderId(),
+            orderId = fillOrderId,
             permId = execution.permId(),
-            parentOrderId = existing?.parentOrderId ?: 0,
+            parentOrderId = existing?.parentOrderId ?: resolveParentOrderId(fillOrderId),
             symbol = symbol,
             side = execution.side().orEmpty(),
             quantity = qty,

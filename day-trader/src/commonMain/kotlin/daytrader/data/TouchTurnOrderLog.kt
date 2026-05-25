@@ -13,7 +13,7 @@ import daytrader.presentation.Formatters
 
 /**
  * Console log for Touch Turn bracket orders placed after a liquidity candle closes.
- * Does not call IB [placeOrder] (emulator places working orders via [BrokerGateway.placeTouchTurnBracket]).
+ * Submits brackets via [BrokerGateway.placeTouchTurnBracket] (IB or emulator).
  */
 object TouchTurnOrderLog {
     /** @return true when a liquidity bracket was logged/placed. */
@@ -43,9 +43,14 @@ object TouchTurnOrderLog {
     ) {
         val fib = TouchTurnLogic.takeProfitFibLabel(setup.candleColor)
         val side = TouchTurnLogic.tradeSideLabel(setup.side)
+        val submissionLabel = when (brokerGateway?.brokerId) {
+            BrokerId.INTERACTIVE_BROKERS -> "submitted to Interactive Brokers"
+            BrokerId.EMULATOR -> "placed with Broker Emulator"
+            else -> "planned only (no broker connected)"
+        }
         line(
             "instance=$instanceId symbol=${plan.symbol} session=$sessionDate — LIQUIDITY CONFIRMED — " +
-                "planned ${side.lowercase()} bracket ($fib TP) — NOT sent to IB"
+                "planned ${side.lowercase()} bracket ($fib TP) — $submissionLabel"
         )
         line(
             "  sizing: qty=${plan.quantity} from \$$maxDollars max at risk @ entry ${fmt(setup.entry, plan.currencyCode)}"
@@ -53,11 +58,16 @@ object TouchTurnOrderLog {
         plan.orders.forEachIndexed { index, order ->
             line(formatPlannedOrder(index + 1, order, plan.currencyCode))
         }
-        if (brokerGateway?.brokerId == BrokerId.EMULATOR) {
-            brokerGateway.placeTouchTurnBracket(plan)
-            line("  (emulator — bracket working orders placed; entry fills on market ticks)")
-        } else {
-            line("  (preview only — placeOrder not called)")
+        when (brokerGateway?.brokerId) {
+            BrokerId.EMULATOR -> {
+                brokerGateway.placeTouchTurnBracket(plan)
+                line("  (emulator — bracket working orders placed; entry fills on market ticks)")
+            }
+            BrokerId.INTERACTIVE_BROKERS -> {
+                brokerGateway.placeTouchTurnBracket(plan)
+                line("  (IB — entry LMT + take-profit LMT + stop STP bracket queued; fills coalesced on fill)")
+            }
+            else -> line("  (preview only — connect a broker to submit)")
         }
     }
 
@@ -67,7 +77,8 @@ object TouchTurnOrderLog {
             TouchTurnOrderRole.TAKE_PROFIT -> "TAKE_PROFIT"
             TouchTurnOrderRole.STOP_LOSS -> "STOP_LOSS"
         }
-        return "  #$index $role  ${order.action}  ${order.quantity}  ${order.orderType}  @  ${fmt(order.price, currency)}"
+        return "  #$index $role  ${order.action}  ${order.quantity}  ${order.orderType}  " +
+            "${order.timeInForce}  @  ${fmt(order.price, currency)}"
     }
 
     private fun fmt(price: Double, currency: String): String = Formatters.moneyPlain(price, currency)

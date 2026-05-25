@@ -79,6 +79,10 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.PlaceTouchTurnBracket(plan))
     }
 
+    override fun refreshFills() {
+        sendCommand(GatewayCommand.RequestExecutions)
+    }
+
     override suspend fun fetchFourteenDayAdr(symbol: String): Result<Double> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<Double>>()

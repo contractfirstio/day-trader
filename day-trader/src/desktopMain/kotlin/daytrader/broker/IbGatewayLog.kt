@@ -6,6 +6,9 @@ import com.ib.client.Contract
  * IB Gateway console logging is **off by default** so Touch Turn order logs stay readable.
  * Set DAY_TRADER_IB_LOGS=true to enable connection, positions, ticks, and diagnostics.
  *
+ * Outbound API pacing: [IbRequestPacer] (max msg/sec + min interval) and
+ * `DAY_TRADER_IB_MAX_MSG_PER_SEC` / `DAY_TRADER_IB_MIN_INTERVAL_MS` / `DAY_TRADER_IB_EXECUTIONS_REFRESH_MS`.
+ *
  * DAY_TRADER_IB_DEBUG=true — stack traces on errors (requires IB logs enabled).
  * DAY_TRADER_IB_REDACT_LOGS=true — shorter redacted messages when IB logs are enabled.
  */
@@ -56,6 +59,22 @@ internal object IbGatewayLog {
 
     fun nextValidId(orderId: Int) {
         info("Session ready nextOrderId=$orderId")
+    }
+
+    fun touchTurnBracketPlaced(
+        symbol: String,
+        parentOrderId: Int,
+        takeProfitOrderId: Int,
+        stopLossOrderId: Int
+    ) {
+        info(
+            "Touch Turn bracket placed symbol=$symbol " +
+                "orders=[$parentOrderId, $takeProfitOrderId, $stopLossOrderId]"
+        )
+    }
+
+    fun touchTurnBracketSkipped(reason: String) {
+        info("Touch Turn bracket not placed: $reason")
     }
 
     fun requestingPositions() {

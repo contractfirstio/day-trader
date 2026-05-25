@@ -21,6 +21,8 @@ sealed interface GatewayCommand {
         val symbol: String
     ) : GatewayCommand
 
-    /** Emulator places working bracket legs; IB adapter ignores until live placement exists. */
     data class PlaceTouchTurnBracket(val plan: TouchTurnOrderPlan) : GatewayCommand
+
+    /** Reload executions/fills from the broker (IB: [reqExecutions]). */
+    data object RequestExecutions : GatewayCommand
 }

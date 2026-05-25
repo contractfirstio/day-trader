@@ -194,6 +194,9 @@ class TouchTurnLogicTest {
         assertEquals("BUY", plan.orders[1].action)
         assertEquals(TouchTurnOrderRole.STOP_LOSS, plan.orders[2].role)
         assertEquals("STP", plan.orders[2].orderType)
+        plan.orders.forEach { leg ->
+            assertEquals(TouchTurnOrderDefaults.TIME_IN_FORCE, leg.timeInForce)
+        }
     }
 
     @Test

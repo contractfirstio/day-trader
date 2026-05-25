@@ -487,6 +487,10 @@ class BrokerEmulatorEngine(
         publishFills()
     }
 
+    fun republishFills() {
+        publishFills()
+    }
+
     private fun publishFills() {
         emit(GatewayEvent.FillsSnapshot(sessionFills.toList()))
     }

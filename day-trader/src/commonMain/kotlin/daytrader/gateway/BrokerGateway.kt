@@ -26,4 +26,7 @@ interface BrokerGateway {
     suspend fun fetchFourteenDayAdr(symbol: String): Result<Double>
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan)
+
+    /** Ask the broker adapter to reload execution reports into [fills]. */
+    fun refreshFills()
 }
