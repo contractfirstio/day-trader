@@ -2,6 +2,7 @@ package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnLogic
 import kotlin.test.Test
@@ -74,9 +75,49 @@ class EmulatorHistoricalDataTest {
         assertTrue(shortCount > 0, "expected at least one short setup in catalog")
         val longShare = longCount.toDouble() / (longCount + shortCount)
         assertTrue(
-            longShare in 0.25..0.75,
+            longShare in 0.4..0.6,
             "long=$longCount short=$shortCount longShare=$longShare (want ~50/50)"
         )
+    }
+
+    @Test
+    fun firstCandle_greenRed_balancedAcrossCatalogOnSessionDay() {
+        val catalog = EmulatorSeedCatalog.instruments().keys.sorted()
+        val n = catalog.size
+        val minGreen = n / 2
+        val maxGreen = (n + 1) / 2
+        listOf("20260524", "20260525", "20260526").forEach { ymd ->
+            val greenCount = catalog.count { symbol ->
+                EmulatorHistoricalData.symbolProfile(symbol, ymd).closeBias > 0
+            }
+            assertTrue(
+                greenCount in minGreen..maxGreen,
+                "session $ymd: green=$greenCount expected $minGreen..$maxGreen of $n"
+            )
+        }
+    }
+
+    @Test
+    fun firstCandle_profileCloseBiasMatchesTouchTurnColor() {
+        val ymd = "20260525"
+        EmulatorSeedCatalog.instruments().forEach { (symbol, instrument) ->
+            val profile = EmulatorHistoricalData.symbolProfile(symbol, ymd)
+            val ref = instrument.referencePrice
+            val range = ref * profile.intradayRangePct
+            val open = ref - range * profile.openBias
+            val close = open + range * profile.closeBias
+            val bar = daytrader.domain.OhlcBar(open = open, high = close, low = open, close = close)
+            val expectedGreen = EmulatorHistoricalData.firstCandleIsGreen(
+                SymbolMarkets.normalizeSymbol(symbol),
+                ymd
+            )
+            assertEquals(expectedGreen, profile.closeBias > 0, symbol)
+            assertEquals(
+                if (expectedGreen) FirstCandleColor.GREEN else FirstCandleColor.RED,
+                TouchTurnLogic.firstCandleColor(bar),
+                "$symbol open=$open close=$close"
+            )
+        }
     }
 
     @Test

@@ -10,6 +10,11 @@ import kotlin.math.sin
 internal object EmulatorHistoricalData {
     private const val ADR_SESSION_COUNT = 16
 
+    /** Stable sort order so seed-catalog symbols split ~50/50 green/red each session day. */
+    private val catalogColorOrder: List<String> by lazy {
+        EmulatorSeedCatalog.instruments().keys.sorted()
+    }
+
     fun firstFifteenMinuteCandle(
         symbol: String,
         instrument: EmulatorInstrument,
@@ -126,14 +131,25 @@ internal object EmulatorHistoricalData {
     }
 
     /**
-     * First-candle close vs open uses [sessionYmd] xor symbol hash so green (→ short) and red (→ long)
-     * are ~50/50 per symbol across sessions and across the catalog on a given day.
+     * Green/red first candle (green → short, red → long):
+     * - Seed-catalog symbols: even/odd index vs session day flips color (~6/5 split per day).
+     * - Other symbols: keyed hash fallback (still flips when [sessionYmd] changes).
      */
+    internal fun firstCandleIsGreen(norm: String, sessionYmd: String): Boolean {
+        val idx = catalogColorOrder.indexOf(norm)
+        if (idx >= 0) {
+            val sessionEven = abs(sessionYmd.hashCode()) % 2 == 0
+            val catalogEven = idx % 2 == 0
+            return sessionEven == catalogEven
+        }
+        return abs("$norm|$sessionYmd".hashCode()) % 2 == 0
+    }
+
     internal fun symbolProfile(symbol: String, sessionYmd: String): SymbolProfile {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val hash = abs(norm.hashCode())
         val liquid = norm in LIQUID_SYMBOLS
-        val greenCandle = abs(norm.hashCode() xor sessionYmd.hashCode()) % 2 == 0
+        val greenCandle = firstCandleIsGreen(norm, sessionYmd)
         return SymbolProfile(
             intradayRangePct = if (liquid) 0.018 else 0.012,
             dailyRangePct = if (liquid) 0.022 else 0.016,
