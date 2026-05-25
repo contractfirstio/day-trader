@@ -2,6 +2,7 @@ package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.OhlcBar
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.TouchTurnLogic
 import daytrader.platform.currentSessionDateIso
 import kotlin.math.abs
@@ -97,10 +98,8 @@ internal object EmulatorHistoricalData {
     }
 
     private fun barTimeForSession(ymd: String, marketZoneId: String): String {
-        val openTime = when (marketZoneId) {
-            "Asia/Hong_Kong" -> "09:30:00"
-            else -> "09:30:00"
-        }
+        val session = RthMarketSessions.forZoneId(marketZoneId)
+        val openTime = "%02d:%02d:00".format(session.openHour, session.openMinute)
         return "$ymd  $openTime"
     }
 

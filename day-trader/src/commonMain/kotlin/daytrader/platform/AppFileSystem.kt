@@ -6,6 +6,8 @@ expect object AppFileSystem {
     /** Selects the on-disk scope for this process (IB vs emulator). Call before any persistence I/O. */
     fun configureDataScope(kind: BrokerKind)
 
+    fun currentDataScope(): BrokerKind
+
     fun appDataDirectory(): String
     fun ensureAppDataDirectory()
     fun readText(fileName: String): String?

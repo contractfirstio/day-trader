@@ -17,6 +17,9 @@ actual object AppFileSystem {
         migrateLegacyRootDataIfNeeded(kind)
     }
 
+    actual fun currentDataScope(): BrokerKind =
+        dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
+
     actual fun appDataDirectory(): String {
         val scope = dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
         return baseDataDirectory().resolve(scope.dataDirectorySegment).toString()

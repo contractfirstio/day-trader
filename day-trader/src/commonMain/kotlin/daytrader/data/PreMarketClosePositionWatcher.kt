@@ -46,6 +46,8 @@ class PreMarketClosePositionWatcher(
             val session = RthMarketSessions.forZoneId(zoneId)
             if (!TouchTurnLogic.isRthMarketOpen(
                     zoneId = session.zoneId,
+                    openHour = session.openHour,
+                    openMinute = session.openMinute,
                     closeHour = session.closeHour,
                     closeMinute = session.closeMinute,
                     nowEpochMillis = now

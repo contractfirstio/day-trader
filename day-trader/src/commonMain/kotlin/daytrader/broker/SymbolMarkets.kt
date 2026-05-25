@@ -16,7 +16,7 @@ object SymbolMarkets {
 
     fun zoneIdForCurrency(currencyCode: String): String = when (currencyCode.uppercase()) {
         "HKD" -> "Asia/Hong_Kong"
-        "EUR" -> "Europe/Berlin"
+        "GBP" -> "Europe/London"
         else -> "America/New_York"
     }
 

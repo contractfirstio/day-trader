@@ -292,7 +292,9 @@ object TouchTurnLogic {
         firstCandleBarTime: String? = null
     ): Long? {
         firstCandleBarTime?.let { barStartEpochMillis(it, marketZoneId) }?.let { return it }
-        return sessionOpenLocalDateTime(sessionDateIso, marketZoneId)?.atZone(java.time.ZoneId.of(marketZoneId))
+        val session = RthMarketSessions.forZoneId(marketZoneId)
+        return sessionOpenLocalDateTime(sessionDateIso, session.openHour, session.openMinute)
+            ?.atZone(java.time.ZoneId.of(marketZoneId))
             ?.toInstant()
             ?.toEpochMilli()
     }
@@ -303,7 +305,7 @@ object TouchTurnLogic {
         marketZoneId: String
     ): Long? {
         val session = RthMarketSessions.forZoneId(marketZoneId)
-        val openLocal = sessionOpenLocalDateTime(sessionDateIso, marketZoneId) ?: return null
+        val openLocal = sessionOpenLocalDateTime(sessionDateIso, session.openHour, session.openMinute) ?: return null
         val zone = java.time.ZoneId.of(marketZoneId)
         val date = openLocal.toLocalDate()
         return rthCloseOnDate(date, zone, session.closeHour, session.closeMinute)
@@ -325,15 +327,12 @@ object TouchTurnLogic {
         if (nowEpochMillis >= todayOpen) return todayOpen
         val parts = sessionDateIso.trim().split("-")
         if (parts.size != 3) return null
+        val session = RthMarketSessions.forZoneId(marketZoneId)
         return runCatching {
             val zone = java.time.ZoneId.of(marketZoneId)
             java.time.LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
                 .minusDays(1)
-                .atTime(
-                    TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
-                    TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
-                    0
-                )
+                .atTime(session.openHour, session.openMinute, 0)
                 .atZone(zone)
                 .toInstant()
                 .toEpochMilli()
@@ -378,16 +377,17 @@ object TouchTurnLogic {
         val zone = java.time.ZoneId.of(marketZoneId)
         val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
         var date = now.toLocalDate()
+        val session = RthMarketSessions.forZoneId(marketZoneId)
         if (!isRthTradingDay(date)) {
             date = nextRthTradingDay(date)
-            return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+            return rthOpenOnDate(date, zone, session.openHour, session.openMinute).toInstant().toEpochMilli()
         }
-        val todayOpen = rthOpenOnDate(date, zone)
+        val todayOpen = rthOpenOnDate(date, zone, session.openHour, session.openMinute)
         if (now.isBefore(todayOpen)) {
             return todayOpen.toInstant().toEpochMilli()
         }
         date = nextRthTradingDay(date.plusDays(1))
-        return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+        return rthOpenOnDate(date, zone, session.openHour, session.openMinute).toInstant().toEpochMilli()
     }
 
     fun millisUntilNextMarketOpen(
@@ -404,6 +404,8 @@ object TouchTurnLogic {
         nowEpochMillis: Long = System.currentTimeMillis()
     ): Boolean = isRthMarketOpen(
         zoneId = session.zoneId,
+        openHour = session.openHour,
+        openMinute = session.openMinute,
         closeHour = session.closeHour,
         closeMinute = session.closeMinute,
         nowEpochMillis = nowEpochMillis
@@ -411,6 +413,8 @@ object TouchTurnLogic {
 
     fun isRthMarketOpen(
         zoneId: String,
+        openHour: Int,
+        openMinute: Int,
         closeHour: Int,
         closeMinute: Int,
         nowEpochMillis: Long = System.currentTimeMillis()
@@ -418,7 +422,7 @@ object TouchTurnLogic {
         val zone = java.time.ZoneId.of(zoneId)
         val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
         if (!isRthTradingDay(now.toLocalDate())) return false
-        val todayOpen = rthOpenOnDate(now.toLocalDate(), zone)
+        val todayOpen = rthOpenOnDate(now.toLocalDate(), zone, openHour, openMinute)
         val todayClose = rthCloseOnDate(now.toLocalDate(), zone, closeHour, closeMinute)
         return !now.isBefore(todayOpen) && now.isBefore(todayClose)
     }
@@ -428,20 +432,21 @@ object TouchTurnLogic {
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): Long {
+        val session = RthMarketSessions.forZoneId(marketZoneId)
         val zone = java.time.ZoneId.of(marketZoneId)
         val now = java.time.Instant.ofEpochMilli(nowEpochMillis).atZone(zone)
         var date = now.toLocalDate()
         if (!isRthTradingDay(date)) {
             date = previousRthTradingDay(date)
-            return rthOpenOnDate(date, zone).toInstant().toEpochMilli()
+            return rthOpenOnDate(date, zone, session.openHour, session.openMinute).toInstant().toEpochMilli()
         }
-        val todayOpen = rthOpenOnDate(date, zone)
+        val todayOpen = rthOpenOnDate(date, zone, session.openHour, session.openMinute)
         val sessionDate = if (!now.isBefore(todayOpen)) {
             date
         } else {
             previousRthTradingDay(date.minusDays(1))
         }
-        return rthOpenOnDate(sessionDate, zone).toInstant().toEpochMilli()
+        return rthOpenOnDate(sessionDate, zone, session.openHour, session.openMinute).toInstant().toEpochMilli()
     }
 
     fun millisSinceLastMarketOpenWallClock(
@@ -466,19 +471,17 @@ object TouchTurnLogic {
     fun marketOpenZoneAbbrev(marketZoneId: String): String = when (marketZoneId) {
         "Asia/Hong_Kong" -> "HKT"
         "America/New_York" -> "ET"
-        "Europe/Berlin" -> "CET"
+        "Europe/London", "Europe/Berlin" -> "UK"
         else -> marketZoneId
     }
 
     private fun rthOpenOnDate(
         date: java.time.LocalDate,
-        zone: java.time.ZoneId
+        zone: java.time.ZoneId,
+        openHour: Int,
+        openMinute: Int
     ): java.time.ZonedDateTime =
-        date.atTime(
-            TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
-            TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
-            0
-        ).atZone(zone)
+        date.atTime(openHour, openMinute, 0).atZone(zone)
 
     private fun rthCloseOnDate(
         date: java.time.LocalDate,
@@ -490,7 +493,8 @@ object TouchTurnLogic {
 
     private fun sessionOpenLocalDateTime(
         sessionDateIso: String,
-        marketZoneId: String
+        openHour: Int,
+        openMinute: Int
     ): java.time.LocalDateTime? {
         val parts = sessionDateIso.trim().split("-")
         if (parts.size != 3) return null
@@ -499,8 +503,8 @@ object TouchTurnLogic {
                 parts[0].toInt(),
                 parts[1].toInt(),
                 parts[2].toInt(),
-                TouchTurnDefaults.RTH_SESSION_OPEN_HOUR,
-                TouchTurnDefaults.RTH_SESSION_OPEN_MINUTE,
+                openHour,
+                openMinute,
                 0
             )
         }.getOrNull()
