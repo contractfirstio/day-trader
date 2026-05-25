@@ -1554,6 +1554,7 @@ private fun LiveTab(
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
+    val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
     Column(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -1564,18 +1565,6 @@ private fun LiveTab(
                 broker = liveBroker,
                 liveExecution = liveExecution
             )
-            SessionAutoStopStatus(instance = instance)
-            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
-                TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
-            }
-
-            liveBroker?.let { broker ->
-                LiveBrokerSection(broker)
-            }
-
-            liveSessionTrades?.let { trades ->
-                LiveSessionTradesSection(trades, inProgress = true)
-            }
 
             when {
                 liveExecution == null -> {
@@ -1601,9 +1590,30 @@ private fun LiveTab(
                     }
                 }
             }
+
+            liveSessionTrades?.let { trades ->
+                LiveSessionTradesSection(
+                    trades = trades,
+                    inProgress = true,
+                    compact = inActiveTrade
+                )
+            }
+
+            liveBroker?.let { broker ->
+                LiveBrokerSection(
+                    broker = broker,
+                    showPosition = !inActiveTrade
+                )
+            }
+
+            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+                TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
+            }
+
+            SessionAutoStopStatus(instance = instance)
         } else {
             liveSessionTrades?.let { trades ->
-                LiveSessionTradesSection(trades, inProgress = false)
+                LiveSessionTradesSection(trades, inProgress = false, compact = false)
             } ?: Text(
                 "Start a session to view broker data. After a session ends, fills appear here for P&L verification.",
                 color = TextSecondary,
@@ -1717,25 +1727,28 @@ private fun LiveTradingPositionPnLHeader(
 @Composable
 private fun LiveSessionTradesSection(
     trades: LiveSessionTradesUiState,
-    inProgress: Boolean
+    inProgress: Boolean,
+    compact: Boolean
 ) {
-    val title = if (inProgress) {
-        "Session trade (${trades.symbol})"
-    } else {
-        "Last session trade (${trades.symbol})"
+    val title = when {
+        compact -> "Session fills (${trades.symbol})"
+        inProgress -> "Session trade (${trades.symbol})"
+        else -> "Last session trade (${trades.symbol})"
     }
     TouchTurnPanelGroup(
         title = title,
         testTag = "LiveSessionTradesSection",
         compact = true
     ) {
-        trades.runLabel?.let { label ->
-            Text(
-                if (inProgress) "Session open" else "Last session · $label",
-                fontSize = 10.sp,
-                color = TextSecondary,
-                modifier = Modifier.testTag("LiveSessionTradesRunLabel")
-            )
+        if (!compact) {
+            trades.runLabel?.let { label ->
+                Text(
+                    if (inProgress) "Session open" else "Last session · $label",
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("LiveSessionTradesRunLabel")
+                )
+            }
         }
         RunTradeDetailPanel(
             detail = trades.tradeDetail,
@@ -1745,7 +1758,10 @@ private fun LiveSessionTradesSection(
 }
 
 @Composable
-private fun LiveBrokerSection(broker: LiveBrokerUiState) {
+private fun LiveBrokerSection(
+    broker: LiveBrokerUiState,
+    showPosition: Boolean = true
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1756,43 +1772,45 @@ private fun LiveBrokerSection(broker: LiveBrokerUiState) {
             Text(message, fontSize = 11.sp, color = TextSecondary)
         }
 
-        TouchTurnPanelGroup(
-            title = "Broker position (${broker.symbol})",
-            testTag = "LiveBrokerPositionGroup",
-            compact = true
-        ) {
-            val position = broker.position
-            if (position == null) {
-                Text(
-                    if (broker.isConnected) "No open position for this symbol." else "Position unavailable.",
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.testTag("LiveBrokerNoPosition")
-                )
-            } else {
-                Column(modifier = Modifier.fillMaxWidth()) {
+        if (showPosition) {
+            TouchTurnPanelGroup(
+                title = "Broker position (${broker.symbol})",
+                testTag = "LiveBrokerPositionGroup",
+                compact = true
+            ) {
+                val position = broker.position
+                if (position == null) {
                     Text(
-                        position.companyName,
+                        if (broker.isConnected) "No open position for this symbol." else "Position unavailable.",
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        maxLines = 1
-                    )
-                    Text(
-                        "${position.sideLabel} ${position.quantity} · ${position.symbol}",
-                        fontSize = 10.sp,
                         color = TextSecondary,
-                        modifier = Modifier.testTag("LiveBrokerPositionSummary")
+                        modifier = Modifier.testTag("LiveBrokerNoPosition")
                     )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TouchTurnMetric("Avg", position.formattedAvgPrice, Modifier.weight(1f), compact = true)
-                    TouchTurnMetric("Mkt", position.formattedMarketPrice, Modifier.weight(1f), compact = true)
-                    position.formattedDailyChange?.let { change ->
-                        TouchTurnMetric("Day", change, Modifier.weight(1f), compact = true)
+                } else {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            position.companyName,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            maxLines = 1
+                        )
+                        Text(
+                            "${position.sideLabel} ${position.quantity} · ${position.symbol}",
+                            fontSize = 10.sp,
+                            color = TextSecondary,
+                            modifier = Modifier.testTag("LiveBrokerPositionSummary")
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TouchTurnMetric("Avg", position.formattedAvgPrice, Modifier.weight(1f), compact = true)
+                        TouchTurnMetric("Mkt", position.formattedMarketPrice, Modifier.weight(1f), compact = true)
+                        position.formattedDailyChange?.let { change ->
+                            TouchTurnMetric("Day", change, Modifier.weight(1f), compact = true)
+                        }
                     }
                 }
             }
@@ -1856,59 +1874,68 @@ private fun LiveTradePanel(
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(DarkBackground, RoundedCornerShape(8.dp))
-            .padding(16.dp)
-            .testTag("LiveTradePanel"),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    TouchTurnPanelGroup(
+        title = "Active trade",
+        testTag = "LiveTradePanel",
+        compact = true
     ) {
-        Text("Active trade", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-        Text(live.headline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(
+            live.headline,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            modifier = Modifier.testTag("LiveTradeHeadline")
+        )
 
         when (live.state) {
             ExecutionState.FILLED -> {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    LivePriceCell("Entry", live.entryPrice, Modifier.weight(1f))
-                    LivePriceCell("Target", live.targetPrice, Modifier.weight(1f))
-                }
-                if (live.canManagePosition) {
-                    LiveStopEditor(
-                        stopPriceInput = live.stopPriceInput,
-                        onApply = { stopText -> onAdjustStop(live.instanceId, stopText) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TradeMetricCell("Entry", live.entryPrice ?: "—", Modifier.weight(1f), testTag = "LiveTradeEntry")
+                    if (live.canManagePosition) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            LiveStopEditor(
+                                stopPriceInput = live.stopPriceInput,
+                                onApply = { stopText -> onAdjustStop(live.instanceId, stopText) },
+                                inline = true
+                            )
+                        }
+                    } else {
+                        TradeMetricCell("Stop", live.stopPrice ?: "—", Modifier.weight(1f), testTag = "LiveTradeStop")
+                    }
+                    TradeMetricCell(
+                        "Target",
+                        live.targetPrice ?: "—",
+                        Modifier.weight(1f),
+                        valueColor = GainGreen,
+                        testTag = "LiveTradeTarget"
                     )
-                } else {
-                    LivePriceCell("Stop", live.stopPrice, Modifier.fillMaxWidth())
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     live.formattedRisk?.let { risk ->
-                        PerformanceStatCard(
+                        TradePnLChip(
                             label = "Risk at stop",
                             value = risk,
-                            valueColor = LossRed,
+                            positive = false,
                             modifier = Modifier.weight(1f)
                         )
                     }
                     live.formattedUpside?.let { upside ->
-                        PerformanceStatCard(
-                            label = "Upside to target",
+                        TradePnLChip(
+                            label = "Upside",
                             value = upside,
-                            valueColor = GainGreen,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    live.formattedUnrealized?.let { unrealized ->
-                        PerformanceStatCard(
-                            label = "Unrealized",
-                            value = unrealized,
-                            valueColor = if (live.isUnrealizedPositive) GainGreen else LossRed,
+                            positive = true,
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
                 live.riskPercentOfMax?.let { pct ->
-                    Text(pct, fontSize = 11.sp, color = TextSecondary)
+                    Text(pct, fontSize = 10.sp, color = TextSecondary)
                 }
                 if (live.canManagePosition) {
                     ClosePositionButton(
@@ -1918,10 +1945,10 @@ private fun LiveTradePanel(
                 }
             }
             ExecutionState.WORKING -> {
-                Text("Order working — risk shown after fill.", fontSize = 12.sp, color = TextSecondary)
+                Text("Order working — bracket levels appear after fill.", fontSize = 11.sp, color = TextSecondary)
             }
             ExecutionState.FLAT -> {
-                Text("Watching for next signal.", fontSize = 12.sp, color = TextSecondary)
+                Text("Watching for next signal.", fontSize = 11.sp, color = TextSecondary)
             }
         }
     }
@@ -1930,16 +1957,21 @@ private fun LiveTradePanel(
 @Composable
 private fun LiveStopEditor(
     stopPriceInput: String,
-    onApply: (String) -> Unit
+    onApply: (String) -> Unit,
+    inline: Boolean = false
 ) {
     var stopText by remember(stopPriceInput) { mutableStateOf(stopPriceInput) }
     val isValid = stopText.toDoubleOrNull() != null
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("Stop", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        if (!inline) {
+            Text("Stop", fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        } else {
+            Text("Stop", fontSize = 9.sp, color = TextSecondary)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
@@ -1947,6 +1979,10 @@ private fun LiveStopEditor(
                 onValueChange = { stopText = it },
                 singleLine = true,
                 modifier = Modifier.weight(1f).testTag("StopPriceField"),
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    fontSize = if (inline) 12.sp else 14.sp,
+                    color = Color.White
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = TableHeaderBg,
                     unfocusedContainerColor = TableHeaderBg,
@@ -1962,9 +1998,10 @@ private fun LiveStopEditor(
                 enabled = isValid,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.testTag("ApplyStopButton")
+                modifier = Modifier.testTag("ApplyStopButton"),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = if (inline) 6.dp else 8.dp)
             ) {
-                Text("Apply", fontSize = 13.sp)
+                Text("Apply", fontSize = if (inline) 11.sp else 13.sp)
             }
         }
     }
@@ -2018,15 +2055,6 @@ private fun ClosePositionButton(
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun LivePriceCell(label: String, value: String?, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(label, fontSize = 11.sp, color = TextSecondary)
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(value ?: "—", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
 }
 

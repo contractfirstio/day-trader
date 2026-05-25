@@ -22,8 +22,11 @@ data class RunTradeFillUi(
 data class RunTradeDetailUiState(
     val sideLabel: String,
     val isLong: Boolean,
+    val isOpen: Boolean,
     val headline: String,
     val detailLine: String,
+    val formattedEntryPrice: String?,
+    val formattedExitPrice: String?,
     val lifecycleLabel: String?,
     val formattedRealizedPnL: String,
     val realizedPnL: Double,
@@ -50,8 +53,6 @@ object RunTradeDetailUiMapper {
         val realized = details.realizedPnL
         val sessionTotal = SessionTradePnL.totalSessionPnL(trades, unrealizedPnL)
         val headline = buildString {
-            append(details.sideLabel)
-            append(" · ")
             append(details.quantity)
             append(" @ ")
             append(Formatters.moneyPlain(details.entryPrice ?: 0.0, currency))
@@ -61,8 +62,11 @@ object RunTradeDetailUiMapper {
         return RunTradeDetailUiState(
             sideLabel = details.sideLabel,
             isLong = details.sideLabel == "Long",
+            isOpen = details.isOpen,
             headline = headline,
             detailLine = detailLine,
+            formattedEntryPrice = details.entryPrice?.let { Formatters.moneyPlain(it, currency) },
+            formattedExitPrice = details.exitPrice?.let { Formatters.moneyPlain(it, currency) },
             lifecycleLabel = lifecycleLabel ?: runLabel,
             formattedRealizedPnL = Formatters.money(realized, currency, showSign = true),
             realizedPnL = realized,

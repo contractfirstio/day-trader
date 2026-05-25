@@ -105,13 +105,6 @@ fun PerformanceRunTradeDetail(
             .padding(12.dp)
             .testTag("PerformanceRunTradeDetail")
     ) {
-        Text(
-            "Session fills",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextSecondary
-        )
-        Spacer(modifier = Modifier.height(8.dp))
         RunTradeDetailPanel(detail, testTagPrefix = "PerformanceTrade")
     }
 }
