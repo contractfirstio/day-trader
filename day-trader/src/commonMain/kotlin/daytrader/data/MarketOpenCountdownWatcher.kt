@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Plays a 10-second spoken countdown ending with "[MARKET] Market Open"
- * for US, EUR, and HK RTH opens (once per session day per market).
+ * for US, UK (LSE), and HK RTH opens (once per session day per market).
  */
 class MarketOpenCountdownWatcher(
     private val scope: CoroutineScope

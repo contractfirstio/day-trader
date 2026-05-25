@@ -36,10 +36,7 @@ object DeploymentMarket {
     fun sessionForZone(marketZoneId: String): RthMarketSession =
         RthMarketSessions.forZoneId(marketZoneId)
 
-    fun sessionDisplayLabel(session: RthMarketSession): String = when (session.label) {
-        "EUR" -> "UK (LSE)"
-        else -> session.label
-    }
+    fun sessionDisplayLabel(session: RthMarketSession): String = session.label
 
     fun fromSymbolHeuristic(symbol: String): ResolvedInstrument {
         val zoneId = SymbolMarkets.zoneId(symbol)

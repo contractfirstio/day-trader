@@ -17,7 +17,7 @@ object RthMarketSessions {
     val US = RthMarketSession(label = "US", zoneId = "America/New_York", closeHour = 16)
     /** LSE continuous trading — London timezone, 08:00–16:30 local. */
     val EUR = RthMarketSession(
-        label = "EUR",
+        label = "UK (LSE)",
         zoneId = "Europe/London",
         openHour = 8,
         openMinute = 0,
