@@ -124,7 +124,7 @@ export DAY_TRADER_BROKER=emulator
 ./gradlew :day-trader:run
 ```
 
-The emulator seeds US and HK positions, working orders (including SPY bracket legs), streams synthetic market ticks every ~2s, and answers Touch Turn historical requests (first 15-minute candle and 14-day ADR).
+The emulator starts with an empty positions blotter and seeded working orders (including SPY bracket legs). Order fills can open positions over time. It streams synthetic market ticks every ~2s and answers Touch Turn historical requests (first 15-minute candle and 14-day ADR).
 
 ## IB Gateway connection
 

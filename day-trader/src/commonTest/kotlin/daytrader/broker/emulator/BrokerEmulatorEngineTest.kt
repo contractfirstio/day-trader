@@ -10,7 +10,7 @@ import kotlinx.coroutines.runBlocking
 class BrokerEmulatorEngineTest {
 
     @Test
-    fun connect_publishesPositionsAndOrders() = runBlocking {
+    fun connect_publishesEmptyPositionsAndSeedOrders() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(connectDelayMs = 1, historicalDelayMs = 1),
@@ -23,8 +23,7 @@ class BrokerEmulatorEngineTest {
         assertTrue(GatewayConnectionState.Connected in states)
 
         val positions = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
-        assertTrue(positions.size >= 6)
-        assertTrue(positions.any { it.symbol == "AAPL" })
+        assertTrue(positions.isEmpty())
 
         val orders = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>().last().orders
         assertTrue(orders.isNotEmpty())
@@ -63,7 +62,7 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
-    fun marketTick_updatesPositionMarks() = runBlocking {
+    fun marketTick_withNoPositions_publishesEmptySnapshot() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(connectDelayMs = 1),
@@ -76,6 +75,7 @@ class BrokerEmulatorEngineTest {
         engine.runMarketTick()
 
         val snapshot = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
-        assertTrue(snapshot.isNotEmpty())
+        assertTrue(snapshot.isEmpty())
     }
+
 }

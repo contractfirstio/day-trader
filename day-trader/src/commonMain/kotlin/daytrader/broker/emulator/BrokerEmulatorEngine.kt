@@ -120,7 +120,7 @@ class BrokerEmulatorEngine(
     }
 
     private fun seedBooks() {
-        positions = EmulatorSeedCatalog.initialPositions(config.accountId, livePrices).toMutableList()
+        positions = mutableListOf()
         val orderList = EmulatorSeedCatalog.initialOrders(catalog, livePrices) { allocateOrderId() }
         orders = orderList.associateBy { it.orderId }.toMutableMap()
     }
