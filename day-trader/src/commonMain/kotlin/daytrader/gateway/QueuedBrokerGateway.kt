@@ -1,6 +1,7 @@
 package daytrader.gateway
 
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnOrderPlan
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +70,10 @@ class QueuedBrokerGateway(
             pendingCandles.remove(requestId)
             Result.failure(e)
         }
+    }
+
+    override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
+        sendCommand(GatewayCommand.PlaceTouchTurnBracket(plan))
     }
 
     override suspend fun fetchFourteenDayAdr(symbol: String): Result<Double> {

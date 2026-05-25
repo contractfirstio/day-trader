@@ -8,6 +8,8 @@ import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerId
 import daytrader.presentation.Formatters
 
 /**
@@ -24,6 +26,7 @@ object TouchTurnOrderLog {
         candle: OhlcBar?,
         marketZoneId: String,
         setup: TouchTurnBracketSetup?,
+        brokerGateway: BrokerGateway? = null,
         nowEpochMillis: Long = System.currentTimeMillis()
     ) {
         if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return
@@ -38,7 +41,7 @@ object TouchTurnOrderLog {
             TouchTurnEntryWindowStatus.WITHIN_WINDOW -> {
                 val plan = TouchTurnOrderPlanner.buildOrderPlan(symbol, setup, maxDollars, currencyCode)
                     ?: return
-                logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan)
+                logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)
             }
             else -> Unit
         }
@@ -49,7 +52,8 @@ object TouchTurnOrderLog {
         sessionDate: String,
         maxDollars: Int,
         setup: TouchTurnBracketSetup,
-        plan: TouchTurnOrderPlan
+        plan: TouchTurnOrderPlan,
+        brokerGateway: BrokerGateway?
     ) {
         val fib = TouchTurnLogic.takeProfitFibLabel(setup.candleColor)
         val side = TouchTurnLogic.tradeSideLabel(setup.side)
@@ -63,7 +67,12 @@ object TouchTurnOrderLog {
         plan.orders.forEachIndexed { index, order ->
             line(formatPlannedOrder(index + 1, order, plan.currencyCode))
         }
-        line("  (preview only — placeOrder not called)")
+        if (brokerGateway?.brokerId == BrokerId.EMULATOR) {
+            brokerGateway.placeTouchTurnBracket(plan)
+            line("  (emulator — bracket working orders placed; entry fills on market ticks)")
+        } else {
+            line("  (preview only — placeOrder not called)")
+        }
     }
 
     private fun formatPlannedOrder(index: Int, order: TouchTurnPlannedOrder, currency: String): String {

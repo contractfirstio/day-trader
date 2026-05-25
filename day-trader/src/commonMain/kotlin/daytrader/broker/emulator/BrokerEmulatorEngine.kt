@@ -1,5 +1,9 @@
 package daytrader.broker.emulator
 
+import daytrader.broker.SymbolMarkets
+import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnOrderRole
+import daytrader.domain.TouchTurnPlannedOrder
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
 import kotlinx.coroutines.delay
@@ -22,6 +26,8 @@ class BrokerEmulatorEngine(
     private var connected = false
     private var ticksRunning = false
     private var orderSimRunning = false
+    private val dynamicInstruments = mutableMapOf<String, EmulatorInstrument>()
+    private val bracketManagedOrderIds = mutableSetOf<Int>()
 
     fun handleConnect() {
         if (connected) return
@@ -45,6 +51,8 @@ class BrokerEmulatorEngine(
         orderSimRunning = false
         positions.clear()
         orders.clear()
+        bracketManagedOrderIds.clear()
+        dynamicInstruments.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Disconnected))
@@ -95,16 +103,61 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.FourteenDayAdrReady(requestId, result))
     }
 
+    fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
+        if (!connected) return
+        val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
+        val entryLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return
+        val entryPrice = entryLeg.price
+
+        orders.entries.removeIf { (_, order) ->
+            SymbolMarkets.symbolsMatch(order.symbol, symbol) && !order.isTerminal()
+        }
+        bracketManagedOrderIds.removeIf { id -> orders[id]?.let { SymbolMarkets.symbolsMatch(it.symbol, symbol) } == true }
+
+        ensureInstrument(symbol, plan.currencyCode, entryPrice)
+        livePrices[symbol] = entryPrice
+
+        val entryId = allocateOrderId()
+        bracketManagedOrderIds.add(entryId)
+        orders[entryId] = plannedToEmulatorOrder(
+            orderId = entryId,
+            planned = entryLeg,
+            symbol = symbol,
+            currency = plan.currencyCode,
+            parentId = 0,
+            status = "Submitted"
+        )
+
+        val childIds = mutableListOf<Int>()
+        plan.orders.filter { it.role != TouchTurnOrderRole.ENTRY }.forEach { leg ->
+            val childId = allocateOrderId()
+            childIds.add(childId)
+            bracketManagedOrderIds.add(childId)
+            orders[childId] = plannedToEmulatorOrder(
+                orderId = childId,
+                planned = leg,
+                symbol = symbol,
+                currency = plan.currencyCode,
+                parentId = entryId,
+                status = "PreSubmitted"
+            )
+        }
+
+        EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice)
+        publishOrders()
+    }
+
     suspend fun runMarketTick() {
         if (!connected || !ticksRunning) return
-        catalog.keys.forEach { symbol ->
+        tickSymbolsForMarketData().forEach { symbol ->
             val current = livePrices[symbol] ?: return@forEach
             val jitter = 1.0 + random.nextDouble(-config.marketTickJitterPct, config.marketTickJitterPct)
             livePrices[symbol] = (current * jitter).coerceAtLeast(0.01)
         }
+        evaluateOrderFillsOnTick()
         refreshPositionMarks()
         publishPositions()
-        maybeTriggerStopLimitFills()
+        publishOrders()
     }
 
     suspend fun runOrderProgressStep() {
@@ -122,7 +175,10 @@ class BrokerEmulatorEngine(
             publishOrders()
             return
         }
-        val open = orders.values.firstOrNull { it.filled == 0 && !it.isTerminal() && it.orderType == "LMT" }
+        val open = orders.values.firstOrNull {
+            it.filled == 0 && !it.isTerminal() && it.orderType == "LMT" &&
+                !bracketManagedOrderIds.contains(it.orderId)
+        }
         if (open != null && random.nextDouble() < 0.35) {
             val fillQty = minOf(10, open.remaining)
             applyFill(open, fillQty)
@@ -138,10 +194,90 @@ class BrokerEmulatorEngine(
     private fun allocateOrderId(): Int = nextOrderId++
 
     private fun resolveInstrument(symbol: String): EmulatorInstrument? {
-        catalog[symbol]?.let { return it }
-        val norm = daytrader.broker.SymbolMarkets.normalizeSymbol(symbol)
-        return catalog[norm]
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        return catalog[norm] ?: dynamicInstruments[norm]
     }
+
+    private fun ensureInstrument(symbol: String, currency: String, referencePrice: Double): EmulatorInstrument {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        resolveInstrument(norm)?.let { return it }
+        return EmulatorInstrument(
+            symbol = norm,
+            companyName = norm,
+            currency = currency,
+            priorClose = referencePrice,
+            referencePrice = referencePrice
+        ).also { dynamicInstruments[norm] = it }
+    }
+
+    private fun tickSymbolsForMarketData(): Set<String> =
+        (catalog.keys + dynamicInstruments.keys + orders.values.map { SymbolMarkets.normalizeSymbol(it.symbol) })
+            .toSet()
+
+    private fun evaluateOrderFillsOnTick() {
+        orders.values.toList().forEach { order ->
+            if (!bracketManagedOrderIds.contains(order.orderId)) return@forEach
+            if (order.isTerminal() || order.remaining <= 0 || !isOrderActiveForFill(order)) return@forEach
+            when (order.orderType) {
+                "LMT" -> maybeFillLimitOrder(order)
+                "STP" -> maybeFillStopOrder(order)
+            }
+        }
+    }
+
+    private fun isOrderActiveForFill(order: EmulatorOrder): Boolean {
+        if (order.parentId == 0) return true
+        val parent = orders[order.parentId] ?: return false
+        return parent.status == "Filled"
+    }
+
+    private fun maybeFillLimitOrder(order: EmulatorOrder) {
+        val mkt = livePrices[SymbolMarkets.normalizeSymbol(order.symbol)] ?: return
+        val limit = order.limitPrice ?: return
+        val shouldFill = when (order.action.uppercase()) {
+            "BUY" -> mkt <= limit
+            "SELL" -> mkt >= limit
+            else -> false
+        }
+        if (shouldFill) {
+            applyFill(order, order.remaining)
+        }
+    }
+
+    private fun maybeFillStopOrder(order: EmulatorOrder) {
+        val mkt = livePrices[SymbolMarkets.normalizeSymbol(order.symbol)] ?: return
+        val stopPx = order.stopPrice ?: return
+        val triggered = when (order.action.uppercase()) {
+            "SELL" -> mkt <= stopPx
+            "BUY" -> mkt >= stopPx
+            else -> false
+        }
+        if (triggered) {
+            applyFill(order, order.remaining)
+        }
+    }
+
+    private fun plannedToEmulatorOrder(
+        orderId: Int,
+        planned: TouchTurnPlannedOrder,
+        symbol: String,
+        currency: String,
+        parentId: Int,
+        status: String
+    ): EmulatorOrder = EmulatorOrder(
+        orderId = orderId,
+        symbol = symbol,
+        action = planned.action,
+        quantity = planned.quantity,
+        filled = 0,
+        remaining = planned.quantity,
+        orderType = planned.orderType,
+        limitPrice = planned.price.takeIf { planned.orderType == "LMT" },
+        stopPrice = planned.price.takeIf { planned.orderType == "STP" },
+        status = status,
+        currency = currency,
+        parentId = parentId
+    )
 
     private fun refreshPositionMarks() {
         positions = positions.map { pos ->
@@ -164,14 +300,24 @@ class BrokerEmulatorEngine(
     }
 
     private fun updateOrder(order: EmulatorOrder) {
-        if (order.isTerminal() || order.remaining <= 0) {
-            orders.remove(order.orderId)
-        } else {
-            orders[order.orderId] = order
+        when {
+            order.status == "Cancelled" || order.status == "Inactive" || order.status == "ApiCancelled" -> {
+                orders.remove(order.orderId)
+                bracketManagedOrderIds.remove(order.orderId)
+            }
+            order.remaining <= 0 -> {
+                orders[order.orderId] = order.copy(
+                    status = "Filled",
+                    remaining = 0,
+                    filled = order.quantity
+                )
+            }
+            else -> orders[order.orderId] = order
         }
     }
 
     private fun applyFill(order: EmulatorOrder, fillQty: Int) {
+        if (fillQty <= 0) return
         val remaining = order.remaining - fillQty
         val filled = order.filled + fillQty
         val updated = order.copy(
@@ -181,8 +327,24 @@ class BrokerEmulatorEngine(
         )
         updateOrder(updated)
         adjustPositionForFill(order, fillQty)
-        publishPositions()
-        publishOrders()
+        if (remaining <= 0 && order.parentId == 0) {
+            activateChildOrders(order.orderId)
+        }
+        val positionQty = positions.find {
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, order.symbol)
+        }?.quantity ?: 0
+        EmulatorLog.orderFilled(order.symbol, order.orderId, fillQty, order.fillPrice(), positionQty)
+    }
+
+    private fun EmulatorOrder.fillPrice(): Double =
+        limitPrice ?: stopPrice ?: livePrices[SymbolMarkets.normalizeSymbol(symbol)] ?: 0.0
+
+    private fun activateChildOrders(parentOrderId: Int) {
+        orders.entries.forEach { (id, order) ->
+            if (order.parentId == parentOrderId && order.status == "PreSubmitted") {
+                orders[id] = order.copy(status = "Submitted")
+            }
+        }
     }
 
     private fun adjustPositionForFill(order: EmulatorOrder, fillQty: Int) {
@@ -232,22 +394,6 @@ class BrokerEmulatorEngine(
         val cost1 = avg1 * kotlin.math.abs(qty1)
         val cost2 = price2 * kotlin.math.abs(qty2)
         return (cost1 + cost2) / kotlin.math.abs(newQty)
-    }
-
-    private fun maybeTriggerStopLimitFills() {
-        orders.values.filter { !it.isTerminal() && it.orderType == "STP" }.forEach { stop ->
-            val mkt = livePrices[stop.symbol] ?: return@forEach
-            val stopPx = stop.stopPrice ?: return@forEach
-            val triggered = when (stop.action.uppercase()) {
-                "SELL" -> mkt <= stopPx
-                "BUY" -> mkt >= stopPx
-                else -> false
-            }
-            if (triggered) {
-                updateOrder(stop.copy(status = "Cancelled"))
-            }
-        }
-        publishOrders()
     }
 
     private fun startMarketSimulation() {

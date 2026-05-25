@@ -91,6 +91,7 @@ class TouchTurnSessionBootstrap(
                         candle = session?.candle,
                         marketZoneId = session?.marketZoneId ?: SymbolMarkets.zoneId(updated.symbol),
                         setup = session?.setup,
+                        brokerGateway = gateway,
                         nowEpochMillis = evaluatedAt
                     )
                     updated

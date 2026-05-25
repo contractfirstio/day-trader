@@ -45,6 +45,8 @@ class EmulatorBrokerAdapter(
                         launch { engine.fetchFirstFifteenMinuteCandle(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFourteenDayAdr ->
                         launch { engine.fetchFourteenDayAdr(command.requestId, command.symbol) }
+                    is GatewayCommand.PlaceTouchTurnBracket ->
+                        engine.placeTouchTurnBracket(command.plan)
                 }
             }
         }

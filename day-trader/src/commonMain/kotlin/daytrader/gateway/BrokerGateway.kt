@@ -1,6 +1,7 @@
 package daytrader.gateway
 
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnOrderPlan
 import kotlinx.coroutines.flow.StateFlow
 
 interface BrokerGateway {
@@ -21,4 +22,6 @@ interface BrokerGateway {
     suspend fun fetchFirstFifteenMinuteCandle(symbol: String): Result<OhlcBar>
 
     suspend fun fetchFourteenDayAdr(symbol: String): Result<Double>
+
+    fun placeTouchTurnBracket(plan: TouchTurnOrderPlan)
 }

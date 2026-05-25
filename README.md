@@ -133,6 +133,8 @@ For Touch Turn, the first 15-minute bar is **time-shifted** so it closes after a
 | `DAY_TRADER_EMULATOR_CANDLE_CLOSE_SEC` | `10` | Seconds until the synthetic first 15m bar closes |
 | `off` or `0` | — | Use today’s 09:30 bar instead (often already closed) |
 
+When a Touch Turn liquidity bracket is logged inside the entry window, the emulator **places working orders** and sets the market to the entry price. Every ~2s price tick can fill the entry limit and **open a blotter position** (TP/STOP legs activate after entry fills). IB still logs only — no live `placeOrder`.
+
 ## IB Gateway connection
 
 When `DAY_TRADER_BROKER` is `ib` (default), the desktop app connects to IB Gateway (or TWS) in the background. Status appears in the top bar:

@@ -135,6 +135,7 @@ class DesktopIbGatewayConnection(
                         scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
+                    is GatewayCommand.PlaceTouchTurnBracket -> Unit
                 }
             }
         }
