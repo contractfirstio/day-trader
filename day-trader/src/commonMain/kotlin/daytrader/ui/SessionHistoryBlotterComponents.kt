@@ -34,6 +34,7 @@ import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.strategies.SessionHistoryUiState
 import daytrader.presentation.strategies.SessionHistorySortColumn
 import daytrader.presentation.strategies.StrategySessionRowUi
+import daytrader.presentation.strategies.TouchTurnRunRecordUi
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -245,12 +246,26 @@ private fun SessionHistoryBlotterRow(
             Spacer(modifier = Modifier.width(40.dp))
         }
         }
+        val pipelineBottom = when {
+            row.touchTurnRunDetail != null -> 4.dp
+            else -> 10.dp
+        }
         row.pipelineSteps?.let { steps ->
             TouchTurnStatusBreadcrumbRow(
                 steps = steps,
                 modifier = Modifier
-                    .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                    .padding(start = 12.dp, end = 12.dp, bottom = pipelineBottom)
                     .testTag("SessionHistoryBlotterRowPipeline-${row.id}")
+            )
+        }
+        row.touchTurnRunDetail?.let { detail ->
+            TouchTurnRunRecordCollapsible(
+                detail = detail,
+                expanded = row.isSelected,
+                onToggle = { onSelectRun(row.id) },
+                modifier = Modifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+                    .testTag("SessionHistoryBlotterRowRunRecord-${row.id}")
             )
         }
     }
@@ -326,6 +341,50 @@ private fun RowScope.SessionHistoryTradeCell(row: StrategySessionRowUi, modifier
                 "Fills & P&L",
                 fontSize = 9.sp,
                 color = TextSecondary.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnRunRecordCollapsible(
+    detail: TouchTurnRunRecordUi,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (expanded) "▾" else "▸",
+                color = TextSecondary.copy(alpha = 0.7f),
+                fontSize = 9.sp,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+            Text(
+                text = detail.teaser,
+                color = TextSecondary.copy(alpha = if (expanded) 0.9f else 0.65f),
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        if (expanded) {
+            Text(
+                text = detail.body,
+                color = Color(0xFF9EABB6),
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 12.dp, top = 2.dp)
             )
         }
     }

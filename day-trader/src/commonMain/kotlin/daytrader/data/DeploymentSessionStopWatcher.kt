@@ -11,6 +11,8 @@ import daytrader.domain.DeploymentSessionStopAction
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.inProgressSession
+import daytrader.domain.SessionStopParams
+import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.onSessionStopped
 import daytrader.domain.withTouchTurnClosingMilestoneIfNeeded
 import daytrader.gateway.BrokerFill
@@ -70,11 +72,12 @@ class DeploymentSessionStopWatcher(
                 stampClosingMilestone(instance.id)
             }
             if (stopAfterTrade) {
-                stopInstance(instance, positions)
+                stopInstance(instance, positions, TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN)
                 continue
             }
             when (DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, now)) {
-                DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE -> stopInstance(instance, positions)
+                DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE ->
+                    stopInstance(instance, positions, TouchTurnSessionStopTrigger.OPEN_DEADLINE)
                 DeploymentSessionStopAction.CONTINUE,
                 DeploymentSessionStopAction.STOP_TRADE_OUTCOME_KNOWN,
                 null -> Unit
@@ -101,9 +104,14 @@ class DeploymentSessionStopWatcher(
         repository.update(instanceId) { it.withTouchTurnClosingMilestoneIfNeeded() }
     }
 
-    private fun stopInstance(instance: StrategyDeployment, positions: List<AccountPosition>) {
-        SessionStopOrderCleanup.flattenSymbolForSession(gateway, instance.symbol)
+    private fun stopInstance(
+        instance: StrategyDeployment,
+        positions: List<AccountPosition>,
+        stopTrigger: TouchTurnSessionStopTrigger
+    ) {
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, gateway.openOrders.value)
         val brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, positions)
+        SessionStopOrderCleanup.flattenSymbolForSession(gateway, instance.symbol)
         val stoppedAt = currentSessionTimestampIso()
         val sessionTrades = SessionTradeMatcher.captureForSessionStop(
             instance = instance,
@@ -116,7 +124,17 @@ class DeploymentSessionStopWatcher(
                 brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
                 sessionTrades = sessionTrades
             )
-            current.onSessionStopped(stoppedAt = stoppedAt, snapshot = snapshot)
+            current.onSessionStopped(
+                stoppedAt = stoppedAt,
+                snapshot = snapshot,
+                stopParams = SessionStopParams(
+                    stopTrigger = stopTrigger,
+                    brokerId = gateway.brokerId,
+                    brokerUnrealizedPnLAtStop = brokerPosition?.totalUnrealizedPnL,
+                    hasOpenPosition = brokerPosition != null,
+                    hasOpenOrders = hasOpenOrders
+                )
+            )
         }
         repository.flushPersistence()
     }

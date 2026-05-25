@@ -25,7 +25,8 @@ fun StrategyDeployment.updateInProgressSession(
  */
 fun StrategyDeployment.onSessionStarted(
     sessionDate: String,
-    startedAt: String = currentSessionTimestampIso()
+    startedAt: String = currentSessionTimestampIso(),
+    touchTurnStartedBy: TouchTurnSessionStartedBy? = null
 ): StrategyDeployment {
     val withoutStaleInProgress = sessionHistory.map { session ->
         if (session.status == SessionStatus.IN_PROGRESS) {
@@ -41,7 +42,11 @@ fun StrategyDeployment.onSessionStarted(
         pnl = 0.0,
         trades = 0,
         maxAtRisk = maxDollars,
-        status = SessionStatus.IN_PROGRESS
+        status = SessionStatus.IN_PROGRESS,
+        touchTurnStartedBy = when (strategyType) {
+            StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurnStartedBy ?: TouchTurnSessionStartedBy.MANUAL
+            StrategyType.QUICK_FLIP_SCALPER -> null
+        }
     )
     return copy(
         sessionHistory = withoutStaleInProgress + newSession,
@@ -53,36 +58,69 @@ fun StrategyDeployment.onSessionStarted(
 fun StrategyDeployment.onSessionStopped(
     stoppedAt: String = currentSessionTimestampIso(),
     snapshot: SessionStopSnapshot? = null,
-    sessionTrades: List<SessionTrade> = emptyList()
-): StrategyDeployment = copy(
-    sessionHistory = sessionHistory.map { session ->
-        if (session.status == SessionStatus.IN_PROGRESS) {
-            val trades = sessionTrades.ifEmpty { snapshot?.sessionTrades ?: emptyList() }
-            session.copy(
-                status = SessionStatus.CLOSED,
-                stoppedAt = stoppedAt,
-                hadLiquidityCandle = snapshot?.hadLiquidityCandle,
-                ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
-                positionOpened = snapshot?.positionOpened,
-                pnl = snapshot?.sessionPnL ?: session.pnl,
-                trades = when {
-                    trades.isNotEmpty() -> trades.size
-                    else -> snapshot?.trades ?: session.trades
-                },
+    sessionTrades: List<SessionTrade> = emptyList(),
+    stopParams: SessionStopParams? = null
+): StrategyDeployment {
+    val touchTurn = touchTurnSession
+    val activeSession = inProgressSession()
+    val trades = sessionTrades.ifEmpty { snapshot?.sessionTrades ?: emptyList() }
+    val resolvedStopTrigger = when {
+        strategyType == StrategyType.TOUCH_AND_TURN_SCALPER && touchTurn != null ->
+            inferTouchTurnStopTrigger(
+                instance = this,
                 sessionTrades = trades,
-                touchTurnMilestones = when (strategyType) {
-                    StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurnSession?.milestones
-                    StrategyType.QUICK_FLIP_SCALPER -> null
-                }
+                hasOpenPosition = stopParams?.hasOpenPosition == true,
+                hasOpenOrders = stopParams?.hasOpenOrders == true,
+                explicit = stopParams?.stopTrigger
             )
-        } else {
-            session
-        }
-    },
-    live = ActiveExecution.flat(),
-    touchTurnSession = null,
-    status = DeploymentStatus.STOPPED
-)
+        else -> stopParams?.stopTrigger
+    }
+    val touchTurnRecord = when {
+        strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+            touchTurn != null &&
+            activeSession != null &&
+            stopParams?.brokerId != null &&
+            resolvedStopTrigger != null ->
+            buildTouchTurnRunRecord(
+                session = activeSession,
+                touchTurnSession = touchTurn,
+                stopTrigger = resolvedStopTrigger,
+                brokerId = stopParams.brokerId,
+                brokerUnrealizedPnLAtStop = stopParams.brokerUnrealizedPnLAtStop,
+                stopErrorMessage = stopParams.stopErrorMessage
+            )
+        else -> null
+    }
+    return copy(
+        sessionHistory = sessionHistory.map { session ->
+            if (session.status == SessionStatus.IN_PROGRESS) {
+                session.copy(
+                    status = SessionStatus.CLOSED,
+                    stoppedAt = stoppedAt,
+                    hadLiquidityCandle = snapshot?.hadLiquidityCandle,
+                    ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
+                    positionOpened = snapshot?.positionOpened,
+                    pnl = snapshot?.sessionPnL ?: session.pnl,
+                    trades = when {
+                        trades.isNotEmpty() -> trades.size
+                        else -> snapshot?.trades ?: session.trades
+                    },
+                    sessionTrades = trades,
+                    touchTurnMilestones = when (strategyType) {
+                        StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurn?.milestones
+                        StrategyType.QUICK_FLIP_SCALPER -> null
+                    },
+                    touchTurnRunRecord = touchTurnRecord
+                )
+            } else {
+                session
+            }
+        },
+        live = ActiveExecution.flat(),
+        touchTurnSession = null,
+        status = DeploymentStatus.STOPPED
+    )
+}
 
 fun currentSessionTimestampIso(): String =
     java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)

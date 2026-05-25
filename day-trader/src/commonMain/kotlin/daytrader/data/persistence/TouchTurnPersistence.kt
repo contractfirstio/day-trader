@@ -7,7 +7,9 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnNoPositionCancelOutcome
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnTradeSide
 
 internal object TouchTurnPersistence {
@@ -26,7 +28,10 @@ internal object TouchTurnPersistence {
             entryOrdersPermitted = record.entryOrdersPermitted,
             ordersPlacedForSession = record.ordersPlacedForSession,
             noPositionBracketCancelOutcome = parseNoPositionCancelOutcome(record.noPositionBracketCancelOutcome),
-            milestones = record.milestones?.toDomain() ?: TouchTurnMilestoneTimestamps()
+            milestones = record.milestones?.toDomain() ?: TouchTurnMilestoneTimestamps(),
+            decisionOutcome = parseOutcome(record.decisionOutcome),
+            plannedQuantity = record.plannedQuantity,
+            plannedBracket = record.plannedBracket?.toDomain()
         )
     }
 
@@ -45,7 +50,10 @@ internal object TouchTurnPersistence {
             entryOrdersPermitted = context.entryOrdersPermitted,
             ordersPlacedForSession = context.ordersPlacedForSession,
             noPositionBracketCancelOutcome = context.noPositionBracketCancelOutcome?.name?.lowercase(),
-            milestones = context.milestones.toRecord()
+            milestones = context.milestones.toRecord(),
+            decisionOutcome = context.decisionOutcome?.name?.lowercase(),
+            plannedQuantity = context.plannedQuantity,
+            plannedBracket = context.plannedBracket?.toRecord()
         )
     }
 
@@ -141,4 +149,25 @@ internal object TouchTurnPersistence {
             .getOrDefault(TouchTurnCandleStatus.LOADING)
 
     private fun statusLabel(status: TouchTurnCandleStatus): String = status.name.lowercase()
+
+    private fun parseOutcome(value: String?): TouchTurnSessionOutcome? {
+        value ?: return null
+        return runCatching { TouchTurnSessionOutcome.valueOf(value.uppercase()) }.getOrNull()
+    }
+
+    private fun TouchTurnPlannedBracketRecord.toDomain(): TouchTurnPlannedBracket =
+        TouchTurnPlannedBracket(
+            side = parseTradeSide(side),
+            entry = entry,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit
+        )
+
+    private fun TouchTurnPlannedBracket.toRecord(): TouchTurnPlannedBracketRecord =
+        TouchTurnPlannedBracketRecord(
+            side = side.name,
+            entry = entry,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit
+        )
 }

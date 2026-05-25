@@ -33,7 +33,10 @@ data class TouchTurnSessionRecord(
     val entryOrdersPermitted: Boolean? = null,
     val ordersPlacedForSession: Boolean = false,
     val noPositionBracketCancelOutcome: String? = null,
-    val milestones: TouchTurnMilestoneTimestampsRecord? = null
+    val milestones: TouchTurnMilestoneTimestampsRecord? = null,
+    val decisionOutcome: String? = null,
+    val plannedQuantity: Int? = null,
+    val plannedBracket: TouchTurnPlannedBracketRecord? = null
 )
 
 @Serializable
@@ -104,7 +107,56 @@ data class SessionHistoryRecord(
     val ordersPlacedForCandle: Boolean? = null,
     val positionOpened: Boolean? = null,
     val sessionTrades: List<SessionTradeRecord> = emptyList(),
-    val touchTurnMilestones: TouchTurnMilestoneTimestampsRecord? = null
+    val touchTurnMilestones: TouchTurnMilestoneTimestampsRecord? = null,
+    val touchTurnStartedBy: String? = null,
+    val touchTurnRunRecord: TouchTurnRunRecordRecord? = null
+)
+
+@Serializable
+data class TouchTurnRunRecordRecord(
+    val runContext: TouchTurnRunContextRecord,
+    val marketInputs: TouchTurnRunMarketInputsRecord,
+    val decision: TouchTurnSessionDecisionRecord,
+    val stopEvent: TouchTurnStopEventRecord,
+    val milestones: TouchTurnMilestoneTimestampsRecord
+)
+
+@Serializable
+data class TouchTurnRunContextRecord(
+    val maxDollars: Int,
+    val startedBy: String,
+    val brokerId: String
+)
+
+@Serializable
+data class TouchTurnRunMarketInputsRecord(
+    val openingBar: OhlcBarRecord? = null,
+    val adr14: Double? = null,
+    val currencyCode: String = "USD",
+    val marketZoneId: String = "America/New_York",
+    val dataErrorMessage: String? = null
+)
+
+@Serializable
+data class TouchTurnSessionDecisionRecord(
+    val outcome: String,
+    val plannedQuantity: Int? = null,
+    val plannedBracket: TouchTurnPlannedBracketRecord? = null
+)
+
+@Serializable
+data class TouchTurnPlannedBracketRecord(
+    val side: String,
+    val entry: Double,
+    val stopLoss: Double,
+    val takeProfit: Double
+)
+
+@Serializable
+data class TouchTurnStopEventRecord(
+    val stopTrigger: String,
+    val stopErrorMessage: String? = null,
+    val brokerUnrealizedPnLAtStop: Double? = null
 )
 
 @Serializable

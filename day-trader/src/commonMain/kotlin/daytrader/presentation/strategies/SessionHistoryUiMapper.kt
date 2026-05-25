@@ -4,6 +4,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.rollups
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
@@ -66,20 +67,29 @@ object SessionHistoryUiMapper {
         }
         val isPnLFlat = formattedPnL == Formatters.FLAT_PNL_LABEL
         val (tradeSide, tradeSummary) = SessionTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
+        val runRecord = run.touchTurnRunRecord
+        val milestones = run.touchTurnMilestones ?: runRecord?.milestones
         val pipelineSteps = if (includeTouchTurnFields && !inProgress) {
-            run.touchTurnMilestones?.let { milestones ->
+            milestones?.let {
                 TouchTurnStatusBreadcrumbMapper.stepsFromHistory(
-                    milestones = milestones,
+                    milestones = it,
                     startedAt = run.startedAt,
                     stoppedAt = run.stoppedAt,
-                    hadLiquidityCandle = run.hadLiquidityCandle,
-                    ordersPlacedForCandle = run.ordersPlacedForCandle,
+                    hadLiquidityCandle = run.hadLiquidityCandle
+                        ?: runRecord?.let { r ->
+                            r.decision.outcome != TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+                        },
+                    ordersPlacedForCandle = run.ordersPlacedForCandle
+                        ?: runRecord?.let { r ->
+                            r.decision.outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+                        },
                     positionOpened = run.positionOpened
                 )
             }
         } else {
             null
         }
+        val touchTurnRunDetail = runRecord?.let { TouchTurnRunRecordUiMapper.from(it, run) }
         return StrategySessionRowUi(
             id = run.id,
             formattedStartTime = Formatters.runStartTimeDisplay(run.startedAt),
@@ -89,15 +99,17 @@ object SessionHistoryUiMapper {
             hasTradeDetail = run.sessionTrades.isNotEmpty(),
             hasPipelineLog = includeTouchTurnFields &&
                 !inProgress &&
-                run.touchTurnMilestones != null,
+                (milestones != null || touchTurnRunDetail != null),
             isSelected = run.id == selectedRunId,
             liquidityCandle = if (includeTouchTurnFields && !inProgress) {
-                Formatters.yesNo(run.hadLiquidityCandle)
+                runRecord?.let(TouchTurnRunRecordUiMapper::liquidityYesNo)
+                    ?: Formatters.yesNo(run.hadLiquidityCandle)
             } else {
                 "—"
             },
             ordersPlaced = if (includeTouchTurnFields && !inProgress) {
-                Formatters.yesNo(run.ordersPlacedForCandle)
+                runRecord?.let(TouchTurnRunRecordUiMapper::ordersYesNo)
+                    ?: Formatters.yesNo(run.ordersPlacedForCandle)
             } else {
                 "—"
             },
@@ -106,7 +118,8 @@ object SessionHistoryUiMapper {
             isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
             canDelete = !inProgress,
-            pipelineSteps = pipelineSteps
+            pipelineSteps = pipelineSteps,
+            touchTurnRunDetail = touchTurnRunDetail
         )
     }
 

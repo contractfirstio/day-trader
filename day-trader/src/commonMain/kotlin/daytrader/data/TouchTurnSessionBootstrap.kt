@@ -5,10 +5,14 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
+import daytrader.domain.TouchTurnEntryWindowStatus
+import daytrader.domain.TouchTurnOrderPlanner
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
+import daytrader.domain.withTouchTurnDecisionOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -86,17 +90,42 @@ class TouchTurnSessionBootstrap(
                 var ordersPlaced = false
                 repository.update(instanceId) { current ->
                     val updated = current.withLiquidityEvaluatedIfClosed(evaluatedAt)
-                    val session = updated.touchTurnSession
+                    val session = updated.touchTurnSession ?: return@update updated
+                    when (session.decisionOutcome) {
+                        TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+                        TouchTurnSessionOutcome.NO_TRADE_DOJI,
+                        TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> return@update updated
+                        else -> Unit
+                    }
+                    if (session.entryWindowStatus(evaluatedAt) == TouchTurnEntryWindowStatus.EXPIRED) {
+                        return@update updated.withTouchTurnDecisionOutcome(
+                            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+                        )
+                    }
+                    val setup = session.setup
+                    val plan = setup?.let { s ->
+                        TouchTurnOrderPlanner.buildOrderPlan(
+                            symbol = updated.symbol,
+                            setup = s,
+                            maxDollars = updated.maxDollars,
+                            currencyCode = session.currencyCode
+                        )
+                    }
                     ordersPlaced = TouchTurnOrderLog.logAfterLiquidityEvaluation(
                         instanceId = updated.id,
                         symbol = updated.symbol,
-                        sessionDate = session?.sessionDate ?: sessionDate,
+                        sessionDate = session.sessionDate,
                         maxDollars = updated.maxDollars,
-                        currencyCode = session?.currencyCode ?: SymbolMarkets.currencyCode(updated.symbol),
-                        setup = session?.setup,
+                        currencyCode = session.currencyCode,
+                        setup = setup,
                         brokerGateway = executionGateway
                     )
-                    if (ordersPlaced) updated.withOrdersPlacedForSession() else updated
+                    when {
+                        ordersPlaced && plan != null -> updated.withOrdersPlacedForSession(plan)
+                        setup?.isActionable == true ->
+                            updated.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+                        else -> updated
+                    }
                 }
                 return@launch
             }

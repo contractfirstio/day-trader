@@ -27,6 +27,8 @@ import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.resolveStopSnapshot
+import daytrader.domain.SessionStopParams
+import daytrader.domain.inferTouchTurnStopTrigger
 import daytrader.domain.onSessionStopped
 import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
 import daytrader.domain.withoutSessionHistoryEntry
@@ -224,7 +226,8 @@ class StrategiesViewModel(
         if (selectedSessionHistoryId != null) return
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
         selectedSessionHistoryId = instance.sessionHistory
-            .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
+            .filter { it.status == SessionStatus.CLOSED &&
+                (it.touchTurnMilestones != null || it.touchTurnRunRecord != null) }
             .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
             ?.id
     }
@@ -281,6 +284,7 @@ class StrategiesViewModel(
         }
         val brokerPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
         val hadOpenPosition = brokerPosition != null
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(existing.symbol, brokerOpenOrders)
         if (wasRunning) {
             brokerGateway?.let { SessionStopOrderCleanup.flattenSymbolForSession(it, existing.symbol) }
         }
@@ -297,7 +301,26 @@ class StrategiesViewModel(
                     brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
                     sessionTrades = sessionTrades
                 )
-                current.onSessionStopped(stoppedAt = stoppedAt, snapshot = snapshot)
+                val stopTrigger = inferTouchTurnStopTrigger(
+                    instance = current,
+                    sessionTrades = sessionTrades,
+                    hasOpenPosition = hadOpenPosition,
+                    hasOpenOrders = hasOpenOrders
+                )
+                current.onSessionStopped(
+                    stoppedAt = stoppedAt,
+                    snapshot = snapshot,
+                    stopParams = brokerGateway?.let { gateway ->
+                        SessionStopParams(
+                            stopTrigger = stopTrigger,
+                            brokerId = gateway.brokerId,
+                            stopErrorMessage = current.touchTurnSession?.errorMessage,
+                            brokerUnrealizedPnLAtStop = brokerPosition?.totalUnrealizedPnL,
+                            hasOpenPosition = hadOpenPosition,
+                            hasOpenOrders = hasOpenOrders
+                        )
+                    }
+                )
             } else {
                 DeploymentSessionController.start(
                     instance = current,

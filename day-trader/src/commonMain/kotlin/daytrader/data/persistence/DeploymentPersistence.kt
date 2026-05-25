@@ -7,6 +7,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategySession
+import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TradeSide
 
 object DeploymentPersistence {
@@ -54,7 +55,11 @@ object DeploymentPersistence {
             ordersPlacedForCandle = record.ordersPlacedForCandle,
             positionOpened = record.positionOpened,
             sessionTrades = record.sessionTrades.map(::toSessionTradeDomain),
-            touchTurnMilestones = record.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToDomain)
+            touchTurnMilestones = record.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToDomain),
+            touchTurnStartedBy = record.touchTurnStartedBy?.let { value ->
+                runCatching { TouchTurnSessionStartedBy.valueOf(value.uppercase()) }.getOrNull()
+            },
+            touchTurnRunRecord = TouchTurnRunPersistence.toDomain(record.touchTurnRunRecord)
         )
 
     private fun toSessionHistoryRecord(day: StrategySession): SessionHistoryRecord =
@@ -71,7 +76,9 @@ object DeploymentPersistence {
             ordersPlacedForCandle = day.ordersPlacedForCandle,
             positionOpened = day.positionOpened,
             sessionTrades = day.sessionTrades.map(::toSessionTradeRecord),
-            touchTurnMilestones = day.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToRecord)
+            touchTurnMilestones = day.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToRecord),
+            touchTurnStartedBy = day.touchTurnStartedBy?.name?.lowercase(),
+            touchTurnRunRecord = TouchTurnRunPersistence.toRecord(day.touchTurnRunRecord)
         )
 
     private fun toSessionTradeDomain(record: SessionTradeRecord): SessionTrade =

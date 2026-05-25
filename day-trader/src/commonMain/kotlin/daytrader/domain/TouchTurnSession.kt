@@ -127,7 +127,11 @@ data class TouchTurnSessionContext(
     /** True when bracket orders were actually logged/placed for this session. */
     val ordersPlacedForSession: Boolean = false,
     /** After entry window: whether an open position existed (only evaluated when [ordersPlacedForSession]). */
-    val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null
+    val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null,
+    /** Written once when the no-trade / trade decision is known. */
+    val decisionOutcome: TouchTurnSessionOutcome? = null,
+    val plannedQuantity: Int? = null,
+    val plannedBracket: TouchTurnPlannedBracket? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
     val liquidityThresholdFromAdr: Double?
@@ -791,6 +795,13 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     if (session.setup != null) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
     val entryOrdersPermitted = setup.isLiquidityCandle && setup.isActionable
+    val decisionOutcome = when {
+        !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+        !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
+        session.entryWindowStatus(nowEpochMillis) == TouchTurnEntryWindowStatus.EXPIRED ->
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+        else -> null
+    }
     val at = currentSessionTimestampIso()
     val milestones = session.milestones.let { m ->
         m.copy(
@@ -802,19 +813,36 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         touchTurnSession = session.copy(
             setup = setup,
             entryOrdersPermitted = entryOrdersPermitted,
+            decisionOutcome = decisionOutcome ?: session.decisionOutcome,
             milestones = milestones
         )
     )
 }
 
-fun StrategyDeployment.withOrdersPlacedForSession(): StrategyDeployment {
+fun StrategyDeployment.withTouchTurnDecisionOutcome(outcome: TouchTurnSessionOutcome): StrategyDeployment {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    if (session.decisionOutcome != null) return this
+    return copy(touchTurnSession = session.copy(decisionOutcome = outcome))
+}
+
+fun StrategyDeployment.withOrdersPlacedForSession(plan: TouchTurnOrderPlan? = null): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
     val at = currentSessionTimestampIso()
     val milestones = session.milestones.copy(
         ordersPlacedAt = session.milestones.ordersPlacedAt ?: at
     )
-    return copy(touchTurnSession = session.copy(ordersPlacedForSession = true, milestones = milestones))
+    val bracket = plan?.toPlannedBracket()
+    return copy(
+        touchTurnSession = session.copy(
+            ordersPlacedForSession = true,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            plannedQuantity = plan?.quantity ?: session.plannedQuantity,
+            plannedBracket = bracket ?: session.plannedBracket,
+            milestones = milestones
+        )
+    )
 }
 
 /** Records when the broker first reports an open position for this run. */
@@ -863,6 +891,7 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
             sessionDate = sessionDate,
             status = TouchTurnCandleStatus.FAILED,
             errorMessage = message,
+            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
             milestones = TouchTurnMilestoneTimestamps(
                 startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
                 dataFailedAt = at

@@ -20,5 +20,9 @@ data class StrategySession(
     /** Broker fills for this run cycle (symbol-scoped), for post-session P&L verification. */
     val sessionTrades: List<SessionTrade> = emptyList(),
     /** Touch Turn pipeline milestone timestamps captured when this run stopped. */
-    val touchTurnMilestones: TouchTurnMilestoneTimestamps? = null
+    val touchTurnMilestones: TouchTurnMilestoneTimestamps? = null,
+    /** How this run was started (Touch Turn only). */
+    val touchTurnStartedBy: TouchTurnSessionStartedBy? = null,
+    /** Frozen Touch Turn session facts when this run stopped. */
+    val touchTurnRunRecord: TouchTurnRunRecord? = null
 )

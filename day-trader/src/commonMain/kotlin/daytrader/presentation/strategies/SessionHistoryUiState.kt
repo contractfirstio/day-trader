@@ -23,7 +23,9 @@ data class StrategySessionRowUi(
     val canDelete: Boolean = false,
     val isSelected: Boolean = false,
     /** Touch Turn pipeline breadcrumb for this closed session (shown inline in session history). */
-    val pipelineSteps: List<TouchTurnBreadcrumbStep>? = null
+    val pipelineSteps: List<TouchTurnBreadcrumbStep>? = null,
+    /** Frozen Touch Turn run facts (decision, market inputs, stop context). */
+    val touchTurnRunDetail: TouchTurnRunRecordUi? = null
 )
 
 data class SessionHistoryUiState(
