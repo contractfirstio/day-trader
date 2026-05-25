@@ -1,7 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
+import daytrader.domain.DeploymentStatus
 
 data class LiveExecutionUiState(
     val instanceId: String,

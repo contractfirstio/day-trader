@@ -2,15 +2,15 @@ package daytrader.presentation.strategies
 
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
-import daytrader.domain.StrategyInstance
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.riskReward
 import daytrader.presentation.Formatters
 
 object LiveExecutionUiMapper {
-    fun toLiveState(instance: StrategyInstance): LiveExecutionUiState {
+    fun toLiveState(instance: StrategyDeployment): LiveExecutionUiState {
         val execution = instance.live
-        val isRunning = instance.status == InstanceStatus.RUNNING
+        val isRunning = instance.status == DeploymentStatus.RUNNING
         val risk = execution.riskReward(
             maxDollars = instance.maxDollars,
             rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
@@ -48,8 +48,8 @@ object LiveExecutionUiMapper {
         )
     }
 
-    fun toListSummary(instance: StrategyInstance): LiveTradeListSummary {
-        if (instance.status != InstanceStatus.RUNNING) {
+    fun toListSummary(instance: StrategyDeployment): LiveTradeListSummary {
+        if (instance.status != DeploymentStatus.RUNNING) {
             return LiveTradeListSummary(null)
         }
         val execution = instance.live

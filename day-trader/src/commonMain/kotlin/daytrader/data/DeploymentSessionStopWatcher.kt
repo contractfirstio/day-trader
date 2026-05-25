@@ -4,14 +4,14 @@ import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerGateway
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
-import daytrader.domain.currentRunTimestampIso
-import daytrader.domain.InstanceRunStopLogic
-import daytrader.domain.InstanceStatus
-import daytrader.domain.InstanceRunStopAction
+import daytrader.domain.currentSessionTimestampIso
+import daytrader.domain.DeploymentSessionStopLogic
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.DeploymentSessionStopAction
 import daytrader.domain.SessionTrade
-import daytrader.domain.StrategyInstance
-import daytrader.domain.inProgressRun
-import daytrader.domain.onRunStopped
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.inProgressSession
+import daytrader.domain.onSessionStopped
 import daytrader.gateway.BrokerFill
 import daytrader.domain.resolveStopSnapshot
 import kotlinx.coroutines.CoroutineScope
@@ -24,9 +24,9 @@ import kotlinx.coroutines.launch
  * Auto-stops running instances: strategy-specific rules (e.g. Touch Turn 90m open deadline) and
  * shared trade-outcome completion when flat.
  */
-class InstanceRunStopWatcher(
+class DeploymentSessionStopWatcher(
     private val gateway: BrokerGateway,
-    private val repository: StrategyInstanceRepository,
+    private val repository: StrategyDeploymentRepository,
     private val scope: CoroutineScope
 ) {
     fun start() {
@@ -51,12 +51,12 @@ class InstanceRunStopWatcher(
         val positions = gateway.positions.value
         val openOrders = gateway.openOrders.value
         val fills = gateway.fills.value
-        for (instance in repository.instances.value) {
-            if (instance.status != InstanceStatus.RUNNING) continue
+        for (instance in repository.deployments.value) {
+            if (instance.status != DeploymentStatus.RUNNING) continue
             val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance.symbol, positions)
             val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, openOrders)
             val sessionTrades = sessionTradesForRun(instance, fills)
-            if (InstanceRunStopLogic.shouldStopAfterTradeOutcome(
+            if (DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                     instance = instance,
                     sessionTrades = sessionTrades,
                     hasOpenPosition = hasOpenPosition,
@@ -66,20 +66,20 @@ class InstanceRunStopWatcher(
                 stopInstance(instance, positions)
                 continue
             }
-            when (InstanceRunStopLogic.evaluateDeadlineForInstance(instance, now)) {
-                InstanceRunStopAction.STOP_AFTER_OPEN_DEADLINE -> stopInstance(instance, positions)
-                InstanceRunStopAction.CONTINUE,
-                InstanceRunStopAction.STOP_TRADE_OUTCOME_KNOWN,
+            when (DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, now)) {
+                DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE -> stopInstance(instance, positions)
+                DeploymentSessionStopAction.CONTINUE,
+                DeploymentSessionStopAction.STOP_TRADE_OUTCOME_KNOWN,
                 null -> Unit
             }
         }
     }
 
     private fun sessionTradesForRun(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         fills: List<BrokerFill>
     ): List<SessionTrade> {
-        val run = instance.inProgressRun() ?: return emptyList()
+        val run = instance.inProgressSession() ?: return emptyList()
         return SessionTradeMatcher.toSessionTrades(
             SessionTradeMatcher.fillsForSession(
                 symbol = instance.symbol,
@@ -90,11 +90,11 @@ class InstanceRunStopWatcher(
         )
     }
 
-    private fun stopInstance(instance: StrategyInstance, positions: List<AccountPosition>) {
+    private fun stopInstance(instance: StrategyDeployment, positions: List<AccountPosition>) {
         SessionStopOrderCleanup.flattenSymbolForSession(gateway, instance.symbol)
         val brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, positions)
-        val stoppedAt = currentRunTimestampIso()
-        val sessionTrades = SessionTradeMatcher.captureForRunStop(
+        val stoppedAt = currentSessionTimestampIso()
+        val sessionTrades = SessionTradeMatcher.captureForSessionStop(
             instance = instance,
             fills = gateway.fills.value,
             stoppedAt = stoppedAt
@@ -105,7 +105,7 @@ class InstanceRunStopWatcher(
                 brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
                 sessionTrades = sessionTrades
             )
-            current.onRunStopped(stoppedAt = stoppedAt, snapshot = snapshot)
+            current.onSessionStopped(stoppedAt = stoppedAt, snapshot = snapshot)
         }
         repository.flushPersistence()
     }

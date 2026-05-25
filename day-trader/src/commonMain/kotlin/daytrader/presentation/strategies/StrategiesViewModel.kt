@@ -3,31 +3,31 @@ package daytrader.presentation.strategies
 import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
-import daytrader.data.StrategyInstanceRepository
+import daytrader.data.StrategyDeploymentRepository
 import daytrader.broker.SessionTradeMatcher
-import daytrader.domain.currentRunTimestampIso
+import daytrader.domain.currentSessionTimestampIso
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.WorkingOrder
-import daytrader.data.InstanceRunController
-import daytrader.data.InstanceRunStopWatcher
+import daytrader.data.DeploymentSessionController
+import daytrader.data.DeploymentSessionStopWatcher
 import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.MarketOpenAutoStarter
 import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.TouchTurnSessionBootstrap
-import daytrader.domain.StrategyInstance
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
-import daytrader.domain.InstanceStatus
-import daytrader.domain.defaultStrategyInstance
-import daytrader.domain.duplicateStrategyInstance
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.defaultStrategyDeployment
+import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.resolveStopSnapshot
-import daytrader.domain.onRunStopped
-import daytrader.domain.withoutPerformanceRun
+import daytrader.domain.onSessionStopped
+import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.domain.withClosedPosition
 import daytrader.domain.withStopPrice
 import daytrader.platform.currentSessionDateIso
@@ -45,7 +45,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 
 class StrategiesViewModel(
-    private val repository: StrategyInstanceRepository,
+    private val repository: StrategyDeploymentRepository,
     private val appStateRepository: StrategiesAppStateRepository,
     private val marketFilter: MarketFilterState,
     private val brokerGateway: BrokerGateway? = null,
@@ -66,8 +66,8 @@ class StrategiesViewModel(
 
     private var appState = StrategiesAppState()
     private var showAddDialog = false
-    private var instances: List<StrategyInstance> = emptyList()
-    private var runSortColumn = RunSortColumn.START
+    private var deployments: List<StrategyDeployment> = emptyList()
+    private var runSortColumn = SessionHistorySortColumn.START
     private var runSortDirection = SortDirection.DESCENDING
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
@@ -75,7 +75,7 @@ class StrategiesViewModel(
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var startBlockedAlert: StartBlockedByPositionAlert? = null
     private var selectedMarketZoneId: String? = null
-    private var selectedPerformanceRunId: String? = null
+    private var selectedSessionHistoryId: String? = null
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
@@ -88,10 +88,10 @@ class StrategiesViewModel(
             }
             .launchIn(scope)
 
-        repository.instances
+        repository.deployments
             .onEach { list ->
-                instances = list
-                reconcileSelectedInstance(list)
+                deployments = list
+                reconcileSelectedDeployment(list)
             }
             .launchIn(scope)
 
@@ -102,7 +102,7 @@ class StrategiesViewModel(
             }
             .launchIn(scope)
 
-        instances = repository.instances.value
+        deployments = repository.deployments.value
         selectedMarketZoneId = marketFilter.selectedZoneId.value
         emitUiState()
 
@@ -141,21 +141,21 @@ class StrategiesViewModel(
             touchTurnBootstrap = touchTurnBootstrap,
             scope = scope,
             isGlobalAutoStartEnabled = { appState.globalAutoStartEnabled },
-            canStartInstance = { instance ->
+            canStartDeployment = { instance ->
                 when (brokerConnection) {
                     GatewayConnectionState.Connecting -> false
                     else -> !SymbolMarkets.hasOpenPosition(instance.symbol, brokerPositions)
                 }
             },
-            onInstanceAutoStarted = { instanceId ->
+            onDeploymentAutoStarted = { instanceId ->
                 appStateRepository.update {
-                    it.copy(selectedInstanceId = instanceId, detailTab = StrategyDetailTab.LIVE)
+                    it.copy(selectedDeploymentId = instanceId, detailTab = StrategyDetailTab.LIVE)
                 }
             }
         ).start()
 
         brokerGateway?.let { gateway ->
-            InstanceRunStopWatcher(gateway, repository, scope).start()
+            DeploymentSessionStopWatcher(gateway, repository, scope).start()
             PreMarketClosePositionWatcher(gateway, repository, scope).start()
         }
     }
@@ -168,8 +168,8 @@ class StrategiesViewModel(
         appStateRepository.update { it.copy(searchQuery = query) }
     }
 
-    fun onInstanceFilterChange(filter: InstanceFilter) {
-        appStateRepository.update { it.copy(instanceFilter = filter) }
+    fun onDeploymentFilterChange(filter: DeploymentFilter) {
+        appStateRepository.update { it.copy(deploymentFilter = filter) }
     }
 
     fun onStrategyTypeFilterChange(type: StrategyType?) {
@@ -181,24 +181,24 @@ class StrategiesViewModel(
         appStateRepository.update {
             it.copy(
                 searchQuery = "",
-                instanceFilter = InstanceFilter.ALL,
+                deploymentFilter = DeploymentFilter.ALL,
                 strategyTypeFilter = null
             )
         }
     }
 
-    fun onSelectInstance(id: String) {
-        selectedPerformanceRunId = null
+    fun onSelectDeployment(id: String) {
+        selectedSessionHistoryId = null
         appStateRepository.update {
             it.copy(
-                selectedInstanceId = id,
+                selectedDeploymentId = id,
                 detailTab = StrategyDetailTab.CONFIGURATION
             )
         }
     }
 
-    fun onSelectPerformanceRun(runId: String) {
-        selectedPerformanceRunId = if (selectedPerformanceRunId == runId) null else runId
+    fun onSelectSessionHistory(runId: String) {
+        selectedSessionHistoryId = if (selectedSessionHistoryId == runId) null else runId
         emitUiState()
     }
 
@@ -216,14 +216,14 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    fun onCreateInstance(
+    fun onCreateDeployment(
         strategyType: StrategyType,
         symbol: String,
         maxDollars: Int,
         autoStartOnMarketOpen: Boolean = false
     ) {
         if (symbol.isBlank() || maxDollars <= 0) return
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = strategyType,
             symbol = symbol,
             maxDollars = maxDollars
@@ -231,7 +231,7 @@ class StrategiesViewModel(
         repository.add(instance)
         appStateRepository.update {
             it.copy(
-                selectedInstanceId = instance.id,
+                selectedDeploymentId = instance.id,
                 detailTab = StrategyDetailTab.CONFIGURATION
             )
         }
@@ -244,10 +244,10 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    fun onToggleRun(id: String) {
+    fun onToggleSession(id: String) {
         val sessionDate = currentSessionDateIso()
-        val existing = repository.instances.value.find { it.id == id } ?: return
-        val wasRunning = existing.status == InstanceStatus.RUNNING
+        val existing = repository.deployments.value.find { it.id == id } ?: return
+        val wasRunning = existing.status == DeploymentStatus.RUNNING
         if (!wasRunning) {
             val blockingPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
             if (blockingPosition != null) {
@@ -262,9 +262,9 @@ class StrategiesViewModel(
             brokerGateway?.let { SessionStopOrderCleanup.flattenSymbolForSession(it, existing.symbol) }
         }
         repository.update(id) { current ->
-            if (current.status == InstanceStatus.RUNNING) {
-                val stoppedAt = currentRunTimestampIso()
-                val sessionTrades = SessionTradeMatcher.captureForRunStop(
+            if (current.status == DeploymentStatus.RUNNING) {
+                val stoppedAt = currentSessionTimestampIso()
+                val sessionTrades = SessionTradeMatcher.captureForSessionStop(
                     instance = current,
                     fills = brokerFills,
                     stoppedAt = stoppedAt
@@ -274,9 +274,9 @@ class StrategiesViewModel(
                     brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
                     sessionTrades = sessionTrades
                 )
-                current.onRunStopped(stoppedAt = stoppedAt, snapshot = snapshot)
+                current.onSessionStopped(stoppedAt = stoppedAt, snapshot = snapshot)
             } else {
-                InstanceRunController.start(
+                DeploymentSessionController.start(
                     instance = current,
                     sessionDate = sessionDate,
                     touchTurnBootstrap = touchTurnBootstrap,
@@ -285,19 +285,19 @@ class StrategiesViewModel(
             }
         }
         repository.flushPersistence()
-        syncInstancesFromRepository()
+        syncDeploymentsFromRepository()
         if (!wasRunning) {
             appStateRepository.update {
-                it.copy(selectedInstanceId = id, detailTab = StrategyDetailTab.LIVE)
+                it.copy(selectedDeploymentId = id, detailTab = StrategyDetailTab.LIVE)
             }
         } else {
             appStateRepository.update {
-                it.copy(selectedInstanceId = id, detailTab = StrategyDetailTab.PERFORMANCE)
+                it.copy(selectedDeploymentId = id, detailTab = StrategyDetailTab.SESSION_HISTORY)
             }
         }
     }
 
-    fun onRunHeaderClick(column: RunSortColumn) {
+    fun onSessionHistoryHeaderClick(column: SessionHistorySortColumn) {
         if (runSortColumn == column) {
             runSortDirection = if (runSortDirection == SortDirection.ASCENDING) {
                 SortDirection.DESCENDING
@@ -311,7 +311,7 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    fun onUpdateInstance(id: String, transform: (StrategyInstance) -> StrategyInstance) {
+    fun onUpdateDeployment(id: String, transform: (StrategyDeployment) -> StrategyDeployment) {
         repository.update(id, transform)
     }
 
@@ -334,56 +334,56 @@ class StrategiesViewModel(
     }
 
     fun onDuplicateSelected() {
-        val selected = instances.find { it.id == appState.selectedInstanceId } ?: return
-        val copy = duplicateStrategyInstance(selected)
+        val selected = deployments.find { it.id == appState.selectedDeploymentId } ?: return
+        val copy = duplicateStrategyDeployment(selected)
         repository.add(copy)
-        appStateRepository.update { it.copy(selectedInstanceId = copy.id) }
+        appStateRepository.update { it.copy(selectedDeploymentId = copy.id) }
     }
 
     fun onDeleteSelected() {
-        val id = appState.selectedInstanceId ?: return
+        val id = appState.selectedDeploymentId ?: return
         repository.remove(id)
     }
 
-    fun onDeletePerformanceRun(instanceId: String, runId: String) {
-        if (selectedPerformanceRunId == runId) selectedPerformanceRunId = null
-        repository.update(instanceId) { it.withoutPerformanceRun(runId) }
+    fun onDeleteSessionHistory(instanceId: String, runId: String) {
+        if (selectedSessionHistoryId == runId) selectedSessionHistoryId = null
+        repository.update(instanceId) { it.withoutSessionHistoryEntry(runId) }
         repository.flushPersistence()
-        syncInstancesFromRepository()
+        syncDeploymentsFromRepository()
     }
 
     fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
         StrategyCatalog.defaultMaxDollars(strategyType)
 
-    private fun reconcileSelectedInstance(list: List<StrategyInstance>) {
-        val current = appState.selectedInstanceId
+    private fun reconcileSelectedDeployment(list: List<StrategyDeployment>) {
+        val current = appState.selectedDeploymentId
         val validSelection = when {
             current != null && list.any { it.id == current } -> current
             else -> list.firstOrNull()?.id
         }
         if (validSelection != current) {
-            appStateRepository.update { it.copy(selectedInstanceId = validSelection) }
+            appStateRepository.update { it.copy(selectedDeploymentId = validSelection) }
         } else {
             emitUiState()
         }
     }
 
-    private fun syncInstancesFromRepository() {
-        instances = repository.instances.value
+    private fun syncDeploymentsFromRepository() {
+        deployments = repository.deployments.value
     }
 
     private fun emitUiState() {
-        syncInstancesFromRepository()
+        syncDeploymentsFromRepository()
         val state = appState
-        val filtered = instances.filter { instance ->
+        val filtered = deployments.filter { instance ->
             val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
             val matchesSearch = state.searchQuery.isBlank() ||
                 displayName.contains(state.searchQuery, ignoreCase = true) ||
                 instance.symbol.contains(state.searchQuery, ignoreCase = true)
-            val matchesFilter = when (state.instanceFilter) {
-                InstanceFilter.ALL -> true
-                InstanceFilter.RUNNING -> instance.status == InstanceStatus.RUNNING
-                InstanceFilter.STOPPED -> instance.status == InstanceStatus.STOPPED
+            val matchesFilter = when (state.deploymentFilter) {
+                DeploymentFilter.ALL -> true
+                DeploymentFilter.RUNNING -> instance.status == DeploymentStatus.RUNNING
+                DeploymentFilter.STOPPED -> instance.status == DeploymentStatus.STOPPED
             }
             val matchesStrategyType =
                 state.strategyTypeFilter == null || instance.strategyType == state.strategyTypeFilter
@@ -392,9 +392,9 @@ class StrategiesViewModel(
             matchesSearch && matchesFilter && matchesStrategyType && matchesMarket
         }
 
-        val selectedId = state.selectedInstanceId
+        val selectedId = state.selectedDeploymentId
         if (selectedId != null && filtered.none { it.id == selectedId }) {
-            appStateRepository.update { it.copy(selectedInstanceId = filtered.firstOrNull()?.id) }
+            appStateRepository.update { it.copy(selectedDeploymentId = filtered.firstOrNull()?.id) }
             return
         }
 
@@ -406,20 +406,20 @@ class StrategiesViewModel(
                 ?.totalUnrealizedPnL
         }
         val selectedCardPresentation = selected?.let { instance ->
-            InstanceCardStateMapper.resolve(
+            DeploymentCardStateMapper.resolve(
                 instance,
                 sessionDate,
                 selectedBrokerPnL,
                 brokerOpenOrders
             )
         }
-        val performance = selected?.let { instance ->
-            PerformanceUiMapper.build(
+        val sessionHistory = selected?.let { instance ->
+            SessionHistoryUiMapper.build(
                 instance = instance,
                 sessionDate = sessionDate,
                 sortColumn = runSortColumn,
                 sortDirection = runSortDirection,
-                selectedRunId = selectedPerformanceRunId
+                selectedRunId = selectedSessionHistoryId
             )
         }
 
@@ -435,7 +435,7 @@ class StrategiesViewModel(
             )
         }
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
-            state.instanceFilter != InstanceFilter.ALL ||
+            state.deploymentFilter != DeploymentFilter.ALL ||
             state.strategyTypeFilter != null ||
             selectedMarketZoneId != null
 
@@ -443,19 +443,19 @@ class StrategiesViewModel(
             StrategiesUiState(
                 filteredRows = listRows,
                 filteredCount = filtered.size,
-                totalCount = instances.size,
+                totalCount = deployments.size,
                 hasActiveFilters = hasActiveFilters,
                 selectedMarketZoneId = selectedMarketZoneId,
                 selectedMarketLabel = selectedMarketZoneId?.let(::marketLabelForZone),
-                selectedInstance = selected,
+                selectedDeployment = selected,
                 selectedCardPresentation = selectedCardPresentation,
                 searchQuery = state.searchQuery,
-                instanceFilter = state.instanceFilter,
+                deploymentFilter = state.deploymentFilter,
                 strategyTypeFilter = state.strategyTypeFilter,
                 detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
-                selectedInstanceId = selected?.id,
-                performance = performance,
+                selectedDeploymentId = selected?.id,
+                sessionHistory = sessionHistory,
                 liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState),
                 liveBroker = selected?.let { instance ->
                     LiveBrokerUiMapper.forSymbol(
@@ -466,7 +466,7 @@ class StrategiesViewModel(
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
-                    LiveSessionTradesUiMapper.forInstance(
+                    LiveSessionTradesUiMapper.forDeployment(
                         instance = instance,
                         liveFills = brokerFills,
                         brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)

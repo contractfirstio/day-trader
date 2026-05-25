@@ -15,8 +15,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import daytrader.presentation.strategies.RunTradeDetailUiState
-import daytrader.presentation.strategies.RunTradeFillUi
+import daytrader.presentation.strategies.SessionTradeDetailUiState
+import daytrader.presentation.strategies.SessionTradeFillUi
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
@@ -25,10 +25,10 @@ import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 
 @Composable
-fun RunTradeDetailPanel(
-    detail: RunTradeDetailUiState,
+fun SessionTradeDetailPanel(
+    detail: SessionTradeDetailUiState,
     modifier: Modifier = Modifier,
-    testTagPrefix: String = "RunTradeDetail"
+    testTagPrefix: String = "SessionTradeDetail"
 ) {
     Column(
         modifier = modifier
@@ -46,7 +46,7 @@ fun RunTradeDetailPanel(
 }
 
 @Composable
-private fun TradeDetailHero(detail: RunTradeDetailUiState, testTagPrefix: String) {
+private fun TradeDetailHero(detail: SessionTradeDetailUiState, testTagPrefix: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -110,7 +110,7 @@ private fun TradeDetailHero(detail: RunTradeDetailUiState, testTagPrefix: String
 }
 
 @Composable
-private fun TradeDetailPnLStrip(detail: RunTradeDetailUiState, testTagPrefix: String) {
+private fun TradeDetailPnLStrip(detail: SessionTradeDetailUiState, testTagPrefix: String) {
     val chips = buildList {
         if (detail.isOpen && detail.formattedRealizedPnL.isNotBlank()) {
             add(Triple("Realized", detail.formattedRealizedPnL, detail.isPositiveRealizedPnL))
@@ -150,7 +150,7 @@ private fun TradeDetailPnLStrip(detail: RunTradeDetailUiState, testTagPrefix: St
 }
 
 @Composable
-private fun TradeDetailPriceStrip(detail: RunTradeDetailUiState, testTagPrefix: String) {
+private fun TradeDetailPriceStrip(detail: SessionTradeDetailUiState, testTagPrefix: String) {
     if (!detail.showPriceStrip) return
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -193,7 +193,7 @@ private fun TradeDetailPriceStrip(detail: RunTradeDetailUiState, testTagPrefix: 
 }
 
 @Composable
-private fun TradeFillsTable(fills: List<RunTradeFillUi>, testTagPrefix: String) {
+private fun TradeFillsTable(fills: List<SessionTradeFillUi>, testTagPrefix: String) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -225,7 +225,7 @@ private fun TradeFillsTable(fills: List<RunTradeFillUi>, testTagPrefix: String) 
 }
 
 @Composable
-private fun TradeFillTableRow(fill: RunTradeFillUi, testTagPrefix: String) {
+private fun TradeFillTableRow(fill: SessionTradeFillUi, testTagPrefix: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -335,17 +335,17 @@ fun TradePnLChip(
     }
 }
 
-private val RunTradeDetailUiState.showPriceStrip: Boolean
+private val SessionTradeDetailUiState.showPriceStrip: Boolean
     get() = formattedEntryPrice != null
 
-private fun primaryPnLText(detail: RunTradeDetailUiState): String =
+private fun primaryPnLText(detail: SessionTradeDetailUiState): String =
     if (detail.isOpen) {
         detail.formattedUnrealizedPnL ?: detail.formattedRealizedPnL
     } else {
         detail.formattedRealizedPnL
     }
 
-private fun primaryPnLColor(detail: RunTradeDetailUiState): Color = when {
+private fun primaryPnLColor(detail: SessionTradeDetailUiState): Color = when {
     detail.isOpen -> if ((detail.unrealizedPnL ?: 0.0) >= 0) GainGreen else LossRed
     else -> if (detail.isPositiveRealizedPnL) GainGreen else LossRed
 }

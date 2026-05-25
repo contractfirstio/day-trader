@@ -3,11 +3,11 @@ package daytrader.presentation.strategies
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SessionTradePnL
 import daytrader.broker.SymbolMarkets
-import daytrader.domain.InstanceStatus
-import daytrader.domain.RunStatus
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
 import daytrader.domain.SessionTrade
-import daytrader.domain.StrategyInstance
-import daytrader.domain.inProgressRun
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.inProgressSession
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 
@@ -15,13 +15,13 @@ data class LiveSessionTradesUiState(
     val symbol: String,
     val runLabel: String?,
     val lifecycleLabel: String?,
-    val tradeDetail: RunTradeDetailUiState,
+    val tradeDetail: SessionTradeDetailUiState,
     val emptyMessage: String?
 )
 
 object LiveSessionTradesUiMapper {
-    fun forInstance(
-        instance: StrategyInstance,
+    fun forDeployment(
+        instance: StrategyDeployment,
         liveFills: List<BrokerFill>,
         brokerPosition: AccountPosition? = null
     ): LiveSessionTradesUiState? {
@@ -30,8 +30,8 @@ object LiveSessionTradesUiMapper {
             ?: liveFills.firstOrNull { SymbolMarkets.symbolsMatch(symbol, it.symbol) }?.currency
             ?: "USD"
         return when (instance.status) {
-            InstanceStatus.RUNNING -> {
-                val run = instance.inProgressRun() ?: return null
+            DeploymentStatus.RUNNING -> {
+                val run = instance.inProgressSession() ?: return null
                 val fills = SessionTradePnL.fillsForDisplay(
                     symbol = symbol,
                     startedAt = run.startedAt,
@@ -51,8 +51,8 @@ object LiveSessionTradesUiMapper {
                 )
             }
             else -> {
-                val lastRun = instance.performance
-                    .filter { it.status == RunStatus.CLOSED && it.sessionTrades.isNotEmpty() }
+                val lastRun = instance.sessionHistory
+                    .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
                     .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
                     ?: return null
                 val trades = lastRun.sessionTrades
@@ -92,7 +92,7 @@ object LiveSessionTradesUiMapper {
         unrealizedPnL: Double,
         currency: String
     ): LiveSessionTradesUiState? {
-        val tradeDetail = RunTradeDetailUiMapper.fromSessionTrades(
+        val tradeDetail = SessionTradeDetailUiMapper.fromSessionTrades(
             trades = trades,
             unrealizedPnL = unrealizedPnL,
             lifecycleLabel = lifecycleLabel,

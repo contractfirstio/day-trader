@@ -1,9 +1,9 @@
 package daytrader.domain
 
 /**
- * Captured when an instance run stops — persisted on the active [StrategyRun].
+ * Captured when an instance run stops — persisted on the active [StrategySession].
  */
-data class RunStopSnapshot(
+data class SessionStopSnapshot(
     /** Touch Turn: first 15m bar range exceeded 25% of ADR after close. Null for other strategies. */
     val hadLiquidityCandle: Boolean? = null,
     /** Touch Turn: bracket orders logged/placed after a liquidity bar closed. */
@@ -14,22 +14,22 @@ data class RunStopSnapshot(
     val sessionTrades: List<SessionTrade> = emptyList()
 )
 
-fun StrategyInstance.resolveStopSnapshot(
+fun StrategyDeployment.resolveStopSnapshot(
     hadOpenBrokerPosition: Boolean,
     brokerUnrealizedPnL: Double?,
     sessionTrades: List<SessionTrade> = emptyList()
-): RunStopSnapshot = when (strategyType) {
+): SessionStopSnapshot = when (strategyType) {
     StrategyType.TOUCH_AND_TURN_SCALPER ->
         touchTurnStopSnapshot(hadOpenBrokerPosition, brokerUnrealizedPnL, sessionTrades)
     StrategyType.QUICK_FLIP_SCALPER ->
         quickFlipStopSnapshot(hadOpenBrokerPosition, brokerUnrealizedPnL, sessionTrades)
 }
 
-private fun StrategyInstance.touchTurnStopSnapshot(
+private fun StrategyDeployment.touchTurnStopSnapshot(
     hadOpenBrokerPosition: Boolean,
     brokerUnrealizedPnL: Double?,
     sessionTrades: List<SessionTrade>
-): RunStopSnapshot {
+): SessionStopSnapshot {
     val session = touchTurnSession
     val hadLiquidity = session?.setup?.isLiquidityCandle == true
     val ordersPlaced = hadLiquidity &&
@@ -44,7 +44,7 @@ private fun StrategyInstance.touchTurnStopSnapshot(
     }
     val tradeCount = sessionTrades.size.takeIf { it > 0 }
         ?: if (positionOpened) 1 else 0
-    return RunStopSnapshot(
+    return SessionStopSnapshot(
         hadLiquidityCandle = hadLiquidity,
         ordersPlacedForCandle = ordersPlaced,
         positionOpened = positionOpened,
@@ -54,11 +54,11 @@ private fun StrategyInstance.touchTurnStopSnapshot(
     )
 }
 
-private fun StrategyInstance.quickFlipStopSnapshot(
+private fun StrategyDeployment.quickFlipStopSnapshot(
     hadOpenBrokerPosition: Boolean,
     brokerUnrealizedPnL: Double?,
     sessionTrades: List<SessionTrade>
-): RunStopSnapshot {
+): SessionStopSnapshot {
     val demoPosition = live.state == ExecutionState.FILLED
     val positionOpened = hadOpenBrokerPosition || demoPosition || sessionTrades.isNotEmpty()
     val realized = sessionTrades.sessionRealizedPnL()
@@ -69,8 +69,8 @@ private fun StrategyInstance.quickFlipStopSnapshot(
         else -> 0.0
     }
     val tradeCount = sessionTrades.size.takeIf { it > 0 }
-        ?: if (positionOpened) maxOf(inProgressRun()?.trades ?: 0, 1) else 0
-    return RunStopSnapshot(
+        ?: if (positionOpened) maxOf(inProgressSession()?.trades ?: 0, 1) else 0
+    return SessionStopSnapshot(
         hadLiquidityCandle = null,
         ordersPlacedForCandle = null,
         positionOpened = positionOpened,
@@ -80,7 +80,7 @@ private fun StrategyInstance.quickFlipStopSnapshot(
     )
 }
 
-private fun StrategyInstance.liveUnrealizedPnL(): Double {
+private fun StrategyDeployment.liveUnrealizedPnL(): Double {
     val entry = live.entryPrice ?: return 0.0
     val market = live.marketPrice ?: return 0.0
     val qty = live.quantity

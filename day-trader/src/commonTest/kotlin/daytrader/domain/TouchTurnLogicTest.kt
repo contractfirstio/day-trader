@@ -215,7 +215,7 @@ class TouchTurnLogicTest {
     fun entryOrdersPermitted_whenLiquidityActionableAfterBarClose() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0, time = "20250522  09:30:00")
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "700",
             maxDollars = 5000

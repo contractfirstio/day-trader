@@ -1,20 +1,20 @@
 package daytrader.data.persistence
 
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyInstance
-import daytrader.domain.StrategyRun
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.platform.AppFileSystem
 
-internal object LegacyInstancePersistence {
-    fun load(): List<StrategyInstance>? {
-        val document = JsonFileStore.readLegacyInstances() ?: return null
+internal object LegacyDeploymentPersistence {
+    fun load(): List<StrategyDeployment>? {
+        val document = JsonFileStore.readLegacyStrategyInstances() ?: return null
         if (document.instances.isEmpty()) return null
-        return document.instances.map(::migrateInstance)
+        return document.instances.map(::migrateDeployment)
     }
 
-    private fun migrateInstance(legacy: LegacyInstanceRecord): StrategyInstance {
-        val performance = legacy.runs.map { run ->
-            StrategyRun(
+    private fun migrateDeployment(legacy: LegacyDeploymentRecord): StrategyDeployment {
+        val sessionHistory = legacy.runs.map { run ->
+            StrategySession(
                 id = run.id,
                 date = run.sessionDate,
                 pnl = run.pnl,
@@ -23,7 +23,7 @@ internal object LegacyInstancePersistence {
                 status = run.status
             )
         }.map { day ->
-            if (day.status == RunStatus.IN_PROGRESS) {
+            if (day.status == SessionStatus.IN_PROGRESS) {
                 day.copy(
                     pnl = legacy.todayPnL,
                     trades = legacy.tradesToday.coerceAtLeast(day.trades)
@@ -32,14 +32,14 @@ internal object LegacyInstancePersistence {
                 day
             }
         }
-        return StrategyInstance(
+        return StrategyDeployment(
             id = legacy.id,
             strategyType = legacy.strategyType,
             status = legacy.status,
             symbol = legacy.symbol,
             maxDollars = legacy.maxDollars,
             live = legacy.activeExecution,
-            performance = performance
+            sessionHistory = sessionHistory
         )
     }
 }
@@ -48,7 +48,7 @@ internal object LegacyStrategiesScreenPersistence {
     fun load(): StrategiesScreenDocument? {
         val legacy = JsonFileStore.readLegacyStrategiesScreen() ?: return null
         return StrategiesScreenDocument(
-            selectedInstanceId = legacy.selectedInstanceId,
+            selectedDeploymentId = legacy.selectedDeploymentId ?: legacy.selectedInstanceId,
             detailTab = when (legacy.detailTab.uppercase()) {
                 "ACTIVITY" -> "live"
                 else -> legacy.detailTab.lowercase()

@@ -8,7 +8,7 @@ import daytrader.domain.sessionRealizedPnL
 import daytrader.broker.SessionTradePnL
 import daytrader.presentation.Formatters
 
-data class RunTradeFillUi(
+data class SessionTradeFillUi(
     val execId: String,
     val roleLabel: String,
     val sideLabel: String,
@@ -19,7 +19,7 @@ data class RunTradeFillUi(
     val isPositivePnL: Boolean
 )
 
-data class RunTradeDetailUiState(
+data class SessionTradeDetailUiState(
     val sideLabel: String,
     val isLong: Boolean,
     val isOpen: Boolean,
@@ -36,17 +36,17 @@ data class RunTradeDetailUiState(
     val formattedSessionPnL: String?,
     val sessionPnL: Double?,
     val isPositiveSessionPnL: Boolean?,
-    val fills: List<RunTradeFillUi>,
+    val fills: List<SessionTradeFillUi>,
     val emptyMessage: String?
 )
 
-object RunTradeDetailUiMapper {
+object SessionTradeDetailUiMapper {
     fun fromSessionTrades(
         trades: List<SessionTrade>,
         unrealizedPnL: Double = 0.0,
         lifecycleLabel: String? = null,
         runLabel: String? = null
-    ): RunTradeDetailUiState? {
+    ): SessionTradeDetailUiState? {
         if (trades.isEmpty()) return null
         val details = SessionTradeDetailsBuilder.build(trades) ?: return null
         val currency = details.currency
@@ -59,7 +59,7 @@ object RunTradeDetailUiMapper {
         }
         val detailLine = formatDetailLine(details, currency)
         val fills = SessionTradeDetailsBuilder.fillDisplays(trades).map { toFillUi(it) }
-        return RunTradeDetailUiState(
+        return SessionTradeDetailUiState(
             sideLabel = details.sideLabel,
             isLong = details.sideLabel == "Long",
             isOpen = details.isOpen,
@@ -112,9 +112,9 @@ object RunTradeDetailUiMapper {
         }
     }
 
-    private fun toFillUi(fill: SessionFillDisplay): RunTradeFillUi {
+    private fun toFillUi(fill: SessionFillDisplay): SessionTradeFillUi {
         val pnl = fill.realizedPnL
-        return RunTradeFillUi(
+        return SessionTradeFillUi(
             execId = fill.execId,
             roleLabel = fill.roleLabel,
             sideLabel = fill.actionLabel,

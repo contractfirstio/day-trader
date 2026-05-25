@@ -4,112 +4,112 @@ import daytrader.gateway.WorkingOrder
 import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyInstance
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.riskReward
 
-object InstanceCardStateMapper {
+object DeploymentCardStateMapper {
     private const val NEUTRAL_PNL_EPSILON = 0.005
 
     fun resolve(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
         brokerOpenOrders: List<WorkingOrder> = emptyList()
-    ): InstanceCardPresentation {
-        if (instance.status == InstanceStatus.ERROR) {
-            return InstanceCardPresentation(
-                accent = InstanceCardAccent.ERROR,
+    ): DeploymentCardPresentation {
+        if (instance.status == DeploymentStatus.ERROR) {
+            return DeploymentCardPresentation(
+                accent = DeploymentCardAccent.ERROR,
                 chipLabel = "Error"
             )
         }
         openOrdersPresentation(instance, brokerOpenOrders)?.let { return it }
         return when (instance.status) {
-            InstanceStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
-            InstanceStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
-            InstanceStatus.ERROR -> InstanceCardPresentation(
-                accent = InstanceCardAccent.ERROR,
+            DeploymentStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
+            DeploymentStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
+            DeploymentStatus.ERROR -> DeploymentCardPresentation(
+                accent = DeploymentCardAccent.ERROR,
                 chipLabel = "Error"
             )
         }
     }
 
     private fun openOrdersPresentation(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         brokerOpenOrders: List<WorkingOrder>
-    ): InstanceCardPresentation? {
+    ): DeploymentCardPresentation? {
         val orders = SymbolMarkets.openOrdersForSymbol(instance.symbol, brokerOpenOrders)
         if (orders.isEmpty()) return null
         val chipLabel = when (orders.size) {
             1 -> "Open order"
             else -> "${orders.size} open orders"
         }
-        return InstanceCardPresentation(
-            accent = InstanceCardAccent.OPEN_ORDERS,
+        return DeploymentCardPresentation(
+            accent = DeploymentCardAccent.OPEN_ORDERS,
             chipLabel = chipLabel
         )
     }
 
     private fun stoppedPresentation(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String
-    ): InstanceCardPresentation {
+    ): DeploymentCardPresentation {
         val run = lastClosedRunForSession(instance, sessionDate)
         if (run == null) {
-            return InstanceCardPresentation(
-                accent = InstanceCardAccent.STOPPED_IDLE,
+            return DeploymentCardPresentation(
+                accent = DeploymentCardAccent.STOPPED_IDLE,
                 chipLabel = "Stopped"
             )
         }
         return when {
-            run.pnl > NEUTRAL_PNL_EPSILON -> InstanceCardPresentation(
-                accent = InstanceCardAccent.STOPPED_WIN,
+            run.pnl > NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
+                accent = DeploymentCardAccent.STOPPED_WIN,
                 chipLabel = "Win"
             )
-            run.pnl < -NEUTRAL_PNL_EPSILON -> InstanceCardPresentation(
-                accent = InstanceCardAccent.STOPPED_LOSS,
+            run.pnl < -NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
+                accent = DeploymentCardAccent.STOPPED_LOSS,
                 chipLabel = "Loss"
             )
-            else -> InstanceCardPresentation(
-                accent = InstanceCardAccent.STOPPED_NEUTRAL,
+            else -> DeploymentCardPresentation(
+                accent = DeploymentCardAccent.STOPPED_NEUTRAL,
                 chipLabel = "Neutral"
             )
         }
     }
 
     private fun runningPresentation(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         brokerUnrealizedPnL: Double?
-    ): InstanceCardPresentation {
+    ): DeploymentCardPresentation {
         if (instance.live.state != ExecutionState.FILLED) {
-            return InstanceCardPresentation(
-                accent = InstanceCardAccent.RUNNING_FLAT,
+            return DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_FLAT,
                 chipLabel = "Active"
             )
         }
         val unrealized = openPositionUnrealizedPnL(instance, brokerUnrealizedPnL)
         if (unrealized == null) {
-            return InstanceCardPresentation(
-                accent = InstanceCardAccent.RUNNING_FLAT,
+            return DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_FLAT,
                 chipLabel = "Active"
             )
         }
         return if (unrealized >= 0) {
-            InstanceCardPresentation(
-                accent = InstanceCardAccent.RUNNING_IN_THE_MONEY,
+            DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_IN_THE_MONEY,
                 chipLabel = "In the money"
             )
         } else {
-            InstanceCardPresentation(
-                accent = InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY,
+            DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY,
                 chipLabel = "Out of the money"
             )
         }
     }
 
     private fun openPositionUnrealizedPnL(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         brokerUnrealizedPnL: Double?
     ): Double? {
         if (brokerUnrealizedPnL != null) return brokerUnrealizedPnL
@@ -120,9 +120,9 @@ object InstanceCardStateMapper {
     }
 
     private fun lastClosedRunForSession(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String
-    ) = instance.performance
-        .filter { it.status == RunStatus.CLOSED && it.date == sessionDate }
+    ) = instance.sessionHistory
+        .filter { it.status == SessionStatus.CLOSED && it.date == sessionDate }
         .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
 }

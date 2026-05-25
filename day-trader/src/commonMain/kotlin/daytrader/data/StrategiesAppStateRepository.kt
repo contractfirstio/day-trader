@@ -7,7 +7,7 @@ import daytrader.data.persistence.LegacyStrategiesScreenPersistence
 import daytrader.data.persistence.StrategiesAppStatePersistence
 import daytrader.domain.StrategyType
 import daytrader.platform.AppFileSystem
-import daytrader.presentation.strategies.InstanceFilter
+import daytrader.presentation.strategies.DeploymentFilter
 import daytrader.presentation.strategies.StrategyDetailTab
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,9 +18,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 data class StrategiesAppState(
-    val selectedInstanceId: String? = null,
+    val selectedDeploymentId: String? = null,
     val searchQuery: String = "",
-    val instanceFilter: InstanceFilter = InstanceFilter.ALL,
+    val deploymentFilter: DeploymentFilter = DeploymentFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     /** Master switch: when false, no deployment auto-starts at market open. */

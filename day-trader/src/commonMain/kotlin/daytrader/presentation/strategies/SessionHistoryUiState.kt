@@ -2,11 +2,11 @@ package daytrader.presentation.strategies
 
 import daytrader.presentation.positions.SortDirection
 
-enum class RunSortColumn {
+enum class SessionHistorySortColumn {
     START, STOP, LIQUIDITY, ORDERS, PNL
 }
 
-data class StrategyRunRowUi(
+data class StrategySessionRowUi(
     val id: String,
     val formattedStartTime: String,
     val formattedStopTime: String,
@@ -23,15 +23,15 @@ data class StrategyRunRowUi(
     val isSelected: Boolean = false
 )
 
-data class PerformanceUiState(
+data class SessionHistoryUiState(
     val rollup7d: String,
     val rollup14d: String,
     val rollup30d: String,
     val winRate: String,
-    val rows: List<StrategyRunRowUi>,
-    val sortColumn: RunSortColumn,
+    val rows: List<StrategySessionRowUi>,
+    val sortColumn: SessionHistorySortColumn,
     val sortDirection: SortDirection,
     val includeTouchTurnFields: Boolean = false,
     val selectedRunId: String? = null,
-    val selectedRunTradeDetail: RunTradeDetailUiState? = null
+    val selectedSessionTradeDetail: SessionTradeDetailUiState? = null
 )

@@ -12,12 +12,15 @@ object JsonFileStore {
         encodeDefaults = false
     }
 
-    fun readInstances(): InstancesDocument? =
-        read<InstancesDocument>(AppDataFiles.INSTANCES)
+    fun readDeployments(): DeploymentsDocument? =
+        read<DeploymentsDocument>(AppDataFiles.DEPLOYMENTS)
 
-    fun writeInstances(document: InstancesDocument) {
-        write(AppDataFiles.INSTANCES, document)
+    fun writeDeployments(document: DeploymentsDocument) {
+        write(AppDataFiles.DEPLOYMENTS, document)
     }
+
+    internal fun readLegacyInstancesJson(): LegacyInstancesJsonDocument? =
+        read<LegacyInstancesJsonDocument>(AppDataFiles.LEGACY_INSTANCES_JSON)
 
     fun readStrategiesScreen(): StrategiesScreenDocument? =
         read<StrategiesScreenDocument>(AppDataFiles.STRATEGIES_SCREEN)
@@ -26,8 +29,8 @@ object JsonFileStore {
         write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
 
-    internal fun readLegacyInstances(): LegacyInstancesDocument? =
-        read<LegacyInstancesDocument>(AppDataFiles.LEGACY_STRATEGY_INSTANCES)
+    internal fun readLegacyStrategyInstances(): LegacyDeploymentsDocument? =
+        read<LegacyDeploymentsDocument>(AppDataFiles.LEGACY_STRATEGY_INSTANCES)
 
     internal fun readLegacyStrategiesScreen(): LegacyStrategiesScreenDocument? =
         read<LegacyStrategiesScreenDocument>(AppDataFiles.LEGACY_STRATEGIES_APP_STATE)

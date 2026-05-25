@@ -1,7 +1,7 @@
 package daytrader.presentation
 
 import daytrader.domain.CurrencyCodes
-import daytrader.domain.RunStatus
+import daytrader.domain.SessionStatus
 
 object Formatters {
     fun currency(amount: Double, showSign: Boolean = false): String =
@@ -80,7 +80,7 @@ object Formatters {
         date: String,
         startedAt: String,
         stoppedAt: String,
-        status: RunStatus
+        status: SessionStatus
     ): String {
         val day = sessionDateLabel(date)
         val startTime = startedAt.runTimeFromIso()
@@ -91,9 +91,9 @@ object Formatters {
             else -> null
         }
         return when {
-            status == RunStatus.IN_PROGRESS && timeRange != null ->
+            status == SessionStatus.IN_PROGRESS && timeRange != null ->
                 "$day · $timeRange · In progress"
-            status == RunStatus.IN_PROGRESS -> "$day · In progress"
+            status == SessionStatus.IN_PROGRESS -> "$day · In progress"
             timeRange != null -> "$day · $timeRange"
             else -> day
         }

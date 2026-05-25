@@ -3,7 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.gateway.AccountPosition
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.StrategyType
-import daytrader.domain.defaultStrategyInstance
+import daytrader.domain.defaultStrategyDeployment
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -11,7 +11,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class StartBlockedAlertMapperTest {
-    private val instance = defaultStrategyInstance(
+    private val instance = defaultStrategyDeployment(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         symbol = "700",
         maxDollars = 500

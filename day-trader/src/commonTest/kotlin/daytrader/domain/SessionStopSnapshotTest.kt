@@ -4,14 +4,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class RunStopSnapshotTest {
+class SessionStopSnapshotTest {
     @Test
     fun touchTurnSnapshot_capturesLiquidityOrdersPositionAndPnl() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "700",
             maxDollars = 500
-        ).onRunStarted("2026-05-22").copy(
+        ).onSessionStarted("2026-05-22").copy(
             touchTurnSession = TouchTurnSessionContext(
                 sessionDate = "2026-05-22",
                 status = TouchTurnCandleStatus.READY,
@@ -42,7 +42,7 @@ class RunStopSnapshotTest {
 
     @Test
     fun touchTurnSnapshot_noLiquidity_noOrders() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "700",
             maxDollars = 500
@@ -76,15 +76,15 @@ class RunStopSnapshotTest {
     }
 
     @Test
-    fun onRunStopped_persistsSnapshotOnPerformanceRow() {
-        val instance = defaultStrategyInstance(
+    fun onSessionStopped_persistsSnapshotOnPerformanceRow() {
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "700",
             maxDollars = 500
-        ).onRunStarted("2026-05-22")
+        ).onSessionStarted("2026-05-22")
 
-        val stopped = instance.onRunStopped(
-            snapshot = RunStopSnapshot(
+        val stopped = instance.onSessionStopped(
+            snapshot = SessionStopSnapshot(
                 hadLiquidityCandle = true,
                 ordersPlacedForCandle = true,
                 positionOpened = false,
@@ -93,7 +93,7 @@ class RunStopSnapshotTest {
             )
         )
 
-        val closed = stopped.performance.single()
+        val closed = stopped.sessionHistory.single()
         assertEquals(true, closed.hadLiquidityCandle)
         assertEquals(true, closed.ordersPlacedForCandle)
         assertEquals(false, closed.positionOpened)
@@ -102,7 +102,7 @@ class RunStopSnapshotTest {
 
     @Test
     fun quickFlipSnapshot_hasNoTouchTurnFields() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.QUICK_FLIP_SCALPER,
             symbol = "SPY",
             maxDollars = 250

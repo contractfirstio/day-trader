@@ -4,18 +4,18 @@ import daytrader.domain.StrategyType
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class InstancesDocument(
-    val instances: List<InstanceRecord> = emptyList()
+data class DeploymentsDocument(
+    val deployments: List<DeploymentRecord> = emptyList()
 )
 
 @Serializable
-data class InstanceRecord(
+data class DeploymentRecord(
     val id: String,
     val strategy: StrategyType,
     val status: String,
     val configuration: ConfigurationRecord,
     val live: LiveRecord,
-    val performance: List<PerformanceDayRecord> = emptyList(),
+    val sessionHistory: List<SessionHistoryRecord> = emptyList(),
     val touchTurnSession: TouchTurnSessionRecord? = null
 )
 
@@ -78,7 +78,7 @@ data class LiveRecord(
 )
 
 @Serializable
-data class PerformanceDayRecord(
+data class SessionHistoryRecord(
     val id: String,
     val date: String,
     val startedAt: String = "",
@@ -110,6 +110,8 @@ data class SessionTradeRecord(
 
 @Serializable
 data class StrategiesScreenDocument(
+    val selectedDeploymentId: String? = null,
+    /** Legacy key from pre-refactor `strategies-screen.json`; cleared on next save. */
     val selectedInstanceId: String? = null,
     val detailTab: String = "configuration",
     val globalAutoStartEnabled: Boolean = true

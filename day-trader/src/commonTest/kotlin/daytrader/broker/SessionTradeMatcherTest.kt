@@ -1,9 +1,9 @@
 package daytrader.broker
 
-import daytrader.domain.InstanceStatus
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyInstance
-import daytrader.domain.StrategyRun
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.ActiveExecution
 import daytrader.gateway.BrokerFill
@@ -30,29 +30,29 @@ class SessionTradeMatcherTest {
     }
 
     @Test
-    fun captureForRunStop_usesInProgressRunWindow() {
-        val instance = StrategyInstance(
+    fun captureForSessionStop_usesInProgressRunWindow() {
+        val instance = StrategyDeployment(
             id = "i1",
             strategyType = StrategyType.QUICK_FLIP_SCALPER,
-            status = InstanceStatus.RUNNING,
+            status = DeploymentStatus.RUNNING,
             symbol = "AAPL",
             maxDollars = 500,
-            performance = listOf(
-                StrategyRun(
+            sessionHistory = listOf(
+                StrategySession(
                     id = "r1",
                     date = "2026-05-25",
                     startedAt = "2026-05-25T10:00:00",
                     pnl = 0.0,
                     trades = 0,
                     maxAtRisk = 500,
-                    status = RunStatus.IN_PROGRESS
+                    status = SessionStatus.IN_PROGRESS
                 )
             )
         )
         val fills = listOf(
             fill(symbol = "AAPL", time = "2026-05-25T10:15:00", execId = "e1", realized = 12.5)
         )
-        val trades = SessionTradeMatcher.captureForRunStop(
+        val trades = SessionTradeMatcher.captureForSessionStop(
             instance = instance,
             fills = fills,
             stoppedAt = "2026-05-25T10:20:00"
@@ -63,16 +63,16 @@ class SessionTradeMatcherTest {
     }
 
     @Test
-    fun captureForRunStop_returnsEmptyWhenNoInProgressRun() {
-        val instance = StrategyInstance(
+    fun captureForSessionStop_returnsEmptyWhenNoInProgressRun() {
+        val instance = StrategyDeployment(
             id = "i1",
             strategyType = StrategyType.QUICK_FLIP_SCALPER,
-            status = InstanceStatus.STOPPED,
+            status = DeploymentStatus.STOPPED,
             symbol = "AAPL",
             maxDollars = 500
         )
         assertTrue(
-            SessionTradeMatcher.captureForRunStop(
+            SessionTradeMatcher.captureForSessionStop(
                 instance = instance,
                 fills = listOf(fill(symbol = "AAPL", time = "2026-05-25T10:00:00", execId = "e1")),
                 stoppedAt = "2026-05-25T10:30:00"

@@ -2,52 +2,52 @@ package daytrader.data
 
 import daytrader.domain.ActiveExecution
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyRun
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
-import daytrader.domain.defaultStrategyInstance
-import daytrader.domain.newStrategyRunId
+import daytrader.domain.defaultStrategyDeployment
+import daytrader.domain.newStrategySessionId
 
 private const val MOCK_TODAY = "2026-05-21"
 
-private fun mockPerformance(
+private fun mockSessionHistory(
     history: List<Triple<String, Double, Int>>,
     inProgress: Triple<String, Double, Int>? = null
-): List<StrategyRun> {
+): List<StrategySession> {
     val closed = history.map { (date, pnl, trades) ->
-        StrategyRun(
-            id = newStrategyRunId(),
+        StrategySession(
+            id = newStrategySessionId(),
             date = date,
             pnl = pnl,
             trades = trades,
             maxAtRisk = 0,
-            status = RunStatus.CLOSED
+            status = SessionStatus.CLOSED
         )
     }
     val live = inProgress?.let { (date, pnl, trades) ->
-        StrategyRun(
-            id = newStrategyRunId(),
+        StrategySession(
+            id = newStrategySessionId(),
             date = date,
             pnl = pnl,
             trades = trades,
             maxAtRisk = 0,
-            status = RunStatus.IN_PROGRESS
+            status = SessionStatus.IN_PROGRESS
         )
     }
     return closed + listOfNotNull(live)
 }
 
-fun mockStrategyInstances() = listOf(
-    defaultStrategyInstance(
+fun mockStrategyDeployments() = listOf(
+    defaultStrategyDeployment(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         symbol = "SPY",
         maxDollars = 500,
-        status = InstanceStatus.RUNNING
+        status = DeploymentStatus.RUNNING
     ).let { instance ->
         instance.copy(
-            performance = mockPerformance(
+            sessionHistory = mockSessionHistory(
                 history = listOf(
                     Triple("2026-05-19", 88.00, 5),
                     Triple("2026-05-20", 52.25, 4)
@@ -69,14 +69,14 @@ fun mockStrategyInstances() = listOf(
             )
         )
     },
-    defaultStrategyInstance(
+    defaultStrategyDeployment(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         symbol = "QQQ",
         maxDollars = 350,
-        status = InstanceStatus.STOPPED
+        status = DeploymentStatus.STOPPED
     ).let { instance ->
         instance.copy(
-            performance = mockPerformance(
+            sessionHistory = mockSessionHistory(
                 history = listOf(
                     Triple("2026-05-19", 41.00, 2),
                     Triple("2026-05-20", -28.00, 3),
@@ -86,14 +86,14 @@ fun mockStrategyInstances() = listOf(
             live = ActiveExecution.flat(updatedAt = "11:52:18")
         )
     },
-    defaultStrategyInstance(
+    defaultStrategyDeployment(
         strategyType = StrategyType.QUICK_FLIP_SCALPER,
         symbol = "NVDA",
         maxDollars = 250,
-        status = InstanceStatus.STOPPED
+        status = DeploymentStatus.STOPPED
     ).let { instance ->
         instance.copy(
-            performance = mockPerformance(
+            sessionHistory = mockSessionHistory(
                 history = listOf(
                     Triple("2026-05-17", 31.00, 8),
                     Triple("2026-05-19", -18.00, 6),

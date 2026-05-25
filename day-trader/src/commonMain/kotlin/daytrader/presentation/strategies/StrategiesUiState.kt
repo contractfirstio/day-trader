@@ -1,9 +1,9 @@
 package daytrader.presentation.strategies
 
-import daytrader.domain.StrategyInstance
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 
-enum class InstanceFilter {
+enum class DeploymentFilter {
     ALL,
     RUNNING,
     STOPPED
@@ -12,15 +12,15 @@ enum class InstanceFilter {
 enum class StrategyDetailTab {
     CONFIGURATION,
     LIVE,
-    PERFORMANCE
+    SESSION_HISTORY
 }
 
-data class StrategyInstanceRowUi(
+data class StrategyDeploymentRowUi(
     val id: String,
     val name: String,
     val strategyTypeLabel: String,
-    val status: daytrader.domain.InstanceStatus,
-    val cardAccent: InstanceCardAccent,
+    val status: daytrader.domain.DeploymentStatus,
+    val cardAccent: DeploymentCardAccent,
     val statusChipLabel: String,
     val formattedTotalPnL: String,
     val isPositiveTotalPnL: Boolean,
@@ -40,21 +40,21 @@ data class StrategyInstanceRowUi(
 )
 
 data class StrategiesUiState(
-    val filteredRows: List<StrategyInstanceRowUi> = emptyList(),
+    val filteredRows: List<StrategyDeploymentRowUi> = emptyList(),
     val filteredCount: Int = 0,
     val totalCount: Int = 0,
     val hasActiveFilters: Boolean = false,
     val selectedMarketZoneId: String? = null,
     val selectedMarketLabel: String? = null,
-    val selectedInstance: StrategyInstance? = null,
-    val selectedCardPresentation: InstanceCardPresentation? = null,
+    val selectedDeployment: StrategyDeployment? = null,
+    val selectedCardPresentation: DeploymentCardPresentation? = null,
     val searchQuery: String = "",
-    val instanceFilter: InstanceFilter = InstanceFilter.ALL,
+    val deploymentFilter: DeploymentFilter = DeploymentFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     val showAddDialog: Boolean = false,
-    val selectedInstanceId: String? = null,
-    val performance: PerformanceUiState? = null,
+    val selectedDeploymentId: String? = null,
+    val sessionHistory: SessionHistoryUiState? = null,
     val liveExecution: LiveExecutionUiState? = null,
     val liveBroker: LiveBrokerUiState? = null,
     val liveSessionTrades: LiveSessionTradesUiState? = null,

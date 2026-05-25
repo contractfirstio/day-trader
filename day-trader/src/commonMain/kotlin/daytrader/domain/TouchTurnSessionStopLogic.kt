@@ -7,8 +7,8 @@ import daytrader.data.StrategyCatalog
  * Touch Turn–specific run lifecycle rules (e.g. auto-stop [StrategyCatalog.stopAfterMinOpen]
  * minutes after RTH open using the first 15-minute candle anchor).
  */
-object TouchTurnRunStopLogic {
-    fun sessionOpenEpochMillis(instance: StrategyInstance, sessionDateIso: String): Long? {
+object TouchTurnSessionStopLogic {
+    fun sessionOpenEpochMillis(instance: StrategyDeployment, sessionDateIso: String): Long? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         val zoneId = SymbolMarkets.zoneId(instance.symbol)
         val barTime = instance.touchTurnSession?.candle?.time
@@ -16,17 +16,17 @@ object TouchTurnRunStopLogic {
     }
 
     fun evaluateOpenDeadline(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         nowEpochMillis: Long = System.currentTimeMillis()
-    ): InstanceRunStopAction? {
+    ): DeploymentSessionStopAction? {
         val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(instance.strategyType) ?: return null
-        val sessionDate = InstanceRunStopLogic.sessionDateForRunningInstance(instance) ?: return null
+        val sessionDate = DeploymentSessionStopLogic.sessionDateForRunningInstance(instance) ?: return null
         val open = sessionOpenEpochMillis(instance, sessionDate) ?: return null
         val stopDeadline = open + stopAfterMinOpen * 60_000L
         return if (nowEpochMillis < stopDeadline) {
-            InstanceRunStopAction.CONTINUE
+            DeploymentSessionStopAction.CONTINUE
         } else {
-            InstanceRunStopAction.STOP_AFTER_OPEN_DEADLINE
+            DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE
         }
     }
 

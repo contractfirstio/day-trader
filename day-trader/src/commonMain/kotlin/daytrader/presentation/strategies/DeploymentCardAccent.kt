@@ -1,7 +1,7 @@
 package daytrader.presentation.strategies
 
 /** Visual accent for instance list/detail cards (border, surface, status chip). */
-enum class InstanceCardAccent {
+enum class DeploymentCardAccent {
     ERROR,
     STOPPED_IDLE,
     STOPPED_WIN,
@@ -14,18 +14,18 @@ enum class InstanceCardAccent {
     OPEN_ORDERS
 }
 
-data class InstanceCardPresentation(
-    val accent: InstanceCardAccent,
+data class DeploymentCardPresentation(
+    val accent: DeploymentCardAccent,
     val chipLabel: String
 )
 
 /** Active / in-between states pulse; settled win and loss stay solid. */
-val InstanceCardAccent.isPulsing: Boolean
+val DeploymentCardAccent.isPulsing: Boolean
     get() = when (this) {
-        InstanceCardAccent.RUNNING_FLAT,
-        InstanceCardAccent.RUNNING_IN_THE_MONEY,
-        InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY,
-        InstanceCardAccent.STOPPED_NEUTRAL,
-        InstanceCardAccent.OPEN_ORDERS -> true
+        DeploymentCardAccent.RUNNING_FLAT,
+        DeploymentCardAccent.RUNNING_IN_THE_MONEY,
+        DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY,
+        DeploymentCardAccent.STOPPED_NEUTRAL,
+        DeploymentCardAccent.OPEN_ORDERS -> true
         else -> false
     }

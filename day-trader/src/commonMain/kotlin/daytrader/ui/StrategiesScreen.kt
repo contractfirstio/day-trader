@@ -34,8 +34,8 @@ import androidx.compose.ui.unit.sp
 import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
-import daytrader.domain.StrategyInstance
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.FirstCandleColor
@@ -43,8 +43,8 @@ import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
-import daytrader.domain.InstanceRunStopLogic
-import daytrader.domain.TouchTurnRunStopLogic
+import daytrader.domain.DeploymentSessionStopLogic
+import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
 import kotlinx.coroutines.delay
@@ -57,10 +57,10 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
     val uiState by viewModel.uiState.collectAsState()
 
     if (uiState.showAddDialog) {
-        AddStrategyInstanceDialog(
+        AddStrategyDeploymentDialog(
             onDismiss = viewModel::onDismissAddDialog,
             defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
-            onCreate = viewModel::onCreateInstance
+            onCreate = viewModel::onCreateDeployment
         )
     }
 
@@ -86,7 +86,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         if (uiState.hasActiveFilters) {
             ActiveFiltersBanner(
                 searchQuery = uiState.searchQuery,
-                instanceFilter = uiState.instanceFilter,
+                deploymentFilter = uiState.deploymentFilter,
                 strategyTypeFilter = uiState.strategyTypeFilter,
                 selectedMarketLabel = uiState.selectedMarketLabel,
                 filteredCount = uiState.filteredCount,
@@ -96,9 +96,9 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             Spacer(modifier = Modifier.height(10.dp))
         }
 
-        InstanceFilterRow(
-            filter = uiState.instanceFilter,
-            onFilterChange = viewModel::onInstanceFilterChange,
+        DeploymentFilterRow(
+            filter = uiState.deploymentFilter,
+            onFilterChange = viewModel::onDeploymentFilterChange,
             filteredCount = uiState.filteredCount,
             totalCount = uiState.totalCount,
             hasActiveFilters = uiState.hasActiveFilters
@@ -121,7 +121,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
                     .background(SurfaceDark, RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .testTag("StrategyInstanceList")
+                    .testTag("StrategyDeploymentList")
             ) {
                 Text(
                     if (uiState.hasActiveFilters) {
@@ -149,14 +149,14 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         items(uiState.filteredRows, key = { it.id }) { row ->
-                            StrategyInstanceCard(
+                            StrategyDeploymentCard(
                                 row = row,
-                                isSelected = row.id == uiState.selectedInstanceId,
-                                onSelect = { viewModel.onSelectInstance(row.id) },
-                                onToggleRun = { viewModel.onToggleRun(row.id) },
+                                isSelected = row.id == uiState.selectedDeploymentId,
+                                onSelect = { viewModel.onSelectDeployment(row.id) },
+                                onToggleSession = { viewModel.onToggleSession(row.id) },
                                 globalAutoStartEnabled = uiState.globalAutoStartEnabled,
                                 onAutoStartChange = { enabled ->
-                                    viewModel.onUpdateInstance(row.id) {
+                                    viewModel.onUpdateDeployment(row.id) {
                                         it.copy(autoStartOnMarketOpen = enabled)
                                     }
                                 }
@@ -168,21 +168,21 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
 
             Spacer(modifier = Modifier.width(16.dp))
 
-            StrategyInstanceDetailPanel(
-                selectedInstance = uiState.selectedInstance,
+            StrategyDeploymentDetailPanel(
+                selectedDeployment = uiState.selectedDeployment,
                 cardPresentation = uiState.selectedCardPresentation,
                 detailTab = uiState.detailTab,
                 globalAutoStartEnabled = uiState.globalAutoStartEnabled,
-                performance = uiState.performance,
+                sessionHistory = uiState.sessionHistory,
                 liveExecution = uiState.liveExecution,
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
                 onTabChange = viewModel::onDetailTabChange,
-                onUpdateInstance = viewModel::onUpdateInstance,
-                onStartStop = viewModel::onToggleRun,
-                onRunHeaderClick = viewModel::onRunHeaderClick,
-                onSelectPerformanceRun = viewModel::onSelectPerformanceRun,
-                onDeletePerformanceRun = viewModel::onDeletePerformanceRun,
+                onUpdateDeployment = viewModel::onUpdateDeployment,
+                onStartStop = viewModel::onToggleSession,
+                onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
+                onSelectSessionHistory = viewModel::onSelectSessionHistory,
+                onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
                 onAdjustStop = viewModel::onAdjustStop,
                 onClosePosition = viewModel::onClosePosition,
                 onDuplicate = viewModel::onDuplicateSelected,
@@ -196,50 +196,50 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
 }
 
 @Composable
-private fun StrategyInstanceDetailPanel(
-    selectedInstance: StrategyInstance?,
-    cardPresentation: InstanceCardPresentation?,
+private fun StrategyDeploymentDetailPanel(
+    selectedDeployment: StrategyDeployment?,
+    cardPresentation: DeploymentCardPresentation?,
     detailTab: StrategyDetailTab,
     globalAutoStartEnabled: Boolean,
-    performance: PerformanceUiState?,
+    sessionHistory: SessionHistoryUiState?,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
-    onUpdateInstance: (String, (StrategyInstance) -> StrategyInstance) -> Unit,
+    onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: (String) -> Unit,
-    onRunHeaderClick: (RunSortColumn) -> Unit,
-    onSelectPerformanceRun: (String) -> Unit,
-    onDeletePerformanceRun: (String, String) -> Unit,
+    onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
+    onSelectSessionHistory: (String) -> Unit,
+    onDeleteSessionHistory: (String, String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val accent = cardPresentation?.accent ?: InstanceCardAccent.STOPPED_IDLE
+    val accent = cardPresentation?.accent ?: DeploymentCardAccent.STOPPED_IDLE
     InstanceCardChrome(
         accent = accent,
-        modifier = modifier.testTag("StrategyInstanceDetail")
+        modifier = modifier.testTag("StrategyDeploymentDetail")
     ) {
-        if (selectedInstance == null) {
+        if (selectedDeployment == null) {
             StrategyDetailEmptyState(modifier = Modifier.fillMaxSize())
         } else {
-            StrategyInstanceDetail(
-                instance = selectedInstance,
+            StrategyDeploymentDetail(
+                instance = selectedDeployment,
                 cardPresentation = cardPresentation,
                 detailTab = detailTab,
                 globalAutoStartEnabled = globalAutoStartEnabled,
-                performance = performance,
+                sessionHistory = sessionHistory,
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
                 onTabChange = onTabChange,
-                onUpdate = { transform -> onUpdateInstance(selectedInstance.id, transform) },
-                onStartStop = { onStartStop(selectedInstance.id) },
-                onRunHeaderClick = onRunHeaderClick,
-                onSelectPerformanceRun = onSelectPerformanceRun,
-                onDeletePerformanceRun = onDeletePerformanceRun,
+                onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
+                onStartStop = { onStartStop(selectedDeployment.id) },
+                onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
+                onSelectSessionHistory = onSelectSessionHistory,
+                onDeleteSessionHistory = onDeleteSessionHistory,
                 onAdjustStop = onAdjustStop,
                 onClosePosition = onClosePosition,
                 onDuplicate = onDuplicate,
@@ -252,7 +252,7 @@ private fun StrategyInstanceDetailPanel(
 @Composable
 private fun ActiveFiltersBanner(
     searchQuery: String,
-    instanceFilter: InstanceFilter,
+    deploymentFilter: DeploymentFilter,
     strategyTypeFilter: StrategyType?,
     selectedMarketLabel: String?,
     filteredCount: Int,
@@ -262,12 +262,12 @@ private fun ActiveFiltersBanner(
     val parts = buildList {
         selectedMarketLabel?.let { add("$it market") }
         if (searchQuery.isNotBlank()) add("search \"$searchQuery\"")
-        if (instanceFilter != InstanceFilter.ALL) {
+        if (deploymentFilter != DeploymentFilter.ALL) {
             add(
-                when (instanceFilter) {
-                    InstanceFilter.RUNNING -> "active only"
-                    InstanceFilter.STOPPED -> "stopped only"
-                    InstanceFilter.ALL -> ""
+                when (deploymentFilter) {
+                    DeploymentFilter.RUNNING -> "active only"
+                    DeploymentFilter.STOPPED -> "stopped only"
+                    DeploymentFilter.ALL -> ""
                 }
             )
         }
@@ -301,7 +301,7 @@ private fun ActiveFiltersBanner(
 }
 
 @Composable
-private fun animatedCardPulseAlpha(accent: InstanceCardAccent): Float {
+private fun animatedCardPulseAlpha(accent: DeploymentCardAccent): Float {
     if (!accent.isPulsing) return 1f
     val transition = rememberInfiniteTransition(label = "instanceCardPulse")
     val alpha by transition.animateFloat(
@@ -315,7 +315,7 @@ private fun animatedCardPulseAlpha(accent: InstanceCardAccent): Float {
 
 @Composable
 private fun InstanceCardChrome(
-    accent: InstanceCardAccent,
+    accent: DeploymentCardAccent,
     isSelected: Boolean = false,
     shape: RoundedCornerShape = RoundedCornerShape(8.dp),
     modifier: Modifier = Modifier,
@@ -341,70 +341,70 @@ private data class InstanceCardStyle(
     val surfaceBrush: Brush
 )
 
-private fun instanceCardStyle(accent: InstanceCardAccent): InstanceCardStyle = when (accent) {
-    InstanceCardAccent.ERROR -> InstanceCardStyle(
+private fun instanceCardStyle(accent: DeploymentCardAccent): InstanceCardStyle = when (accent) {
+    DeploymentCardAccent.ERROR -> InstanceCardStyle(
         2.dp,
         SessionErrorBorder.copy(alpha = 0.9f),
         Brush.verticalGradient(listOf(SessionErrorSurface, SessionErrorGlow))
     )
-    InstanceCardAccent.STOPPED_IDLE -> InstanceCardStyle(
+    DeploymentCardAccent.STOPPED_IDLE -> InstanceCardStyle(
         1.dp,
         TableHeaderBg,
         Brush.linearGradient(listOf(SurfaceDark, SurfaceDark))
     )
-    InstanceCardAccent.STOPPED_NEUTRAL -> InstanceCardStyle(
+    DeploymentCardAccent.STOPPED_NEUTRAL -> InstanceCardStyle(
         2.dp,
         TradeNeutralBorder,
         Brush.verticalGradient(listOf(TradeNeutralSurface, TradeNeutralGlow))
     )
-    InstanceCardAccent.STOPPED_WIN -> InstanceCardStyle(
+    DeploymentCardAccent.STOPPED_WIN -> InstanceCardStyle(
         2.dp,
         MarketOpenBorder.copy(alpha = 0.9f),
         Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))
     )
-    InstanceCardAccent.STOPPED_LOSS -> InstanceCardStyle(
+    DeploymentCardAccent.STOPPED_LOSS -> InstanceCardStyle(
         2.dp,
         TradeRedBorder.copy(alpha = 0.9f),
         Brush.verticalGradient(listOf(TradeRedSurface, TradeRedGlow))
     )
-    InstanceCardAccent.RUNNING_FLAT -> InstanceCardStyle(
+    DeploymentCardAccent.RUNNING_FLAT -> InstanceCardStyle(
         2.dp,
         TradeBlueBorder.copy(alpha = 0.85f),
         Brush.verticalGradient(listOf(TradeBlueSurface, TradeBlueGlow))
     )
-    InstanceCardAccent.RUNNING_IN_THE_MONEY -> InstanceCardStyle(
+    DeploymentCardAccent.RUNNING_IN_THE_MONEY -> InstanceCardStyle(
         2.dp,
         MarketOpenBorder,
         Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))
     )
-    InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY -> InstanceCardStyle(
+    DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY -> InstanceCardStyle(
         2.dp,
         TradeRedBorder,
         Brush.verticalGradient(listOf(TradeRedSurface, TradeRedGlow))
     )
-    InstanceCardAccent.OPEN_ORDERS -> InstanceCardStyle(
+    DeploymentCardAccent.OPEN_ORDERS -> InstanceCardStyle(
         2.dp,
         OpenOrdersBrownBorder,
         Brush.verticalGradient(listOf(OpenOrdersBrownSurface, OpenOrdersBrownGlow))
     )
 }
 
-private fun instanceChipColor(accent: InstanceCardAccent): Color = when (accent) {
-    InstanceCardAccent.ERROR -> SessionErrorBorder
-    InstanceCardAccent.STOPPED_IDLE -> TextSecondary
-    InstanceCardAccent.STOPPED_NEUTRAL -> TradeNeutralBorder
-    InstanceCardAccent.STOPPED_WIN,
-    InstanceCardAccent.RUNNING_IN_THE_MONEY -> MarketOpenBorder
-    InstanceCardAccent.RUNNING_FLAT -> TradeBlueBorder
-    InstanceCardAccent.STOPPED_LOSS,
-    InstanceCardAccent.RUNNING_OUT_OF_THE_MONEY -> TradeRedBorder
-    InstanceCardAccent.OPEN_ORDERS -> OpenOrdersBrownBorder
+private fun instanceChipColor(accent: DeploymentCardAccent): Color = when (accent) {
+    DeploymentCardAccent.ERROR -> SessionErrorBorder
+    DeploymentCardAccent.STOPPED_IDLE -> TextSecondary
+    DeploymentCardAccent.STOPPED_NEUTRAL -> TradeNeutralBorder
+    DeploymentCardAccent.STOPPED_WIN,
+    DeploymentCardAccent.RUNNING_IN_THE_MONEY -> MarketOpenBorder
+    DeploymentCardAccent.RUNNING_FLAT -> TradeBlueBorder
+    DeploymentCardAccent.STOPPED_LOSS,
+    DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY -> TradeRedBorder
+    DeploymentCardAccent.OPEN_ORDERS -> OpenOrdersBrownBorder
 }
 
 @Composable
 private fun InstanceStateChip(
     label: String,
-    accent: InstanceCardAccent,
+    accent: DeploymentCardAccent,
     compact: Boolean = false
 ) {
     val baseColor = instanceChipColor(accent)
@@ -469,7 +469,7 @@ private fun StrategiesHeader(
                 onClick = onAddInstance,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.testTag("AddStrategyInstanceButton")
+                modifier = Modifier.testTag("AddStrategyDeploymentButton")
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
@@ -501,9 +501,9 @@ private fun StrategyTypeFilterRow(
 }
 
 @Composable
-private fun InstanceFilterRow(
-    filter: InstanceFilter,
-    onFilterChange: (InstanceFilter) -> Unit,
+private fun DeploymentFilterRow(
+    filter: DeploymentFilter,
+    onFilterChange: (DeploymentFilter) -> Unit,
     filteredCount: Int,
     totalCount: Int,
     hasActiveFilters: Boolean
@@ -516,18 +516,18 @@ private fun InstanceFilterRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 label = "All",
-                selected = filter == InstanceFilter.ALL,
-                onClick = { onFilterChange(InstanceFilter.ALL) }
+                selected = filter == DeploymentFilter.ALL,
+                onClick = { onFilterChange(DeploymentFilter.ALL) }
             )
             FilterChip(
                 label = "Active",
-                selected = filter == InstanceFilter.RUNNING,
-                onClick = { onFilterChange(InstanceFilter.RUNNING) }
+                selected = filter == DeploymentFilter.RUNNING,
+                onClick = { onFilterChange(DeploymentFilter.RUNNING) }
             )
             FilterChip(
                 label = "Stopped",
-                selected = filter == InstanceFilter.STOPPED,
-                onClick = { onFilterChange(InstanceFilter.STOPPED) }
+                selected = filter == DeploymentFilter.STOPPED,
+                onClick = { onFilterChange(DeploymentFilter.STOPPED) }
             )
         }
         Text(
@@ -584,12 +584,12 @@ private fun CompactAutoStartToggle(
 }
 
 @Composable
-private fun StrategyInstanceCard(
-    row: StrategyInstanceRowUi,
+private fun StrategyDeploymentCard(
+    row: StrategyDeploymentRowUi,
     isSelected: Boolean,
     globalAutoStartEnabled: Boolean,
     onSelect: () -> Unit,
-    onToggleRun: () -> Unit,
+    onToggleSession: () -> Unit,
     onAutoStartChange: (Boolean) -> Unit
 ) {
     val cardShape = RoundedCornerShape(6.dp)
@@ -600,7 +600,7 @@ private fun StrategyInstanceCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onSelect)
-            .testTag("StrategyInstanceCard-${row.id}")
+            .testTag("StrategyDeploymentCard-${row.id}")
     ) {
         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
             Row(
@@ -617,17 +617,17 @@ private fun StrategyInstanceCard(
                     maxLines = 1
                 )
                 IconButton(
-                    onClick = onToggleRun,
+                    onClick = onToggleSession,
                     modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
-                        imageVector = if (row.status == InstanceStatus.RUNNING) {
+                        imageVector = if (row.status == DeploymentStatus.RUNNING) {
                             Icons.Default.Stop
                         } else {
                             Icons.Default.PlayArrow
                         },
-                        contentDescription = if (row.status == InstanceStatus.RUNNING) "Stop" else "Start",
-                        tint = if (row.status == InstanceStatus.RUNNING) LossRed else GainGreen,
+                        contentDescription = if (row.status == DeploymentStatus.RUNNING) "Stop" else "Start",
+                        tint = if (row.status == DeploymentStatus.RUNNING) LossRed else GainGreen,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -689,7 +689,7 @@ private fun CompactInstanceStat(
 }
 
 @Composable
-private fun InstanceRollupRow(row: StrategyInstanceRowUi) {
+private fun InstanceRollupRow(row: StrategyDeploymentRowUi) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -744,21 +744,21 @@ private fun StrategyDetailEmptyState(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StrategyInstanceDetail(
-    instance: StrategyInstance,
-    cardPresentation: InstanceCardPresentation?,
+private fun StrategyDeploymentDetail(
+    instance: StrategyDeployment,
+    cardPresentation: DeploymentCardPresentation?,
     detailTab: StrategyDetailTab,
     globalAutoStartEnabled: Boolean,
-    performance: PerformanceUiState?,
+    sessionHistory: SessionHistoryUiState?,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
-    onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit,
+    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: () -> Unit,
-    onRunHeaderClick: (RunSortColumn) -> Unit,
-    onSelectPerformanceRun: (String) -> Unit,
-    onDeletePerformanceRun: (String, String) -> Unit,
+    onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
+    onSelectSessionHistory: (String) -> Unit,
+    onDeleteSessionHistory: (String, String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -791,17 +791,17 @@ private fun StrategyInstanceDetail(
                     Button(
                         onClick = onStartStop,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (instance.status == InstanceStatus.RUNNING) SurfaceDark else GainGreen
+                            containerColor = if (instance.status == DeploymentStatus.RUNNING) SurfaceDark else GainGreen
                         ),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Icon(
-                            if (instance.status == InstanceStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
+                            if (instance.status == DeploymentStatus.RUNNING) Icons.Default.Stop else Icons.Default.PlayArrow,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(if (instance.status == InstanceStatus.RUNNING) "End session" else "Start session")
+                        Text(if (instance.status == DeploymentStatus.RUNNING) "End session" else "Start session")
                     }
                     OutlinedButton(onClick = onDuplicate, shape = RoundedCornerShape(6.dp)) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -853,11 +853,11 @@ private fun StrategyInstanceDetail(
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
                 )
-                StrategyDetailTab.PERFORMANCE -> PerformanceTab(
-                    performance = performance,
-                    onRunHeaderClick = onRunHeaderClick,
-                    onSelectRun = onSelectPerformanceRun,
-                    onDeleteRun = { runId -> onDeletePerformanceRun(instance.id, runId) }
+                StrategyDetailTab.SESSION_HISTORY -> PerformanceTab(
+                    sessionHistory = sessionHistory,
+                    onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
+                    onSelectRun = onSelectSessionHistory,
+                    onDeleteRun = { runId -> onDeleteSessionHistory(instance.id, runId) }
                 )
             }
         }
@@ -872,7 +872,7 @@ private fun StrategyInstanceDetail(
         ) {
             Text("Last update: ${instance.live.updatedAt}", fontSize = 11.sp, color = TextSecondary)
             val chipLabel = cardPresentation?.chipLabel ?: "Stopped"
-            val chipAccent = cardPresentation?.accent ?: InstanceCardAccent.STOPPED_IDLE
+            val chipAccent = cardPresentation?.accent ?: DeploymentCardAccent.STOPPED_IDLE
             InstanceStateChip(label = chipLabel, accent = chipAccent)
         }
     }
@@ -880,11 +880,11 @@ private fun StrategyInstanceDetail(
 
 @Composable
 private fun ConfigurationTab(
-    instance: StrategyInstance,
+    instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
-    onUpdate: ((StrategyInstance) -> StrategyInstance) -> Unit
+    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
 ) {
-    val canEdit = instance.status != InstanceStatus.RUNNING
+    val canEdit = instance.status != DeploymentStatus.RUNNING
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!globalAutoStartEnabled) {
@@ -1497,7 +1497,7 @@ private fun TouchTurnMetric(
 }
 
 @Composable
-private fun TouchTurnSessionAutoStopStatus(instance: StrategyInstance) {
+private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
     val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER) ?: return
     var tick by remember(instance.id) { mutableIntStateOf(0) }
     LaunchedEffect(instance.id) {
@@ -1506,12 +1506,12 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyInstance) {
             tick++
         }
     }
-    val sessionDate = remember(instance, tick) { InstanceRunStopLogic.sessionDateForRunningInstance(instance) }
+    val sessionDate = remember(instance, tick) { DeploymentSessionStopLogic.sessionDateForRunningInstance(instance) }
     val openEpoch = remember(instance, sessionDate) {
-        sessionDate?.let { TouchTurnRunStopLogic.sessionOpenEpochMillis(instance, it) }
+        sessionDate?.let { TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, it) }
     }
     val remainingMs = remember(openEpoch, tick) {
-        openEpoch?.let { TouchTurnRunStopLogic.millisUntilStopAfterOpen(it) }
+        openEpoch?.let { TouchTurnSessionStopLogic.millisUntilStopAfterOpen(it) }
     }
     val pastDeadline = remainingMs == 0L && openEpoch != null
     Column(
@@ -1536,7 +1536,7 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyInstance) {
                 if (pastDeadline) {
                     "Past ${stopAfterMinOpen}m after open — session will stop and flatten broker orders/position."
                 } else {
-                    TouchTurnRunStopLogic.pendingStopAfterOpenLabel(remaining)
+                    TouchTurnSessionStopLogic.pendingStopAfterOpenLabel(remaining)
                 },
                 fontSize = 11.sp,
                 color = if (pastDeadline) Color(0xFFFFB74D) else TextSecondary,
@@ -1548,7 +1548,7 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyInstance) {
 
 @Composable
 private fun LiveTab(
-    instance: StrategyInstance,
+    instance: StrategyDeployment,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
@@ -1560,7 +1560,7 @@ private fun LiveTab(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (instance.status == InstanceStatus.RUNNING) {
+        if (instance.status == DeploymentStatus.RUNNING) {
             LiveTradingPositionPnLHeader(
                 symbol = instance.symbol,
                 broker = liveBroker,
@@ -1750,7 +1750,7 @@ private fun LiveSessionTradesSection(
                 )
             }
         }
-        RunTradeDetailPanel(
+        SessionTradeDetailPanel(
             detail = trades.tradeDetail,
             testTagPrefix = "LiveSessionTrade"
         )
@@ -2060,12 +2060,12 @@ private fun ClosePositionButton(
 
 @Composable
 private fun PerformanceTab(
-    performance: PerformanceUiState?,
-    onRunHeaderClick: (RunSortColumn) -> Unit,
+    sessionHistory: SessionHistoryUiState?,
+    onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit
 ) {
-    if (performance == null) {
+    if (sessionHistory == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("No session history.", color = TextSecondary, fontSize = 13.sp)
         }
@@ -2079,35 +2079,35 @@ private fun PerformanceTab(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PerformanceStatCard(
                 label = "7D P&L",
-                value = performance.rollup7d,
+                value = sessionHistory.rollup7d,
                 modifier = Modifier.weight(1f)
             )
             PerformanceStatCard(
                 label = "14D P&L",
-                value = performance.rollup14d,
+                value = sessionHistory.rollup14d,
                 modifier = Modifier.weight(1f)
             )
             PerformanceStatCard(
                 label = "30D P&L",
-                value = performance.rollup30d,
+                value = sessionHistory.rollup30d,
                 modifier = Modifier.weight(1f)
             )
             PerformanceStatCard(
                 label = "Win %",
-                value = performance.winRate,
+                value = sessionHistory.winRate,
                 modifier = Modifier.weight(1f)
             )
         }
 
-        RunBlotterTable(
-            performance = performance,
-            onHeaderClick = onRunHeaderClick,
+        SessionHistoryBlotterTable(
+            sessionHistory = sessionHistory,
+            onHeaderClick = onSessionHistoryHeaderClick,
             onSelectRun = onSelectRun,
             onDeleteRun = onDeleteRun,
             modifier = Modifier.fillMaxWidth()
         )
 
-        PerformanceRunTradeDetail(performance = performance)
+        SessionHistoryTradeDetail(sessionHistory = sessionHistory)
     }
 }
 
@@ -2277,7 +2277,7 @@ private fun StartBlockedByPositionDialog(
 }
 
 @Composable
-private fun AddStrategyInstanceDialog(
+private fun AddStrategyDeploymentDialog(
     onDismiss: () -> Unit,
     defaultMaxDollarsFor: (StrategyType) -> Int,
     onCreate: (StrategyType, String, Int, Boolean) -> Unit
@@ -2328,7 +2328,7 @@ private fun AddStrategyInstanceDialog(
                 onClick = { onCreate(selectedStrategyType, symbol, maxDollars, autoStartOnMarketOpen) },
                 enabled = symbol.isNotBlank() && maxDollars > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
-                modifier = Modifier.testTag("CreateStrategyInstanceButton")
+                modifier = Modifier.testTag("CreateStrategyDeploymentButton")
             ) {
                 Text("Create")
             }

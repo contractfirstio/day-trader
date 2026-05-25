@@ -1,35 +1,35 @@
 package daytrader.presentation.strategies
 
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyInstance
-import daytrader.domain.StrategyRun
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.rollups
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
 
-object PerformanceUiMapper {
+object SessionHistoryUiMapper {
     fun build(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String,
-        sortColumn: RunSortColumn,
+        sortColumn: SessionHistorySortColumn,
         sortDirection: SortDirection,
         selectedRunId: String? = null
-    ): PerformanceUiState {
-        val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
-        val displayRuns = instance.performance.filter {
-            it.status == RunStatus.CLOSED || it.status == RunStatus.IN_PROGRESS
+    ): SessionHistoryUiState {
+        val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
+        val displaySessions = instance.sessionHistory.filter {
+            it.status == SessionStatus.CLOSED || it.status == SessionStatus.IN_PROGRESS
         }
         val includeTouchTurnFields = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
-        val sortedRows = sortRuns(displayRuns, sortColumn, sortDirection)
+        val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
             .map { toRowUi(it, includeTouchTurnFields, selectedRunId) }
-        val rollup = closedRuns.rollups(sessionDate)
-        val selectedRun = displayRuns.find { it.id == selectedRunId }
+        val rollup = closedSessions.rollups(sessionDate)
+        val selectedRun = displaySessions.find { it.id == selectedRunId }
         val selectedDetail = selectedRun
             ?.takeIf { it.sessionTrades.isNotEmpty() }
             ?.let { run ->
-                val inProgress = run.status == RunStatus.IN_PROGRESS
-                RunTradeDetailUiMapper.fromSessionTrades(
+                val inProgress = run.status == SessionStatus.IN_PROGRESS
+                SessionTradeDetailUiMapper.fromSessionTrades(
                     trades = run.sessionTrades,
                     lifecycleLabel = if (inProgress) {
                         "Session open"
@@ -39,7 +39,7 @@ object PerformanceUiMapper {
                 )
             }
 
-        return PerformanceUiState(
+        return SessionHistoryUiState(
             rollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
             rollup14d = Formatters.currency(rollup.pnl14d, showSign = true),
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
@@ -49,24 +49,24 @@ object PerformanceUiMapper {
             sortDirection = sortDirection,
             includeTouchTurnFields = includeTouchTurnFields,
             selectedRunId = selectedRunId,
-            selectedRunTradeDetail = selectedDetail
+            selectedSessionTradeDetail = selectedDetail
         )
     }
 
     private fun toRowUi(
-        run: StrategyRun,
+        run: StrategySession,
         includeTouchTurnFields: Boolean,
         selectedRunId: String?
-    ): StrategyRunRowUi {
-        val inProgress = run.status == RunStatus.IN_PROGRESS
+    ): StrategySessionRowUi {
+        val inProgress = run.status == SessionStatus.IN_PROGRESS
         val formattedPnL = if (inProgress) {
             "—"
         } else {
             Formatters.runPnLDisplay(run.pnl, run.positionOpened)
         }
         val isPnLFlat = formattedPnL == Formatters.FLAT_PNL_LABEL
-        val (tradeSide, tradeSummary) = RunTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
-        return StrategyRunRowUi(
+        val (tradeSide, tradeSummary) = SessionTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
+        return StrategySessionRowUi(
             id = run.id,
             formattedStartTime = Formatters.runStartTimeDisplay(run.startedAt),
             formattedStopTime = Formatters.runStopTimeDisplay(run.stoppedAt, inProgress),
@@ -93,16 +93,16 @@ object PerformanceUiMapper {
     }
 
     private fun sortRuns(
-        runs: List<StrategyRun>,
-        sortColumn: RunSortColumn,
+        runs: List<StrategySession>,
+        sortColumn: SessionHistorySortColumn,
         sortDirection: SortDirection
-    ): List<StrategyRun> {
+    ): List<StrategySession> {
         val comparator = when (sortColumn) {
-            RunSortColumn.START -> compareBy<StrategyRun> { it.startedAt.ifBlank { it.date } }
-            RunSortColumn.STOP -> compareBy { it.stoppedAt.ifBlank { it.startedAt } }
-            RunSortColumn.LIQUIDITY -> compareBy { it.hadLiquidityCandle == true }
-            RunSortColumn.ORDERS -> compareBy { it.ordersPlacedForCandle == true }
-            RunSortColumn.PNL -> compareBy { it.pnl }
+            SessionHistorySortColumn.START -> compareBy<StrategySession> { it.startedAt.ifBlank { it.date } }
+            SessionHistorySortColumn.STOP -> compareBy { it.stoppedAt.ifBlank { it.startedAt } }
+            SessionHistorySortColumn.LIQUIDITY -> compareBy { it.hadLiquidityCandle == true }
+            SessionHistorySortColumn.ORDERS -> compareBy { it.ordersPlacedForCandle == true }
+            SessionHistorySortColumn.PNL -> compareBy { it.pnl }
         }
         return if (sortDirection == SortDirection.DESCENDING) {
             runs.sortedWith(comparator.reversed())

@@ -31,9 +31,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.positions.SortDirection
-import daytrader.presentation.strategies.PerformanceUiState
-import daytrader.presentation.strategies.RunSortColumn
-import daytrader.presentation.strategies.StrategyRunRowUi
+import daytrader.presentation.strategies.SessionHistoryUiState
+import daytrader.presentation.strategies.SessionHistorySortColumn
+import daytrader.presentation.strategies.StrategySessionRowUi
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -43,9 +43,9 @@ import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 
 @Composable
-fun RunBlotterTable(
-    performance: PerformanceUiState,
-    onHeaderClick: (RunSortColumn) -> Unit,
+fun SessionHistoryBlotterTable(
+    sessionHistory: SessionHistoryUiState,
+    onHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit,
     modifier: Modifier = Modifier
@@ -55,13 +55,13 @@ fun RunBlotterTable(
             .fillMaxWidth()
             .background(DarkBackground, RoundedCornerShape(8.dp))
     ) {
-        RunBlotterHeader(
-            activeSortColumn = performance.sortColumn,
-            sortDirection = performance.sortDirection,
-            showTouchTurnColumns = performance.includeTouchTurnFields,
+        SessionHistoryBlotterHeader(
+            activeSortColumn = sessionHistory.sortColumn,
+            sortDirection = sessionHistory.sortDirection,
+            showTouchTurnColumns = sessionHistory.includeTouchTurnFields,
             onHeaderClick = onHeaderClick
         )
-        if (performance.rows.isEmpty()) {
+        if (sessionHistory.rows.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -76,14 +76,14 @@ fun RunBlotterTable(
             }
         } else {
             Column(modifier = Modifier.fillMaxWidth()) {
-                performance.rows.forEachIndexed { index, row ->
-                    RunBlotterRow(
+                sessionHistory.rows.forEachIndexed { index, row ->
+                    SessionHistoryBlotterRow(
                         row = row,
-                        showTouchTurnColumns = performance.includeTouchTurnFields,
+                        showTouchTurnColumns = sessionHistory.includeTouchTurnFields,
                         onSelectRun = onSelectRun,
                         onDeleteRun = onDeleteRun
                     )
-                    if (index < performance.rows.size - 1) {
+                    if (index < sessionHistory.rows.size - 1) {
                         HorizontalDivider(color = TableHeaderBg, thickness = 1.dp)
                     }
                 }
@@ -93,39 +93,39 @@ fun RunBlotterTable(
 }
 
 @Composable
-fun PerformanceRunTradeDetail(
-    performance: PerformanceUiState,
+fun SessionHistoryTradeDetail(
+    sessionHistory: SessionHistoryUiState,
     modifier: Modifier = Modifier
 ) {
-    val detail = performance.selectedRunTradeDetail ?: return
+    val detail = sessionHistory.selectedSessionTradeDetail ?: return
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(SurfaceDark, RoundedCornerShape(8.dp))
             .padding(12.dp)
-            .testTag("PerformanceRunTradeDetail")
+            .testTag("SessionHistoryTradeDetail")
     ) {
-        RunTradeDetailPanel(detail, testTagPrefix = "PerformanceTrade")
+        SessionTradeDetailPanel(detail, testTagPrefix = "SessionHistoryTrade")
     }
 }
 
 @Composable
-private fun RunBlotterHeader(
-    activeSortColumn: RunSortColumn,
+private fun SessionHistoryBlotterHeader(
+    activeSortColumn: SessionHistorySortColumn,
     sortDirection: SortDirection,
     showTouchTurnColumns: Boolean,
-    onHeaderClick: (RunSortColumn) -> Unit
+    onHeaderClick: (SessionHistorySortColumn) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(TableHeaderBg, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("RunBlotterHeader"),
+            .testTag("SessionHistoryBlotterHeader"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RunHeaderCell("Session start", RunSortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
-        RunHeaderCell("Session end", RunSortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        SessionHistoryHeaderCell("Session start", SessionHistorySortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
+        SessionHistoryHeaderCell("Session end", SessionHistorySortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
         Text(
             "Position",
             modifier = Modifier.weight(1.1f),
@@ -134,23 +134,23 @@ private fun RunBlotterHeader(
             fontSize = 10.sp
         )
         if (showTouchTurnColumns) {
-            RunHeaderCell("Liquidity candle", RunSortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
-            RunHeaderCell("Orders placed", RunSortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
+            SessionHistoryHeaderCell("Liquidity candle", SessionHistorySortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
+            SessionHistoryHeaderCell("Orders placed", SessionHistorySortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
         }
-        RunHeaderCell("Realized P&L", RunSortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
+        SessionHistoryHeaderCell("Realized P&L", SessionHistorySortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
         Spacer(modifier = Modifier.width(40.dp))
     }
 }
 
 @Composable
-private fun RowScope.RunHeaderCell(
+private fun RowScope.SessionHistoryHeaderCell(
     label: String,
-    column: RunSortColumn,
-    activeColumn: RunSortColumn,
+    column: SessionHistorySortColumn,
+    activeColumn: SessionHistorySortColumn,
     direction: SortDirection,
     modifier: Modifier = Modifier,
     alignEnd: Boolean = false,
-    onClick: (RunSortColumn) -> Unit
+    onClick: (SessionHistorySortColumn) -> Unit
 ) {
     val isActive = activeColumn == column
     Row(
@@ -181,8 +181,8 @@ private fun RowScope.RunHeaderCell(
 }
 
 @Composable
-private fun RunBlotterRow(
-    row: StrategyRunRowUi,
+private fun SessionHistoryBlotterRow(
+    row: StrategySessionRowUi,
     showTouchTurnColumns: Boolean,
     onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit
@@ -196,12 +196,12 @@ private fun RunBlotterRow(
             .background(rowBg)
             .clickable(enabled = row.hasTradeDetail) { onSelectRun(row.id) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("RunBlotterRow-${row.id}"),
+            .testTag("SessionHistoryBlotterRow-${row.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
         RunCell(row.formattedStartTime, Modifier.weight(0.85f), row.isInProgress)
         RunCell(row.formattedStopTime, Modifier.weight(0.85f), row.isInProgress)
-        RunTradeCell(row, Modifier.weight(1.1f))
+        SessionHistoryTradeCell(row, Modifier.weight(1.1f))
         if (showTouchTurnColumns) {
             RunCell(row.liquidityCandle, Modifier.weight(0.9f), row.isInProgress)
             RunCell(row.ordersPlaced, Modifier.weight(0.9f), row.isInProgress)
@@ -210,7 +210,7 @@ private fun RunBlotterRow(
             text = row.formattedPnL,
             modifier = Modifier
                 .weight(0.75f)
-                .testTag("RunBlotterRowPnL-${row.id}"),
+                .testTag("SessionHistoryBlotterRowPnL-${row.id}"),
             color = when {
                 row.isInProgress -> TextSecondary
                 row.isPnLFlat -> TextSecondary
@@ -281,7 +281,7 @@ private fun RunBlotterRow(
 }
 
 @Composable
-private fun RowScope.RunTradeCell(row: StrategyRunRowUi, modifier: Modifier) {
+private fun RowScope.SessionHistoryTradeCell(row: StrategySessionRowUi, modifier: Modifier) {
     Column(modifier = modifier) {
         row.tradeSideLabel?.let { side ->
             Text(

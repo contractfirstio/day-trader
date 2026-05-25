@@ -2,32 +2,32 @@ package daytrader.presentation.strategies
 
 import daytrader.gateway.WorkingOrder
 import daytrader.data.StrategyCatalog
-import daytrader.domain.RunStatus
-import daytrader.domain.StrategyInstance
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.instanceDisplayName
-import daytrader.domain.inProgressRun
+import daytrader.domain.inProgressSession
 import daytrader.domain.rollups
 import daytrader.presentation.Formatters
 
 object StrategyUiMapper {
-    fun displayName(instance: StrategyInstance): String =
+    fun displayName(instance: StrategyDeployment): String =
         instanceDisplayName(instance.strategyType, instance.symbol)
 
     fun toRowUi(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
         brokerOpenOrders: List<WorkingOrder> = emptyList()
-    ): StrategyInstanceRowUi {
-        val closedRuns = instance.performance.filter { it.status == RunStatus.CLOSED }
-        val rollup = closedRuns.rollups(sessionDate)
-        val card = InstanceCardStateMapper.resolve(
+    ): StrategyDeploymentRowUi {
+        val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
+        val rollup = closedSessions.rollups(sessionDate)
+        val card = DeploymentCardStateMapper.resolve(
             instance,
             sessionDate,
             brokerUnrealizedPnL,
             brokerOpenOrders
         )
-        return StrategyInstanceRowUi(
+        return StrategyDeploymentRowUi(
             id = instance.id,
             name = displayName(instance),
             strategyTypeLabel = StrategyCatalog.displayName(instance.strategyType),
@@ -37,7 +37,7 @@ object StrategyUiMapper {
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             isPositiveTotalPnL = rollup.totalPnl >= 0,
             paramsSummary = Formatters.paramsSummary(instance.symbol, instance.maxDollars),
-            tradesToday = instance.inProgressRun()?.trades ?: 0,
+            tradesToday = instance.inProgressSession()?.trades ?: 0,
             liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text,
             formattedRollup7d = Formatters.currency(rollup.pnl7d, showSign = true),
             isPositiveRollup7d = rollup.pnl7d >= 0,
@@ -55,12 +55,12 @@ object StrategyUiMapper {
         )
     }
 
-    fun strategyDisplayName(instance: StrategyInstance): String =
+    fun strategyDisplayName(instance: StrategyDeployment): String =
         StrategyCatalog.displayName(instance.strategyType)
 
-    fun strategyDescription(instance: StrategyInstance): String =
+    fun strategyDescription(instance: StrategyDeployment): String =
         StrategyCatalog.description(instance.strategyType)
 
-    fun paramsSummary(instance: StrategyInstance): String =
+    fun paramsSummary(instance: StrategyDeployment): String =
         Formatters.paramsSummary(instance.symbol, instance.maxDollars)
 }

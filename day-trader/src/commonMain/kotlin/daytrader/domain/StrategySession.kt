@@ -1,6 +1,6 @@
 package daytrader.domain
 
-data class StrategyRun(
+data class StrategySession(
     val id: String,
     val date: String,
     /** ISO local date-time when this run cycle started (e.g. 2026-05-22T09:31:05). */
@@ -10,7 +10,7 @@ data class StrategyRun(
     val pnl: Double,
     val trades: Int,
     val maxAtRisk: Int,
-    val status: RunStatus,
+    val status: SessionStatus,
     /** Touch Turn: liquidity candle confirmed after bar close. */
     val hadLiquidityCandle: Boolean? = null,
     /** Touch Turn: bracket orders placed/logged for the opening candle. */

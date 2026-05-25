@@ -1,8 +1,8 @@
 package daytrader.broker
 
 import daytrader.domain.SessionTrade
-import daytrader.domain.StrategyInstance
-import daytrader.domain.inProgressRun
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.inProgressSession
 import daytrader.gateway.BrokerFill
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -29,12 +29,12 @@ object SessionTradeMatcher {
             .sortedWith(compareBy({ it.time }, { it.execId }))
     }
 
-    fun captureForRunStop(
-        instance: StrategyInstance,
+    fun captureForSessionStop(
+        instance: StrategyDeployment,
         fills: List<BrokerFill>,
         stoppedAt: String
     ): List<SessionTrade> {
-        val run = instance.inProgressRun() ?: return emptyList()
+        val run = instance.inProgressSession() ?: return emptyList()
         return toSessionTrades(
             fillsForSession(
                 symbol = instance.symbol,

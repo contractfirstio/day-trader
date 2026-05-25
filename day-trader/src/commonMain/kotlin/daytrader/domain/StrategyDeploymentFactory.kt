@@ -1,34 +1,34 @@
 package daytrader.domain
 
-fun newStrategyInstanceId(): String = "inst-${kotlin.random.Random.nextLong().toULong().toString(16)}"
+fun newStrategyDeploymentId(): String = "inst-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
 fun instanceDisplayName(strategyType: StrategyType, symbol: String): String = when (strategyType) {
     StrategyType.TOUCH_AND_TURN_SCALPER -> "Touch and Turn — $symbol"
     StrategyType.QUICK_FLIP_SCALPER -> "Quick Flip — $symbol"
 }
 
-fun defaultStrategyInstance(
+fun defaultStrategyDeployment(
     strategyType: StrategyType,
     symbol: String,
     maxDollars: Int,
-    status: InstanceStatus = InstanceStatus.STOPPED
-): StrategyInstance {
+    status: DeploymentStatus = DeploymentStatus.STOPPED
+): StrategyDeployment {
     val symbolUpper = symbol.trim().uppercase()
-    return StrategyInstance(
-        id = newStrategyInstanceId(),
+    return StrategyDeployment(
+        id = newStrategyDeploymentId(),
         strategyType = strategyType,
         status = status,
         symbol = symbolUpper,
         maxDollars = maxDollars,
-        performance = emptyList(),
+        sessionHistory = emptyList(),
         live = ActiveExecution.flat()
     )
 }
 
-fun duplicateStrategyInstance(source: StrategyInstance): StrategyInstance = source.copy(
-    id = newStrategyInstanceId(),
-    status = InstanceStatus.STOPPED,
-    performance = emptyList(),
+fun duplicateStrategyDeployment(source: StrategyDeployment): StrategyDeployment = source.copy(
+    id = newStrategyDeploymentId(),
+    status = DeploymentStatus.STOPPED,
+    sessionHistory = emptyList(),
     live = ActiveExecution.flat(),
     touchTurnSession = null,
     lastAutoStartSessionDate = null

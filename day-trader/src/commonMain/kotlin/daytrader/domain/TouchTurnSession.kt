@@ -36,7 +36,7 @@ enum class TouchTurnEntryWindowStatus {
     UNKNOWN
 }
 
-/** Legacy Touch Turn session field (superseded by [TouchTurnRunStopLogic] open-deadline auto-stop). */
+/** Legacy Touch Turn session field (superseded by [TouchTurnSessionStopLogic] open-deadline auto-stop). */
 @Serializable
 enum class TouchTurnNoPositionCancelOutcome {
     PENDING,
@@ -705,7 +705,7 @@ object TouchTurnDefaults {
     const val RTH_SESSION_OPEN_MINUTE = 30
 }
 
-fun StrategyInstance.beginTouchTurnSession(sessionDate: String): StrategyInstance {
+fun StrategyDeployment.beginTouchTurnSession(sessionDate: String): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     return copy(
         touchTurnSession = TouchTurnSessionContext(
@@ -715,12 +715,12 @@ fun StrategyInstance.beginTouchTurnSession(sessionDate: String): StrategyInstanc
     )
 }
 
-fun StrategyInstance.withTouchTurnCandle(
+fun StrategyDeployment.withTouchTurnCandle(
     sessionDate: String,
     candle: OhlcBar,
     adr14: Double,
     rangeThreshold: Double = TouchTurnLogic.liquidityRangeThreshold(adr14)
-): StrategyInstance {
+): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold)
     return copy(
@@ -736,13 +736,13 @@ fun StrategyInstance.withTouchTurnCandle(
 }
 
 /** Stores fetched first 15-minute candle only (no bracket setup until the bar closes). */
-fun StrategyInstance.withFirstFifteenMinuteCandle(
+fun StrategyDeployment.withFirstFifteenMinuteCandle(
     sessionDate: String,
     candle: OhlcBar,
     adr14: Double,
     currencyCode: String = "USD",
     marketZoneId: String = "America/New_York"
-): StrategyInstance {
+): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val threshold = TouchTurnLogic.liquidityRangeThreshold(adr14)
     return copy(
@@ -759,9 +759,9 @@ fun StrategyInstance.withFirstFifteenMinuteCandle(
 }
 
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
-fun StrategyInstance.withLiquidityEvaluatedIfClosed(
+fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     nowEpochMillis: Long = System.currentTimeMillis()
-): StrategyInstance {
+): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
     val candle = session.candle ?: return this
@@ -777,24 +777,24 @@ fun StrategyInstance.withLiquidityEvaluatedIfClosed(
     )
 }
 
-fun StrategyInstance.withOrdersPlacedForSession(): StrategyInstance {
+fun StrategyDeployment.withOrdersPlacedForSession(): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
     return copy(touchTurnSession = session.copy(ordersPlacedForSession = true))
 }
 
-fun StrategyInstance.withNoPositionBracketCancelEvaluated(
+fun StrategyDeployment.withNoPositionBracketCancelEvaluated(
     outcome: TouchTurnNoPositionCancelOutcome
-): StrategyInstance {
+): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
     return copy(touchTurnSession = session.copy(noPositionBracketCancelOutcome = outcome))
 }
 
-fun StrategyInstance.withTouchTurnCandleFailed(
+fun StrategyDeployment.withTouchTurnCandleFailed(
     sessionDate: String,
     message: String
-): StrategyInstance {
+): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     return copy(
         touchTurnSession = TouchTurnSessionContext(

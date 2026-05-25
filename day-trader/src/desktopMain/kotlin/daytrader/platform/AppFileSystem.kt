@@ -45,10 +45,11 @@ actual object AppFileSystem {
         if (kind != BrokerKind.INTERACTIVE_BROKERS) return
         val base = baseDataDirectory()
         val targetDir = base.resolve(kind.dataDirectorySegment)
-        if (Files.exists(targetDir.resolve(AppDataFiles.INSTANCES))) return
+        if (Files.exists(targetDir.resolve(AppDataFiles.DEPLOYMENTS))) return
 
         val legacyFiles = listOf(
-            AppDataFiles.INSTANCES,
+            AppDataFiles.DEPLOYMENTS,
+            AppDataFiles.LEGACY_INSTANCES_JSON,
             AppDataFiles.STRATEGIES_SCREEN,
             AppDataFiles.LEGACY_STRATEGY_INSTANCES,
             AppDataFiles.LEGACY_STRATEGIES_APP_STATE,

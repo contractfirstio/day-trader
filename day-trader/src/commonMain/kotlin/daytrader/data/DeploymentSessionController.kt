@@ -1,21 +1,21 @@
 package daytrader.data
 
-import daytrader.domain.StrategyInstance
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.beginTouchTurnSession
-import daytrader.domain.onRunStarted
+import daytrader.domain.onSessionStarted
 
 /**
  * Shared start/stop helpers for manual runs and market-open auto-start.
  */
-object InstanceRunController {
+object DeploymentSessionController {
     fun start(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionDate: String,
         touchTurnBootstrap: TouchTurnSessionBootstrap?,
         markAutoStarted: Boolean = false
-    ): StrategyInstance {
-        val started = instance.onRunStarted(sessionDate).beginTouchTurnSession(sessionDate)
+    ): StrategyDeployment {
+        val started = instance.onSessionStarted(sessionDate).beginTouchTurnSession(sessionDate)
         val withSession = when (instance.strategyType) {
             StrategyType.TOUCH_AND_TURN_SCALPER -> {
                 touchTurnBootstrap?.loadFirstCandle(started.id, sessionDate)

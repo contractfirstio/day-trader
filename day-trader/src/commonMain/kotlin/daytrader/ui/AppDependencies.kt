@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import daytrader.gateway.BrokerGateway
 import daytrader.data.FileStrategiesAppStateRepository
-import daytrader.data.FileStrategyInstanceRepository
+import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.positions.PositionsViewModel
@@ -23,7 +23,7 @@ fun rememberAppDependencies(
     touchTurnSessionGateway: BrokerGateway? = null,
     ensureLiveMarketData: ((String) -> Unit)? = null
 ): AppDependencies {
-    val strategyRepository = remember { FileStrategyInstanceRepository() }
+    val strategyRepository = remember { FileStrategyDeploymentRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
     return remember(

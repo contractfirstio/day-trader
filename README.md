@@ -1,6 +1,6 @@
 # Day Trader
 
-Day Trader is a desktop trading workstation for monitoring open positions and managing automated strategy instances. It is built with **Kotlin Multiplatform** and **Compose Multiplatform** (desktop JVM), using a dark trading-terminal aesthetic and a layered architecture that separates domain logic, persistence, presentation, and UI.
+Day Trader is a desktop trading workstation for monitoring open positions and managing automated strategy deployments. It is built with **Kotlin Multiplatform** and **Compose Multiplatform** (desktop JVM), using a dark trading-terminal aesthetic and a layered architecture that separates domain logic, persistence, presentation, and UI.
 
 > **Note:** The **positions blotter** loads live holdings from **IB Gateway** when connected. Strategy execution still uses **mock/demo data**.
 
@@ -14,25 +14,25 @@ Day Trader is a desktop trading workstation for monitoring open positions and ma
 
 ### Strategies
 
-Manage one or more **strategy instances** per template:
+Manage one or more **deployments** per strategy template:
 
 | Strategy                   | Description                                                           | Default max at risk |
 |----------------------------|-----------------------------------------------------------------------|---------------------|
 | **Touch and Turn Scalper** | Scalps reversals when price touches prior session high/low and turns  | $500                |
 | **Quick Flip Scalper**     | Rapid in-and-out trades on short-term momentum flips with tight stops | $250                |
 
-For each instance you can:
+For each deployment you can:
 
-- **Create** instances (symbol + max dollars at risk)
-- **Start / stop** runs (tracks session-day performance rows)
-- **Filter** by running/stopped, strategy type, and search text
-- **Duplicate** or **delete** the selected instance
+- **Deploy** a strategy (symbol + max dollars at risk)
+- **Start / end** sessions (tracks session history rows)
+- **Filter** by active/stopped, strategy type, and search text
+- **Duplicate** or **delete** the selected deployment
 - View three detail tabs:
-  - **Configuration** — symbol (fixed after create) and max at risk (editable when stopped)
-  - **Live** — demo fill with entry/stop/target, risk/upside/unrealized stats, stop adjustment, close position
-  - **Performance** — sortable closed run history with 7d/30d PnL rollups and win rate
+  - **Config** — symbol (fixed after create) and max at risk (editable when stopped)
+  - **Trading** — demo fill with entry/stop/target, risk/upside/unrealized stats, stop adjustment, exit position
+  - **Session history** — sortable closed sessions with 7d/30d PnL rollups and win rate
 
-Instance list cards show total PnL, 7d/30d rollups, win rate, trades today, and a live-trade summary when running.
+Deployment list cards show total PnL, 7d/30d rollups, win rate, trades today, and a live-trade summary when active.
 
 ## Architecture
 
@@ -50,34 +50,34 @@ UI (Compose) → ViewModel → Repository → Domain
 | **Presentation** | `daytrader.presentation`     | `ViewModel`s, UI state, formatters, mappers (`*UiMapper`)                      |
 | **Data**         | `daytrader.data`             | Repositories, `StrategyCatalog`, mock seeds, demo execution helpers            |
 | **Persistence**  | `daytrader.data.persistence` | JSON documents, debounced writes, legacy migration                             |
-| **Domain**       | `daytrader.domain`           | `StrategyInstance`, `StrategyRun`, `ActiveExecution`, run lifecycle, risk math |
+| **Domain**       | `daytrader.domain`           | `StrategyDeployment`, `StrategySession`, `ActiveExecution`, session lifecycle, risk math |
 | **Platform**     | `daytrader.platform`         | `expect`/`actual` file I/O and session date                                    |
 
 **Repositories wired at startup** (`AppDependencies`):
 
-- `FileStrategyInstanceRepository` — instances + performance + live execution state
-- `FileStrategiesAppStateRepository` — strategies screen UI state (selection, filters, active tab)
+- `FileStrategyDeploymentRepository` — deployments, session history, and live execution state
+- `FileStrategiesAppStateRepository` — strategies screen UI state (selection, detail tab, global auto-start)
 - `IbPositionRepository` (desktop) — live positions from IB Gateway via `reqPositions` + market data ticks
 
 **Domain highlights:**
 
-- Session-scoped runs keyed by ISO date (`currentSessionDateIso()`)
-- `StrategyRunLogic` — start/stop run, close position, update in-progress day stats
+- Session-scoped history keyed by ISO date (`currentSessionDateIso()`)
+- `StrategySessionLogic` — start/end session, close position, update in-progress session stats
 - `ExecutionRisk` — risk dollars, upside, unrealized PnL, % of max at risk from stop/target
 - `StrategyCatalog` — display names, descriptions, default sizing, reward multiples for targets
 
-Starting a run seeds a **demo filled position** (`DemoActiveExecution`) so the Live tab is exercisable without a real execution backend.
+Starting a session seeds a **demo filled position** (`DemoActiveExecution`) so the Trading tab is exercisable without a real execution backend.
 
 ## Persistence
 
-On first launch, strategy instances are loaded from disk or seeded from `mockStrategyInstances()` and written out. UI preferences persist separately.
+On first launch, deployments are loaded from disk or seeded from `mockStrategyDeployments()` and written out. UI preferences persist separately.
 
 | File                     | Contents                                                             |
 |--------------------------|----------------------------------------------------------------------|
-| `instances.json`         | All strategy instances (config, live execution, performance history) |
-| `strategies-screen.json` | Selected instance, search, filters, detail tab                       |
+| `deployments.json`       | All deployments (config, live execution, session history)            |
+| `strategies-screen.json` | Selected deployment, detail tab, global auto-start                   |
 
-**Legacy migration:** Older filenames (`strategy-instances.json`, `app-state.json`) are read once, migrated to the new format, and removed.
+**Legacy migration:** Older files (`instances.json`, `strategy-instances.json`, `app-state.json`) are read once, migrated to the new format, and removed.
 
 **Write behavior:**
 
@@ -98,8 +98,8 @@ Default base locations (override with `DAY_TRADER_DATA_DIR`):
 
 | Broker               | Subdirectory            | Example (macOS)                                                                      |
 |----------------------|-------------------------|--------------------------------------------------------------------------------------|
-| Interactive Brokers  | `interactive-brokers/`  | `~/Library/Application Support/Day Trader/interactive-brokers/instances.json`      |
-| Broker Emulator      | `emulator/`             | `~/Library/Application Support/Day Trader/emulator/instances.json`                   |
+| Interactive Brokers  | `interactive-brokers/`  | `~/Library/Application Support/Day Trader/interactive-brokers/deployments.json`      |
+| Broker Emulator      | `emulator/`             | `~/Library/Application Support/Day Trader/emulator/deployments.json`                   |
 
 On first launch with Interactive Brokers, any legacy JSON files that still live at the base directory (from before this split) are moved into `interactive-brokers/` automatically.
 

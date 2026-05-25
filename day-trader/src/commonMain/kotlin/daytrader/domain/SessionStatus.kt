@@ -3,8 +3,7 @@ package daytrader.domain
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class InstanceStatus {
-    RUNNING,
-    STOPPED,
-    ERROR
+enum class SessionStatus {
+    IN_PROGRESS,
+    CLOSED
 }

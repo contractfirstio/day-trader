@@ -2,7 +2,7 @@ package daytrader.data
 
 import daytrader.gateway.BrokerGateway
 import daytrader.broker.SymbolMarkets
-import daytrader.domain.InstanceStatus
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.PreMarketCloseLogic
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.TouchTurnLogic
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class PreMarketClosePositionWatcher(
     private val gateway: BrokerGateway,
-    private val repository: StrategyInstanceRepository,
+    private val repository: StrategyDeploymentRepository,
     private val scope: CoroutineScope
 ) {
     private val loggedSessionKeys = ConcurrentHashMap.newKeySet<String>()
@@ -37,8 +37,8 @@ class PreMarketClosePositionWatcher(
         val positions = gateway.positions.value.filter { it.quantity != 0 }
         if (positions.isEmpty()) return
 
-        val runningBySymbol = repository.instances.value
-            .filter { it.status == InstanceStatus.RUNNING }
+        val runningBySymbol = repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING }
             .groupBy { SymbolMarkets.normalizeSymbol(it.symbol) }
 
         for (position in positions) {

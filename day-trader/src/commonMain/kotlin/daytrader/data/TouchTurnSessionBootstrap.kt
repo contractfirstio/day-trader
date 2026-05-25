@@ -3,7 +3,7 @@ package daytrader.data
 import daytrader.gateway.BrokerGateway
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleCloseStatus
-import daytrader.domain.InstanceStatus
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -21,13 +21,13 @@ import kotlinx.coroutines.launch
 class TouchTurnSessionBootstrap(
     private val sessionGateway: BrokerGateway,
     private val executionGateway: BrokerGateway = sessionGateway,
-    private val repository: StrategyInstanceRepository,
+    private val repository: StrategyDeploymentRepository,
     private val scope: CoroutineScope,
     private val ensureLiveMarketData: ((String) -> Unit)? = null
 ) {
     fun loadFirstCandle(instanceId: String, sessionDate: String) {
         scope.launch {
-            val instance = repository.instances.value.find { it.id == instanceId } ?: return@launch
+            val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
             if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
 
             val symbol = instance.symbol
@@ -76,8 +76,8 @@ class TouchTurnSessionBootstrap(
         scope.launch {
             while (isActive) {
                 delay(LIQUIDITY_POLL_MS)
-                val instance = repository.instances.value.find { it.id == instanceId } ?: return@launch
-                if (instance.status != InstanceStatus.RUNNING) return@launch
+                val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
+                if (instance.status != DeploymentStatus.RUNNING) return@launch
                 val session = instance.touchTurnSession ?: return@launch
                 if (session.setup != null) return@launch
                 if (session.candleCloseStatus() != FirstCandleCloseStatus.CLOSED) continue

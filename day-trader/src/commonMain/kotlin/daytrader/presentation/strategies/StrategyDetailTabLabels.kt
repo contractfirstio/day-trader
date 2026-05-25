@@ -3,17 +3,17 @@ package daytrader.presentation.strategies
 fun StrategyDetailTab.displayLabel(): String = when (this) {
     StrategyDetailTab.CONFIGURATION -> "Config"
     StrategyDetailTab.LIVE -> "Trading"
-    StrategyDetailTab.PERFORMANCE -> "Session history"
+    StrategyDetailTab.SESSION_HISTORY -> "Session history"
 }
 
-fun InstanceFilter.statusFilterLabel(): String = when (this) {
-    InstanceFilter.ALL -> "All"
-    InstanceFilter.RUNNING -> "Active"
-    InstanceFilter.STOPPED -> "Stopped"
+fun DeploymentFilter.statusFilterLabel(): String = when (this) {
+    DeploymentFilter.ALL -> "All"
+    DeploymentFilter.RUNNING -> "Active"
+    DeploymentFilter.STOPPED -> "Stopped"
 }
 
-fun InstanceFilter.activeFilterHint(): String? = when (this) {
-    InstanceFilter.ALL -> null
-    InstanceFilter.RUNNING -> "active only"
-    InstanceFilter.STOPPED -> "stopped only"
+fun DeploymentFilter.activeFilterHint(): String? = when (this) {
+    DeploymentFilter.ALL -> null
+    DeploymentFilter.RUNNING -> "active only"
+    DeploymentFilter.STOPPED -> "stopped only"
 }

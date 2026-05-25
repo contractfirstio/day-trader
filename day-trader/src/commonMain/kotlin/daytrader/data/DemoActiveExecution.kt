@@ -2,11 +2,11 @@ package daytrader.data
 
 import daytrader.domain.ActiveExecution
 import daytrader.domain.ExecutionState
-import daytrader.domain.InstanceStatus
-import daytrader.domain.StrategyInstance
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
-import daytrader.domain.updateInProgressRun
+import daytrader.domain.updateInProgressSession
 
 private data class DemoPrices(val entry: Double, val stop: Double, val market: Double)
 
@@ -52,11 +52,11 @@ fun demoUnrealizedPnL(execution: ActiveExecution): Double {
 }
 
 /** Populates a filled demo execution when an instance is started (UI preview only). */
-fun StrategyInstance.withDemoLiveExecutionOnStart(sessionDate: String): StrategyInstance {
-    if (status != InstanceStatus.RUNNING) return this
+fun StrategyDeployment.withDemoLiveExecutionOnStart(sessionDate: String): StrategyDeployment {
+    if (status != DeploymentStatus.RUNNING) return this
     val execution = demoActiveExecution(symbol, strategyType)
     val unrealized = demoUnrealizedPnL(execution)
-    return copy(live = execution).updateInProgressRun { day ->
+    return copy(live = execution).updateInProgressSession { day ->
         day.copy(
             pnl = unrealized,
             trades = maxOf(day.trades, 1)

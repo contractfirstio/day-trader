@@ -1,7 +1,7 @@
 package daytrader.domain
 
-/** Cross-strategy run-stop outcomes; strategy-specific rules live in per-type helpers (e.g. [TouchTurnRunStopLogic]). */
-enum class InstanceRunStopAction {
+/** Cross-strategy run-stop outcomes; strategy-specific rules live in per-type helpers (e.g. [TouchTurnSessionStopLogic]). */
+enum class DeploymentSessionStopAction {
     /** Keep running (no stop rule matched). */
     CONTINUE,
     /** Bracket/trade cycle finished (win or loss known) — stop immediately. */
@@ -13,13 +13,13 @@ enum class InstanceRunStopAction {
     STOP_AFTER_OPEN_DEADLINE
 }
 
-object InstanceRunStopLogic {
+object DeploymentSessionStopLogic {
     /**
      * True when this run had a completed round-trip (entry + exit fill), is flat, and
      * session P&L (win/loss) can be recorded on stop.
      */
     fun shouldStopAfterTradeOutcome(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         sessionTrades: List<SessionTrade>,
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean
@@ -29,7 +29,7 @@ object InstanceRunStopLogic {
         return tradeCycleComplete(sessionTrades)
     }
 
-    fun hadTradeActivity(instance: StrategyInstance, sessionTrades: List<SessionTrade>): Boolean =
+    fun hadTradeActivity(instance: StrategyDeployment, sessionTrades: List<SessionTrade>): Boolean =
         when (instance.strategyType) {
             StrategyType.TOUCH_AND_TURN_SCALPER ->
                 instance.touchTurnSession?.sessionOrdersPlaced() == true
@@ -43,8 +43,8 @@ object InstanceRunStopLogic {
         return hasEntry && hasExit
     }
 
-    fun sessionDateForRunningInstance(instance: StrategyInstance): String? =
-        instance.inProgressRun()?.date
+    fun sessionDateForRunningInstance(instance: StrategyDeployment): String? =
+        instance.inProgressSession()?.date
             ?: instance.touchTurnSession?.sessionDate
             ?: instance.lastAutoStartSessionDate
 
@@ -53,11 +53,11 @@ object InstanceRunStopLogic {
      * strategy has no open-deadline rule.
      */
     fun evaluateDeadlineForInstance(
-        instance: StrategyInstance,
+        instance: StrategyDeployment,
         nowEpochMillis: Long = System.currentTimeMillis()
-    ): InstanceRunStopAction? = when (instance.strategyType) {
+    ): DeploymentSessionStopAction? = when (instance.strategyType) {
         StrategyType.TOUCH_AND_TURN_SCALPER ->
-            TouchTurnRunStopLogic.evaluateOpenDeadline(instance, nowEpochMillis)
+            TouchTurnSessionStopLogic.evaluateOpenDeadline(instance, nowEpochMillis)
         StrategyType.QUICK_FLIP_SCALPER -> null
     }
 }

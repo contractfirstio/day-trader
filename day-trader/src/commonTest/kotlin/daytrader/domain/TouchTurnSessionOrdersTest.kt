@@ -38,7 +38,7 @@ class TouchTurnSessionOrdersTest {
 
     @Test
     fun withOrdersPlacedForSession_setsFlag() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500

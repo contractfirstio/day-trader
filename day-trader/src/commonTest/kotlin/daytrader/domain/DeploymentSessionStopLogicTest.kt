@@ -16,18 +16,18 @@ private fun sessionTrade(parentOrderId: Int, execId: String = "e-$parentOrderId"
     realizedPnL = if (parentOrderId != 0) 5.0 else null
 )
 
-class InstanceRunStopLogicTest {
+class DeploymentSessionStopLogicTest {
     @Test
     fun shouldStopAfterTradeOutcome_whenFlatWithEntryAndExitFills() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500,
-            status = InstanceStatus.RUNNING
-        ).onRunStarted("2026-05-25")
+            status = DeploymentStatus.RUNNING
+        ).onSessionStarted("2026-05-25")
         val trades = listOf(sessionTrade(parentOrderId = 0), sessionTrade(parentOrderId = 1, execId = "e-exit"))
         assertTrue(
-            InstanceRunStopLogic.shouldStopAfterTradeOutcome(
+            DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                 instance = instance.copy(
                     touchTurnSession = touchTurnSessionWithOrdersPlaced()
                 ),
@@ -40,16 +40,16 @@ class InstanceRunStopLogicTest {
 
     @Test
     fun shouldStopAfterTradeOutcome_falseWhilePositionOrOrdersOpen() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500,
-            status = InstanceStatus.RUNNING
-        ).onRunStarted("2026-05-25")
+            status = DeploymentStatus.RUNNING
+        ).onSessionStarted("2026-05-25")
         val trades = listOf(sessionTrade(parentOrderId = 0), sessionTrade(parentOrderId = 1, execId = "e-exit"))
         val session = touchTurnSessionWithOrdersPlaced()
         assertFalse(
-            InstanceRunStopLogic.shouldStopAfterTradeOutcome(
+            DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                 instance = instance.copy(touchTurnSession = session),
                 sessionTrades = trades,
                 hasOpenPosition = true,
@@ -57,7 +57,7 @@ class InstanceRunStopLogicTest {
             )
         )
         assertFalse(
-            InstanceRunStopLogic.shouldStopAfterTradeOutcome(
+            DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                 instance = instance.copy(touchTurnSession = session),
                 sessionTrades = trades,
                 hasOpenPosition = false,
@@ -68,14 +68,14 @@ class InstanceRunStopLogicTest {
 
     @Test
     fun shouldStopAfterTradeOutcome_falseWithOnlyEntryFill() {
-        val instance = defaultStrategyInstance(
+        val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500,
-            status = InstanceStatus.RUNNING
-        ).onRunStarted("2026-05-25")
+            status = DeploymentStatus.RUNNING
+        ).onSessionStarted("2026-05-25")
         assertFalse(
-            InstanceRunStopLogic.shouldStopAfterTradeOutcome(
+            DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                 instance = instance.copy(touchTurnSession = touchTurnSessionWithOrdersPlaced()),
                 sessionTrades = listOf(sessionTrade(parentOrderId = 0)),
                 hasOpenPosition = false,
