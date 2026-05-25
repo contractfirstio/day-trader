@@ -48,6 +48,7 @@ kotlin {
         named("desktopMain").configure {
             dependencies {
                 implementation(compose.desktop.currentOs)
+                implementation(libs.kotlinx.coroutines.swing)
                 implementation(files("libs/TwsApi.jar"))
                 implementation(libs.protobuf.java)
             }

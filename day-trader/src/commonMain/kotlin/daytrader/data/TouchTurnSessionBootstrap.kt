@@ -1,7 +1,7 @@
 package daytrader.data
 
 import daytrader.gateway.BrokerGateway
-import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
@@ -48,8 +48,8 @@ class TouchTurnSessionBootstrap(
             }
 
             val candleResult = sessionGateway.fetchFirstFifteenMinuteCandle(symbol)
-            val currency = SymbolMarkets.currencyCode(symbol)
-            val zoneId = SymbolMarkets.zoneId(symbol)
+            val zoneId = DeploymentMarket.effectiveZoneId(instance)
+            val currency = DeploymentMarket.effectiveCurrencyCode(instance)
             repository.update(instanceId) { current ->
                 candleResult.fold(
                     onSuccess = { bar ->

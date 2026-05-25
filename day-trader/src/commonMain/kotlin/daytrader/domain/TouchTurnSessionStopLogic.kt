@@ -1,6 +1,6 @@
 package daytrader.domain
 
-import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
 import daytrader.data.StrategyCatalog
 
 /**
@@ -10,7 +10,7 @@ import daytrader.data.StrategyCatalog
 object TouchTurnSessionStopLogic {
     fun sessionOpenEpochMillis(instance: StrategyDeployment, sessionDateIso: String): Long? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
-        val zoneId = SymbolMarkets.zoneId(instance.symbol)
+        val zoneId = DeploymentMarket.effectiveZoneId(instance)
         val barTime = instance.touchTurnSession?.candle?.time
         return TouchTurnLogic.marketOpenEpochMillis(sessionDateIso, zoneId, barTime)
     }

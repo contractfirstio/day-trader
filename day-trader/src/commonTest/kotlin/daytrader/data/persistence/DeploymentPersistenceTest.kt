@@ -1,0 +1,56 @@
+package daytrader.data.persistence
+
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.MarketSource
+import daytrader.domain.StrategyType
+import daytrader.domain.defaultStrategyDeployment
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class DeploymentPersistenceTest {
+    @Test
+    fun configurationRoundTrip_persistsMarketAndCompanyFields() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "VOD",
+            maxDollars = 500,
+            marketZoneId = "Europe/London",
+            currencyCode = "GBP",
+            marketSource = MarketSource.IB,
+            companyName = "Vodafone Group PLC"
+        )
+
+        val record = DeploymentPersistence.toRecord(original)
+        val restored = DeploymentPersistence.toDomain(record)
+
+        assertEquals("Europe/London", restored.marketZoneId)
+        assertEquals("GBP", restored.currencyCode)
+        assertEquals(MarketSource.IB, restored.marketSource)
+        assertEquals("Vodafone Group PLC", restored.companyName)
+        assertEquals("VOD", restored.symbol)
+        assertEquals(500, restored.maxDollars)
+
+        assertEquals("Europe/London", record.configuration.marketZoneId)
+        assertEquals("GBP", record.configuration.currencyCode)
+        assertEquals("ib", record.configuration.marketSource)
+        assertEquals("Vodafone Group PLC", record.configuration.companyName)
+    }
+
+    @Test
+    fun configurationRoundTrip_persistsAutoStartFields() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.QUICK_FLIP_SCALPER,
+            symbol = "SPY",
+            maxDollars = 250
+        ).copy(
+            autoStartOnMarketOpen = true,
+            lastAutoStartSessionDate = "2026-05-22",
+            status = DeploymentStatus.STOPPED
+        )
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(true, restored.autoStartOnMarketOpen)
+        assertEquals("2026-05-22", restored.lastAutoStartSessionDate)
+    }
+}

@@ -1,6 +1,7 @@
 package daytrader.gateway
 
 import daytrader.domain.OhlcBar
+import daytrader.domain.ResolvedInstrument
 import daytrader.domain.TouchTurnOrderPlan
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,7 @@ class QueuedBrokerGateway(
     private val requestIdLock = Any()
     private val pendingCandles = mutableMapOf<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val pendingAdr = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
+    private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<ResolvedInstrument>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -108,6 +110,19 @@ class QueuedBrokerGateway(
         }
     }
 
+    override suspend fun resolveInstrument(symbol: String): Result<ResolvedInstrument> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<ResolvedInstrument>>()
+        pendingInstrument[requestId] = deferred
+        sendCommand(GatewayCommand.ResolveInstrument(requestId, symbol))
+        return try {
+            withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingInstrument.remove(requestId)
+            Result.failure(e)
+        }
+    }
+
     private fun apply(event: GatewayEvent) {
         when (event) {
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
@@ -119,6 +134,9 @@ class QueuedBrokerGateway(
             }
             is GatewayEvent.FourteenDayAdrReady -> {
                 pendingAdr.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.InstrumentResolved -> {
+                pendingInstrument.remove(event.requestId)?.complete(event.result)
             }
         }
     }

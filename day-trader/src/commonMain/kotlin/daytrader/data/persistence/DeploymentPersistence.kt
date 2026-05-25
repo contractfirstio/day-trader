@@ -4,6 +4,7 @@ import daytrader.domain.ActiveExecution
 import daytrader.domain.ExecutionState
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionStatus
+import daytrader.domain.MarketSource
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategySession
@@ -17,6 +18,10 @@ object DeploymentPersistence {
             strategyType = record.strategy,
             status = parseDeploymentStatus(record.status),
             symbol = record.configuration.symbol,
+            marketZoneId = record.configuration.marketZoneId,
+            currencyCode = record.configuration.currencyCode,
+            marketSource = parseMarketSource(record.configuration.marketSource),
+            companyName = record.configuration.companyName,
             maxDollars = record.configuration.maxAtRisk,
             autoStartOnMarketOpen = record.configuration.autoStartOnMarketOpen,
             lastAutoStartSessionDate = record.configuration.lastAutoStartSessionDate,
@@ -34,7 +39,11 @@ object DeploymentPersistence {
                 symbol = instance.symbol,
                 maxAtRisk = instance.maxDollars,
                 autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
-                lastAutoStartSessionDate = instance.lastAutoStartSessionDate
+                lastAutoStartSessionDate = instance.lastAutoStartSessionDate,
+                marketZoneId = instance.marketZoneId,
+                currencyCode = instance.currencyCode,
+                marketSource = marketSourceLabel(instance.marketSource),
+                companyName = instance.companyName
             ),
             live = toLiveRecord(instance.live),
             sessionHistory = instance.sessionHistory.map(::toSessionHistoryRecord),
@@ -191,5 +200,22 @@ object DeploymentPersistence {
     private fun tradeSideLabel(side: TradeSide): String = when (side) {
         TradeSide.LONG -> "long"
         TradeSide.SHORT -> "short"
+    }
+
+    private fun parseMarketSource(value: String?): MarketSource =
+        when (value?.lowercase()) {
+            "user" -> MarketSource.USER
+            "ib" -> MarketSource.IB
+            "symbol_inferred", "symbol inferred" -> MarketSource.SYMBOL_INFERRED
+            "legacy_inferred", "legacy inferred", null, "" -> MarketSource.LEGACY_INFERRED
+            else -> runCatching { MarketSource.valueOf(value.uppercase()) }
+                .getOrDefault(MarketSource.LEGACY_INFERRED)
+        }
+
+    private fun marketSourceLabel(source: MarketSource): String = when (source) {
+        MarketSource.USER -> "user"
+        MarketSource.IB -> "ib"
+        MarketSource.SYMBOL_INFERRED -> "symbol_inferred"
+        MarketSource.LEGACY_INFERRED -> "legacy_inferred"
     }
 }

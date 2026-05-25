@@ -24,6 +24,7 @@ import com.ib.client.protobuf.PortfolioValueProto
 import com.ib.client.protobuf.PositionEndProto
 import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
+import daytrader.domain.InstrumentMarketResolver
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
@@ -111,6 +112,10 @@ class DesktopIbGatewayConnection(
     private val mktDataReqIdToKey = ConcurrentHashMap<Int, String>()
     private val keyToMktDataReqId = ConcurrentHashMap<String, Int>()
     private val contractDetailsReqIdToKey = ConcurrentHashMap<Int, String>()
+    private val instrumentResolveIbReqToGatewayReq = ConcurrentHashMap<Int, Long>()
+    private val instrumentResolvePending = ConcurrentHashMap<Int, InstrumentResolvePending>()
+    private val instrumentResolveCompleted = ConcurrentHashMap.newKeySet<Long>()
+    private val nextInstrumentResolveReqId = AtomicInteger(INSTRUMENT_RESOLVE_REQ_ID_START)
     private val historicalPrices = ConcurrentHashMap<String, Double>()
     private val historicalReqIdToKey = ConcurrentHashMap<Int, String>()
     private val historicalPendingKeys = ConcurrentHashMap.newKeySet<String>()
@@ -161,6 +166,8 @@ class DesktopIbGatewayConnection(
                         scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
+                    is GatewayCommand.ResolveInstrument ->
+                        scope.launch { requestInstrumentResolve(command.requestId, command.symbol) }
                     is GatewayCommand.PlaceTouchTurnBracket -> {
                         if (marketDataOnly) {
                             IbGatewayLog.touchTurnBracketSkipped(
@@ -298,6 +305,114 @@ class DesktopIbGatewayConnection(
                 1,
                 true,
                 null
+            )
+        }
+    }
+
+    private suspend fun requestInstrumentResolve(gatewayRequestId: Long, symbol: String) {
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            emit(
+                GatewayEvent.InstrumentResolved(
+                    gatewayRequestId,
+                    Result.failure(IllegalArgumentException("Symbol is blank"))
+                )
+            )
+            return
+        }
+        if (!client.isConnected) {
+            emit(
+                GatewayEvent.InstrumentResolved(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("Not connected to IB Gateway"))
+                )
+            )
+            return
+        }
+        val ibReqId = nextInstrumentResolveReqId.getAndIncrement()
+        instrumentResolveIbReqToGatewayReq[ibReqId] = gatewayRequestId
+        val contract = IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(trimmed))
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                failInstrumentResolve(gatewayRequestId, ibReqId, "Disconnected before contract details")
+                return@enqueue
+            }
+            client.reqContractDetails(ibReqId, contract)
+        }
+        scope.launch {
+            delay(INSTRUMENT_RESOLVE_TIMEOUT_MS)
+            if (instrumentResolveIbReqToGatewayReq.containsKey(ibReqId)) {
+                emitInstrumentResolve(ibReqId)
+            }
+        }
+    }
+
+    private fun completeInstrumentResolveIfPending(
+        reqId: Int,
+        contractDetails: ContractDetails
+    ): Boolean {
+        val gatewayRequestId = instrumentResolveIbReqToGatewayReq[reqId] ?: return false
+        val contract = contractDetails.contract()
+        val companyName = extractCompanyName(contractDetails, contract)
+        val pending = instrumentResolvePending.getOrPut(reqId) {
+            InstrumentResolvePending(gatewayRequestId)
+        }
+        if (!companyName.isNullOrBlank()) {
+            pending.companyName = companyName
+        }
+        pending.snapshot = InstrumentMarketResolver.ContractSnapshot(
+            symbol = contract.symbol().orEmpty(),
+            exchange = contract.exchange(),
+            primaryExch = contract.primaryExch(),
+            currency = contract.currency(),
+            companyName = pending.companyName
+        )
+        pending.finishJob?.cancel()
+        pending.finishJob = scope.launch {
+            delay(INSTRUMENT_RESOLVE_DEBOUNCE_MS)
+            emitInstrumentResolve(reqId)
+        }
+        return true
+    }
+
+    private fun emitInstrumentResolve(ibReqId: Int) {
+        val gatewayRequestId = instrumentResolveIbReqToGatewayReq.remove(ibReqId) ?: return
+        val pending = instrumentResolvePending.remove(ibReqId) ?: return
+        pending.finishJob?.cancel()
+        if (!instrumentResolveCompleted.add(gatewayRequestId)) return
+        val snapshot = pending.snapshot
+        if (snapshot == null) {
+            emit(
+                GatewayEvent.InstrumentResolved(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("No contract details returned"))
+                )
+            )
+            return
+        }
+        val resolved = InstrumentMarketResolver.fromIbContract(snapshot)
+        emit(
+            GatewayEvent.InstrumentResolved(
+                gatewayRequestId,
+                Result.success(resolved)
+            )
+        )
+    }
+
+    private fun extractCompanyName(contractDetails: ContractDetails, contract: Contract): String? =
+        contractDetails.longName()?.takeIf { it.isNotBlank() }
+            ?: contractDetails.marketName()?.takeIf { it.isNotBlank() }
+            ?: contract.description()?.takeIf { it.isNotBlank() }
+
+    private fun failInstrumentResolve(gatewayRequestId: Long, ibReqId: Int, message: String) {
+        instrumentResolveIbReqToGatewayReq.remove(ibReqId)
+        instrumentResolvePending.remove(ibReqId)?.finishJob?.cancel()
+        if (instrumentResolveCompleted.add(gatewayRequestId)) {
+            emit(
+                GatewayEvent.InstrumentResolved(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException(message))
+                )
             )
         }
     }
@@ -446,6 +561,7 @@ class DesktopIbGatewayConnection(
 
     override fun contractDetails(reqId: Int, contractDetails: ContractDetails) {
         try {
+            if (completeInstrumentResolveIfPending(reqId, contractDetails)) return
             applyContractDetails(reqId, contractDetails)
         } catch (e: Exception) {
             logCallbackFailure("contractDetails", e)
@@ -1057,6 +1173,10 @@ class DesktopIbGatewayConnection(
         mktDataReqIdToKey.clear()
         keyToMktDataReqId.clear()
         contractDetailsReqIdToKey.clear()
+        instrumentResolveIbReqToGatewayReq.clear()
+        instrumentResolvePending.values.forEach { it.finishJob?.cancel() }
+        instrumentResolvePending.clear()
+        instrumentResolveCompleted.clear()
         historicalReqIdToKey.clear()
         historicalPendingKeys.clear()
         historicalLastBarClose.clear()
@@ -1753,9 +1873,19 @@ class DesktopIbGatewayConnection(
         val needsContractDetails: Boolean
     )
 
+    private data class InstrumentResolvePending(
+        val gatewayRequestId: Long,
+        var snapshot: InstrumentMarketResolver.ContractSnapshot? = null,
+        var companyName: String? = null,
+        var finishJob: Job? = null
+    )
+
     private companion object {
         const val MKT_DATA_REQ_ID_START = 10_000
         const val CONTRACT_DETAILS_REQ_ID_START = 20_000
+        const val INSTRUMENT_RESOLVE_REQ_ID_START = 25_000
+        const val INSTRUMENT_RESOLVE_DEBOUNCE_MS = 400L
+        const val INSTRUMENT_RESOLVE_TIMEOUT_MS = 12_000L
         const val HISTORICAL_REQ_ID_START = 30_000
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
         const val TOUCH_TURN_HISTORICAL_DURATION = "1 D"

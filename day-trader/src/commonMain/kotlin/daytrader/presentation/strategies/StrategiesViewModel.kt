@@ -26,6 +26,10 @@ import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
+import daytrader.domain.MarketSource
+import daytrader.domain.ResolvedInstrument
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.resolveStopSnapshot
 import daytrader.domain.SessionStopParams
 import daytrader.domain.inferTouchTurnStopTrigger
@@ -47,6 +51,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class StrategiesViewModel(
     private val repository: StrategyDeploymentRepository,
@@ -242,9 +248,39 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun resolveInstrumentForSymbol(
+        symbol: String,
+        onResult: (Result<ResolvedInstrument>) -> Unit
+    ) {
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            onResult(Result.failure(IllegalArgumentException("Symbol is blank")))
+            return
+        }
+        scope.launch {
+            val resolveGateway = sessionGateway ?: brokerGateway
+            val resolved = if (resolveGateway != null &&
+                resolveGateway.connectionState.value == GatewayConnectionState.Connected
+            ) {
+                resolveGateway.resolveInstrument(trimmed).getOrElse {
+                    DeploymentMarket.fromSymbolHeuristic(trimmed)
+                }
+            } else {
+                DeploymentMarket.fromSymbolHeuristic(trimmed)
+            }
+            withContext(Dispatchers.Main) {
+                onResult(Result.success(resolved))
+            }
+        }
+    }
+
     fun onCreateDeployment(
         strategyType: StrategyType,
         symbol: String,
+        marketZoneId: String,
+        currencyCode: String,
+        marketSource: MarketSource,
+        companyName: String?,
         maxDollars: Int,
         autoStartOnMarketOpen: Boolean = false
     ) {
@@ -252,7 +288,11 @@ class StrategiesViewModel(
         val instance = defaultStrategyDeployment(
             strategyType = strategyType,
             symbol = symbol,
-            maxDollars = maxDollars
+            maxDollars = maxDollars,
+            marketZoneId = marketZoneId,
+            currencyCode = currencyCode,
+            marketSource = marketSource,
+            companyName = companyName
         ).copy(autoStartOnMarketOpen = autoStartOnMarketOpen)
         repository.add(instance)
         appStateRepository.update {
@@ -444,7 +484,7 @@ class StrategiesViewModel(
             val matchesStrategyType =
                 state.strategyTypeFilter == null || instance.strategyType == state.strategyTypeFilter
             val matchesMarket = selectedMarketZoneId == null ||
-                SymbolMarkets.zoneId(instance.symbol) == selectedMarketZoneId
+                DeploymentMarket.effectiveZoneId(instance) == selectedMarketZoneId
             matchesSearch && matchesFilter && matchesStrategyType && matchesMarket
         }
 

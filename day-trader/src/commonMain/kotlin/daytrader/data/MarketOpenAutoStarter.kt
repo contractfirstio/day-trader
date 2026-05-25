@@ -1,6 +1,6 @@
 package daytrader.data
 
-import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +32,7 @@ class MarketOpenAutoStarter(
     private fun checkMarketOpens() {
         val now = System.currentTimeMillis()
         val zones = repository.deployments.value
-            .map { SymbolMarkets.zoneId(it.symbol) }
+            .map { DeploymentMarket.effectiveZoneId(it) }
             .toSet()
         for (zone in zones) {
             val sessionDate = MarketOpenAutoStartLogic.sessionDateIfMarketOpen(zone, now) ?: continue
@@ -43,7 +43,7 @@ class MarketOpenAutoStarter(
     private fun onMarketOpened(marketZoneId: String, sessionDate: String) {
         if (!isGlobalAutoStartEnabled()) return
         val candidates = repository.deployments.value.filter { instance ->
-            SymbolMarkets.zoneId(instance.symbol) == marketZoneId &&
+            DeploymentMarket.effectiveZoneId(instance) == marketZoneId &&
                 instance.autoStartOnMarketOpen &&
                 instance.status == DeploymentStatus.STOPPED &&
                 instance.lastAutoStartSessionDate != sessionDate &&

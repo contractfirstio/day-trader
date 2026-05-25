@@ -33,6 +33,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
+import daytrader.domain.MarketSource
+import daytrader.domain.ResolvedInstrument
+import daytrader.domain.RthMarketSessions
+import kotlinx.coroutines.delay
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.DeploymentStatus
@@ -61,6 +66,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         AddStrategyDeploymentDialog(
             onDismiss = viewModel::onDismissAddDialog,
             defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
+            onResolveSymbol = viewModel::resolveInstrumentForSymbol,
             onCreate = viewModel::onCreateDeployment
         )
     }
@@ -179,6 +185,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
                 onTabChange = viewModel::onDetailTabChange,
+                onResolveSymbol = viewModel::resolveInstrumentForSymbol,
                 onUpdateDeployment = viewModel::onUpdateDeployment,
                 onStartStop = viewModel::onToggleSession,
                 onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
@@ -207,6 +214,7 @@ private fun StrategyDeploymentDetailPanel(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
+    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -236,6 +244,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
                 onTabChange = onTabChange,
+                onResolveSymbol = onResolveSymbol,
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
                 onStartStop = { onStartStop(selectedDeployment.id) },
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
@@ -755,6 +764,7 @@ private fun StrategyDeploymentDetail(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
+    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -844,6 +854,7 @@ private fun StrategyDeploymentDetail(
                 StrategyDetailTab.CONFIGURATION -> ConfigurationTab(
                     instance = instance,
                     globalAutoStartEnabled = globalAutoStartEnabled,
+                    onResolveSymbol = onResolveSymbol,
                     onUpdate = onUpdate
                 )
                 StrategyDetailTab.LIVE -> LiveTab(
@@ -883,6 +894,7 @@ private fun StrategyDeploymentDetail(
 private fun ConfigurationTab(
     instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
+    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
@@ -901,6 +913,12 @@ private fun ConfigurationTab(
             value = instance.symbol,
             enabled = false,
             onValueChange = {}
+        )
+        DeploymentMarketSection(
+            deployment = instance,
+            canEdit = canEdit,
+            onResolveSymbol = onResolveSymbol,
+            onUpdate = onUpdate
         )
         if (!canEdit) {
             Text(
@@ -927,16 +945,16 @@ private fun ConfigurationTab(
             }
         )
         if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
-            TouchTurnMarketOpenTimers(symbol = instance.symbol)
+            TouchTurnMarketOpenTimers(deployment = instance)
         }
     }
 }
 
 @Composable
-private fun TouchTurnMarketOpenTimers(symbol: String) {
-    val marketZone = SymbolMarkets.zoneId(symbol)
+private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeployment) {
+    val marketZone = DeploymentMarket.effectiveZoneId(deployment)
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(symbol, marketZone) {
+    LaunchedEffect(deployment.id, marketZone) {
         while (true) {
             delay(1_000)
             tick++
@@ -2315,7 +2333,7 @@ private fun AutoStartOnMarketOpenField(
                 fontWeight = FontWeight.Medium
             )
             Text(
-                "Starts this deployment at 09:30 RTH in the symbol's market timezone.",
+                "Starts this deployment at RTH open in the deployment's market session.",
                 fontSize = 11.sp,
                 color = TextSecondary,
                 lineHeight = 14.sp
@@ -2355,7 +2373,17 @@ private fun StartBlockedByPositionDialog(
 private fun AddStrategyDeploymentDialog(
     onDismiss: () -> Unit,
     defaultMaxDollarsFor: (StrategyType) -> Int,
-    onCreate: (StrategyType, String, Int, Boolean) -> Unit
+    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onCreate: (
+        StrategyType,
+        String,
+        String,
+        String,
+        MarketSource,
+        String?,
+        Int,
+        Boolean
+    ) -> Unit
 ) {
     var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
     var symbol by remember { mutableStateOf("") }
@@ -2363,6 +2391,36 @@ private fun AddStrategyDeploymentDialog(
         mutableStateOf(defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString())
     }
     var autoStartOnMarketOpen by remember { mutableStateOf(false) }
+    var resolving by remember { mutableStateOf(false) }
+    var resolved by remember { mutableStateOf<ResolvedInstrument?>(null) }
+    var selectedMarketZoneId by remember { mutableStateOf<String?>(null) }
+    var marketSource by remember { mutableStateOf(MarketSource.SYMBOL_INFERRED) }
+    var userEditedMarket by remember { mutableStateOf(false) }
+
+    LaunchedEffect(symbol) {
+        val trimmed = symbol.trim()
+        if (trimmed.isBlank()) {
+            resolving = false
+            resolved = null
+            selectedMarketZoneId = null
+            return@LaunchedEffect
+        }
+        delay(400)
+        resolving = true
+        onResolveSymbol(trimmed) { result ->
+            resolving = false
+            result.onSuccess { suggestion ->
+                resolved = suggestion
+                if (!userEditedMarket) {
+                    selectedMarketZoneId = suggestion.marketZoneId
+                    marketSource = suggestion.source
+                }
+            }.onFailure {
+                resolved = null
+                if (!userEditedMarket) selectedMarketZoneId = null
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2384,24 +2442,82 @@ private fun AddStrategyDeploymentDialog(
                     )
                 }
                 HorizontalDivider(color = TableHeaderBg)
-                ConfigField(label = "Symbol", value = symbol, onValueChange = { symbol = it })
+                ConfigField(
+                    label = "Symbol",
+                    value = symbol,
+                    onValueChange = {
+                        symbol = it
+                        userEditedMarket = false
+                    }
+                )
+                val resolvedCompanyName = resolved?.companyName?.takeIf { it.isNotBlank() }
+                if (!resolving && resolvedCompanyName != null) {
+                    Text(
+                        text = resolvedCompanyName,
+                        fontSize = 14.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("ResolvedCompanyName")
+                    )
+                } else if (resolving && symbol.isNotBlank()) {
+                    Text(
+                        text = "Resolving company name…",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
+                InstrumentResolutionPanel(
+                    resolving = resolving,
+                    resolved = resolved,
+                    selectedMarketZoneId = selectedMarketZoneId,
+                    persistedCompanyName = null,
+                    persistedCurrencyCode = null,
+                    canEditMarket = true,
+                    onMarketSelected = { zoneId ->
+                        userEditedMarket = true
+                        selectedMarketZoneId = zoneId
+                        marketSource = MarketSource.USER
+                    }
+                )
                 ConfigField(
                     label = "Risk budget (\$)",
                     value = maxDollarsText,
-                    onValueChange = { maxDollarsText = it }
+                    onValueChange = { maxDollarsText = it },
+                    enabled = selectedMarketZoneId != null
                 )
                 AutoStartOnMarketOpenField(
                     checked = autoStartOnMarketOpen,
-                    enabled = true,
+                    enabled = selectedMarketZoneId != null,
                     onCheckedChange = { autoStartOnMarketOpen = it }
                 )
             }
         },
         confirmButton = {
             val maxDollars = maxDollarsText.toIntOrNull() ?: 0
+            val zoneId = selectedMarketZoneId
+            val currency = when {
+                zoneId == null -> "USD"
+                marketSource == MarketSource.USER ->
+                    DeploymentMarket.currencyForZone(zoneId)
+                else -> resolved?.currencyCode ?: DeploymentMarket.currencyForZone(zoneId)
+            }
+            val companyName = resolved?.companyName?.takeIf { it.isNotBlank() }
             Button(
-                onClick = { onCreate(selectedStrategyType, symbol, maxDollars, autoStartOnMarketOpen) },
-                enabled = symbol.isNotBlank() && maxDollars > 0,
+                onClick = {
+                    if (zoneId != null) {
+                        onCreate(
+                            selectedStrategyType,
+                            symbol.trim(),
+                            zoneId,
+                            currency,
+                            marketSource,
+                            companyName,
+                            maxDollars,
+                            autoStartOnMarketOpen
+                        )
+                    }
+                },
+                enabled = symbol.isNotBlank() && maxDollars > 0 && zoneId != null,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyDeploymentButton")
             ) {
@@ -2414,6 +2530,150 @@ private fun AddStrategyDeploymentDialog(
             }
         }
     )
+}
+
+@Composable
+private fun InstrumentResolutionPanel(
+    resolving: Boolean,
+    resolved: ResolvedInstrument?,
+    selectedMarketZoneId: String?,
+    persistedCompanyName: String?,
+    persistedCurrencyCode: String?,
+    canEditMarket: Boolean,
+    onMarketSelected: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Market & currency", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+        when {
+            resolving -> Text("Looking up instrument…", fontSize = 12.sp, color = TextSecondary)
+            resolved == null && selectedMarketZoneId == null && persistedCompanyName.isNullOrBlank() ->
+                Text("Enter a symbol to resolve market and currency.", fontSize = 12.sp, color = TextSecondary)
+            else -> {
+                val zoneId = selectedMarketZoneId ?: resolved?.marketZoneId
+                val currency = persistedCurrencyCode
+                    ?: resolved?.currencyCode
+                    ?: zoneId?.let { DeploymentMarket.currencyForZone(it) }
+                    ?: "—"
+                val session = zoneId?.let { DeploymentMarket.sessionForZone(it) }
+                val marketLabel = session?.let { DeploymentMarket.sessionDisplayLabel(it) } ?: "—"
+                val companyName = persistedCompanyName?.takeIf { it.isNotBlank() }
+                    ?: resolved?.companyName?.takeIf { it.isNotBlank() }
+                if (companyName != null) {
+                    Text(
+                        text = companyName,
+                        fontSize = 14.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 18.sp
+                    )
+                }
+                Text(
+                    text = resolved?.let { suggestion ->
+                        val prefix = when (suggestion.source) {
+                            MarketSource.IB -> "From IB"
+                            MarketSource.SYMBOL_INFERRED -> "Estimated"
+                            MarketSource.USER -> "Your selection"
+                            MarketSource.LEGACY_INFERRED -> "Inferred"
+                        }
+                        "$prefix: ${suggestion.venueLabel}"
+                    } ?: if (persistedCompanyName != null) {
+                        "Saved market: $marketLabel · $currency"
+                    } else {
+                        "Select market below."
+                    },
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    lineHeight = 15.sp
+                )
+                Text(
+                    text = "Trading session: $marketLabel · $currency",
+                    fontSize = 13.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RthMarketSessions.all.forEach { session ->
+                val selected = selectedMarketZoneId == session.zoneId
+                FilterChip(
+                    selected = selected,
+                    onClick = { if (canEditMarket) onMarketSelected(session.zoneId) },
+                    enabled = canEditMarket,
+                    label = {
+                        Text(
+                            DeploymentMarket.sessionDisplayLabel(session),
+                            fontSize = 12.sp
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = BrandRed.copy(alpha = 0.35f),
+                        selectedLabelColor = Color.White
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeploymentMarketSection(
+    deployment: StrategyDeployment,
+    canEdit: Boolean,
+    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
+) {
+    var ibSuggestion by remember(deployment.id) { mutableStateOf<ResolvedInstrument?>(null) }
+    var resolving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(deployment.symbol, canEdit) {
+        if (!canEdit) return@LaunchedEffect
+        resolving = true
+        onResolveSymbol(deployment.symbol) { result ->
+            resolving = false
+            val suggestion = result.getOrNull()
+            ibSuggestion = suggestion
+            if (canEdit &&
+                suggestion?.companyName != null &&
+                deployment.companyName.isNullOrBlank()
+            ) {
+                onUpdate { it.copy(companyName = suggestion.companyName) }
+            }
+        }
+    }
+
+    val effectiveZone = DeploymentMarket.effectiveZoneId(deployment)
+    val effectiveCurrency = DeploymentMarket.effectiveCurrencyCode(deployment)
+    val session = DeploymentMarket.sessionForZone(effectiveZone)
+    val mismatch = ibSuggestion?.let { it.marketZoneId != effectiveZone } == true
+
+    InstrumentResolutionPanel(
+        resolving = resolving && canEdit,
+        resolved = ibSuggestion,
+        selectedMarketZoneId = effectiveZone,
+        persistedCompanyName = deployment.companyName,
+        persistedCurrencyCode = effectiveCurrency,
+        canEditMarket = canEdit,
+        onMarketSelected = { zoneId ->
+            onUpdate {
+                it.copy(
+                    marketZoneId = zoneId,
+                    currencyCode = DeploymentMarket.currencyForZone(zoneId),
+                    marketSource = MarketSource.USER
+                )
+            }
+        }
+    )
+    if (mismatch && ibSuggestion != null) {
+        Text(
+            "IB suggests ${DeploymentMarket.sessionDisplayLabel(
+                DeploymentMarket.sessionForZone(ibSuggestion!!.marketZoneId)
+            )} (${ibSuggestion!!.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
+            fontSize = 12.sp,
+            color = LossRed,
+            lineHeight = 15.sp
+        )
+    }
 }
 
 @Composable

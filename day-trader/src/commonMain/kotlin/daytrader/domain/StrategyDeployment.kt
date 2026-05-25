@@ -5,6 +5,13 @@ data class StrategyDeployment(
     val strategyType: StrategyType,
     val status: DeploymentStatus,
     val symbol: String,
+    /** RTH session zone (US / London LSE / HK). Null → legacy symbol inference at runtime. */
+    val marketZoneId: String? = null,
+    /** Quote/settlement currency from IB or user (USD, GBP, HKD). */
+    val currencyCode: String = "USD",
+    val marketSource: MarketSource = MarketSource.LEGACY_INFERRED,
+    /** Company name from IB contract details when resolved at create time. */
+    val companyName: String? = null,
     val maxDollars: Int,
     /** When true, the instance is started automatically at RTH open for the symbol's market. */
     val autoStartOnMarketOpen: Boolean = false,

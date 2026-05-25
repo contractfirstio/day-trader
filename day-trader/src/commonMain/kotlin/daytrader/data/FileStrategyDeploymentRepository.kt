@@ -5,10 +5,7 @@ import daytrader.data.persistence.DeploymentPersistence
 import daytrader.data.persistence.DeploymentsDocument
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LegacyDataCleanup
-import daytrader.data.persistence.LegacyDeploymentPersistence
-import daytrader.data.persistence.LegacyInstancesJsonPersistence
 import daytrader.domain.StrategyDeployment
-import daytrader.gateway.BrokerKind
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,34 +48,14 @@ class FileStrategyDeploymentRepository(
 
     private fun loadInitial(): List<StrategyDeployment> {
         AppFileSystem.ensureAppDataDirectory()
-        val fromNew = JsonFileStore.readDeployments()
+        val loaded = JsonFileStore.readDeployments()
             ?.deployments
             ?.map(DeploymentPersistence::toDomain)
-            ?.takeIf { it.isNotEmpty() }
-        if (fromNew != null) {
+            ?: emptyList()
+        if (loaded.isNotEmpty()) {
             LegacyDataCleanup.removeOrphanedLegacyFiles()
-            return fromNew
         }
-
-        val fromInstancesJson = LegacyInstancesJsonPersistence.load()?.takeIf { it.isNotEmpty() }
-        if (fromInstancesJson != null) {
-            writer.persistNow(fromInstancesJson)
-            return fromInstancesJson
-        }
-
-        val fromLegacy = LegacyDeploymentPersistence.load()?.takeIf { it.isNotEmpty() }
-        if (fromLegacy != null) {
-            writer.persistNow(fromLegacy)
-            return fromLegacy
-        }
-
-        if (AppFileSystem.currentDataScope() == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA) {
-            return emptyList()
-        }
-
-        val seed = mockStrategyDeployments()
-        writer.persistNow(seed)
-        return seed
+        return loaded
     }
 
     private fun persistDeployments(deployments: List<StrategyDeployment>) {

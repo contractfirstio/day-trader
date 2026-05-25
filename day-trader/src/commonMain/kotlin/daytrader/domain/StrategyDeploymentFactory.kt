@@ -11,6 +11,10 @@ fun defaultStrategyDeployment(
     strategyType: StrategyType,
     symbol: String,
     maxDollars: Int,
+    marketZoneId: String = RthMarketSessions.US.zoneId,
+    currencyCode: String = "USD",
+    marketSource: MarketSource = MarketSource.LEGACY_INFERRED,
+    companyName: String? = null,
     status: DeploymentStatus = DeploymentStatus.STOPPED
 ): StrategyDeployment {
     val symbolUpper = symbol.trim().uppercase()
@@ -19,6 +23,10 @@ fun defaultStrategyDeployment(
         strategyType = strategyType,
         status = status,
         symbol = symbolUpper,
+        marketZoneId = marketZoneId,
+        currencyCode = currencyCode,
+        marketSource = marketSource,
+        companyName = companyName?.trim()?.takeIf { it.isNotBlank() },
         maxDollars = maxDollars,
         sessionHistory = emptyList(),
         live = ActiveExecution.flat()

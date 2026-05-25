@@ -21,6 +21,11 @@ sealed interface GatewayCommand {
         val symbol: String
     ) : GatewayCommand
 
+    data class ResolveInstrument(
+        val requestId: Long,
+        val symbol: String
+    ) : GatewayCommand
+
     data class PlaceTouchTurnBracket(val plan: TouchTurnOrderPlan) : GatewayCommand
 
     /** Cancel all non-terminal working orders for [symbol] (session stop cleanup). */

@@ -77,7 +77,11 @@ data class ConfigurationRecord(
     val symbol: String,
     val maxAtRisk: Int,
     val autoStartOnMarketOpen: Boolean = false,
-    val lastAutoStartSessionDate: String? = null
+    val lastAutoStartSessionDate: String? = null,
+    val marketZoneId: String? = null,
+    val currencyCode: String = "USD",
+    val marketSource: String? = null,
+    val companyName: String? = null
 )
 
 @Serializable

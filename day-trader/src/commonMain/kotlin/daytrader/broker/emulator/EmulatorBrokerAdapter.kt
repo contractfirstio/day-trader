@@ -1,5 +1,6 @@
 package daytrader.broker.emulator
 
+import daytrader.domain.DeploymentMarket
 import daytrader.gateway.BrokerAdapter
 import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayCommand
@@ -50,6 +51,13 @@ class EmulatorBrokerAdapter(
                         launch { engine.fetchFirstFifteenMinuteCandle(command.requestId, command.symbol) }
                     is GatewayCommand.FetchFourteenDayAdr ->
                         launch { engine.fetchFourteenDayAdr(command.requestId, command.symbol) }
+                    is GatewayCommand.ResolveInstrument ->
+                        emit(
+                            GatewayEvent.InstrumentResolved(
+                                command.requestId,
+                                Result.success(DeploymentMarket.fromSymbolHeuristic(command.symbol))
+                            )
+                        )
                     is GatewayCommand.PlaceTouchTurnBracket ->
                         engine.placeTouchTurnBracket(command.plan)
                     is GatewayCommand.CancelOpenOrdersForSymbol ->
