@@ -1,0 +1,68 @@
+package daytrader.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import daytrader.gateway.BrokerId
+import daytrader.ui.theme.BrandRed
+import daytrader.ui.theme.TradeBlueBorder
+import daytrader.ui.theme.TradeBlueSurface
+
+private val BadgeShape = RoundedCornerShape(6.dp)
+private val LiveAccent = Color(0xFFFFB300)
+
+@Composable
+fun BrokerModeBadge(
+    brokerId: BrokerId,
+    modifier: Modifier = Modifier
+) {
+    val (label, borderColor, surfaceColor, textColor) = when (brokerId) {
+        BrokerId.INTERACTIVE_BROKERS -> BrokerModeBadgeStyle(
+            label = "LIVE · IB",
+            borderColor = BrandRed,
+            surfaceColor = Color(0xFF2A1214),
+            textColor = LiveAccent
+        )
+        BrokerId.EMULATOR -> BrokerModeBadgeStyle(
+            label = "SIM · EMULATOR",
+            borderColor = TradeBlueBorder,
+            surfaceColor = TradeBlueSurface,
+            textColor = TradeBlueBorder
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .testTag("brokerModeBadge")
+            .clip(BadgeShape)
+            .background(surfaceColor)
+            .border(2.dp, borderColor, BadgeShape)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp
+        )
+    }
+}
+
+private data class BrokerModeBadgeStyle(
+    val label: String,
+    val borderColor: Color,
+    val surfaceColor: Color,
+    val textColor: Color
+)

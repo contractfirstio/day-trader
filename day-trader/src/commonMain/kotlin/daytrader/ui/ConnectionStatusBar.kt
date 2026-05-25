@@ -39,11 +39,17 @@ fun ConnectionStatusBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = brokerStatusLabel(state, brokerGateway.brokerId),
-            style = MaterialTheme.typography.bodyMedium,
-            color = brokerStatusColor(state)
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BrokerModeBadge(brokerId = brokerGateway.brokerId)
+            Text(
+                text = brokerStatusLabel(state, brokerGateway.brokerId),
+                style = MaterialTheme.typography.bodyMedium,
+                color = brokerStatusColor(state)
+            )
+        }
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically

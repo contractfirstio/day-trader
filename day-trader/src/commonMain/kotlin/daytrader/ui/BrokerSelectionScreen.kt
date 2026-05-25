@@ -105,13 +105,6 @@ fun BrokerSelectionScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Selected: ${selected.displayName}",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onContinue,
                     modifier = Modifier
