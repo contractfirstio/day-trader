@@ -1559,6 +1559,11 @@ private fun LiveTab(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (instance.status == InstanceStatus.RUNNING) {
+            LiveTradingPositionPnLHeader(
+                symbol = instance.symbol,
+                broker = liveBroker,
+                liveExecution = liveExecution
+            )
             SessionAutoStopStatus(instance = instance)
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
                 TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
@@ -1606,6 +1611,106 @@ private fun LiveTab(
                 modifier = Modifier.testTag("LiveTabStoppedHint")
             )
         }
+    }
+}
+
+private data class LivePositionPnLDisplay(
+    val pnlText: String,
+    val isPositive: Boolean,
+    val subtitle: String,
+    val hasOpenPosition: Boolean
+)
+
+private fun resolveLivePositionPnL(
+    symbol: String,
+    broker: LiveBrokerUiState?,
+    liveExecution: LiveExecutionUiState?
+): LivePositionPnLDisplay {
+    broker?.position?.let { position ->
+        return LivePositionPnLDisplay(
+            pnlText = position.formattedUnrealizedPnL,
+            isPositive = position.isPositivePnL,
+            subtitle = "${position.sideLabel} ${position.quantity} · ${position.symbol}",
+            hasOpenPosition = true
+        )
+    }
+    if (liveExecution?.state == ExecutionState.FILLED && liveExecution.formattedUnrealized != null) {
+        return LivePositionPnLDisplay(
+            pnlText = liveExecution.formattedUnrealized,
+            isPositive = liveExecution.isUnrealizedPositive,
+            subtitle = liveExecution.headline,
+            hasOpenPosition = true
+        )
+    }
+    val subtitle = when {
+        broker?.isConnected == false -> "Broker not connected"
+        broker != null -> "Flat · no open position for $symbol"
+        else -> "Flat · awaiting broker position"
+    }
+    return LivePositionPnLDisplay(
+        pnlText = "—",
+        isPositive = true,
+        subtitle = subtitle,
+        hasOpenPosition = false
+    )
+}
+
+@Composable
+private fun LiveTradingPositionPnLHeader(
+    symbol: String,
+    broker: LiveBrokerUiState?,
+    liveExecution: LiveExecutionUiState?
+) {
+    val display = resolveLivePositionPnL(symbol, broker, liveExecution)
+    val pnlColor = if (display.hasOpenPosition) {
+        if (display.isPositive) GainGreen else LossRed
+    } else {
+        TextSecondary
+    }
+    val headerBg = if (display.hasOpenPosition) {
+        pnlColor.copy(alpha = 0.14f)
+    } else {
+        SurfaceDark
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(headerBg, RoundedCornerShape(8.dp))
+            .border(
+                width = 1.dp,
+                color = if (display.hasOpenPosition) pnlColor.copy(alpha = 0.45f) else TableHeaderBg,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("LiveTradingPositionPnLHeader"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                "Position P&L",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BrandRed,
+                letterSpacing = 0.3.sp
+            )
+            Text(
+                display.subtitle,
+                fontSize = 11.sp,
+                color = TextSecondary,
+                maxLines = 2
+            )
+        }
+        Text(
+            display.pnlText,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold,
+            color = pnlColor,
+            modifier = Modifier.testTag("LiveTradingPositionPnLValue")
+        )
     }
 }
 
@@ -1665,31 +1770,19 @@ private fun LiveBrokerSection(broker: LiveBrokerUiState) {
                     modifier = Modifier.testTag("LiveBrokerNoPosition")
                 )
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            position.companyName,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            maxLines = 1
-                        )
-                        Text(
-                            "${position.sideLabel} ${position.quantity} · ${position.symbol}",
-                            fontSize = 10.sp,
-                            color = TextSecondary
-                        )
-                    }
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        position.formattedUnrealizedPnL,
-                        fontSize = 12.sp,
+                        position.companyName,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (position.isPositivePnL) GainGreen else LossRed,
-                        modifier = Modifier.testTag("LiveBrokerPositionPnL")
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    Text(
+                        "${position.sideLabel} ${position.quantity} · ${position.symbol}",
+                        fontSize = 10.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.testTag("LiveBrokerPositionSummary")
                     )
                 }
                 Row(
