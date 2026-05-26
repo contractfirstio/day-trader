@@ -141,6 +141,8 @@ For Touch Turn, the first 15-minute bar is **time-shifted** so it closes after a
 |----------|---------|---------|
 | `DAY_TRADER_EMULATOR_CANDLE_CLOSE_SEC` | `10` | Seconds until the synthetic first 15m bar closes |
 | `off` or `0` | — | Use today’s 09:30 bar instead (often already closed) |
+| `DAY_TRADER_EMULATOR_FIRST_CANDLE_COLOR` | `auto` | `red` / `long` = red bar (long entry); `green` / `short` = green bar (short); `auto` = hash by symbol/day |
+| `DAY_TRADER_EMULATOR_FIRST_CANDLE_ALTERNATE` | `true` | When `auto`, flip green/red on each new session’s first-candle fetch (2nd session = long, 3rd = short, …) |
 
 When a Touch Turn liquidity bracket is logged inside the entry window, the emulator **places working orders** and sets the market to the entry price. Every ~2s price tick can fill the entry limit and **open a blotter position** (TP/STOP legs activate after entry fills). Once the entry is filled, the emulator **walks price randomly between stop and take-profit** until one leg fills (the other is cancelled). IB still logs only — no live `placeOrder`.
 

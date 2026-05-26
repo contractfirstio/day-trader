@@ -87,7 +87,8 @@ fun StrategyDeployment.onSessionStopped(
                 stopTrigger = resolvedStopTrigger,
                 brokerId = stopParams.brokerId,
                 brokerUnrealizedPnLAtStop = stopParams.brokerUnrealizedPnLAtStop,
-                stopErrorMessage = stopParams.stopErrorMessage
+                stopErrorMessage = stopParams.stopErrorMessage,
+                sessionTrades = trades
             )
         else -> null
     }

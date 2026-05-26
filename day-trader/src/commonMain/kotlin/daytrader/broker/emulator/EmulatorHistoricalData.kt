@@ -20,10 +20,17 @@ internal object EmulatorHistoricalData {
         symbol: String,
         instrument: EmulatorInstrument,
         config: BrokerEmulatorConfig,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionCandleFetchIndex: Int = 0
     ): Result<OhlcBar> {
         val sessionYmd = sessionDayYyyyMmDd()
-        val profile = symbolProfile(symbol, sessionYmd)
+        val profile = symbolProfile(
+            symbol = symbol,
+            sessionYmd = sessionYmd,
+            colorMode = config.firstCandleColorMode,
+            sessionCandleFetchIndex = sessionCandleFetchIndex,
+            alternateFirstCandleColor = config.alternateFirstCandleColor
+        )
         val ref = instrument.referencePrice
         val range = ref * profile.intradayRangePct
         val open = ref - range * profile.openBias
@@ -144,11 +151,39 @@ internal object EmulatorHistoricalData {
         return abs("$norm|$sessionYmd".hashCode()) % 2 == 0
     }
 
-    internal fun symbolProfile(symbol: String, sessionYmd: String): SymbolProfile {
+    internal fun resolveFirstCandleIsGreen(
+        norm: String,
+        sessionYmd: String,
+        colorMode: EmulatorFirstCandleColorMode,
+        sessionCandleFetchIndex: Int,
+        alternateFirstCandleColor: Boolean
+    ): Boolean = when (colorMode) {
+        EmulatorFirstCandleColorMode.GREEN -> true
+        EmulatorFirstCandleColorMode.RED -> false
+        EmulatorFirstCandleColorMode.AUTO -> when {
+            alternateFirstCandleColor && sessionCandleFetchIndex > 0 ->
+                sessionCandleFetchIndex % 2 == 1
+            else -> firstCandleIsGreen(norm, sessionYmd)
+        }
+    }
+
+    internal fun symbolProfile(
+        symbol: String,
+        sessionYmd: String,
+        colorMode: EmulatorFirstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+        sessionCandleFetchIndex: Int = 0,
+        alternateFirstCandleColor: Boolean = false
+    ): SymbolProfile {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val hash = abs(norm.hashCode())
         val liquid = norm in LIQUID_SYMBOLS
-        val greenCandle = firstCandleIsGreen(norm, sessionYmd)
+        val greenCandle = resolveFirstCandleIsGreen(
+            norm = norm,
+            sessionYmd = sessionYmd,
+            colorMode = colorMode,
+            sessionCandleFetchIndex = sessionCandleFetchIndex,
+            alternateFirstCandleColor = alternateFirstCandleColor
+        )
         return SymbolProfile(
             intradayRangePct = if (liquid) 0.018 else 0.012,
             dailyRangePct = if (liquid) 0.022 else 0.016,

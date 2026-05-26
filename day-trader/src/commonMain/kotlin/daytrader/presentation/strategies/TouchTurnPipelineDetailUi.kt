@@ -6,8 +6,26 @@ import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.presentation.Formatters
+
+/** Values loaded from IB at the Data pipeline step (ADR + first 15m RTH bar). */
+data class SessionDataCaptureUi(
+    val status: TouchTurnCandleStatus,
+    val errorMessage: String?,
+    val marketZoneAbbrev: String,
+    val currency: String,
+    val dataReadyAt: String?,
+    val adr14: Double?,
+    val rangeThreshold: Double,
+    val adrRatioPercent: Int,
+    val candle: OhlcBar?
+) {
+    val hasAdr: Boolean get() = adr14 != null && adr14 > 0.0
+    val hasOpeningBar: Boolean get() = candle != null
+    val isReady: Boolean get() = status == TouchTurnCandleStatus.READY && (hasAdr || hasOpeningBar)
+}
 
 data class OpeningBarDetailUi(
     val barTime: String?,
@@ -41,6 +59,19 @@ data class LiquidityCalculationUi(
 }
 
 object TouchTurnPipelineDetailUiMapper {
+    fun sessionDataCapture(session: TouchTurnSessionContext): SessionDataCaptureUi =
+        SessionDataCaptureUi(
+            status = session.status,
+            errorMessage = session.errorMessage,
+            marketZoneAbbrev = TouchTurnLogic.marketOpenZoneAbbrev(session.marketZoneId),
+            currency = session.currencyCode,
+            dataReadyAt = session.milestones.dataReadyAt,
+            adr14 = session.adr14,
+            rangeThreshold = session.rangeThreshold,
+            adrRatioPercent = (TouchTurnDefaults.ADR_LIQUIDITY_RATIO * 100).toInt(),
+            candle = session.candle
+        )
+
     fun openingBarDetail(
         session: TouchTurnSessionContext,
         nowEpochMillis: Long = System.currentTimeMillis()
@@ -113,3 +144,9 @@ fun LiquidityCalculationUi.fmt(amount: Double): String =
 
 fun OpeningBarDetailUi.fmt(amount: Double): String =
     Formatters.moneyPlain(amount, currency)
+
+fun SessionDataCaptureUi.fmt(amount: Double): String =
+    Formatters.moneyPlain(amount, currency)
+
+fun SessionDataCaptureUi.formattedAdr14(): String? =
+    adr14?.let { fmt(it) }

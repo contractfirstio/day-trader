@@ -1,6 +1,8 @@
 package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.FirstCandleColor
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
@@ -39,6 +41,7 @@ class BrokerEmulatorEngine(
     private val bracketManagedOrderIds = mutableSetOf<Int>()
     private val bracketPriceWalks = mutableMapOf<String, BracketPriceWalk>()
     private val sessionFills = mutableListOf<BrokerFill>()
+    private var firstCandleFetchCount = 0
 
     fun handleConnect() {
         if (connected) return
@@ -94,15 +97,31 @@ class BrokerEmulatorEngine(
         val result = if (instrument == null) {
             Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
         } else {
+            firstCandleFetchCount++
+            val fetchIndex = if (
+                config.alternateFirstCandleColor &&
+                config.firstCandleColorMode == EmulatorFirstCandleColorMode.AUTO
+            ) {
+                firstCandleFetchCount
+            } else {
+                0
+            }
             val candleResult = EmulatorHistoricalData.firstFifteenMinuteCandle(
                 symbol = trimmed,
                 instrument = instrument,
-                config = config
+                config = config,
+                sessionCandleFetchIndex = fetchIndex
             )
             candleResult.onSuccess { bar ->
                 config.firstCandleSecondsUntilClose?.let { seconds ->
                     EmulatorLog.firstCandleScheduled(trimmed, bar.time.orEmpty(), seconds)
                 }
+                EmulatorLog.firstCandleColor(
+                    symbol = trimmed,
+                    isGreen = TouchTurnLogic.firstCandleColor(bar) == FirstCandleColor.GREEN,
+                    fetchIndex = fetchIndex,
+                    colorMode = config.firstCandleColorMode
+                )
             }
             candleResult
         }

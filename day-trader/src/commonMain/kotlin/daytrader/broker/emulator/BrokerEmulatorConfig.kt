@@ -1,5 +1,24 @@
 package daytrader.broker.emulator
 
+/**
+ * Controls the synthetic first 15m bar for Touch Turn (green → short, red → long).
+ * [AUTO] uses symbol/day hashing; [ALTERNATE] flips on each emulator candle fetch when enabled in config.
+ */
+enum class EmulatorFirstCandleColorMode {
+    AUTO,
+    GREEN,
+    RED;
+
+    companion object {
+        fun parse(raw: String?): EmulatorFirstCandleColorMode = when (raw?.trim()?.lowercase()) {
+            "green", "short" -> GREEN
+            "red", "long" -> RED
+            null, "", "auto" -> AUTO
+            else -> AUTO
+        }
+    }
+}
+
 data class BrokerEmulatorConfig(
     val accountId: String = "EMU001",
     val connectDelayMs: Long = 350L,
@@ -29,6 +48,13 @@ data class BrokerEmulatorConfig(
      * Null = legacy fixed today 09:30 open (often already closed).
      */
     val firstCandleSecondsUntilClose: Long? = 10L,
+    /** Force first 15m bar color; [EmulatorFirstCandleColorMode.AUTO] uses symbol/day or alternation. */
+    val firstCandleColorMode: EmulatorFirstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+    /**
+     * When [firstCandleColorMode] is [EmulatorFirstCandleColorMode.AUTO], alternate green/red on each
+     * [BrokerEmulatorEngine.fetchFirstFifteenMinuteCandle] call (easy long/short testing).
+     */
+    val alternateFirstCandleColor: Boolean = true,
     /**
      * When true, [BrokerEmulatorEngine] does not synthesize price walks; marks come from
      * [BrokerEmulatorEngine.ingestLiveMark] (hybrid paper + live IB data mode).
@@ -40,11 +66,11 @@ data class BrokerEmulatorConfig(
 
         fun fromEnvironment(): BrokerEmulatorConfig {
             val seconds = parseFirstCandleSecondsUntilClose(emulatorFirstCandleCloseSecEnv())
-            return if (seconds == Default.firstCandleSecondsUntilClose) {
-                Default
-            } else {
-                Default.copy(firstCandleSecondsUntilClose = seconds)
-            }
+            return Default.copy(
+                firstCandleSecondsUntilClose = seconds,
+                firstCandleColorMode = EmulatorFirstCandleColorMode.parse(emulatorFirstCandleColorEnv()),
+                alternateFirstCandleColor = parseFirstCandleAlternate(emulatorFirstCandleAlternateEnv())
+            )
         }
 
         fun forLiveIbMarketData(): BrokerEmulatorConfig =
@@ -61,7 +87,20 @@ data class BrokerEmulatorConfig(
                 raw.equals("off", ignoreCase = true) -> null
                 else -> raw.toLongOrNull()?.takeIf { it > 0 }
             }
+
+        internal fun parseFirstCandleAlternate(raw: String?): Boolean =
+            when (raw?.trim()?.lowercase()) {
+                null, "", "true", "1", "on", "yes" -> true
+                "false", "0", "off", "no" -> false
+                else -> true
+            }
     }
 }
 
 expect fun emulatorFirstCandleCloseSecEnv(): String?
+
+/** `green`/`short`, `red`/`long`, or `auto` (default). */
+expect fun emulatorFirstCandleColorEnv(): String?
+
+/** `false` to keep a stable color per symbol/day when mode is `auto`. */
+expect fun emulatorFirstCandleAlternateEnv(): String?

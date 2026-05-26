@@ -1,6 +1,22 @@
 package daytrader.broker.emulator
 
 internal object EmulatorLog {
+    fun firstCandleColor(
+        symbol: String,
+        isGreen: Boolean,
+        fetchIndex: Int,
+        colorMode: EmulatorFirstCandleColorMode
+    ) {
+        val side = if (isGreen) "SHORT (green bar)" else "LONG (red bar)"
+        val mode = when (colorMode) {
+            EmulatorFirstCandleColorMode.AUTO ->
+                if (fetchIndex > 0) "auto-alternate#$fetchIndex" else "auto"
+            EmulatorFirstCandleColorMode.GREEN -> "forced-green"
+            EmulatorFirstCandleColorMode.RED -> "forced-red"
+        }
+        println("[Emulator] First 15m candle for $symbol: $side [$mode]")
+    }
+
     fun firstCandleScheduled(symbol: String, barTime: String, secondsUntilClose: Long) {
         println(
             "[Emulator] First 15m candle for $symbol closes in ${secondsUntilClose}s " +

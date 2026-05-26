@@ -36,10 +36,13 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.inProgressSession
+import daytrader.domain.applyToChartSetup
 import daytrader.presentation.strategies.TouchTurnExecutedBracketLegs
+import daytrader.presentation.strategies.toLevelKinds
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.LiquidityCalculationUi
 import daytrader.presentation.strategies.OpeningBarDetailUi
+import daytrader.presentation.strategies.SessionDataCaptureUi
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
@@ -150,7 +153,7 @@ fun TouchTurnPipelineSectionData(
 ) {
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionData"),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         when {
             session == null -> Text(
@@ -158,22 +161,170 @@ fun TouchTurnPipelineSectionData(
                 fontSize = 12.sp,
                 color = TextSecondary
             )
-            session.status == TouchTurnCandleStatus.LOADING -> Text(
-                "Loading opening bar and 14-day ADR from broker…",
-                fontSize = 12.sp,
+            session.status == TouchTurnCandleStatus.LOADING -> {
+                Text(
+                    "Loading opening bar and 14-day ADR from broker…",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Text(
+                    "Requests: 14-day average daily range and the first 15-minute RTH candle for $symbol.",
+                    fontSize = 10.sp,
+                    color = TextSecondary.copy(alpha = 0.85f),
+                    lineHeight = 13.sp
+                )
+            }
+            session.status == TouchTurnCandleStatus.FAILED -> {
+                Text(
+                    session.errorMessage ?: "Failed to load session data.",
+                    fontSize = 12.sp,
+                    color = LossRed,
+                    modifier = Modifier.testTag("TouchTurnDataCaptureError")
+                )
+            }
+            else -> {
+                val capture = remember(session) {
+                    TouchTurnPipelineDetailUiMapper.sessionDataCapture(session)
+                }
+                Text(
+                    "Session data captured from broker.",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = GainGreen,
+                    modifier = Modifier.testTag("TouchTurnDataCaptureReady")
+                )
+                TouchTurnDataCaptureCard(capture = capture)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnDataCaptureCard(capture: SessionDataCaptureUi) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnDataCaptureCard"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Captured inputs",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+
+        DataCaptureRow(label = "Market", value = capture.marketZoneAbbrev)
+        DataCaptureRow(label = "Currency", value = capture.currency)
+        capture.dataReadyAt?.let { readyAt ->
+            DataCaptureRow(label = "Ready at", value = readyAt, testTag = "TouchTurnDataCaptureReadyAt")
+        }
+
+        if (capture.hasAdr) {
+            HorizontalDivider(color = TableHeaderBg)
+            Text(
+                "14-day ADR",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = TextSecondary
             )
-            session.status == TouchTurnCandleStatus.FAILED -> Text(
-                session.errorMessage ?: "Failed to load session data.",
-                fontSize = 12.sp,
-                color = LossRed
+            DataCaptureRow(
+                label = "Average daily range",
+                value = capture.formattedAdr14() ?: "—",
+                emphasize = true,
+                testTag = "TouchTurnDataCaptureAdr14"
             )
-            else -> Text(
-                "Opening bar and ADR data are ready.",
-                fontSize = 12.sp,
-                color = GainGreen
+            DataCaptureRow(
+                label = "Liquidity threshold (${capture.adrRatioPercent}% of ADR)",
+                value = capture.fmt(capture.rangeThreshold),
+                testTag = "TouchTurnDataCaptureThreshold"
             )
         }
+
+        capture.candle?.let { candle ->
+            HorizontalDivider(color = TableHeaderBg)
+            Text(
+                "Opening 15-minute bar",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextSecondary
+            )
+            candle.time?.let { time ->
+                Text(
+                    time,
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("TouchTurnDataCaptureBarTime")
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DataCaptureRow(
+                    label = "Open",
+                    value = capture.fmt(candle.open),
+                    modifier = Modifier.weight(1f)
+                )
+                DataCaptureRow(
+                    label = "High",
+                    value = capture.fmt(candle.high),
+                    modifier = Modifier.weight(1f),
+                    valueColor = GainGreen
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                DataCaptureRow(
+                    label = "Low",
+                    value = capture.fmt(candle.low),
+                    modifier = Modifier.weight(1f),
+                    valueColor = LossRed
+                )
+                DataCaptureRow(
+                    label = "Close",
+                    value = capture.fmt(candle.close),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            DataCaptureRow(
+                label = "Range (H − L)",
+                value = capture.fmt(candle.range),
+                emphasize = true,
+                testTag = "TouchTurnDataCaptureBarRange"
+            )
+        }
+    }
+}
+
+@Composable
+private fun DataCaptureRow(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color = Color.White,
+    emphasize: Boolean = false,
+    testTag: String? = null
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontSize = 10.sp, color = TextSecondary, modifier = Modifier.weight(1f))
+        Text(
+            value,
+            fontSize = if (emphasize) 12.sp else 11.sp,
+            fontWeight = if (emphasize) FontWeight.SemiBold else FontWeight.Medium,
+            color = valueColor,
+            maxLines = 2
+        )
     }
 }
 
@@ -251,6 +402,7 @@ fun TouchTurnPipelineSectionLiquidity(
 fun TouchTurnPipelineSectionOrdersPreview(
     session: TouchTurnSessionContext?,
     sessionTrades: List<SessionTrade> = emptyList(),
+    sessionPnl: Double? = null,
     modifier: Modifier = Modifier
 ) {
     val candle = session?.candle
@@ -289,18 +441,28 @@ fun TouchTurnPipelineSectionOrdersPreview(
             )
             return@Column
         }
-        val orderSetup = remember(session, tick) {
+        val computedSetup = remember(session, tick) {
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
         }
-        val executedLevels = remember(session, sessionTrades, orderSetup) {
-            TouchTurnExecutedBracketLegs.resolve(
-                trades = sessionTrades,
-                plannedBracket = session.plannedBracket,
-                bracketSetup = orderSetup
-            )
+        val isRecap = sessionTrades.isNotEmpty() || session.executedBracketLegs.isNotEmpty()
+        val orderSetup = remember(session, computedSetup, isRecap) {
+            val bracket = session.plannedBracket
+            if (isRecap && bracket != null) {
+                bracket.applyToChartSetup(computedSetup)
+            } else {
+                computedSetup
+            }
         }
-        val isRecap = sessionTrades.isNotEmpty()
+        val executedLevels = remember(session, sessionTrades, orderSetup, sessionPnl) {
+            session.executedBracketLegs.takeIf { it.isNotEmpty() }?.toLevelKinds()
+                ?: TouchTurnExecutedBracketLegs.resolve(
+                    trades = sessionTrades,
+                    plannedBracket = session.plannedBracket,
+                    bracketSetup = orderSetup,
+                    sessionPnl = sessionPnl
+                )
+        }
         Text(
             if (isRecap) {
                 "Session recap — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}. Pulsing lines filled during this run."
