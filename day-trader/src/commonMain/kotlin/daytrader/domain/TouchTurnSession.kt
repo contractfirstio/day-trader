@@ -1004,6 +1004,17 @@ fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? {
         .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
 }
 
+/** Broker fills for the Trading tab order recap chart (running or most recent closed run with fills). */
+fun StrategyDeployment.touchTurnRecapSessionTrades(): List<SessionTrade> {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return emptyList()
+    inProgressSession()?.sessionTrades?.takeIf { it.isNotEmpty() }?.let { return it }
+    return sessionHistory
+        .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
+        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+        ?.sessionTrades
+        .orEmpty()
+}
+
 /**
  * Live or last-closed session context for the Trading tab pipeline detail panels.
  * After stop, [touchTurnSession] is cleared but opening bar / ADR are restored from [StrategySession.touchTurnRunRecord].

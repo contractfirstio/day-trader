@@ -33,11 +33,14 @@ import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.inProgressSession
+import daytrader.presentation.strategies.TouchTurnExecutedBracketLegs
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.LiquidityCalculationUi
 import daytrader.presentation.strategies.OpeningBarDetailUi
+import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
 import daytrader.presentation.strategies.TouchTurnPipelineNodeId
@@ -247,6 +250,7 @@ fun TouchTurnPipelineSectionLiquidity(
 @Composable
 fun TouchTurnPipelineSectionOrdersPreview(
     session: TouchTurnSessionContext?,
+    sessionTrades: List<SessionTrade> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val candle = session?.candle
@@ -289,17 +293,33 @@ fun TouchTurnPipelineSectionOrdersPreview(
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
         }
+        val executedLevels = remember(session, sessionTrades, orderSetup) {
+            TouchTurnExecutedBracketLegs.resolve(
+                trades = sessionTrades,
+                plannedBracket = session.plannedBracket,
+                bracketSetup = orderSetup
+            )
+        }
+        val isRecap = sessionTrades.isNotEmpty()
         Text(
-            "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}",
+            if (isRecap) {
+                "Session recap — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}. Pulsing lines filled during this run."
+            } else {
+                "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}"
+            },
             fontSize = 10.sp,
             color = TextSecondary,
-            lineHeight = 13.sp
+            lineHeight = 13.sp,
+            modifier = Modifier.testTag(
+                if (isRecap) "TouchTurnOrderRecapCaption" else "TouchTurnOrderPreviewCaption"
+            )
         )
         if (orderSetup.isActionable) {
             TouchTurnOrderPreviewChart(
                 candle = candle,
                 setup = orderSetup,
                 fmt = fmt,
+                executedLevels = executedLevels,
                 modifier = Modifier.testTag("TouchTurnOrderPreviewChart")
             )
         } else {
@@ -655,6 +675,18 @@ private fun LiquidityCalcStep(
             Text(detail, fontSize = 9.sp, color = TextSecondary.copy(alpha = 0.85f), lineHeight = 12.sp)
         }
     }
+}
+
+@Composable
+fun TouchTurnPipelineLiveOrderChart(
+    chart: TouchTurnLiveOrderChartUiState?,
+    modifier: Modifier = Modifier
+) {
+    if (chart == null) return
+    TouchTurnLiveOrderPriceChart(
+        chart = chart,
+        modifier = modifier.testTag("TouchTurnPipelineLiveOrderChart")
+    )
 }
 
 @Composable
