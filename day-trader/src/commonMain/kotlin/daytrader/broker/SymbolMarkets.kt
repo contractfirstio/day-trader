@@ -1,5 +1,8 @@
 package daytrader.broker
 
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentMarketResolver
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.StrategyDeployment
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
@@ -19,6 +22,22 @@ object SymbolMarkets {
         "HKD" -> "Asia/Hong_Kong"
         "GBP" -> "Europe/London"
         else -> "America/New_York"
+    }
+
+    /** RTH session zone for IB session-day filters and bar timestamps (prefers saved listing). */
+    fun marketZoneIdForSession(symbol: String, instrument: InstrumentIdentity?): String {
+        if (instrument != null) {
+            return InstrumentMarketResolver.fromIbContract(
+                InstrumentMarketResolver.ContractSnapshot(
+                    symbol = instrument.symbol,
+                    exchange = instrument.exchange,
+                    primaryExch = instrument.primaryExch,
+                    currency = instrument.currency
+                )
+            ).marketZoneId
+        }
+        if (isHongKong(symbol)) return RthMarketSessions.HK.zoneId
+        return RthMarketSessions.US.zoneId
     }
 
     /** Normalize symbols for matching instance config to IB position/order symbols. */

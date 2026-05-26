@@ -232,6 +232,14 @@ internal object IbGatewayLog {
         if (debugEnabled || !redactLogs) e.printStackTrace()
     }
 
+    fun rateLimitBackoff(maxPerSecond: Int, minIntervalMs: Long) {
+        info("Rate limit backoff: max $maxPerSecond msg/s, min interval ${minIntervalMs}ms")
+    }
+
+    fun rateLimitBackoffRestored(maxPerSecond: Int, minIntervalMs: Long) {
+        info("Rate limit pacing restored: max $maxPerSecond msg/s, min interval ${minIntervalMs}ms")
+    }
+
     private fun emit(message: String) {
         if (!loggingEnabled) return
         println(message)

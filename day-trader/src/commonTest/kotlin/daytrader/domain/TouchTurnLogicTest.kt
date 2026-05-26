@@ -8,6 +8,42 @@ import kotlin.test.assertTrue
 
 class TouchTurnLogicTest {
     @Test
+    fun normalizeIbBarTime_metConvertsToLondonSummer() {
+        val normalized = TouchTurnLogic.normalizeIbBarTimeToMarketZone(
+            "20260526 09:00:00 MET",
+            "Europe/London"
+        )
+        assertEquals("20260526  08:00:00", normalized)
+    }
+
+    @Test
+    fun selectFirstFifteenMinuteBar_prefersEightAmLondonAfterMetNormalization() {
+        val bars = listOf(
+            OhlcBar(open = 1.0, high = 2.0, low = 0.5, close = 1.5, time = "20260526 09:00:00 MET"),
+            OhlcBar(open = 1.0, high = 2.0, low = 0.5, close = 1.5, time = "20260526 09:15:00 MET")
+        )
+        val selected = TouchTurnLogic.selectFirstFifteenMinuteBar(
+            bars,
+            "Europe/London",
+            "20260526"
+        )
+        assertEquals("20260526  08:00:00", selected?.time)
+    }
+
+    @Test
+    fun firstCandleCloseStatus_closedAfterMetBarNormalizedToLondon() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 401.0,
+            low = 399.0,
+            close = 400.5,
+            time = "20260526 09:00:00 MET"
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Europe/London")!!
+        assertEquals(FirstCandleCloseStatus.CLOSED, TouchTurnLogic.firstCandleCloseStatus(bar, "Europe/London", barEnd))
+    }
+
+    @Test
     fun liquidityCandle_whenRangeExceedsThreshold() {
         val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0)
         val threshold = TouchTurnLogic.liquidityRangeThreshold(adr14 = 20.0)

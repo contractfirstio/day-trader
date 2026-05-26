@@ -22,4 +22,17 @@ class IbRequestPacerTest {
         assertTrue(count.get() <= 12, "expected ~5/sec cap, got ${count.get()}")
         assertTrue(count.get() >= 8, "expected most jobs to run, got ${count.get()}")
     }
+
+    @Test
+    fun applyRateLimitBackoff_still_drains_queue() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val pacer = IbRequestPacer(scope, maxMessagesPerSecond = 20, minIntervalMs = 1L)
+        val count = AtomicInteger(0)
+        pacer.applyRateLimitBackoff()
+        repeat(3) {
+            pacer.enqueue { count.incrementAndGet() }
+        }
+        delay(1_500)
+        assertTrue(count.get() >= 3, "backoff should not block queue drain, got ${count.get()}")
+    }
 }

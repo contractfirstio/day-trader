@@ -165,6 +165,89 @@ object TouchTurnLogic {
     const val FIRST_CANDLE_BAR_DURATION_MS = BAR_DURATION_MINUTES * 60 * 1000L
     private const val BAR_DURATION_MS = FIRST_CANDLE_BAR_DURATION_MS
     private val IB_BAR_TIME_REGEX = Regex("""(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})""")
+    private val IB_BAR_TIME_WITH_SUFFIX_REGEX = Regex(
+        """(\d{4})(\d{2})(\d{2})\s+(\d{1,2}):(\d{2}):(\d{2})(?:\s+([A-Za-z_/]+))?"""
+    )
+
+    fun sessionDayYyyyMmDd(
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): String {
+        val zone = java.time.ZoneId.of(marketZoneId)
+        return java.time.Instant.ofEpochMilli(nowEpochMillis)
+            .atZone(zone)
+            .toLocalDate()
+            .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+    }
+
+    /**
+     * IB may append an exchange/API zone suffix (e.g. `20260526 09:00:00 MET`).
+     * Converts the timestamp into [marketZoneId] for bar-close logic (MET → London is −1h in summer).
+     */
+    fun normalizeIbBarTimeToMarketZone(barTime: String?, marketZoneId: String): String? {
+        val trimmed = barTime?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val match = IB_BAR_TIME_WITH_SUFFIX_REGEX.find(trimmed) ?: return trimmed
+        val (year, month, day, hour, minute, second, suffix) = match.destructured
+        val sourceZoneId = suffix.takeIf { it.isNotBlank() }?.let { ibBarTimeSuffixToZoneId(it) } ?: marketZoneId
+        return runCatching {
+            val sourceZone = java.time.ZoneId.of(sourceZoneId)
+            val targetZone = java.time.ZoneId.of(marketZoneId)
+            val local = java.time.LocalDateTime.of(
+                year.toInt(),
+                month.toInt(),
+                day.toInt(),
+                hour.toInt(),
+                minute.toInt(),
+                second.toInt()
+            )
+            val instant = local.atZone(sourceZone).toInstant()
+            formatIbBarOpenTime(instant.toEpochMilli(), marketZoneId)
+        }.getOrElse { trimmed }
+    }
+
+    fun ibBarTimeSuffixToZoneId(suffix: String): String? = when (suffix.trim().uppercase()) {
+        "MET", "MEZ", "CET", "CEST", "EET", "EEST" -> "Europe/Berlin"
+        "UTC", "GMT" -> "UTC"
+        "US/EASTERN", "EST", "EDT" -> "America/New_York"
+        "LON", "BST", "GB", "UK" -> "Europe/London"
+        "HK", "HKT" -> "Asia/Hong_Kong"
+        else -> null
+    }
+
+    /**
+     * Picks the first 15m RTH bar for [sessionDayYyyyMmdd], normalizing IB timestamps into [marketZoneId].
+     * Prefers the scheduled session open bar (e.g. 08:00 London) when present.
+     */
+    fun selectFirstFifteenMinuteBar(
+        bars: List<OhlcBar>,
+        marketZoneId: String,
+        sessionDayYyyyMmdd: String
+    ): OhlcBar? {
+        val normalized = bars
+            .filter { it.high > 0.0 && it.low > 0.0 && it.high >= it.low }
+            .map { bar ->
+                bar.copy(time = normalizeIbBarTimeToMarketZone(bar.time, marketZoneId))
+            }
+            .filter { barDayKey(it.time) == sessionDayYyyyMmdd }
+        if (normalized.isEmpty()) return null
+
+        val sessionDateIso = runCatching {
+            val y = sessionDayYyyyMmdd.substring(0, 4).toInt()
+            val m = sessionDayYyyyMmdd.substring(4, 6).toInt()
+            val d = sessionDayYyyyMmdd.substring(6, 8).toInt()
+            "%04d-%02d-%02d".format(y, m, d)
+        }.getOrNull()
+        val expectedOpenMillis = sessionDateIso?.let {
+            marketOpenEpochMillis(it, marketZoneId, firstCandleBarTime = null)
+        }
+        val expectedBarTime = expectedOpenMillis?.let { formatIbBarOpenTime(it, marketZoneId) }
+        expectedBarTime?.let { expected ->
+            normalized.firstOrNull { it.time == expected }?.let { return it }
+        }
+        return normalized.minByOrNull { barTimeSortKey(it.time) }
+    }
+
+    fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
 
     /**
      * IB historical bar `time` is the bar **open** (e.g. `20250522  09:30:00` for 09:30–09:45).
@@ -601,7 +684,8 @@ object TouchTurnLogic {
     }
 
     fun barStartEpochMillis(barTime: String, marketZoneId: String): Long? {
-        val match = IB_BAR_TIME_REGEX.find(barTime.trim()) ?: return null
+        val normalized = normalizeIbBarTimeToMarketZone(barTime, marketZoneId) ?: return null
+        val match = IB_BAR_TIME_REGEX.find(normalized.trim()) ?: return null
         val (year, month, day, hour, minute, second) = match.destructured
         return runCatching {
             val zone = java.time.ZoneId.of(marketZoneId)

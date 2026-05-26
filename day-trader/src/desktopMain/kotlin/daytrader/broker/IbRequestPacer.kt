@@ -20,13 +20,19 @@ internal class IbRequestPacer(
     minIntervalMs: Long = IbRateLimits.minIntervalMs()
 ) {
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
-    private val maxPerSecond = maxMessagesPerSecond.coerceIn(1, IbRateLimits.IB_HARD_LIMIT_PER_SECOND - 1)
-    private val minInterval = minIntervalMs.coerceAtLeast(1L)
+    private val baselineMaxPerSecond =
+        maxMessagesPerSecond.coerceIn(1, IbRateLimits.IB_HARD_LIMIT_PER_SECOND - 1)
+    private val baselineMinInterval = minIntervalMs.coerceAtLeast(1L)
+    @Volatile
+    private var effectiveMaxPerSecond = baselineMaxPerSecond
+    @Volatile
+    private var effectiveMinInterval = baselineMinInterval
     private val recentCallTimes = ArrayDeque<Long>()
     private val windowLock = Any()
 
     @Volatile
     private var drainJob: Job? = null
+    private var backoffRestoreJob: Job? = null
 
     fun enqueue(action: () -> Unit) {
         queue.offer(action)
@@ -37,9 +43,30 @@ internal class IbRequestPacer(
         queue.clear()
         drainJob?.cancel()
         drainJob = null
+        backoffRestoreJob?.cancel()
+        backoffRestoreJob = null
+        restoreBaselineRate()
         synchronized(windowLock) {
             recentCallTimes.clear()
         }
+    }
+
+    /** Halves throughput temporarily after IB API error 100 (50 msg/sec exceeded). */
+    fun applyRateLimitBackoff() {
+        effectiveMaxPerSecond = (effectiveMaxPerSecond / 2).coerceAtLeast(5)
+        effectiveMinInterval = (effectiveMinInterval * 2).coerceAtMost(250L)
+        IbGatewayLog.rateLimitBackoff(effectiveMaxPerSecond, effectiveMinInterval)
+        backoffRestoreJob?.cancel()
+        backoffRestoreJob = scope.launch {
+            delay(IbRateLimits.RATE_LIMIT_BACKOFF_MS)
+            restoreBaselineRate()
+            IbGatewayLog.rateLimitBackoffRestored(baselineMaxPerSecond, baselineMinInterval)
+        }
+    }
+
+    private fun restoreBaselineRate() {
+        effectiveMaxPerSecond = baselineMaxPerSecond
+        effectiveMinInterval = baselineMinInterval
     }
 
     private fun startDrainIfNeeded() {
@@ -72,6 +99,8 @@ internal class IbRequestPacer(
 
     private suspend fun awaitRateLimitSlot() {
         while (true) {
+            val maxPerSecond = effectiveMaxPerSecond
+            val minInterval = effectiveMinInterval
             val waitMs = synchronized(windowLock) {
                 val now = System.currentTimeMillis()
                 pruneCallsOlderThan(now - WINDOW_MS)

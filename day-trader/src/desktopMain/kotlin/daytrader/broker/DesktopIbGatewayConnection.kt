@@ -26,6 +26,7 @@ import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
 import daytrader.domain.InstrumentMarketResolver
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.gateway.AccountPosition
@@ -113,8 +114,11 @@ class DesktopIbGatewayConnection(
     private val quotesBySymbol = ConcurrentHashMap<String, LiveQuote>()
     private var quotesPublishJob: Job? = null
 
-    private val mktDataReqIdToKey = ConcurrentHashMap<Int, String>()
+    /** IB reqId -> logical keys that share this streaming subscription. */
+    private val mktDataReqIdToLogicalKeys = ConcurrentHashMap<Int, MutableSet<String>>()
     private val keyToMktDataReqId = ConcurrentHashMap<String, Int>()
+    private val canonicalKeyToReqId = ConcurrentHashMap<String, Int>()
+    private val reqIdToCanonicalKey = ConcurrentHashMap<Int, String>()
     private val contractDetailsReqIdToKey = ConcurrentHashMap<Int, String>()
     private val instrumentResolveIbReqToGatewayReq = ConcurrentHashMap<Int, Long>()
     private val instrumentResolveBatches = ConcurrentHashMap<Long, InstrumentResolveBatch>()
@@ -126,11 +130,18 @@ class DesktopIbGatewayConnection(
     private val historicalLastBarClose = ConcurrentHashMap<Int, Double>()
     private val touchTurnHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val touchTurnHistoricalSymbol = ConcurrentHashMap<Int, String>()
+    private val touchTurnHistoricalMarketZoneId = ConcurrentHashMap<Int, String>()
     private val touchTurnGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val adrHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
+    private val adrHistoricalMarketZoneId = ConcurrentHashMap<Int, String>()
+    private val adrHistoricalCacheKey = ConcurrentHashMap<Int, String>()
     private val adrGatewayRequestId = ConcurrentHashMap<Int, Long>()
+    private val adrCacheByKey = ConcurrentHashMap<String, CachedAdr>()
+    private val historicalTimeoutJobs = ConcurrentHashMap<Int, Job>()
     private val lastTickDiagAtMs = ConcurrentHashMap<String, Long>()
+    @Volatile
+    private var positionRefreshKeysBefore: Set<String>? = null
     /** Keys for symbol-only streaming (paper/hybrid emulator marks). */
     private val streamSymbolByMktDataKey = ConcurrentHashMap<String, String>()
     private val pendingStreamSymbols = ConcurrentHashMap.newKeySet<String>()
@@ -255,12 +266,29 @@ class DesktopIbGatewayConnection(
             )
             return
         }
+        val marketZoneId = SymbolMarkets.marketZoneIdForSession(trimmed, instrument)
+        val sessionDay = sessionDayYyyyMmDd(marketZoneId)
+        val cacheKey = adrCacheKey(trimmed, instrument)
+        adrCacheByKey[cacheKey]?.let { cached ->
+            if (cached.sessionDay == sessionDay) {
+                IbGatewayLog.debug("ADR cache hit symbol=$trimmed sessionDay=$sessionDay")
+                emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, cached.result))
+                return
+            }
+        }
         val reqId = nextAdrHistoricalReqId.getAndIncrement()
         adrGatewayRequestId[reqId] = gatewayRequestId
         adrHistoricalSymbol[reqId] = trimmed
+        adrHistoricalMarketZoneId[reqId] = marketZoneId
+        adrHistoricalCacheKey[reqId] = cacheKey
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
+        scheduleHistoricalRequestTimeout(reqId, ADR_HISTORICAL_TIMEOUT_MS) {
+            cancelAdrHistorical(reqId)
+            failAdrHistorical(reqId, "14-day ADR request timed out after ${ADR_HISTORICAL_TIMEOUT_MS / 1000}s")
+        }
         requestPacer.enqueue {
             if (!client.isConnected) {
+                clearHistoricalRequestTimeout(reqId)
                 failAdrHistorical(reqId, "Disconnected before 14-day ADR request")
                 return@enqueue
             }
@@ -304,11 +332,21 @@ class DesktopIbGatewayConnection(
             return
         }
         val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
+        val marketZoneId = SymbolMarkets.marketZoneIdForSession(trimmed, instrument)
         touchTurnGatewayRequestId[reqId] = gatewayRequestId
         touchTurnHistoricalSymbol[reqId] = trimmed
+        touchTurnHistoricalMarketZoneId[reqId] = marketZoneId
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
+        scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
+            cancelTouchTurnHistorical(reqId)
+            failTouchTurnHistorical(
+                reqId,
+                "First 15-minute candle request timed out after ${TOUCH_TURN_HISTORICAL_TIMEOUT_MS / 1000}s"
+            )
+        }
         requestPacer.enqueue {
             if (!client.isConnected) {
+                clearHistoricalRequestTimeout(reqId)
                 failTouchTurnHistorical(
                     reqId,
                     "Disconnected before first 15-minute candle request"
@@ -802,11 +840,14 @@ class DesktopIbGatewayConnection(
         }
 
         when {
-            errorCode == 100 -> emitConnectionState(
-                GatewayConnectionState.Error(
-                    "IB API rate limit exceeded (50 messages/sec). Slowing down requests."
+            errorCode == 100 -> {
+                requestPacer.applyRateLimitBackoff()
+                emitConnectionState(
+                    GatewayConnectionState.Error(
+                        "IB API rate limit exceeded (50 messages/sec). Slowing down requests."
+                    )
                 )
-            )
+            }
             errorCode == 101 -> emitConnectionState(
                 GatewayConnectionState.Error(
                     "IB market data line limit reached. Reduce active subscriptions or close other clients."
@@ -876,6 +917,11 @@ class DesktopIbGatewayConnection(
         if (positionsLoadFinished) return
         positionsLoadFinished = true
         enrichmentScheduled = true
+        positionRefreshKeysBefore?.let { before ->
+            val removed = before - openPositions.keys
+            removed.forEach { cancelMarketData(it) }
+            positionRefreshKeysBefore = null
+        }
         schedulePositionEnrichment()
         IbGatewayLog.positionsLoadComplete(openPositions.size)
         if (IbGatewayLog.isPositionDiagEnabled()) {
@@ -900,7 +946,11 @@ class DesktopIbGatewayConnection(
         if (!keyToMktDataReqId.containsKey(key)) {
             IbGatewayLog.debug("Subscribing streaming market data (position) key=$key symbol=${open.symbol}")
             requestPacer.enqueue {
-                enqueueStreamingMarketData(key, open)
+                shareMarketDataSubscription(
+                    logicalKey = key,
+                    contract = IbContractMapper.forDataRequest(open.contract),
+                    normSymbol = open.symbol
+                )
             }
         }
     }
@@ -912,18 +962,84 @@ class DesktopIbGatewayConnection(
         client.reqContractDetails(reqId, IbContractMapper.forDataRequest(open.contract))
     }
 
-    private fun enqueueStreamingMarketData(key: String, open: OpenPosition) {
-        if (!client.isConnected || keyToMktDataReqId.containsKey(key)) return
+    private fun shareMarketDataSubscription(
+        logicalKey: String,
+        contract: Contract,
+        normSymbol: String?
+    ) {
+        if (!client.isConnected || keyToMktDataReqId.containsKey(logicalKey)) return
+        val canonical = marketDataCanonicalKey(contract, normSymbol)
+        canonicalKeyToReqId[canonical]?.let { existingReqId ->
+            attachLogicalMarketDataKey(logicalKey, existingReqId, normSymbol)
+            IbGatewayLog.debug(
+                "reqMktData reuse reqId=$existingReqId key=$logicalKey canonical=$canonical"
+            )
+            return
+        }
         val reqId = nextMktDataReqId.getAndIncrement()
-        mktDataReqIdToKey[reqId] = key
-        keyToMktDataReqId[key] = reqId
-        IbGatewayLog.debug("reqMktData start reqId=$reqId key=$key symbol=${open.symbol} mode=${connectionMode.name}")
-        client.reqMktData(reqId, IbContractMapper.forDataRequest(open.contract), "", false, false, null)
+        canonicalKeyToReqId[canonical] = reqId
+        reqIdToCanonicalKey[reqId] = canonical
+        attachLogicalMarketDataKey(logicalKey, reqId, normSymbol)
+        IbGatewayLog.debug(
+            "reqMktData start reqId=$reqId key=$logicalKey canonical=$canonical mode=${connectionMode.name}"
+        )
+        client.reqMktData(reqId, contract, "", false, false, null)
+    }
+
+    private fun attachLogicalMarketDataKey(logicalKey: String, reqId: Int, normSymbol: String?) {
+        logicalKeysFor(reqId).add(logicalKey)
+        keyToMktDataReqId[logicalKey] = reqId
+        normSymbol?.let { streamSymbolByMktDataKey[logicalKey] = it }
+        seedMarketDataCachesFromSibling(logicalKey, reqId)
+    }
+
+    private fun releaseMarketDataLogicalKey(logicalKey: String) {
+        val reqId = keyToMktDataReqId.remove(logicalKey) ?: return
+        streamSymbolByMktDataKey.remove(logicalKey)
+        marketPrices.remove(logicalKey)
+        priorCloses.remove(logicalKey)
+        bidPrices.remove(logicalKey)
+        askPrices.remove(logicalKey)
+        lastTradePrices.remove(logicalKey)
+        val remaining = logicalKeysFor(reqId)
+        remaining.remove(logicalKey)
+        if (remaining.isNotEmpty()) return
+        mktDataReqIdToLogicalKeys.remove(reqId)
+        reqIdToCanonicalKey.remove(reqId)?.let { canonicalKeyToReqId.remove(it) }
+        requestPacer.enqueue {
+            if (client.isConnected) {
+                client.cancelMktData(reqId)
+            }
+        }
+    }
+
+    private fun logicalKeysFor(reqId: Int): MutableSet<String> =
+        mktDataReqIdToLogicalKeys.getOrPut(reqId) { ConcurrentHashMap.newKeySet() }
+
+    private fun seedMarketDataCachesFromSibling(logicalKey: String, reqId: Int) {
+        val sibling = logicalKeysFor(reqId).firstOrNull { it != logicalKey } ?: return
+        marketPrices[sibling]?.let { marketPrices[logicalKey] = it }
+        priorCloses[sibling]?.let { priorCloses[logicalKey] = it }
+        bidPrices[sibling]?.let { bidPrices[logicalKey] = it }
+        askPrices[sibling]?.let { askPrices[logicalKey] = it }
+        lastTradePrices[sibling]?.let { lastTradePrices[logicalKey] = it }
+    }
+
+    private fun marketDataCanonicalKey(contract: Contract, fallbackSymbol: String? = null): String {
+        val conid = contract.conid()
+        if (conid > 0) return "MD:conid:$conid"
+        val sym = contract.symbol().orEmpty().ifBlank { fallbackSymbol.orEmpty() }.trim().uppercase()
+        return "MD:sym:$sym|${contract.getSecType().orEmpty()}|${contract.exchange().orEmpty()}|" +
+            "${contract.currency().orEmpty()}|${contract.primaryExch().orEmpty()}"
     }
 
     private fun applyTickPrice(tickerId: Int, field: Int, price: Double) {
         if (price <= 0.0) return
-        val key = mktDataReqIdToKey[tickerId] ?: return
+        val keys = mktDataReqIdToLogicalKeys[tickerId] ?: return
+        keys.forEach { key -> applyTickPriceForKey(key, field, price) }
+    }
+
+    private fun applyTickPriceForKey(key: String, field: Int, price: Double) {
         var priceUpdated = false
 
         when (field) {
@@ -1088,15 +1204,15 @@ class DesktopIbGatewayConnection(
     ) {
         val key = streamingOnlyKey(norm, instrument)
         if (keyToMktDataReqId.containsKey(key)) return
-        val reqId = nextMktDataReqId.getAndIncrement()
-        mktDataReqIdToKey[reqId] = key
-        keyToMktDataReqId[key] = reqId
-        streamSymbolByMktDataKey[key] = norm
         val contract = IbContractMapper.contractForSymbol(norm, instrument)
-        IbGatewayLog.debug("Subscribing streaming market data (symbol-only) reqId=$reqId key=$key symbol=$norm mode=${connectionMode.name}")
+        IbGatewayLog.debug("Subscribing streaming market data (symbol-only) key=$key symbol=$norm mode=${connectionMode.name}")
         requestPacer.enqueue {
             if (!client.isConnected) return@enqueue
-            client.reqMktData(reqId, IbContractMapper.forDataRequest(contract), "", false, false, null)
+            shareMarketDataSubscription(
+                logicalKey = key,
+                contract = IbContractMapper.forDataRequest(contract),
+                normSymbol = norm
+            )
         }
     }
 
@@ -1169,11 +1285,11 @@ class DesktopIbGatewayConnection(
         positionsLoadFinished = false
         historicalFallbackJob?.cancel()
         historicalFallbackJob = null
-        cancelAllMarketDataPaced()
+        positionRefreshKeysBefore = openPositions.keys.toSet()
+        clearMarketDataCachesForKeys(positionRefreshKeysBefore.orEmpty())
         cancelAllContractDetailsPaced()
         cancelAllHistoricalPaced()
         openPositions.clear()
-        clearLocalMarketDataCaches()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         paced {
             if (!client.isConnected) return@paced
@@ -1183,25 +1299,16 @@ class DesktopIbGatewayConnection(
     }
 
     private fun cancelMarketData(key: String) {
-        val reqId = keyToMktDataReqId.remove(key) ?: return
-        mktDataReqIdToKey.remove(reqId)
-        streamSymbolByMktDataKey.remove(key)
-        requestPacer.enqueue {
-            if (client.isConnected) {
-                client.cancelMktData(reqId)
-            }
-        }
-        marketPrices.remove(key)
-        priorCloses.remove(key)
-        bidPrices.remove(key)
-        askPrices.remove(key)
-        lastTradePrices.remove(key)
+        releaseMarketDataLogicalKey(key)
     }
 
     private fun cancelAllMarketDataPaced() {
-        keyToMktDataReqId.entries.toList().forEach { (key, reqId) ->
-            keyToMktDataReqId.remove(key)
-            mktDataReqIdToKey.remove(reqId)
+        val reqIds = mktDataReqIdToLogicalKeys.keys.toList()
+        mktDataReqIdToLogicalKeys.clear()
+        keyToMktDataReqId.clear()
+        canonicalKeyToReqId.clear()
+        reqIdToCanonicalKey.clear()
+        reqIds.forEach { reqId ->
             paced {
                 if (client.isConnected) {
                     client.cancelMktData(reqId)
@@ -1209,6 +1316,16 @@ class DesktopIbGatewayConnection(
             }
         }
         clearLocalMarketDataCaches()
+    }
+
+    private fun clearMarketDataCachesForKeys(keys: Collection<String>) {
+        keys.forEach { key ->
+            marketPrices.remove(key)
+            priorCloses.remove(key)
+            bidPrices.remove(key)
+            askPrices.remove(key)
+            lastTradePrices.remove(key)
+        }
     }
 
     private fun clearLocalMarketDataCaches() {
@@ -1257,6 +1374,7 @@ class DesktopIbGatewayConnection(
         }
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
+        touchTurnHistoricalMarketZoneId.clear()
         touchTurnGatewayRequestId.clear()
         cancelAllAdrHistoricalPaced()
     }
@@ -1267,12 +1385,16 @@ class DesktopIbGatewayConnection(
         }
         adrHistoricalBars.clear()
         adrHistoricalSymbol.clear()
+        adrHistoricalMarketZoneId.clear()
         adrGatewayRequestId.clear()
     }
 
     private fun cancelAdrHistorical(reqId: Int) {
+        clearHistoricalRequestTimeout(reqId)
         adrHistoricalBars.remove(reqId)
         adrHistoricalSymbol.remove(reqId)
+        adrHistoricalMarketZoneId.remove(reqId)
+        adrHistoricalCacheKey.remove(reqId)
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             emit(
                 GatewayEvent.FourteenDayAdrReady(
@@ -1289,8 +1411,10 @@ class DesktopIbGatewayConnection(
     }
 
     private fun failAdrHistorical(reqId: Int, message: String) {
+        clearHistoricalRequestTimeout(reqId)
         adrHistoricalBars.remove(reqId)
         adrHistoricalSymbol.remove(reqId)
+        adrHistoricalCacheKey.remove(reqId)
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             emit(
                 GatewayEvent.FourteenDayAdrReady(
@@ -1302,17 +1426,26 @@ class DesktopIbGatewayConnection(
     }
 
     private fun completeAdrHistorical(reqId: Int) {
+        clearHistoricalRequestTimeout(reqId)
         val gatewayRequestId = adrGatewayRequestId.remove(reqId) ?: return
         val symbol = adrHistoricalSymbol.remove(reqId)
-        val bars = adrHistoricalBars.remove(reqId).orEmpty().map { it.toTouchTurnOhlcBar() }
-        val sessionDay = sessionDayYyyyMmDd(symbol)
+        val cacheKey = adrHistoricalCacheKey.remove(reqId)
+        val marketZoneId = adrHistoricalMarketZoneId.remove(reqId)
+            ?: SymbolMarkets.marketZoneIdForSession(symbol.orEmpty(), instrument = null)
+        val bars = adrHistoricalBars.remove(reqId).orEmpty().map { it.toTouchTurnOhlcBar(marketZoneId) }
+        val sessionDay = sessionDayYyyyMmDd(marketZoneId)
         val adrResult = TouchTurnLogic.computeAdr14(bars, excludeSessionDayYyyyMmdd = sessionDay)
+        if (cacheKey != null) {
+            adrCacheByKey[cacheKey] = CachedAdr(sessionDay, adrResult)
+        }
         emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, adrResult))
     }
 
     private fun cancelTouchTurnHistorical(reqId: Int) {
+        clearHistoricalRequestTimeout(reqId)
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
+        touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             emit(
                 GatewayEvent.FirstFifteenMinuteCandleReady(
@@ -1329,8 +1462,10 @@ class DesktopIbGatewayConnection(
     }
 
     private fun failTouchTurnHistorical(reqId: Int, message: String) {
+        clearHistoricalRequestTimeout(reqId)
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
+        touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             emit(
                 GatewayEvent.FirstFifteenMinuteCandleReady(
@@ -1342,17 +1477,28 @@ class DesktopIbGatewayConnection(
     }
 
     private fun completeTouchTurnHistorical(reqId: Int) {
+        clearHistoricalRequestTimeout(reqId)
         val gatewayRequestId = touchTurnGatewayRequestId.remove(reqId) ?: return
         val symbol = touchTurnHistoricalSymbol.remove(reqId)
+        val marketZoneId = touchTurnHistoricalMarketZoneId.remove(reqId)
+            ?: SymbolMarkets.marketZoneIdForSession(symbol.orEmpty(), instrument = null)
         val bars = touchTurnHistoricalBars.remove(reqId).orEmpty()
-        val sessionDay = sessionDayYyyyMmDd(symbol)
-        val sessionBars = bars
+        val sessionDay = sessionDayYyyyMmDd(marketZoneId)
+        val ohlcBars = bars.map { it.toTouchTurnOhlcBar(marketZoneId) }
+        val first = TouchTurnLogic.selectFirstFifteenMinuteBar(ohlcBars, marketZoneId, sessionDay)
+        val rawSelectedTime = bars
             .filter { it.high() > 0.0 && it.low() > 0.0 }
-            .filter { bar -> bar.time()?.trim()?.startsWith(sessionDay) == true }
-        val candidates = sessionBars.ifEmpty {
-            bars.filter { it.high() > 0.0 && it.low() > 0.0 }
-        }
-        val first = candidates.minByOrNull { barTimeSortKey(it.time()) }
+            .minByOrNull { barTimeSortKey(it.time()) }
+            ?.time()
+        TouchTurnCandleLog.ibHistoricalBar(
+            symbol = symbol.orEmpty(),
+            marketZoneId = marketZoneId,
+            sessionDayYyyyMmDd = sessionDay,
+            rawBarTime = rawSelectedTime,
+            selectedBarTime = first?.time,
+            totalBars = bars.size,
+            sessionDayBars = ohlcBars.count { TouchTurnLogic.barDayKey(it.time) == sessionDay }
+        )
         if (first == null) {
             val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
             emit(
@@ -1368,14 +1514,19 @@ class DesktopIbGatewayConnection(
         emit(
             GatewayEvent.FirstFifteenMinuteCandleReady(
                 gatewayRequestId,
-                Result.success(first.toTouchTurnOhlcBar())
+                Result.success(first)
             )
         )
     }
 
     private fun clearPositionState() {
-        mktDataReqIdToKey.clear()
+        historicalTimeoutJobs.values.forEach { it.cancel() }
+        historicalTimeoutJobs.clear()
+        positionRefreshKeysBefore = null
+        mktDataReqIdToLogicalKeys.clear()
         keyToMktDataReqId.clear()
+        canonicalKeyToReqId.clear()
+        reqIdToCanonicalKey.clear()
         contractDetailsReqIdToKey.clear()
         instrumentResolveIbReqToGatewayReq.clear()
         instrumentResolveBatches.values.forEach { it.finishJob?.cancel() }
@@ -1386,10 +1537,14 @@ class DesktopIbGatewayConnection(
         historicalLastBarClose.clear()
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
+        touchTurnHistoricalMarketZoneId.clear()
         touchTurnGatewayRequestId.clear()
         adrHistoricalBars.clear()
         adrHistoricalSymbol.clear()
+        adrHistoricalMarketZoneId.clear()
+        adrHistoricalCacheKey.clear()
         adrGatewayRequestId.clear()
+        adrCacheByKey.clear()
         clearLocalMarketDataCaches()
         historicalPrices.clear()
         lastTickDiagAtMs.clear()
@@ -1806,14 +1961,38 @@ class DesktopIbGatewayConnection(
         historicalFallbackJob = scope.launch {
             delay(HISTORICAL_FALLBACK_DELAY_MS)
             if (!client.isConnected) return@launch
-            openPositions.values.forEach { open ->
-                if (needsHistoricalFallback(open, open.key)) {
+            val pending = openPositions.values.filter { needsHistoricalFallback(it, it.key) }
+            pending.chunked(IbRateLimits.HISTORICAL_FALLBACK_BATCH_SIZE).forEach { batch ->
+                if (!client.isConnected) return@launch
+                batch.forEach { open ->
                     requestPacer.enqueue {
                         enqueueHistoricalClose(open.key, open)
                     }
                 }
+                if (batch.size == IbRateLimits.HISTORICAL_FALLBACK_BATCH_SIZE) {
+                    delay(HISTORICAL_FALLBACK_BATCH_DELAY_MS)
+                }
             }
         }
+    }
+
+    private fun scheduleHistoricalRequestTimeout(reqId: Int, timeoutMs: Long, onTimeout: () -> Unit) {
+        historicalTimeoutJobs[reqId]?.cancel()
+        historicalTimeoutJobs[reqId] = scope.launch {
+            delay(timeoutMs)
+            if (historicalTimeoutJobs.remove(reqId) != null) {
+                onTimeout()
+            }
+        }
+    }
+
+    private fun clearHistoricalRequestTimeout(reqId: Int) {
+        historicalTimeoutJobs.remove(reqId)?.cancel()
+    }
+
+    private fun adrCacheKey(symbol: String, instrument: daytrader.domain.InstrumentIdentity?): String {
+        val listing = instrument?.dedupeKey()
+        return if (listing.isNullOrBlank()) symbol else "$symbol|$listing"
     }
 
     private fun enqueueHistoricalClose(key: String, open: OpenPosition) {
@@ -2088,6 +2267,8 @@ class DesktopIbGatewayConnection(
         val needsContractDetails: Boolean
     )
 
+    private data class CachedAdr(val sessionDay: String, val result: Result<Double>)
+
     private data class InstrumentResolveBatch(
         val gatewayRequestId: Long,
         val symbol: String,
@@ -2114,6 +2295,7 @@ class DesktopIbGatewayConnection(
         const val ADR_HISTORICAL_TIMEOUT_MS = 45_000L
         const val PUBLISH_THROTTLE_MS = 300L
         const val HISTORICAL_FALLBACK_DELAY_MS = 4_000L
+        const val HISTORICAL_FALLBACK_BATCH_DELAY_MS = 2_000L
         const val HISTORICAL_DURATION = "2 D"
         const val HISTORICAL_BAR_SIZE = "1 day"
         const val HISTORICAL_WHAT_TO_SHOW = "TRADES"
@@ -2157,21 +2339,15 @@ class DesktopIbGatewayConnection(
 
         fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
 
-        fun sessionDayYyyyMmDd(symbol: String?): String {
-            val zone = if (symbol != null && SymbolMarkets.isHongKong(symbol)) {
-                ZoneId.of("Asia/Hong_Kong")
-            } else {
-                ZoneId.systemDefault()
-            }
-            return LocalDate.now(zone).format(DateTimeFormatter.BASIC_ISO_DATE)
-        }
+        fun sessionDayYyyyMmDd(marketZoneId: String): String =
+            TouchTurnLogic.sessionDayYyyyMmDd(marketZoneId)
     }
 }
 
-private fun Bar.toTouchTurnOhlcBar(): OhlcBar = OhlcBar(
+private fun Bar.toTouchTurnOhlcBar(marketZoneId: String): OhlcBar = OhlcBar(
     open = open(),
     high = high(),
     low = low(),
     close = close(),
-    time = time()
+    time = TouchTurnLogic.normalizeIbBarTimeToMarketZone(time(), marketZoneId)
 )

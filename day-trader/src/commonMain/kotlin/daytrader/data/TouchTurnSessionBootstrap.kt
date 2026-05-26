@@ -13,6 +13,8 @@ import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
+import daytrader.domain.TouchTurnCandleLog
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.withTouchTurnDecisionOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -30,6 +32,7 @@ class TouchTurnSessionBootstrap(
     private val scope: CoroutineScope,
     private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
+    private val stuckFormingLogged = mutableSetOf<String>()
     fun loadFirstCandle(instanceId: String, sessionDate: String) {
         scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
@@ -55,13 +58,23 @@ class TouchTurnSessionBootstrap(
             repository.update(instanceId) { current ->
                 candleResult.fold(
                     onSuccess = { bar ->
-                        current.withFirstFifteenMinuteCandle(
+                        val updated = current.withFirstFifteenMinuteCandle(
                             sessionDate = sessionDate,
                             candle = bar,
                             adr14 = adr14,
                             currencyCode = currency,
                             marketZoneId = zoneId
                         )
+                        updated.touchTurnSession?.let { session ->
+                            TouchTurnCandleLog.candleLoaded(
+                                instanceId = instanceId,
+                                symbol = symbol,
+                                sessionDate = sessionDate,
+                                deploymentMarketZoneId = zoneId,
+                                session = session
+                            )
+                        }
+                        updated
                     },
                     onFailure = { error ->
                         current.withTouchTurnCandleFailed(
@@ -86,8 +99,26 @@ class TouchTurnSessionBootstrap(
                 if (instance.status != DeploymentStatus.RUNNING) return@launch
                 val session = instance.touchTurnSession ?: return@launch
                 if (session.setup != null) return@launch
-                if (session.candleCloseStatus() != FirstCandleCloseStatus.CLOSED) continue
+                if (session.candleCloseStatus() != FirstCandleCloseStatus.CLOSED) {
+                    val elapsedRth = session.millisSinceLastMarketOpen(session.marketZoneId)
+                    if (elapsedRth > TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS &&
+                        stuckFormingLogged.add(instanceId)
+                    ) {
+                        TouchTurnCandleLog.stuckFormingAfterRthOpen(
+                            instanceId = instanceId,
+                            symbol = instance.symbol,
+                            deploymentMarketZoneId = DeploymentMarket.effectiveZoneId(instance),
+                            session = session
+                        )
+                    }
+                    continue
+                }
 
+                TouchTurnCandleLog.candleClosed(
+                    instanceId = instanceId,
+                    symbol = instance.symbol,
+                    session = session
+                )
                 val evaluatedAt = System.currentTimeMillis()
                 var ordersPlaced = false
                 repository.update(instanceId) { current ->

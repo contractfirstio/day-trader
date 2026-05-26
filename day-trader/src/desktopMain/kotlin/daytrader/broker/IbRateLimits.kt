@@ -16,6 +16,12 @@ internal object IbRateLimits {
     /** Minimum time between [reqExecutions] reloads. */
     const val DEFAULT_EXECUTIONS_REFRESH_MS = 5_000L
 
+    /** How long to keep reduced pacing after IB error 100. */
+    const val RATE_LIMIT_BACKOFF_MS = 20_000L
+
+    /** Max concurrent PnL historical fallback requests per batch. */
+    const val HISTORICAL_FALLBACK_BATCH_SIZE = 3
+
     fun maxMessagesPerSecond(): Int {
         val requested = System.getenv("DAY_TRADER_IB_MAX_MSG_PER_SEC")?.toIntOrNull()
         return (requested ?: DEFAULT_SAFE_MAX_PER_SECOND)
