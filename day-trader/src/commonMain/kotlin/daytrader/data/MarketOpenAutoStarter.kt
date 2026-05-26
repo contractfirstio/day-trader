@@ -9,8 +9,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Starts stopped instances with [StrategyDeployment.autoStartOnMarketOpen] when RTH opens
- * in the symbol's market timezone (once per session day per instance).
+ * Starts stopped instances with [StrategyDeployment.autoStartOnMarketOpen] one minute after
+ * RTH opens in the symbol's market timezone (once per session day per instance).
  */
 class MarketOpenAutoStarter(
     private val repository: StrategyDeploymentRepository,

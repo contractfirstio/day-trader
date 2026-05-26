@@ -14,10 +14,18 @@ class MarketOpenAutoStartLogicTest {
     }
 
     @Test
-    fun sessionDateIfMarketOpen_returnsDateAtAndAfterUsOpen() {
+    fun sessionDateIfMarketOpen_nullAtExactUsOpen() {
         val zone = "America/New_York"
         val open = TouchTurnLogic.marketOpenEpochMillis("2026-05-22", zone, null)!!
-        assertEquals("2026-05-22", MarketOpenAutoStartLogic.sessionDateIfMarketOpen(zone, open))
+        assertNull(MarketOpenAutoStartLogic.sessionDateIfMarketOpen(zone, open))
+    }
+
+    @Test
+    fun sessionDateIfMarketOpen_returnsDateOneMinuteAfterUsOpen() {
+        val zone = "America/New_York"
+        val open = TouchTurnLogic.marketOpenEpochMillis("2026-05-22", zone, null)!!
+        val delay = MarketOpenAutoStartLogic.AUTO_START_DELAY_AFTER_OPEN_MS
+        assertEquals("2026-05-22", MarketOpenAutoStartLogic.sessionDateIfMarketOpen(zone, open + delay))
         assertEquals("2026-05-22", MarketOpenAutoStartLogic.sessionDateIfMarketOpen(zone, open + 3_600_000))
     }
 
