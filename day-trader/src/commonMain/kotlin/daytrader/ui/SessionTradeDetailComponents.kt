@@ -133,6 +133,51 @@ fun SessionTradeDetailCompact(
     }
 }
 
+/** Fills audit table only — used when hero/price/P&L are shown elsewhere on the live tab. */
+@Composable
+fun SessionTradeFillsPanel(
+    detail: SessionTradeDetailUiState,
+    modifier: Modifier = Modifier,
+    testTagPrefix: String = "SessionTradeDetail",
+    defaultExpanded: Boolean = false
+) {
+    if (detail.fills.isEmpty()) return
+    var fillsExpanded by remember { mutableStateOf(defaultExpanded) }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("${testTagPrefix}FillsPanel"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { fillsExpanded = !fillsExpanded }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (fillsExpanded) "▾" else "▸",
+                color = TextSecondary,
+                fontSize = 10.sp,
+                modifier = Modifier.width(12.dp)
+            )
+            Text(
+                text = "Individual fills (${detail.fills.size})",
+                color = TextSecondary,
+                fontSize = 10.sp
+            )
+        }
+        AnimatedVisibility(
+            visible = fillsExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            TradeFillsTable(detail.fills, testTagPrefix)
+        }
+    }
+}
+
 @Composable
 fun SessionTradeDetailPanel(
     detail: SessionTradeDetailUiState,

@@ -289,4 +289,329 @@ object TouchTurnStatusBreadcrumbMapper {
         }
         return Formatters.milestoneTimeFromIso(iso)
     }
+
+    fun graph(
+        instance: StrategyDeployment,
+        hasOpenPosition: Boolean,
+        hasOpenOrders: Boolean = false,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): TouchTurnPipelineGraph = buildGraph(
+        steps(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            nowEpochMillis = nowEpochMillis
+        )
+    )
+
+    fun graphForLastClosedSession(instance: StrategyDeployment): TouchTurnPipelineGraph? =
+        pipelineForLastClosedSession(instance)?.let(::buildGraph)
+
+    fun graphFromHistory(
+        milestones: TouchTurnMilestoneTimestamps,
+        startedAt: String,
+        stoppedAt: String,
+        hadLiquidityCandle: Boolean?,
+        ordersPlacedForCandle: Boolean?,
+        positionOpened: Boolean?
+    ): TouchTurnPipelineGraph = buildGraph(
+        stepsFromHistory(
+            milestones = milestones,
+            startedAt = startedAt,
+            stoppedAt = stoppedAt,
+            hadLiquidityCandle = hadLiquidityCandle,
+            ordersPlacedForCandle = ordersPlacedForCandle,
+            positionOpened = positionOpened
+        )
+    )
+
+    fun buildGraph(steps: List<TouchTurnBreadcrumbStep>): TouchTurnPipelineGraph {
+        val noTradeState = noTradeNodeState(steps)
+        val activePath = activePathFor(steps, noTradeState)
+        val nodes = pipelineNodes(steps, noTradeState)
+        val edges = pipelineEdges(activePath, nodes)
+        val caption = pipelineCaption(steps, nodes, activePath)
+        return TouchTurnPipelineGraph(
+            nodes = nodes,
+            edges = edges,
+            activePath = activePath,
+            caption = caption
+        )
+    }
+
+    private fun noTradeNodeState(steps: List<TouchTurnBreadcrumbStep>): TouchTurnBreadcrumbStepState {
+        val orders = steps[IDX_ORDERS].state
+        val position = steps[IDX_POSITION].state
+        val liquidity = steps[IDX_LIQUIDITY].state
+        if (orders != TouchTurnBreadcrumbStepState.SKIPPED &&
+            position != TouchTurnBreadcrumbStepState.SKIPPED
+        ) {
+            return TouchTurnBreadcrumbStepState.UPCOMING
+        }
+        if (orders == TouchTurnBreadcrumbStepState.SKIPPED &&
+            position == TouchTurnBreadcrumbStepState.SKIPPED
+        ) {
+            return when (liquidity) {
+                TouchTurnBreadcrumbStepState.COMPLETED ->
+                    if (steps[IDX_CLOSE].state == TouchTurnBreadcrumbStepState.UPCOMING) {
+                        TouchTurnBreadcrumbStepState.COMPLETED
+                    } else {
+                        steps[IDX_CLOSE].state
+                    }
+                TouchTurnBreadcrumbStepState.CURRENT -> TouchTurnBreadcrumbStepState.CURRENT
+                else -> TouchTurnBreadcrumbStepState.UPCOMING
+            }
+        }
+        if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
+            orders == TouchTurnBreadcrumbStepState.COMPLETED
+        ) {
+            return TouchTurnBreadcrumbStepState.COMPLETED
+        }
+        if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
+            orders == TouchTurnBreadcrumbStepState.CURRENT
+        ) {
+            return TouchTurnBreadcrumbStepState.UPCOMING
+        }
+        return TouchTurnBreadcrumbStepState.UPCOMING
+    }
+
+    private fun activePathFor(
+        steps: List<TouchTurnBreadcrumbStep>,
+        noTradeState: TouchTurnBreadcrumbStepState
+    ): List<TouchTurnPipelineNodeId> {
+        val path = mutableListOf<TouchTurnPipelineNodeId>()
+        fun trunkStep(i: Int): TouchTurnBreadcrumbStepState = steps[i].state
+
+        for (i in IDX_START..IDX_LIQUIDITY) {
+            when (val state = trunkStep(i)) {
+                TouchTurnBreadcrumbStepState.COMPLETED,
+                TouchTurnBreadcrumbStepState.FAILED -> {
+                    path.add(indexToNodeId(i))
+                    if (state == TouchTurnBreadcrumbStepState.FAILED) return path
+                }
+                TouchTurnBreadcrumbStepState.CURRENT -> {
+                    path.add(indexToNodeId(i))
+                    return path
+                }
+                else -> return path
+            }
+        }
+
+        val ordersSkipped = steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED
+        val positionSkipped = steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.SKIPPED
+
+        if (ordersSkipped && positionSkipped) {
+            if (noTradeState != TouchTurnBreadcrumbStepState.UPCOMING) {
+                path.add(TouchTurnPipelineNodeId.NoTrade)
+            }
+            if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
+                path.add(TouchTurnPipelineNodeId.Close)
+            }
+            return path
+        }
+
+        when (steps[IDX_ORDERS].state) {
+            TouchTurnBreadcrumbStepState.COMPLETED,
+            TouchTurnBreadcrumbStepState.CURRENT -> {
+                path.add(TouchTurnPipelineNodeId.Orders)
+                if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.CURRENT) {
+                    return path
+                }
+            }
+            else -> return path
+        }
+
+        if (!positionSkipped) {
+            when (steps[IDX_POSITION].state) {
+                TouchTurnBreadcrumbStepState.COMPLETED,
+                TouchTurnBreadcrumbStepState.CURRENT -> {
+                    path.add(TouchTurnPipelineNodeId.Position)
+                    if (steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.CURRENT) {
+                        return path
+                    }
+                }
+                else -> return path
+            }
+        } else if (noTradeState == TouchTurnBreadcrumbStepState.COMPLETED ||
+            noTradeState == TouchTurnBreadcrumbStepState.CURRENT
+        ) {
+            path.add(TouchTurnPipelineNodeId.NoTrade)
+            if (noTradeState == TouchTurnBreadcrumbStepState.CURRENT) {
+                return path
+            }
+        }
+
+        if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
+            path.add(TouchTurnPipelineNodeId.Close)
+        }
+        return path
+    }
+
+    private data class PipelineNodeMeta(
+        val stepIndex: Int,
+        val label: String,
+        val shortLabel: String,
+        val isDecision: Boolean
+    )
+
+    private fun pipelineNodes(
+        steps: List<TouchTurnBreadcrumbStep>,
+        noTradeState: TouchTurnBreadcrumbStepState
+    ): List<TouchTurnPipelineNode> {
+        val noTradeOnPath = noTradeState != TouchTurnBreadcrumbStepState.UPCOMING
+
+        fun stepState(index: Int): TouchTurnBreadcrumbStepState = steps[index].state
+        fun stepTime(index: Int): String? = steps[index].timestamp
+
+        return TouchTurnPipelineNodeId.entries.map { id ->
+            val meta = when (id) {
+                TouchTurnPipelineNodeId.Start -> PipelineNodeMeta(
+                    IDX_START, pipelineLabels[IDX_START], "Start", false
+                )
+                TouchTurnPipelineNodeId.Data -> PipelineNodeMeta(
+                    IDX_DATA, pipelineLabels[IDX_DATA], "Data", false
+                )
+                TouchTurnPipelineNodeId.Bar -> PipelineNodeMeta(
+                    IDX_BAR, pipelineLabels[IDX_BAR], "Bar", false
+                )
+                TouchTurnPipelineNodeId.Liquidity -> PipelineNodeMeta(
+                    IDX_LIQUIDITY, pipelineLabels[IDX_LIQUIDITY], "Liq", true
+                )
+                TouchTurnPipelineNodeId.Orders -> PipelineNodeMeta(
+                    IDX_ORDERS, pipelineLabels[IDX_ORDERS], "Orders", true
+                )
+                TouchTurnPipelineNodeId.Position -> PipelineNodeMeta(
+                    IDX_POSITION, pipelineLabels[IDX_POSITION], "Pos", false
+                )
+                TouchTurnPipelineNodeId.NoTrade -> PipelineNodeMeta(
+                    -1, "No trade", "No trade", false
+                )
+                TouchTurnPipelineNodeId.Close -> PipelineNodeMeta(
+                    IDX_CLOSE, pipelineLabels[IDX_CLOSE], "Close", false
+                )
+            }
+            val index = meta.stepIndex
+            val state = when (id) {
+                TouchTurnPipelineNodeId.NoTrade ->
+                    if (noTradeOnPath) noTradeState else TouchTurnBreadcrumbStepState.SKIPPED
+                TouchTurnPipelineNodeId.Orders -> when {
+                    noTradeOnPath -> TouchTurnBreadcrumbStepState.SKIPPED
+                    else -> stepState(index)
+                }
+                TouchTurnPipelineNodeId.Position -> when {
+                    noTradeOnPath || stepState(IDX_ORDERS) == TouchTurnBreadcrumbStepState.SKIPPED ->
+                        TouchTurnBreadcrumbStepState.SKIPPED
+                    else -> stepState(index)
+                }
+                else -> if (index >= 0) stepState(index) else TouchTurnBreadcrumbStepState.UPCOMING
+            }
+            val timestamp = when (id) {
+                TouchTurnPipelineNodeId.NoTrade ->
+                    if (state == TouchTurnBreadcrumbStepState.COMPLETED) {
+                        stepTime(IDX_LIQUIDITY) ?: stepTime(IDX_ORDERS)
+                    } else {
+                        null
+                    }
+                else -> if (index >= 0) stepTime(index) else null
+            }
+            val (x, y) = TouchTurnPipelineLayout.position(id)
+            TouchTurnPipelineNode(
+                id = id,
+                label = meta.label,
+                shortLabel = meta.shortLabel,
+                state = state,
+                timestamp = timestamp,
+                x = x,
+                y = y,
+                isDecision = meta.isDecision
+            )
+        }
+    }
+
+    private fun pipelineEdges(
+        activePath: List<TouchTurnPipelineNodeId>,
+        nodes: List<TouchTurnPipelineNode>
+    ): List<TouchTurnPipelineEdge> {
+        val nodeById = nodes.associateBy { it.id }
+        return TouchTurnPipelineLayout.edgeDefinitions.map { (from, to, label) ->
+            TouchTurnPipelineEdge(
+                from = from,
+                to = to,
+                label = label,
+                state = edgeState(from, to, activePath, nodeById)
+            )
+        }
+    }
+
+    private fun edgeState(
+        from: TouchTurnPipelineNodeId,
+        to: TouchTurnPipelineNodeId,
+        activePath: List<TouchTurnPipelineNodeId>,
+        nodeById: Map<TouchTurnPipelineNodeId, TouchTurnPipelineNode>
+    ): TouchTurnPipelineEdgeState {
+        val fromIndex = activePath.indexOf(from)
+        val toIndex = activePath.indexOf(to)
+        if (fromIndex >= 0 && toIndex == fromIndex + 1) {
+            val toNode = nodeById[to] ?: return TouchTurnPipelineEdgeState.Taken
+            return if (toNode.state == TouchTurnBreadcrumbStepState.CURRENT) {
+                TouchTurnPipelineEdgeState.Active
+            } else {
+                TouchTurnPipelineEdgeState.Taken
+            }
+        }
+        val fromNode = nodeById[from] ?: return TouchTurnPipelineEdgeState.Unreachable
+        if (from in activePath && to !in activePath && fromNode.state == TouchTurnBreadcrumbStepState.COMPLETED) {
+            return TouchTurnPipelineEdgeState.Dimmed
+        }
+        if (fromNode.state == TouchTurnBreadcrumbStepState.SKIPPED ||
+            nodeById[to]?.state == TouchTurnBreadcrumbStepState.SKIPPED
+        ) {
+            return TouchTurnPipelineEdgeState.Unreachable
+        }
+        return TouchTurnPipelineEdgeState.Unreachable
+    }
+
+    private fun pipelineCaption(
+        steps: List<TouchTurnBreadcrumbStep>,
+        nodes: List<TouchTurnPipelineNode>,
+        activePath: List<TouchTurnPipelineNodeId>
+    ): String {
+        nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.let { current ->
+            return captionForNode(current)
+        }
+        nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.FAILED }?.let { failed ->
+            return "${failed.label} failed${failed.timestamp?.let { " · $it" } ?: ""}"
+        }
+        if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
+            steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED
+        ) {
+            return buildString {
+                append("No trade path")
+                steps[IDX_LIQUIDITY].timestamp?.let { append(" · $it") }
+            }
+        }
+        activePath.lastOrNull()?.let { lastId ->
+            nodes.firstOrNull { it.id == lastId && it.state == TouchTurnBreadcrumbStepState.COMPLETED }
+                ?.let { return captionForNode(it, suffix = "done") }
+        }
+        return ""
+    }
+
+    private fun captionForNode(node: TouchTurnPipelineNode, suffix: String? = null): String =
+        buildString {
+            append(node.label)
+            suffix?.let { append(" · $it") }
+            node.timestamp?.let { append(" · $it") }
+        }
+
+    private fun indexToNodeId(index: Int): TouchTurnPipelineNodeId = when (index) {
+        IDX_START -> TouchTurnPipelineNodeId.Start
+        IDX_DATA -> TouchTurnPipelineNodeId.Data
+        IDX_BAR -> TouchTurnPipelineNodeId.Bar
+        IDX_LIQUIDITY -> TouchTurnPipelineNodeId.Liquidity
+        IDX_ORDERS -> TouchTurnPipelineNodeId.Orders
+        IDX_POSITION -> TouchTurnPipelineNodeId.Position
+        IDX_CLOSE -> TouchTurnPipelineNodeId.Close
+        else -> error("Unknown pipeline index $index")
+    }
 }

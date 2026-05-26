@@ -20,6 +20,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import daytrader.presentation.strategies.isSelectable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,8 +59,11 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.DeploymentSessionStopLogic
 import daytrader.domain.TouchTurnSessionStopLogic
+import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
+import daytrader.domain.lastClosedTouchTurnSession
+import daytrader.domain.touchTurnAnalysisSession
 import kotlinx.coroutines.delay
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
@@ -1308,7 +1313,7 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
 }
 
 @Composable
-private fun TouchTurnPanelGroup(
+internal fun TouchTurnPanelGroup(
     title: String,
     testTag: String,
     compact: Boolean = false,
@@ -1337,7 +1342,7 @@ private fun TouchTurnPanelGroup(
 }
 
 @Composable
-private fun FirstCandleStick(
+internal fun FirstCandleStick(
     candle: OhlcBar,
     color: FirstCandleColor,
     modifier: Modifier = Modifier
@@ -1405,7 +1410,7 @@ private data class TouchTurnPriceLevel(
 )
 
 @Composable
-private fun TouchTurnOrderPreviewChart(
+internal fun TouchTurnOrderPreviewChart(
     candle: OhlcBar,
     setup: TouchTurnBracketSetup,
     fmt: (Double) -> String,
@@ -1555,7 +1560,7 @@ private fun TouchTurnLegendDot(label: String, color: Color) {
 }
 
 @Composable
-private fun TouchTurnMetric(
+internal fun TouchTurnMetric(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
@@ -1570,6 +1575,94 @@ private fun TouchTurnMetric(
             color = Color.White,
             maxLines = 1
         )
+    }
+}
+
+@Composable
+private fun TouchTurnLivePipelineDetailHost(
+    selectedNodeId: TouchTurnPipelineNodeId?,
+    pipelineGraph: TouchTurnPipelineGraph?,
+    instance: StrategyDeployment,
+    analysisSession: TouchTurnSessionContext?,
+    lastClosedRun: StrategySession?,
+    sessionEnded: Boolean,
+    liveExecution: LiveExecutionUiState?,
+    liveBroker: LiveBrokerUiState?,
+    liveSessionTrades: LiveSessionTradesUiState?,
+    inActiveTrade: Boolean,
+    onAdjustStop: (String, String) -> Unit,
+    onClosePosition: (String) -> Unit
+) {
+    TouchTurnPipelineDetailPanel(
+        selectedNodeId = selectedNodeId,
+        graph = pipelineGraph
+    ) { nodeId ->
+        when (nodeId) {
+            TouchTurnPipelineNodeId.Start ->
+                TouchTurnPipelineSectionStart(
+                    instance = instance,
+                    graph = pipelineGraph,
+                    lastClosedRun = lastClosedRun
+                )
+            TouchTurnPipelineNodeId.Data ->
+                TouchTurnPipelineSectionData(session = analysisSession, symbol = instance.symbol)
+            TouchTurnPipelineNodeId.Bar ->
+                TouchTurnPipelineSectionBar(session = analysisSession)
+            TouchTurnPipelineNodeId.Liquidity ->
+                TouchTurnPipelineSectionLiquidity(session = analysisSession)
+            TouchTurnPipelineNodeId.Orders -> {
+                if (!sessionEnded && inActiveTrade) {
+                    liveBroker?.let { broker ->
+                        LiveBrokerSection(broker = broker, showPosition = false, slimOrders = true)
+                    } ?: Text(
+                        "Broker orders unavailable.",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                } else {
+                    TouchTurnPipelineSectionOrdersPreview(session = analysisSession)
+                }
+            }
+            TouchTurnPipelineNodeId.Position -> {
+                val live = liveExecution
+                if (!sessionEnded && live != null && live.showPanel) {
+                    LiveExecutionPanel(
+                        symbol = instance.symbol,
+                        live = live,
+                        broker = liveBroker,
+                        tradeDetail = liveSessionTrades?.tradeDetail,
+                        onAdjustStop = onAdjustStop,
+                        onClosePosition = onClosePosition
+                    )
+                } else {
+                    liveSessionTrades?.tradeDetail?.let { detail ->
+                        SessionTradeDetailPanel(
+                            detail = detail,
+                            testTagPrefix = "LiveSessionTrade"
+                        )
+                    } ?: Text(
+                        if (sessionEnded) "No trade data for this session." else "No open position yet.",
+                        fontSize = 11.sp,
+                        color = TextSecondary
+                    )
+                }
+                if (!sessionEnded && inActiveTrade) {
+                    liveSessionTrades?.tradeDetail?.let { detail ->
+                        if (detail.fills.isNotEmpty()) {
+                            SessionTradeFillsPanel(detail = detail, testTagPrefix = "LiveSessionTrade")
+                        }
+                    }
+                }
+            }
+            TouchTurnPipelineNodeId.NoTrade ->
+                TouchTurnPipelineSectionNoTrade(session = analysisSession, graph = pipelineGraph)
+            TouchTurnPipelineNodeId.Close ->
+                if (sessionEnded) {
+                    TouchTurnPipelineSectionClose(closedRun = lastClosedRun, graph = pipelineGraph)
+                } else {
+                    TouchTurnSessionAutoStopStatus(instance = instance)
+                }
+        }
     }
 }
 
@@ -1633,100 +1726,161 @@ private fun LiveTab(
     onClosePosition: (String) -> Unit
 ) {
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
+    val isTouchTurn = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
+    val isRunning = instance.status == DeploymentStatus.RUNNING
+    val sessionEnded = isTouchTurn && !isRunning
+    val touchTurnInstance = instance.takeIf { isTouchTurn }
+    val lastClosedTouchTurnRun = remember(instance.id, instance.sessionHistory.size) {
+        instance.lastClosedTouchTurnSession()
+    }
+    val analysisSession = remember(
+        instance.id,
+        instance.touchTurnSession,
+        instance.sessionHistory.size
+    ) {
+        instance.touchTurnAnalysisSession()
+    }
+    var pipelineTick by remember(instance.id) { mutableIntStateOf(0) }
+    LaunchedEffect(instance.id, instance.touchTurnSession?.candle?.time) {
+        if (!isTouchTurn || !isRunning) return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            pipelineTick++
+        }
+    }
+    val hasOpenPositionForGraph = resolveLivePositionPnL(
+        instance.symbol,
+        liveBroker,
+        liveExecution
+    ).hasOpenPosition
+    val hasOpenOrdersForGraph = liveBroker?.openOrders?.isNotEmpty() == true
+    val touchTurnPipelineGraph = if (isTouchTurn) {
+        remember(
+            instance,
+            isRunning,
+            liveBroker,
+            liveExecution,
+            hasOpenPositionForGraph,
+            hasOpenOrdersForGraph,
+            pipelineTick,
+            instance.sessionHistory.size
+        ) {
+            if (isRunning) {
+                TouchTurnStatusBreadcrumbMapper.graph(
+                    instance = instance,
+                    hasOpenPosition = hasOpenPositionForGraph,
+                    hasOpenOrders = hasOpenOrdersForGraph
+                )
+            } else {
+                TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
+            }
+        }
+    } else {
+        null
+    }
+    var selectedPipelineNode by rememberSaveable(instance.id) { mutableStateOf<TouchTurnPipelineNodeId?>(null) }
+    LaunchedEffect(touchTurnPipelineGraph) {
+        val graph = touchTurnPipelineGraph ?: return@LaunchedEffect
+        val current = selectedPipelineNode?.let { graph.node(it) }
+        if (selectedPipelineNode == null || current == null || !current.isSelectable()) {
+            selectedPipelineNode = graph.defaultSelectedNode()
+        }
+    }
     Column(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (instance.status == DeploymentStatus.RUNNING) {
-            LiveTradingPositionPnLHeader(
-                symbol = instance.symbol,
-                broker = liveBroker,
+        if (isTouchTurn && touchTurnPipelineGraph != null) {
+            val headerStyle = when {
+                sessionEnded || inActiveTrade -> LiveTradingHeaderStyle.BreadcrumbOnly
+                else -> LiveTradingHeaderStyle.Watching
+            }
+            if (headerStyle != LiveTradingHeaderStyle.Watching || !inActiveTrade) {
+                LiveTradingPositionPnLHeader(
+                    symbol = instance.symbol,
+                    broker = liveBroker,
+                    liveExecution = liveExecution,
+                    touchTurnInstance = touchTurnInstance,
+                    style = headerStyle,
+                    pipelineGraphOverride = touchTurnPipelineGraph,
+                    selectedPipelineNodeId = selectedPipelineNode,
+                    onPipelineNodeSelected = { selectedPipelineNode = it }
+                )
+            }
+            TouchTurnLivePipelineDetailHost(
+                selectedNodeId = selectedPipelineNode,
+                pipelineGraph = touchTurnPipelineGraph,
+                instance = instance,
+                analysisSession = analysisSession,
+                lastClosedRun = lastClosedTouchTurnRun,
+                sessionEnded = sessionEnded,
                 liveExecution = liveExecution,
-                touchTurnInstance = instance.takeIf {
-                    it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
-                }
+                liveBroker = liveBroker,
+                liveSessionTrades = liveSessionTrades,
+                inActiveTrade = inActiveTrade,
+                onAdjustStop = onAdjustStop,
+                onClosePosition = onClosePosition
             )
-
+        } else if (isRunning) {
+            val headerStyle = LiveTradingHeaderStyle.Watching
+            if (headerStyle != LiveTradingHeaderStyle.Watching || !inActiveTrade) {
+                LiveTradingPositionPnLHeader(
+                    symbol = instance.symbol,
+                    broker = liveBroker,
+                    liveExecution = liveExecution,
+                    touchTurnInstance = touchTurnInstance,
+                    style = headerStyle,
+                    pipelineGraphOverride = touchTurnPipelineGraph,
+                    selectedPipelineNodeId = selectedPipelineNode,
+                    onPipelineNodeSelected = { selectedPipelineNode = it }
+                )
+            }
             when {
                 liveExecution == null -> {
-                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
-                        Text("No live data.", color = TextSecondary, fontSize = 13.sp)
-                    }
+                    Text("No live data.", color = TextSecondary, fontSize = 13.sp)
                 }
                 liveExecution.showPanel -> {
-                    LiveTradePanel(
+                    LiveExecutionPanel(
+                        symbol = instance.symbol,
                         live = liveExecution,
+                        broker = liveBroker,
+                        tradeDetail = liveSessionTrades?.tradeDetail,
                         onAdjustStop = onAdjustStop,
                         onClosePosition = onClosePosition
                     )
                 }
                 !liveExecution.isRunning -> {
-                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
-                        Text("Session stopped.", color = TextSecondary, fontSize = 13.sp)
-                    }
+                    Text("Session stopped.", color = TextSecondary, fontSize = 13.sp)
                 }
                 else -> {
-                    if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) {
-                        Text("Flat — awaiting setup.", color = TextSecondary, fontSize = 13.sp)
-                    }
+                    Text("Flat — awaiting setup.", color = TextSecondary, fontSize = 13.sp)
                 }
             }
-
             liveSessionTrades?.let { trades ->
-                LiveSessionTradesSection(
-                    trades = trades,
-                    inProgress = true,
-                    compact = inActiveTrade
-                )
-            }
-
-            liveBroker?.let { broker ->
-                LiveBrokerSection(
-                    broker = broker,
-                    showPosition = !inActiveTrade
-                )
-            }
-
-            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
-                TouchTurnFirstCandleSection(session = instance.touchTurnSession, symbol = instance.symbol)
-                TouchTurnSessionAutoStopStatus(instance = instance)
-            }
-        } else {
-            liveBroker?.let { broker ->
-                TouchTurnPanelGroup(
-                    title = "Market (${broker.symbol})",
-                    testTag = "LiveTabStoppedMarketGroup",
-                    compact = true
-                ) {
-                    LiveMarketQuotesBar(
-                        broker = broker,
-                        modifier = Modifier.testTag("LiveTabStoppedMarketQuotes")
+                val showFills = !inActiveTrade || trades.tradeDetail.fills.isNotEmpty()
+                if (showFills) {
+                    LiveSessionTradesSection(
+                        trades = trades,
+                        inProgress = true,
+                        fillsOnly = inActiveTrade
                     )
                 }
             }
-            val closedPipeline = remember(instance.sessionHistory, instance.id) {
-                if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
-                    TouchTurnStatusBreadcrumbMapper.pipelineForLastClosedSession(instance)
-                } else {
-                    null
-                }
-            }
-            if (closedPipeline != null) {
-                LiveTradingPositionPnLHeader(
-                    symbol = instance.symbol,
-                    broker = liveBroker,
-                    liveExecution = liveExecution,
-                    breadcrumbStepsOverride = closedPipeline,
-                    sessionEnded = true
+            liveBroker?.let { broker ->
+                LiveBrokerSection(
+                    broker = broker,
+                    showPosition = !inActiveTrade,
+                    slimOrders = inActiveTrade
                 )
             }
+        } else {
             if (liveSessionTrades != null) {
                 LiveSessionTradesSection(
                     liveSessionTrades,
                     inProgress = false,
-                    compact = false
+                    fillsOnly = false
                 )
-            } else if (closedPipeline == null) {
+            } else {
                 Text(
                     "Start a session to view broker data. After a session ends, fills appear here for P&L verification.",
                     color = TextSecondary,
@@ -1737,11 +1891,21 @@ private fun LiveTab(
             liveBroker?.let { broker ->
                 LiveBrokerSection(
                     broker = broker,
-                    showPosition = true
+                    showPosition = true,
+                    slimOrders = false
                 )
             }
         }
     }
+}
+
+private enum class LiveTradingHeaderStyle {
+    /** Touch Turn pipeline only while the active-position card shows P&L. */
+    BreadcrumbOnly,
+    /** Pre-trade / flat: breadcrumb + status P&L when not in an active trade card. */
+    Watching,
+    /** Last closed session recap. */
+    SessionEnded
 }
 
 private data class LivePositionPnLDisplay(
@@ -1868,8 +2032,10 @@ private fun LiveTradingPositionPnLHeader(
     broker: LiveBrokerUiState?,
     liveExecution: LiveExecutionUiState?,
     touchTurnInstance: StrategyDeployment? = null,
-    breadcrumbStepsOverride: List<TouchTurnBreadcrumbStep>? = null,
-    sessionEnded: Boolean = false
+    pipelineGraphOverride: TouchTurnPipelineGraph? = null,
+    style: LiveTradingHeaderStyle = LiveTradingHeaderStyle.Watching,
+    selectedPipelineNodeId: TouchTurnPipelineNodeId? = null,
+    onPipelineNodeSelected: ((TouchTurnPipelineNodeId) -> Unit)? = null
 ) {
     val display = resolveLivePositionPnL(symbol, broker, liveExecution)
     val pnlColor = if (display.hasOpenPosition) {
@@ -1877,28 +2043,35 @@ private fun LiveTradingPositionPnLHeader(
     } else {
         TextSecondary
     }
-    val headerBg = if (display.hasOpenPosition) {
-        pnlColor.copy(alpha = 0.14f)
-    } else {
-        SurfaceDark
+    val headerBg = when (style) {
+        LiveTradingHeaderStyle.BreadcrumbOnly -> SurfaceDark
+        else -> if (display.hasOpenPosition) {
+            pnlColor.copy(alpha = 0.14f)
+        } else {
+            SurfaceDark
+        }
+    }
+    val borderColor = when (style) {
+        LiveTradingHeaderStyle.BreadcrumbOnly -> TableHeaderBg
+        else -> if (display.hasOpenPosition) pnlColor.copy(alpha = 0.45f) else TableHeaderBg
     }
     var breadcrumbTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(touchTurnInstance?.id, touchTurnInstance?.touchTurnSession?.candle?.time) {
-        if (touchTurnInstance == null || breadcrumbStepsOverride != null) return@LaunchedEffect
+        if (touchTurnInstance == null || pipelineGraphOverride != null) return@LaunchedEffect
         while (true) {
             delay(1_000)
             breadcrumbTick++
         }
     }
     val hasOpenOrders = broker?.openOrders?.isNotEmpty() == true
-    val breadcrumbSteps = breadcrumbStepsOverride ?: remember(
+    val pipelineGraph = pipelineGraphOverride ?: remember(
         touchTurnInstance,
         display.hasOpenPosition,
         hasOpenOrders,
         breadcrumbTick
     ) {
         touchTurnInstance?.let { instance ->
-            TouchTurnStatusBreadcrumbMapper.steps(
+            TouchTurnStatusBreadcrumbMapper.graph(
                 instance = instance,
                 hasOpenPosition = display.hasOpenPosition,
                 hasOpenOrders = hasOpenOrders
@@ -1911,59 +2084,59 @@ private fun LiveTradingPositionPnLHeader(
             .background(headerBg, RoundedCornerShape(8.dp))
             .border(
                 width = 1.dp,
-                color = if (display.hasOpenPosition) pnlColor.copy(alpha = 0.45f) else TableHeaderBg,
+                color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
             .padding(horizontal = 14.dp, vertical = 12.dp)
             .testTag("LiveTradingPositionPnLHeader"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (breadcrumbSteps != null) {
-            TouchTurnStatusBreadcrumbRow(
-                steps = breadcrumbSteps,
+        if (pipelineGraph != null) {
+            TouchTurnPipelineGraphView(
+                graph = pipelineGraph,
+                compact = style == LiveTradingHeaderStyle.BreadcrumbOnly,
+                showTitle = false,
+                selectedNodeId = selectedPipelineNodeId,
+                onNodeSelected = onPipelineNodeSelected,
                 modifier = Modifier.testTag("TouchTurnStatusBreadcrumb")
             )
         }
-        broker?.let { liveBroker ->
-            LiveMarketQuotesBar(
-                broker = liveBroker,
-                modifier = Modifier.testTag("LiveTradingMarketQuotes")
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+        if (style != LiveTradingHeaderStyle.BreadcrumbOnly) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        if (style == LiveTradingHeaderStyle.SessionEnded) "Session ended" else "Position P&L",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BrandRed,
+                        letterSpacing = 0.3.sp
+                    )
+                    Text(
+                        if (style == LiveTradingHeaderStyle.SessionEnded) {
+                            "Pipeline log for last run · $symbol"
+                        } else {
+                            display.subtitle
+                        },
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        maxLines = 2
+                    )
+                }
                 Text(
-                    if (sessionEnded) "Session ended" else "Position P&L",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = BrandRed,
-                    letterSpacing = 0.3.sp
-                )
-                Text(
-                    if (sessionEnded) {
-                        "Pipeline log for last run · $symbol"
-                    } else {
-                        display.subtitle
-                    },
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    maxLines = 2
+                    display.pnlText,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = pnlColor,
+                    modifier = Modifier.testTag("LiveTradingPositionPnLValue")
                 )
             }
-            Text(
-                display.pnlText,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = pnlColor,
-                modifier = Modifier.testTag("LiveTradingPositionPnLValue")
-            )
         }
     }
 }
@@ -1972,10 +2145,10 @@ private fun LiveTradingPositionPnLHeader(
 private fun LiveSessionTradesSection(
     trades: LiveSessionTradesUiState,
     inProgress: Boolean,
-    compact: Boolean
+    fillsOnly: Boolean
 ) {
     val title = when {
-        compact -> "Session fills (${trades.symbol})"
+        fillsOnly -> "Fills"
         inProgress -> "Session trade (${trades.symbol})"
         else -> "Last session trade (${trades.symbol})"
     }
@@ -1984,7 +2157,7 @@ private fun LiveSessionTradesSection(
         testTag = "LiveSessionTradesSection",
         compact = true
     ) {
-        if (!compact) {
+        if (!fillsOnly) {
             trades.runLabel?.let { label ->
                 Text(
                     if (inProgress) "Session open" else "Last session · $label",
@@ -1993,18 +2166,24 @@ private fun LiveSessionTradesSection(
                     modifier = Modifier.testTag("LiveSessionTradesRunLabel")
                 )
             }
+            SessionTradeDetailPanel(
+                detail = trades.tradeDetail,
+                testTagPrefix = "LiveSessionTrade"
+            )
+        } else if (trades.tradeDetail.fills.isNotEmpty()) {
+            SessionTradeFillsPanel(
+                detail = trades.tradeDetail,
+                testTagPrefix = "LiveSessionTrade"
+            )
         }
-        SessionTradeDetailPanel(
-            detail = trades.tradeDetail,
-            testTagPrefix = "LiveSessionTrade"
-        )
     }
 }
 
 @Composable
 private fun LiveBrokerSection(
     broker: LiveBrokerUiState,
-    showPosition: Boolean = true
+    showPosition: Boolean = true,
+    slimOrders: Boolean = false
 ) {
     Column(
         modifier = Modifier
@@ -2014,14 +2193,6 @@ private fun LiveBrokerSection(
     ) {
         broker.statusMessage?.let { message ->
             Text(message, fontSize = 11.sp, color = TextSecondary)
-        }
-
-        TouchTurnPanelGroup(
-            title = "Market (${broker.symbol})",
-            testTag = "LiveBrokerMarketGroup",
-            compact = true
-        ) {
-            LiveMarketQuotesBar(broker = broker)
         }
 
         if (showPosition) {
@@ -2068,8 +2239,9 @@ private fun LiveBrokerSection(
             }
         }
 
+        val ordersTitle = if (slimOrders) "Working bracket" else "Open orders (${broker.symbol})"
         TouchTurnPanelGroup(
-            title = "Open orders (${broker.symbol})",
+            title = ordersTitle,
             testTag = "LiveBrokerOrdersGroup",
             compact = true
         ) {
@@ -2093,19 +2265,30 @@ private fun LiveBrokerSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
-                            Text(
-                                buildString {
+                            if (slimOrders) {
+                                Text(
+                                    "#${order.orderId} · ${order.action}",
+                                    fontSize = 11.sp,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                            } else {
+                                Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
+                            }
+                            val orderMeta = buildString {
+                                if (!slimOrders) {
                                     append("#")
                                     append(order.orderId)
-                                    if (order.permId > 0L) {
-                                        append(" · perm ")
-                                        append(order.permId)
-                                    }
-                                },
-                                fontSize = 9.sp,
-                                color = TextSecondary
-                            )
+                                }
+                                if (order.permId > 0L) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append("perm ")
+                                    append(order.permId)
+                                }
+                            }
+                            if (orderMeta.isNotEmpty()) {
+                                Text(orderMeta, fontSize = 9.sp, color = TextSecondary)
+                            }
                         }
                         Text(
                             order.status,
@@ -2121,26 +2304,65 @@ private fun LiveBrokerSection(
 }
 
 @Composable
-private fun LiveTradePanel(
+private fun LiveExecutionPanel(
+    symbol: String,
     live: LiveExecutionUiState,
+    broker: LiveBrokerUiState?,
+    tradeDetail: SessionTradeDetailUiState?,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
+    val panelTitle = when (live.state) {
+        ExecutionState.FILLED -> "Active position"
+        else -> "Active trade"
+    }
     TouchTurnPanelGroup(
-        title = "Active trade",
+        title = panelTitle,
         testTag = "LiveTradePanel",
         compact = true
     ) {
-        Text(
-            live.headline,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier.testTag("LiveTradeHeadline")
-        )
-
         when (live.state) {
             ExecutionState.FILLED -> {
+                val display = resolveLivePositionPnL(symbol, broker, live)
+                val pnlColor = if (display.isPositive) GainGreen else LossRed
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        tradeDetail?.let { detail ->
+                            TradeSideBadge(
+                                label = detail.sideLabel,
+                                isLong = detail.isLong,
+                                modifier = Modifier.testTag("LiveSessionTradeSide")
+                            )
+                        }
+                        Text(
+                            live.headline,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("LiveTradeHeadline")
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Unrealized", fontSize = 9.sp, color = TextSecondary)
+                        Text(
+                            display.pnlText,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = pnlColor,
+                            modifier = Modifier.testTag("LiveTradingPositionPnLValue")
+                        )
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2197,9 +2419,27 @@ private fun LiveTradePanel(
                 }
             }
             ExecutionState.WORKING -> {
-                Text("Order working — bracket levels appear after fill.", fontSize = 11.sp, color = TextSecondary)
+                Text(
+                    live.headline,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    modifier = Modifier.testTag("LiveTradeHeadline")
+                )
+                Text(
+                    "Order working — bracket levels appear after fill.",
+                    fontSize = 11.sp,
+                    color = TextSecondary
+                )
             }
             ExecutionState.FLAT -> {
+                Text(
+                    live.headline,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    modifier = Modifier.testTag("LiveTradeHeadline")
+                )
                 Text("Watching for next signal.", fontSize = 11.sp, color = TextSecondary)
             }
         }

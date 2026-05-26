@@ -76,9 +76,9 @@ object SessionHistoryUiMapper {
         val positionLine = tradeSummary ?: "—"
         val runRecord = run.touchTurnRunRecord
         val milestones = run.touchTurnMilestones ?: runRecord?.milestones
-        val pipelineSteps = if (isSelected && isTouchTurn && !inProgress) {
+        val pipelineGraph = if (isSelected && isTouchTurn && !inProgress) {
             milestones?.let {
-                TouchTurnStatusBreadcrumbMapper.stepsFromHistory(
+                TouchTurnStatusBreadcrumbMapper.graphFromHistory(
                     milestones = it,
                     startedAt = run.startedAt,
                     stoppedAt = run.stoppedAt,
@@ -119,7 +119,7 @@ object SessionHistoryUiMapper {
             isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
             canDelete = !inProgress,
-            pipelineSteps = pipelineSteps,
+            pipelineGraph = pipelineGraph,
             touchTurnRunDetail = touchTurnRunDetail
         )
     }
