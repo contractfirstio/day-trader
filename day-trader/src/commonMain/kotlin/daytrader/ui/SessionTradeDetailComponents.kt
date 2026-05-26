@@ -1,11 +1,19 @@
 package daytrader.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,6 +31,107 @@ import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
+
+/** Compact trade breakdown for session history accordion (nested under "Trade & fills"). */
+@Composable
+fun SessionTradeDetailCompact(
+    detail: SessionTradeDetailUiState,
+    modifier: Modifier = Modifier,
+    testTagPrefix: String = "SessionHistoryTrade"
+) {
+    var fillsExpanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = modifier.testTag("${testTagPrefix}Compact"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TradeSideBadge(
+                    label = detail.sideLabel,
+                    isLong = detail.isLong,
+                    modifier = Modifier.testTag("${testTagPrefix}Side")
+                )
+                Text(
+                    text = detail.headline,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("${testTagPrefix}Headline")
+                )
+            }
+            Text(
+                text = primaryPnLText(detail),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = primaryPnLColor(detail),
+                modifier = Modifier.testTag("${testTagPrefix}PrimaryPnL")
+            )
+        }
+        if (detail.showPriceStrip) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                detail.formattedEntryPrice?.let { entry ->
+                    Text("In $entry", fontSize = 10.sp, color = TextSecondary)
+                }
+                detail.formattedExitPrice?.let { exit ->
+                    Text("Out $exit", fontSize = 10.sp, color = TextSecondary)
+                }
+                if (detail.isOpen) {
+                    Text("Open", fontSize = 10.sp, color = Color(0xFFFFB74D))
+                }
+            }
+        } else if (detail.detailLine.isNotBlank()) {
+            Text(
+                text = detail.detailLine,
+                fontSize = 10.sp,
+                color = TextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("${testTagPrefix}DetailLine")
+            )
+        }
+        if (detail.fills.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { fillsExpanded = !fillsExpanded }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (fillsExpanded) "▾" else "▸",
+                    color = TextSecondary,
+                    fontSize = 10.sp,
+                    modifier = Modifier.width(12.dp)
+                )
+                Text(
+                    text = "Individual fills",
+                    color = TextSecondary,
+                    fontSize = 10.sp
+                )
+            }
+            AnimatedVisibility(
+                visible = fillsExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                TradeFillsTable(detail.fills, testTagPrefix)
+            }
+        }
+    }
+}
 
 @Composable
 fun SessionTradeDetailPanel(

@@ -18,6 +18,8 @@ enum class StrategyDetailTab {
 data class StrategyDeploymentRowUi(
     val id: String,
     val name: String,
+    /** Company name from IB when known; otherwise the trading symbol. */
+    val instrumentName: String,
     val strategyTypeLabel: String,
     val status: daytrader.domain.DeploymentStatus,
     val cardAccent: DeploymentCardAccent,

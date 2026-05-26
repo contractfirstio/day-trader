@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import daytrader.domain.OhlcBar
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,6 +117,14 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         StrategyTypeFilterRow(
             selectedType = uiState.strategyTypeFilter,
             onTypeChange = viewModel::onStrategyTypeFilterChange
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        MarketFilterRow(
+            selectedMarketZoneId = uiState.selectedMarketZoneId,
+            onMarketToggle = viewModel::onMarketFilterToggle,
+            onClearMarket = viewModel::onClearMarketFilter
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -511,6 +520,35 @@ private fun StrategyTypeFilterRow(
 }
 
 @Composable
+private fun MarketFilterRow(
+    selectedMarketZoneId: String?,
+    onMarketToggle: (String) -> Unit,
+    onClearMarket: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .testTag("MarketFilterRow"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            label = "All markets",
+            selected = selectedMarketZoneId == null,
+            onClick = onClearMarket
+        )
+        RthMarketSessions.all.forEach { session ->
+            FilterChip(
+                label = session.label,
+                selected = selectedMarketZoneId == session.zoneId,
+                onClick = { onMarketToggle(session.zoneId) }
+            )
+        }
+    }
+}
+
+@Composable
 private fun DeploymentFilterRow(
     filter: DeploymentFilter,
     onFilterChange: (DeploymentFilter) -> Unit,
@@ -618,14 +656,25 @@ private fun StrategyDeploymentCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    row.name,
-                    modifier = Modifier.weight(1f),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    maxLines = 1
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        row.instrumentName,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (row.instrumentName != row.name) {
+                        Text(
+                            row.name,
+                            color = TextSecondary,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onToggleSession,
                     modifier = Modifier.size(24.dp)
@@ -2157,32 +2206,24 @@ private fun PerformanceTab(
         return
     }
 
+    if (sessionHistory.rows.isEmpty()) {
+        val message = sessionHistory.marketFilterLabel?.let { label ->
+            "No sessions for $label in this deployment."
+        } ?: "No session history."
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(message, color = TextSecondary, fontSize = 13.sp)
+        }
+        return
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            PerformanceStatCard(
-                label = "7D P&L",
-                value = sessionHistory.rollup7d,
-                modifier = Modifier.weight(1f)
-            )
-            PerformanceStatCard(
-                label = "14D P&L",
-                value = sessionHistory.rollup14d,
-                modifier = Modifier.weight(1f)
-            )
-            PerformanceStatCard(
-                label = "30D P&L",
-                value = sessionHistory.rollup30d,
-                modifier = Modifier.weight(1f)
-            )
-            PerformanceStatCard(
-                label = "Win %",
-                value = sessionHistory.winRate,
-                modifier = Modifier.weight(1f)
-            )
-        }
+        SessionHistorySummaryBar(
+            rollup30d = sessionHistory.rollup30d,
+            winRate = sessionHistory.winRate
+        )
 
         SessionHistoryBlotterTable(
             sessionHistory = sessionHistory,
@@ -2191,16 +2232,34 @@ private fun PerformanceTab(
             onDeleteRun = onDeleteRun,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
 
-        if (sessionHistory.includeTouchTurnFields) {
-            Text(
-                "Each session shows its Touch Turn pipeline (HH:mm = when that step completed).",
-                fontSize = 11.sp,
-                color = TextSecondary,
-                modifier = Modifier.testTag("SessionHistoryPipelineHint")
-            )
+@Composable
+private fun SessionHistorySummaryBar(
+    rollup30d: String,
+    winRate: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag("SessionHistorySummaryBar"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("30D", fontSize = 10.sp, color = TextSecondary)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(rollup30d, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
-        SessionHistoryTradeDetail(sessionHistory = sessionHistory)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Win", fontSize = 10.sp, color = TextSecondary)
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(winRate, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
     }
 }
 

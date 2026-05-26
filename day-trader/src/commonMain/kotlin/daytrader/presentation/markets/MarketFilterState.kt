@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-/** In-memory market filter for the strategies instance list (not persisted). */
+/** In-memory US/UK/HK filter for deployments and session history (not persisted). */
 class MarketFilterState {
     private val _selectedZoneId = MutableStateFlow<String?>(null)
     val selectedZoneId: StateFlow<String?> = _selectedZoneId.asStateFlow()

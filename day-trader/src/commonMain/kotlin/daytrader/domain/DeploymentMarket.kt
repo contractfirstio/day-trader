@@ -38,6 +38,26 @@ object DeploymentMarket {
 
     fun sessionDisplayLabel(session: RthMarketSession): String = session.label
 
+    /** Market zone for a closed/in-progress session (frozen run record when available). */
+    fun sessionMarketZoneId(session: StrategySession, deployment: StrategyDeployment): String {
+        session.touchTurnRunRecord?.marketInputs?.marketZoneId?.let { return it }
+        if (session.status == SessionStatus.IN_PROGRESS) {
+            deployment.touchTurnSession?.marketZoneId?.let { return it }
+        }
+        return effectiveZoneId(deployment)
+    }
+
+    fun zonesMatch(filterZoneId: String, candidateZoneId: String): Boolean =
+        RthMarketSessions.forZoneId(filterZoneId).zoneId ==
+            RthMarketSessions.forZoneId(candidateZoneId).zoneId
+
+    fun sessionMatchesMarketFilter(
+        session: StrategySession,
+        deployment: StrategyDeployment,
+        filterZoneId: String?
+    ): Boolean = filterZoneId == null ||
+        zonesMatch(filterZoneId, sessionMarketZoneId(session, deployment))
+
     fun fromSymbolHeuristic(symbol: String): ResolvedInstrument {
         val zoneId = SymbolMarkets.zoneId(symbol)
         val currency = currencyForZone(zoneId)

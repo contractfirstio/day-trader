@@ -77,7 +77,7 @@ class StrategiesViewModel(
     private var appState = StrategiesAppState()
     private var showAddDialog = false
     private var deployments: List<StrategyDeployment> = emptyList()
-    private var runSortColumn = SessionHistorySortColumn.START
+    private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
@@ -198,6 +198,15 @@ class StrategiesViewModel(
         }
     }
 
+    fun onMarketFilterToggle(zoneId: String) {
+        marketFilter.toggle(zoneId)
+    }
+
+    fun onClearMarketFilter() {
+        marketFilter.clear()
+        emitUiState()
+    }
+
     fun onSelectDeployment(id: String) {
         selectedSessionHistoryId = null
         appStateRepository.update {
@@ -214,28 +223,19 @@ class StrategiesViewModel(
     }
 
     fun onDetailTabChange(tab: StrategyDetailTab) {
-        if (tab == StrategyDetailTab.SESSION_HISTORY) {
-            ensureSessionHistorySelection()
-        }
         appStateRepository.update { it.copy(detailTab = tab) }
         emitUiState()
     }
 
-    private fun ensureSessionHistorySelection() {
-        val instance = repository.deployments.value.find {
-            it.id == appStateRepository.state.value.selectedDeploymentId
-        } ?: return
-        ensureSessionHistorySelectionFor(instance)
-    }
-
-    private fun ensureSessionHistorySelectionFor(instance: StrategyDeployment) {
-        if (selectedSessionHistoryId != null) return
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
-        selectedSessionHistoryId = instance.sessionHistory
-            .filter { it.status == SessionStatus.CLOSED &&
-                (it.touchTurnMilestones != null || it.touchTurnRunRecord != null) }
-            .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
-            ?.id
+    private fun reconcileSessionHistorySelection(instance: StrategyDeployment) {
+        val selectedId = selectedSessionHistoryId ?: return
+        val stillVisible = instance.sessionHistory.any { session ->
+            session.id == selectedId &&
+                DeploymentMarket.sessionMatchesMarketFilter(session, instance, selectedMarketZoneId)
+        }
+        if (!stillVisible) {
+            selectedSessionHistoryId = null
+        }
     }
 
     fun onShowAddDialog() {
@@ -495,11 +495,7 @@ class StrategiesViewModel(
         }
 
         val selected = selectedId?.let { id -> filtered.find { it.id == id } }
-        if (selected != null &&
-            appStateRepository.state.value.detailTab == StrategyDetailTab.SESSION_HISTORY
-        ) {
-            ensureSessionHistorySelectionFor(selected)
-        }
+        selected?.let { reconcileSessionHistorySelection(it) }
         val sessionDate = currentSessionDateIso()
         val selectedBrokerPnL = selected?.let { instance ->
             SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
@@ -520,7 +516,9 @@ class StrategiesViewModel(
                 sessionDate = sessionDate,
                 sortColumn = runSortColumn,
                 sortDirection = runSortDirection,
-                selectedRunId = selectedSessionHistoryId
+                selectedRunId = selectedSessionHistoryId,
+                marketZoneFilter = selectedMarketZoneId,
+                marketFilterLabel = selectedMarketZoneId?.let(::marketLabelForZone)
             )
         }
 

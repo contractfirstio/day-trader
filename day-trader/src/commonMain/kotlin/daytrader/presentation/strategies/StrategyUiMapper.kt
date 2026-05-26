@@ -13,6 +13,9 @@ object StrategyUiMapper {
     fun displayName(instance: StrategyDeployment): String =
         instanceDisplayName(instance.strategyType, instance.symbol)
 
+    fun instrumentDisplayName(instance: StrategyDeployment): String =
+        instance.companyName?.takeIf { it.isNotBlank() } ?: instance.symbol
+
     fun toRowUi(
         instance: StrategyDeployment,
         sessionDate: String,
@@ -30,6 +33,7 @@ object StrategyUiMapper {
         return StrategyDeploymentRowUi(
             id = instance.id,
             name = displayName(instance),
+            instrumentName = instrumentDisplayName(instance),
             strategyTypeLabel = StrategyCatalog.displayName(instance.strategyType),
             status = instance.status,
             cardAccent = card.accent,

@@ -110,6 +110,21 @@ object Formatters {
         else -> stoppedAt.runTimeFromIso() ?: "—"
     }
 
+    /** Compact session window for blotter rows, e.g. `09:32–10:15` or `09:32 · in progress`. */
+    fun runSessionTimeDisplay(startedAt: String, stoppedAt: String, inProgress: Boolean): String {
+        val start = runStartTimeDisplay(startedAt)
+        if (inProgress) {
+            return if (start != "—") "$start · in progress" else "In progress"
+        }
+        val stop = runStopTimeDisplay(stoppedAt, inProgress = false)
+        return when {
+            start != "—" && stop != "—" -> "$start–$stop"
+            start != "—" -> start
+            stop != "—" -> stop
+            else -> "—"
+        }
+    }
+
     private fun String.runTimeFromIso(): String? {
         val tIndex = indexOf('T')
         if (tIndex < 0 || length < tIndex + 6) return null

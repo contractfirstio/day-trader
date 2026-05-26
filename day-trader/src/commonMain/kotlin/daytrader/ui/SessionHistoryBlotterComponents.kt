@@ -1,5 +1,8 @@
 package daytrader.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.strategies.SessionHistoryUiState
 import daytrader.presentation.strategies.SessionHistorySortColumn
+import daytrader.presentation.strategies.SessionTradeDetailUiState
 import daytrader.presentation.strategies.StrategySessionRowUi
 import daytrader.presentation.strategies.TouchTurnRunRecordUi
 import daytrader.ui.theme.BrandRed
@@ -56,32 +61,32 @@ fun SessionHistoryBlotterTable(
             .fillMaxWidth()
             .background(DarkBackground, RoundedCornerShape(8.dp))
     ) {
-        SessionHistoryBlotterHeader(
+        SessionHistorySortBar(
             activeSortColumn = sessionHistory.sortColumn,
             sortDirection = sessionHistory.sortDirection,
-            showTouchTurnColumns = sessionHistory.includeTouchTurnFields,
             onHeaderClick = onHeaderClick
         )
         if (sessionHistory.rows.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(20.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     "No sessions yet — start the deployment and stop to log P&L.",
                     color = TextSecondary,
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
             }
         } else {
             Column(modifier = Modifier.fillMaxWidth()) {
                 sessionHistory.rows.forEachIndexed { index, row ->
-                    SessionHistoryBlotterRow(
+                    SessionHistoryAccordionRow(
                         row = row,
-                        showTouchTurnColumns = sessionHistory.includeTouchTurnFields,
-                        onSelectRun = onSelectRun,
+                        selectedTradeDetail = sessionHistory.selectedSessionTradeDetail
+                            .takeIf { row.isSelected },
+                        onToggle = { onSelectRun(row.id) },
                         onDeleteRun = onDeleteRun
                     )
                     if (index < sessionHistory.rows.size - 1) {
@@ -93,103 +98,72 @@ fun SessionHistoryBlotterTable(
     }
 }
 
+/** Compact sort controls — not a full table header. */
 @Composable
-fun SessionHistoryTradeDetail(
-    sessionHistory: SessionHistoryUiState,
-    modifier: Modifier = Modifier
-) {
-    val detail = sessionHistory.selectedSessionTradeDetail ?: return
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(SurfaceDark, RoundedCornerShape(8.dp))
-            .padding(12.dp)
-            .testTag("SessionHistoryTradeDetail")
-    ) {
-        SessionTradeDetailPanel(detail, testTagPrefix = "SessionHistoryTrade")
-    }
-}
-
-@Composable
-private fun SessionHistoryBlotterHeader(
+private fun SessionHistorySortBar(
     activeSortColumn: SessionHistorySortColumn,
     sortDirection: SortDirection,
-    showTouchTurnColumns: Boolean,
     onHeaderClick: (SessionHistorySortColumn) -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(TableHeaderBg, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag("SessionHistoryBlotterHeader"),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        SessionHistoryHeaderCell("Session start", SessionHistorySortColumn.START, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
-        SessionHistoryHeaderCell("Session end", SessionHistorySortColumn.STOP, activeSortColumn, sortDirection, Modifier.weight(0.85f), onClick = onHeaderClick)
-        Text(
-            "Position",
-            modifier = Modifier.weight(1.1f),
-            color = TextSecondary,
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp
-        )
-        if (showTouchTurnColumns) {
-            SessionHistoryHeaderCell("Liquidity candle", SessionHistorySortColumn.LIQUIDITY, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
-            SessionHistoryHeaderCell("Orders placed", SessionHistorySortColumn.ORDERS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onClick = onHeaderClick)
-        }
-        SessionHistoryHeaderCell("Realized P&L", SessionHistorySortColumn.PNL, activeSortColumn, sortDirection, Modifier.weight(0.75f), alignEnd = true, onClick = onHeaderClick)
-        Spacer(modifier = Modifier.width(40.dp))
+        Text("Sessions", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        SessionHistorySortChip("Time", SessionHistorySortColumn.TIME, activeSortColumn, sortDirection, onHeaderClick)
+        SessionHistorySortChip("P&L", SessionHistorySortColumn.PNL, activeSortColumn, sortDirection, onHeaderClick)
     }
 }
 
 @Composable
-private fun RowScope.SessionHistoryHeaderCell(
+private fun SessionHistorySortChip(
     label: String,
     column: SessionHistorySortColumn,
     activeColumn: SessionHistorySortColumn,
     direction: SortDirection,
-    modifier: Modifier = Modifier,
-    alignEnd: Boolean = false,
     onClick: (SessionHistorySortColumn) -> Unit
 ) {
     val isActive = activeColumn == column
     Row(
-        modifier = modifier
+        modifier = Modifier
             .clickable { onClick(column) }
             .padding(vertical = 2.dp),
-        horizontalArrangement = if (alignEnd) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
             color = if (isActive) Color.White else TextSecondary,
-            fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
-            textAlign = if (alignEnd) TextAlign.End else TextAlign.Start,
-            lineHeight = 12.sp
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
         )
         if (isActive) {
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(3.dp))
             Icon(
                 imageVector = if (direction == SortDirection.ASCENDING) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
                 tint = GainGreen,
                 contentDescription = null,
-                modifier = Modifier.size(11.dp)
+                modifier = Modifier.size(10.dp)
             )
         }
     }
 }
 
 @Composable
-private fun SessionHistoryBlotterRow(
+private fun SessionHistoryAccordionRow(
     row: StrategySessionRowUi,
-    showTouchTurnColumns: Boolean,
-    onSelectRun: (runId: String) -> Unit,
+    selectedTradeDetail: SessionTradeDetailUiState?,
+    onToggle: () -> Unit,
     onDeleteRun: (runId: String) -> Unit
 ) {
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    val rowBg = if (row.isSelected) TableHeaderBg.copy(alpha = 0.5f) else Color.Transparent
+    val isExpanded = row.isSelected
+    val isExpandable = row.hasTradeDetail || row.hasPipelineLog
+    val rowBg = if (isExpanded) TableHeaderBg.copy(alpha = 0.45f) else Color.Transparent
 
     Column(
         modifier = Modifier
@@ -200,83 +174,93 @@ private fun SessionHistoryBlotterRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = row.hasTradeDetail || row.hasPipelineLog) {
-                    onSelectRun(row.id)
-                }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = if (isExpanded) 2.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-        RunCell(row.formattedStartTime, Modifier.weight(0.85f), row.isInProgress)
-        RunCell(row.formattedStopTime, Modifier.weight(0.85f), row.isInProgress)
-        SessionHistoryTradeCell(row, Modifier.weight(1.1f))
-        if (showTouchTurnColumns) {
-            RunCell(row.liquidityCandle, Modifier.weight(0.9f), row.isInProgress)
-            RunCell(row.ordersPlaced, Modifier.weight(0.9f), row.isInProgress)
-        }
-        Text(
-            text = row.formattedPnL,
-            modifier = Modifier
-                .weight(0.75f)
-                .testTag("SessionHistoryBlotterRowPnL-${row.id}"),
-            color = when {
-                row.isInProgress -> TextSecondary
-                row.isPnLFlat -> TextSecondary
-                row.isPositivePnL -> GainGreen
-                row.formattedPnL == "—" -> TextSecondary
-                else -> LossRed
-            },
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            textAlign = TextAlign.End
-        )
-        if (row.canDelete) {
-            IconButton(
-                onClick = { showDeleteConfirm = true },
+            Row(
                 modifier = Modifier
-                    .size(40.dp)
-                    .testTag("RunBlotterDelete-${row.id}")
+                    .weight(1f)
+                    .clickable(enabled = isExpandable) { onToggle() }
+                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete session",
-                    tint = TextSecondary
+                SessionHistoryDisclosureChevron(
+                    expanded = isExpanded,
+                    enabled = isExpandable,
+                    modifier = Modifier.testTag("SessionHistoryChevron-${row.id}")
                 )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = row.formattedSessionTime,
+                            color = if (row.isInProgress) TextSecondary else Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Text(
+                            text = row.formattedPnL,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .testTag("SessionHistoryBlotterRowPnL-${row.id}"),
+                            color = sessionHistoryPnLColor(row),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                    if (row.positionLine != "—") {
+                        Text(
+                            text = row.positionLine,
+                            modifier = Modifier
+                                .padding(top = 1.dp)
+                                .testTag("RunBlotterPosition-${row.id}"),
+                            color = TextSecondary,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
-        } else {
-            Spacer(modifier = Modifier.width(40.dp))
+            if (row.canDelete) {
+                IconButton(
+                    onClick = { showDeleteConfirm = true },
+                    modifier = Modifier
+                        .size(32.dp)
+                        .testTag("RunBlotterDelete-${row.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete session",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
-        }
-        val pipelineBottom = when {
-            row.touchTurnRunDetail != null -> 4.dp
-            else -> 10.dp
-        }
-        row.pipelineSteps?.let { steps ->
-            TouchTurnStatusBreadcrumbRow(
-                steps = steps,
-                modifier = Modifier
-                    .padding(start = 12.dp, end = 12.dp, bottom = pipelineBottom)
-                    .testTag("SessionHistoryBlotterRowPipeline-${row.id}")
-            )
-        }
-        row.touchTurnRunDetail?.let { detail ->
-            TouchTurnRunRecordCollapsible(
-                detail = detail,
-                expanded = row.isSelected,
-                onToggle = { onSelectRun(row.id) },
-                modifier = Modifier
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
-                    .testTag("SessionHistoryBlotterRowRunRecord-${row.id}")
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            SessionHistoryExpandedSections(
+                row = row,
+                tradeDetail = selectedTradeDetail,
+                modifier = Modifier.padding(start = 28.dp, end = 10.dp, bottom = 8.dp)
             )
         }
     }
 
     if (showDeleteConfirm) {
-        val timeLabel = when {
-            row.formattedStartTime != "—" && row.formattedStopTime != "—" ->
-                "${row.formattedStartTime}–${row.formattedStopTime}"
-            row.formattedStartTime != "—" -> row.formattedStartTime
-            else -> "this session"
-        }
+        val timeLabel = row.formattedSessionTime.takeIf { it != "—" } ?: "this session"
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
             containerColor = SurfaceDark,
@@ -311,91 +295,160 @@ private fun SessionHistoryBlotterRow(
 }
 
 @Composable
-private fun RowScope.SessionHistoryTradeCell(row: StrategySessionRowUi, modifier: Modifier) {
-    Column(modifier = modifier) {
-        row.tradeSideLabel?.let { side ->
-            Text(
-                text = side,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = when (side) {
-                    "Long" -> GainGreen
-                    "Short" -> LossRed
-                    else -> Color.White
-                },
-                modifier = Modifier.testTag("RunBlotterTradeSide-${row.id}")
-            )
-        } ?: Text("—", fontSize = 12.sp, color = TextSecondary)
-        row.tradeSummary?.let { summary ->
-            Text(
-                text = summary,
-                fontSize = 10.sp,
-                color = if (row.isInProgress) TextSecondary else Color(0xFFB0BEC5),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag("RunBlotterTradeSummary-${row.id}")
-            )
+private fun SessionHistoryDisclosureChevron(
+    expanded: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = when {
+            !enabled -> " "
+            expanded -> "▾"
+            else -> "▸"
+        },
+        color = if (enabled) TextSecondary else Color.Transparent,
+        fontSize = 11.sp,
+        modifier = modifier.width(12.dp)
+    )
+}
+
+@Composable
+private fun SessionHistoryExpandedSections(
+    row: StrategySessionRowUi,
+    tradeDetail: SessionTradeDetailUiState?,
+    modifier: Modifier = Modifier
+) {
+    var pipelineExpanded by rememberSaveable(row.id, "pipeline") { mutableStateOf(false) }
+    var runExpanded by rememberSaveable(row.id, "run") { mutableStateOf(false) }
+    var tradeExpanded by rememberSaveable(row.id, "trade") { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        row.pipelineSteps?.let { steps ->
+            SessionHistoryCollapsibleSection(
+                title = "Pipeline",
+                expanded = pipelineExpanded,
+                onToggle = { pipelineExpanded = !pipelineExpanded },
+                testTag = "SessionHistorySectionPipeline-${row.id}"
+            ) {
+                TouchTurnStatusBreadcrumbRow(
+                    steps = steps,
+                    modifier = Modifier
+                        .padding(top = 4.dp, bottom = 2.dp)
+                        .testTag("SessionHistoryBlotterRowPipeline-${row.id}")
+                )
+            }
         }
-        if (row.hasTradeDetail && !row.isSelected) {
-            Text(
-                "Fills & P&L",
-                fontSize = 9.sp,
-                color = TextSecondary.copy(alpha = 0.7f)
-            )
+        row.touchTurnRunDetail?.let { detail ->
+            SessionHistoryCollapsibleSection(
+                title = "Run details",
+                expanded = runExpanded,
+                onToggle = { runExpanded = !runExpanded },
+                testTag = "SessionHistorySectionRun-${row.id}"
+            ) {
+                TouchTurnRunRecordDetail(
+                    detail = detail,
+                    modifier = Modifier
+                        .padding(top = 4.dp, bottom = 2.dp)
+                        .testTag("SessionHistoryBlotterRowRunRecord-${row.id}")
+                )
+            }
+        }
+        tradeDetail?.let { detail ->
+            val fillCount = detail.fills.size
+            val title = if (fillCount > 0) "Trade & fills ($fillCount)" else "Trade"
+            SessionHistoryCollapsibleSection(
+                title = title,
+                expanded = tradeExpanded,
+                onToggle = { tradeExpanded = !tradeExpanded },
+                testTag = "SessionHistorySectionTrade-${row.id}"
+            ) {
+                SessionTradeDetailCompact(
+                    detail = detail,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp)
+                        .testTag("SessionHistoryTradeDetail"),
+                    testTagPrefix = "SessionHistoryTrade"
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun TouchTurnRunRecordCollapsible(
-    detail: TouchTurnRunRecordUi,
+private fun SessionHistoryCollapsibleSection(
+    title: String,
     expanded: Boolean,
     onToggle: () -> Unit,
-    modifier: Modifier = Modifier
+    testTag: String,
+    content: @Composable () -> Unit
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().testTag(testTag)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(onClick = onToggle),
+                .clickable(onClick = onToggle)
+                .padding(vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = if (expanded) "▾" else "▸",
-                color = TextSecondary.copy(alpha = 0.7f),
-                fontSize = 9.sp,
-                modifier = Modifier.padding(end = 4.dp)
+                color = TextSecondary.copy(alpha = 0.8f),
+                fontSize = 10.sp,
+                modifier = Modifier.width(12.dp)
             )
             Text(
-                text = detail.teaser,
-                color = TextSecondary.copy(alpha = if (expanded) 0.9f else 0.65f),
-                fontSize = 9.sp,
-                lineHeight = 11.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                text = title,
+                color = TextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
             )
         }
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnRunRecordDetail(
+    detail: TouchTurnRunRecordUi,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            text = detail.teaser,
+            color = TextSecondary.copy(alpha = 0.85f),
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (detail.body.isNotBlank()) {
             Text(
                 text = detail.body,
                 color = Color(0xFF9EABB6),
                 fontSize = 9.sp,
                 lineHeight = 11.sp,
-                maxLines = 2,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 12.dp, top = 2.dp)
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }
 }
 
-@Composable
-private fun RowScope.RunCell(text: String, modifier: Modifier, muted: Boolean) {
-    Text(
-        text = text,
-        modifier = modifier,
-        color = if (muted) TextSecondary else Color.White,
-        fontSize = 13.sp
-    )
+private fun sessionHistoryPnLColor(row: StrategySessionRowUi): Color = when {
+    row.isInProgress -> TextSecondary
+    row.isPnLFlat -> TextSecondary
+    row.isPositivePnL -> GainGreen
+    row.formattedPnL == "—" -> TextSecondary
+    else -> LossRed
 }
