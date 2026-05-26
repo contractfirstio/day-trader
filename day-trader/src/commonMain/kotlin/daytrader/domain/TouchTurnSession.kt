@@ -137,7 +137,7 @@ data class TouchTurnSessionContext(
     val liquidityThresholdFromAdr: Double?
         get() = adr14?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
     fun candleCloseStatus(nowEpochMillis: Long = System.currentTimeMillis()): FirstCandleCloseStatus =
-        TouchTurnLogic.firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis)
+        TouchTurnLogic.firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis, sessionDate)
 
     fun liquidityEvaluation(nowEpochMillis: Long = System.currentTimeMillis()): LiquidityCandleEvaluation =
         TouchTurnLogic.liquidityCandleEvaluation(candle, marketZoneId, rangeThreshold, nowEpochMillis)
@@ -256,9 +256,17 @@ object TouchTurnLogic {
     fun firstCandleCloseStatus(
         candle: OhlcBar?,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): FirstCandleCloseStatus {
-        val time = candle?.time ?: return FirstCandleCloseStatus.UNKNOWN
+        val time = candle?.time
+        val scheduledBarEndMillis = sessionDateIso?.let { date ->
+            marketOpenEpochMillis(date, marketZoneId)?.plus(BAR_DURATION_MS)
+        }
+        if (scheduledBarEndMillis != null && nowEpochMillis >= scheduledBarEndMillis) {
+            return FirstCandleCloseStatus.CLOSED
+        }
+        if (time == null) return FirstCandleCloseStatus.UNKNOWN
         val barEndMillis = barEndEpochMillis(time, marketZoneId) ?: return FirstCandleCloseStatus.UNKNOWN
         return if (nowEpochMillis >= barEndMillis) {
             FirstCandleCloseStatus.CLOSED

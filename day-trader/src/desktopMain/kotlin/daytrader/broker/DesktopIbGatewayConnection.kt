@@ -827,8 +827,10 @@ class DesktopIbGatewayConnection(
             historicalPendingKeys.remove(key)
         }
 
-        failTouchTurnHistorical(reqId, errorMsg)
-        failAdrHistorical(reqId, errorMsg)
+        if (errorCode !in HISTORICAL_BENIGN_ERROR_CODES) {
+            failTouchTurnHistorical(reqId, errorMsg)
+            failAdrHistorical(reqId, errorMsg)
+        }
 
         if (instrumentResolveIbReqToGatewayReq.containsKey(reqId)) {
             if (errorCode == 200) {
@@ -2307,9 +2309,12 @@ class DesktopIbGatewayConnection(
 
         val INFO_ERROR_CODES = setOf(
             2104, 2106, 2107, 2158,
+            2110, // TWS ↔ IB server link down; restores automatically
             2119, // Market data farm is connecting
             10167 // Requested market data not subscribed; displaying delayed data
         )
+        /** Cancelled or unknown historical ticker — safe to ignore after [cancelHistoricalData]. */
+        val HISTORICAL_BENIGN_ERROR_CODES = setOf(366)
         val FATAL_ERROR_CODES = setOf(502, 504, 1100, 1101, 1102)
 
         fun needsContractDetails(companyName: String, symbol: String): Boolean =

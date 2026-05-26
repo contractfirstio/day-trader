@@ -2,12 +2,14 @@ package daytrader.platform
 
 import daytrader.data.persistence.AppDataFiles
 import daytrader.gateway.BrokerKind
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 
 actual object AppFileSystem {
+    private val writeLock = Any()
     private const val APP_FOLDER_NAME = "Day Trader"
     private val envOverride = System.getenv("DAY_TRADER_DATA_DIR")
     private var dataScope: BrokerKind? = null
@@ -77,17 +79,32 @@ actual object AppFileSystem {
     }
 
     actual fun writeTextAtomic(fileName: String, content: String) {
-        ensureAppDataDirectory()
-        val target = Path.of(appDataDirectory(), fileName)
-        val temp = Path.of(appDataDirectory(), "$fileName.tmp")
-        Files.writeString(
-            temp,
-            content,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.TRUNCATE_EXISTING,
-            StandardOpenOption.WRITE
-        )
-        Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        synchronized(writeLock) {
+            ensureAppDataDirectory()
+            val dir = Path.of(appDataDirectory())
+            val target = dir.resolve(fileName)
+            val temp = Files.createTempFile(dir, "write-", ".tmp")
+            try {
+                Files.writeString(
+                    temp,
+                    content,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE,
+                )
+                try {
+                    Files.move(
+                        temp,
+                        target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                Files.deleteIfExists(temp)
+            }
+        }
     }
 
     actual fun deleteIfExists(fileName: String) {

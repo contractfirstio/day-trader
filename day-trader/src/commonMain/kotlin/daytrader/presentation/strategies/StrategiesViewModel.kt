@@ -166,6 +166,18 @@ class StrategiesViewModel(
                 .launchIn(scope)
         }
 
+        var previousSessionConnection: GatewayConnectionState? = null
+        sessionGateway?.connectionState
+            ?.onEach { state ->
+                if (state == GatewayConnectionState.Connected &&
+                    previousSessionConnection != GatewayConnectionState.Connected
+                ) {
+                    touchTurnBootstrap?.retryStuckLoadsWhenConnected()
+                }
+                previousSessionConnection = state
+            }
+            ?.launchIn(scope)
+
         // Live bid/ask/last come from the session gateway (IB in hybrid mode), not the execution gateway.
         sessionGateway?.quotes
             ?.onEach { quotes ->

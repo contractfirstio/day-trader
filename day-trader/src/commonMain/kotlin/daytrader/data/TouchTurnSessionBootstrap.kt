@@ -8,7 +8,10 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnEntryWindowStatus
 import daytrader.domain.TouchTurnOrderPlanner
+import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.beginTouchTurnSession
+import daytrader.domain.inProgressSession
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
@@ -33,8 +36,38 @@ class TouchTurnSessionBootstrap(
     private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     private val stuckFormingLogged = mutableSetOf<String>()
-    fun loadFirstCandle(instanceId: String, sessionDate: String) {
+    private val loadJobsByInstanceId = mutableMapOf<String, kotlinx.coroutines.Job>()
+
+    /**
+     * Re-attempts ADR + first 15m bar fetch when the broker reconnects after a transient IB outage.
+     */
+    fun retryStuckLoadsWhenConnected() {
         scope.launch {
+            repository.deployments.value
+                .asSequence()
+                .filter { it.status == DeploymentStatus.RUNNING }
+                .filter { it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER }
+                .mapNotNull { instance ->
+                    val session = instance.touchTurnSession ?: return@mapNotNull null
+                    val sessionDate = instance.inProgressSession()?.date ?: session.sessionDate
+                    when (session.status) {
+                        TouchTurnCandleStatus.LOADING,
+                        TouchTurnCandleStatus.FAILED -> instance.id to sessionDate
+                        else -> null
+                    }
+                }
+                .forEach { (instanceId, sessionDate) ->
+                    repository.update(instanceId) { current ->
+                        current.beginTouchTurnSession(sessionDate)
+                    }
+                    loadFirstCandle(instanceId, sessionDate)
+                }
+        }
+    }
+
+    fun loadFirstCandle(instanceId: String, sessionDate: String) {
+        loadJobsByInstanceId[instanceId]?.cancel()
+        loadJobsByInstanceId[instanceId] = scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
             if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
 
