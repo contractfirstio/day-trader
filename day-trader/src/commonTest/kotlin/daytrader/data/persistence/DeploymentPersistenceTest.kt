@@ -1,6 +1,7 @@
 package daytrader.data.persistence
 
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.InstrumentIdentity
 import daytrader.domain.MarketSource
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
@@ -52,5 +53,30 @@ class DeploymentPersistenceTest {
 
         assertEquals(true, restored.autoStartOnMarketOpen)
         assertEquals("2026-05-22", restored.lastAutoStartSessionDate)
+    }
+
+    @Test
+    fun configurationRoundTrip_persistsInstrumentIdentity() {
+        val identity = InstrumentIdentity(
+            symbol = "VOD",
+            exchange = "SMART",
+            primaryExch = "LSE",
+            currency = "GBP",
+            conId = 12345L
+        )
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "VOD",
+            maxDollars = 500,
+            marketZoneId = "Europe/London",
+            currencyCode = "GBP",
+            marketSource = MarketSource.IB,
+            companyName = "Vodafone Group PLC",
+            instrument = identity
+        )
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(identity, restored.instrument)
     }
 }

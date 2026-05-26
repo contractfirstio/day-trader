@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.data.PositionRepository
@@ -25,8 +26,8 @@ fun App(
     positionRepository: PositionRepository,
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
-    ensureLiveMarketData: ((String) -> Unit)? = null,
-    releaseLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,

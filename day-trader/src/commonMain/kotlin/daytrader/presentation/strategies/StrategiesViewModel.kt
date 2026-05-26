@@ -30,6 +30,10 @@ import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.MarketSource
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentResolution
+import daytrader.domain.InstrumentListingCandidates
+import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.resolveStopSnapshot
@@ -62,8 +66,8 @@ class StrategiesViewModel(
     private val marketFilter: MarketFilterState,
     private val brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
-    ensureLiveMarketData: ((String) -> Unit)? = null,
-    private val releaseLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
@@ -112,7 +116,10 @@ class StrategiesViewModel(
                     if (was?.status == DeploymentStatus.RUNNING &&
                         deployment.status != DeploymentStatus.RUNNING
                     ) {
-                        maybeReleaseLiveMarketDataForSymbol(deployment.symbol)
+                        maybeReleaseLiveMarketDataForSymbol(
+                            deployment.symbol,
+                            DeploymentMarket.effectiveInstrument(deployment)
+                        )
                     }
                 }
                 deployments = list
@@ -276,7 +283,7 @@ class StrategiesViewModel(
 
     fun resolveInstrumentForSymbol(
         symbol: String,
-        onResult: (Result<ResolvedInstrument>) -> Unit
+        onResult: (Result<InstrumentResolution>) -> Unit
     ) {
         val trimmed = symbol.trim().uppercase()
         if (trimmed.isBlank()) {
@@ -285,17 +292,36 @@ class StrategiesViewModel(
         }
         scope.launch {
             val resolveGateway = sessionGateway ?: brokerGateway
-            val resolved = if (resolveGateway != null &&
-                resolveGateway.connectionState.value == GatewayConnectionState.Connected
-            ) {
-                resolveGateway.resolveInstrument(trimmed).getOrElse {
-                    DeploymentMarket.fromSymbolHeuristic(trimmed)
-                }
-            } else {
-                DeploymentMarket.fromSymbolHeuristic(trimmed)
+            val connected = resolveGateway?.connectionState?.value == GatewayConnectionState.Connected
+            val source = when {
+                resolveGateway == null -> "no_gateway"
+                connected -> "ib"
+                else -> "offline_heuristic"
             }
+            InstrumentResolveLog.resolveStarted(trimmed, source)
+            val resolution = if (resolveGateway != null && connected) {
+                resolveGateway.resolveInstrument(trimmed).fold(
+                    onSuccess = { it },
+                    onFailure = { error ->
+                        InstrumentResolveLog.line(
+                            "gateway resolve failed symbol=$trimmed error=${error.message}; using heuristic"
+                        )
+                        InstrumentResolution(listOf(DeploymentMarket.fromSymbolHeuristic(trimmed)))
+                    }
+                )
+            } else {
+                InstrumentResolution(listOf(DeploymentMarket.fromSymbolHeuristic(trimmed)))
+            }
+            val uiCandidates = InstrumentListingCandidates.prepareForUi(resolution.candidates)
+            InstrumentResolveLog.resolveFinished(
+                symbol = trimmed,
+                success = true,
+                rawCount = resolution.candidates.size,
+                uiCount = uiCandidates.size,
+                listings = uiCandidates.map(InstrumentListingCandidates::listingLabel)
+            )
             withContext(Dispatchers.Main) {
-                onResult(Result.success(resolved))
+                onResult(Result.success(resolution))
             }
         }
     }
@@ -307,6 +333,7 @@ class StrategiesViewModel(
         currencyCode: String,
         marketSource: MarketSource,
         companyName: String?,
+        instrument: InstrumentIdentity?,
         maxDollars: Int,
         autoStartOnMarketOpen: Boolean = false
     ) {
@@ -318,7 +345,8 @@ class StrategiesViewModel(
             marketZoneId = marketZoneId,
             currencyCode = currencyCode,
             marketSource = marketSource,
-            companyName = companyName
+            companyName = companyName,
+            instrument = instrument
         ).copy(autoStartOnMarketOpen = autoStartOnMarketOpen)
         repository.add(instance)
         appStateRepository.update {
@@ -336,10 +364,10 @@ class StrategiesViewModel(
         emitUiState()
     }
 
-    private fun maybeReleaseLiveMarketDataForSymbol(symbol: String) {
+    private fun maybeReleaseLiveMarketDataForSymbol(symbol: String, instrument: InstrumentIdentity?) {
         val release = releaseLiveMarketData ?: return
         if (LiveMarketDataLifecycle.anyRunningDeploymentNeedsQuotes(symbol, deployments)) return
-        release(symbol)
+        release(symbol, instrument)
     }
 
     fun onToggleSession(id: String) {
@@ -347,16 +375,16 @@ class StrategiesViewModel(
         val existing = repository.deployments.value.find { it.id == id } ?: return
         val wasRunning = existing.status == DeploymentStatus.RUNNING
         if (!wasRunning) {
-            val blockingPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
+            val blockingPosition = SymbolMarkets.findOpenPosition(existing, brokerPositions)
             if (blockingPosition != null) {
                 startBlockedAlert = StartBlockedAlertMapper.from(existing, blockingPosition)
                 emitUiState()
                 return
             }
         }
-        val brokerPosition = SymbolMarkets.findOpenPosition(existing.symbol, brokerPositions)
+        val brokerPosition = SymbolMarkets.findOpenPosition(existing, brokerPositions)
         val hadOpenPosition = brokerPosition != null
-        val hasOpenOrders = SymbolMarkets.hasOpenOrders(existing.symbol, brokerOpenOrders)
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(existing, brokerOpenOrders)
         if (wasRunning) {
             brokerGateway?.let { SessionStopOrderCleanup.flattenSymbolForSession(it, existing.symbol) }
         }
@@ -530,7 +558,7 @@ class StrategiesViewModel(
         selected?.let { reconcileSessionHistorySelection(it) }
         val sessionDate = currentSessionDateIso()
         val selectedBrokerPnL = selected?.let { instance ->
-            SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
+            SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
         }
@@ -555,7 +583,7 @@ class StrategiesViewModel(
         }
 
         val listRows = filtered.map { instance ->
-            val brokerPnL = SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
+            val brokerPnL = SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
             StrategyUiMapper.toRowUi(
@@ -601,7 +629,7 @@ class StrategiesViewModel(
                     LiveSessionTradesUiMapper.forDeployment(
                         instance = instance,
                         liveFills = brokerFills,
-                        brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, brokerPositions)
+                        brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
                     )
                 },
                 startBlockedAlert = startBlockedAlert,

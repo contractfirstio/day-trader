@@ -55,7 +55,11 @@ class EmulatorBrokerAdapter(
                         emit(
                             GatewayEvent.InstrumentResolved(
                                 command.requestId,
-                                Result.success(DeploymentMarket.fromSymbolHeuristic(command.symbol))
+                                Result.success(
+                                    daytrader.domain.InstrumentResolution(
+                                        listOf(DeploymentMarket.fromSymbolHeuristic(command.symbol))
+                                    )
+                                )
                             )
                         )
                     is GatewayCommand.PlaceTouchTurnBracket ->

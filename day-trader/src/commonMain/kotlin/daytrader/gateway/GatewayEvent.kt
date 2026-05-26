@@ -1,7 +1,7 @@
 package daytrader.gateway
 
 import daytrader.domain.OhlcBar
-import daytrader.domain.ResolvedInstrument
+import daytrader.domain.InstrumentResolution
 
 sealed interface GatewayEvent {
     data class ConnectionStateChanged(val state: GatewayConnectionState) : GatewayEvent
@@ -27,6 +27,6 @@ sealed interface GatewayEvent {
 
     data class InstrumentResolved(
         val requestId: Long,
-        val result: Result<ResolvedInstrument>
+        val result: Result<InstrumentResolution>
     ) : GatewayEvent
 }

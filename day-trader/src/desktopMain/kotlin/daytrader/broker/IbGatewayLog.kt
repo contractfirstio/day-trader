@@ -41,6 +41,10 @@ internal object IbGatewayLog {
         }
     }
 
+    fun instrumentResolve(message: String) {
+        daytrader.domain.InstrumentResolveLog.line(message)
+    }
+
     fun connected(endpoint: String, clientId: Int) {
         info("Connected endpoint=$endpoint clientId=$clientId")
     }

@@ -1,5 +1,6 @@
 package daytrader.gateway
 
+import daytrader.domain.InstrumentIdentity
 import daytrader.domain.TouchTurnOrderPlan
 
 sealed interface GatewayCommand {
@@ -13,12 +14,14 @@ sealed interface GatewayCommand {
 
     data class FetchFirstFifteenMinuteCandle(
         val requestId: Long,
-        val symbol: String
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null
     ) : GatewayCommand
 
     data class FetchFourteenDayAdr(
         val requestId: Long,
-        val symbol: String
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null
     ) : GatewayCommand
 
     data class ResolveInstrument(

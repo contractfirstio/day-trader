@@ -81,7 +81,8 @@ data class ConfigurationRecord(
     val marketZoneId: String? = null,
     val currencyCode: String = "USD",
     val marketSource: String? = null,
-    val companyName: String? = null
+    val companyName: String? = null,
+    val instrument: InstrumentIdentityRecord? = null
 )
 
 @Serializable

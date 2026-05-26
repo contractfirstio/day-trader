@@ -17,15 +17,23 @@ data class ResolvedInstrument(
     val venueLabel: String,
     val source: MarketSource,
     /** IB long name when available. */
-    val companyName: String? = null
+    val companyName: String? = null,
+    /** Selected or suggested IB contract; null for legacy heuristic-only rows. */
+    val identity: InstrumentIdentity? = null
 )
 
 object DeploymentMarket {
+    fun effectiveInstrument(deployment: StrategyDeployment): InstrumentIdentity =
+        deployment.instrument
+            ?: InstrumentIdentity.heuristic(deployment.symbol, deployment.currencyCode)
+
     fun effectiveZoneId(deployment: StrategyDeployment): String =
         deployment.marketZoneId ?: SymbolMarkets.zoneId(deployment.symbol)
 
     fun effectiveCurrencyCode(deployment: StrategyDeployment): String =
-        deployment.currencyCode.ifBlank { currencyForZone(effectiveZoneId(deployment)) }
+        deployment.currencyCode.ifBlank {
+            deployment.instrument?.currency ?: currencyForZone(effectiveZoneId(deployment))
+        }
 
     fun currencyForZone(marketZoneId: String): String = when (marketZoneId) {
         RthMarketSessions.HK.zoneId -> "HKD"
@@ -67,7 +75,8 @@ object DeploymentMarket {
             currencyCode = currency,
             venueLabel = "${sessionDisplayLabel(session)} · $currency (estimated)",
             source = MarketSource.SYMBOL_INFERRED,
-            companyName = EmulatorSymbolLookup.companyName(symbol)
+            companyName = EmulatorSymbolLookup.companyName(symbol),
+            identity = InstrumentIdentity.heuristic(symbol, currency)
         )
     }
 }

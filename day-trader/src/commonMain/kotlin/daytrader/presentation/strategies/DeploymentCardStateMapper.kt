@@ -39,7 +39,7 @@ object DeploymentCardStateMapper {
         instance: StrategyDeployment,
         brokerOpenOrders: List<WorkingOrder>
     ): DeploymentCardPresentation? {
-        val orders = SymbolMarkets.openOrdersForSymbol(instance.symbol, brokerOpenOrders)
+        val orders = SymbolMarkets.openOrdersForDeployment(instance, brokerOpenOrders)
         if (orders.isEmpty()) return null
         val chipLabel = when (orders.size) {
             1 -> "Open order"

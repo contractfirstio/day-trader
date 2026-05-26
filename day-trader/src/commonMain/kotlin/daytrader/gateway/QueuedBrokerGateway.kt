@@ -1,7 +1,8 @@
 package daytrader.gateway
 
 import daytrader.domain.OhlcBar
-import daytrader.domain.ResolvedInstrument
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentResolution
 import daytrader.domain.TouchTurnOrderPlan
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -40,7 +41,7 @@ class QueuedBrokerGateway(
     private val requestIdLock = Any()
     private val pendingCandles = mutableMapOf<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val pendingAdr = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
-    private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<ResolvedInstrument>>>()
+    private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<InstrumentResolution>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -67,11 +68,14 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.Reconnect)
     }
 
-    override suspend fun fetchFirstFifteenMinuteCandle(symbol: String): Result<OhlcBar> {
+    override suspend fun fetchFirstFifteenMinuteCandle(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<OhlcBar> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<OhlcBar>>()
         pendingCandles[requestId] = deferred
-        sendCommand(GatewayCommand.FetchFirstFifteenMinuteCandle(requestId, symbol))
+        sendCommand(GatewayCommand.FetchFirstFifteenMinuteCandle(requestId, symbol, instrument))
         return try {
             withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
         } catch (e: Exception) {
@@ -100,11 +104,14 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.RequestExecutions)
     }
 
-    override suspend fun fetchFourteenDayAdr(symbol: String): Result<Double> {
+    override suspend fun fetchFourteenDayAdr(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<Double> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<Double>>()
         pendingAdr[requestId] = deferred
-        sendCommand(GatewayCommand.FetchFourteenDayAdr(requestId, symbol))
+        sendCommand(GatewayCommand.FetchFourteenDayAdr(requestId, symbol, instrument))
         return try {
             withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
         } catch (e: Exception) {
@@ -113,9 +120,9 @@ class QueuedBrokerGateway(
         }
     }
 
-    override suspend fun resolveInstrument(symbol: String): Result<ResolvedInstrument> {
+    override suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution> {
         val requestId = allocateRequestId()
-        val deferred = CompletableDeferred<Result<ResolvedInstrument>>()
+        val deferred = CompletableDeferred<Result<InstrumentResolution>>()
         pendingInstrument[requestId] = deferred
         sendCommand(GatewayCommand.ResolveInstrument(requestId, symbol))
         return try {

@@ -56,8 +56,8 @@ class DeploymentSessionStopWatcher(
         val fills = gateway.fills.value
         for (instance in repository.deployments.value) {
             if (instance.status != DeploymentStatus.RUNNING) continue
-            val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance.symbol, positions)
-            val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, openOrders)
+            val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, positions)
+            val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, openOrders)
             val sessionTrades = sessionTradesForRun(instance, fills)
             val stopAfterTrade = DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
                 instance = instance,
@@ -109,8 +109,8 @@ class DeploymentSessionStopWatcher(
         positions: List<AccountPosition>,
         stopTrigger: TouchTurnSessionStopTrigger
     ) {
-        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance.symbol, gateway.openOrders.value)
-        val brokerPosition = SymbolMarkets.findOpenPosition(instance.symbol, positions)
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, gateway.openOrders.value)
+        val brokerPosition = SymbolMarkets.findOpenPosition(instance, positions)
         SessionStopOrderCleanup.flattenSymbolForSession(gateway, instance.symbol)
         val stoppedAt = currentSessionTimestampIso()
         val sessionTrades = SessionTradeMatcher.captureForSessionStop(

@@ -15,10 +15,10 @@ data class BrokerRuntime(
     val gateway: QueuedBrokerGateway,
     /** IB gateway for Touch Turn ADR / first candle when [kind] is [BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA]. */
     val marketDataGateway: QueuedBrokerGateway? = null,
-    /** Subscribes to IB streaming quotes for a symbol (hybrid mode only). */
-    val ensureLiveMarketData: ((String) -> Unit)? = null,
+    /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
+    val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
-    val releaseLiveMarketData: ((String) -> Unit)? = null,
+    val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     private val adapters: List<BrokerAdapter> = emptyList(),
     private val queueSets: List<BlockingGatewayQueues> = emptyList()
 ) {
@@ -112,8 +112,12 @@ data class BrokerRuntime(
                 kind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
                 gateway = executionGateway,
                 marketDataGateway = marketDataGateway,
-                ensureLiveMarketData = { symbol -> ibAdapter.ensureStreamingMarketData(symbol) },
-                releaseLiveMarketData = { symbol -> ibAdapter.releaseStreamingMarketData(symbol) },
+                ensureLiveMarketData = { symbol, instrument ->
+                    ibAdapter.ensureStreamingMarketData(symbol, instrument)
+                },
+                releaseLiveMarketData = { symbol, instrument ->
+                    ibAdapter.releaseStreamingMarketData(symbol, instrument)
+                },
                 adapters = listOf(emulatorAdapter, ibAdapter),
                 queueSets = listOf(execQueues, mdQueues)
             )

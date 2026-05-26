@@ -22,6 +22,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -36,6 +37,10 @@ import androidx.compose.ui.unit.sp
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.MarketSource
+import daytrader.domain.InstrumentListingCandidates
+import daytrader.domain.InstrumentResolveLog
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentResolution
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
 import kotlinx.coroutines.delay
@@ -223,7 +228,7 @@ private fun StrategyDeploymentDetailPanel(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
-    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -813,7 +818,7 @@ private fun StrategyDeploymentDetail(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
-    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onStartStop: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -947,7 +952,7 @@ private fun StrategyDeploymentDetail(
 private fun ConfigurationTab(
     instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
-    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
@@ -2545,7 +2550,7 @@ private fun StartBlockedByPositionDialog(
 private fun AddStrategyDeploymentDialog(
     onDismiss: () -> Unit,
     defaultMaxDollarsFor: (StrategyType) -> Int,
-    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onCreate: (
         StrategyType,
         String,
@@ -2553,6 +2558,7 @@ private fun AddStrategyDeploymentDialog(
         String,
         MarketSource,
         String?,
+        InstrumentIdentity?,
         Int,
         Boolean
     ) -> Unit
@@ -2564,16 +2570,18 @@ private fun AddStrategyDeploymentDialog(
     }
     var autoStartOnMarketOpen by remember { mutableStateOf(false) }
     var resolving by remember { mutableStateOf(false) }
-    var resolved by remember { mutableStateOf<ResolvedInstrument?>(null) }
+    var candidates by remember { mutableStateOf<List<ResolvedInstrument>>(emptyList()) }
+    var selectedResolved by remember { mutableStateOf<ResolvedInstrument?>(null) }
     var selectedMarketZoneId by remember { mutableStateOf<String?>(null) }
     var marketSource by remember { mutableStateOf(MarketSource.SYMBOL_INFERRED) }
     var userEditedMarket by remember { mutableStateOf(false) }
 
     LaunchedEffect(symbol) {
         val trimmed = symbol.trim()
-        if (trimmed.isBlank()) {
+        if (trimmed.isBlank() || trimmed.length < 2) {
             resolving = false
-            resolved = null
+            candidates = emptyList()
+            selectedResolved = null
             selectedMarketZoneId = null
             return@LaunchedEffect
         }
@@ -2581,18 +2589,44 @@ private fun AddStrategyDeploymentDialog(
         resolving = true
         onResolveSymbol(trimmed) { result ->
             resolving = false
-            result.onSuccess { suggestion ->
-                resolved = suggestion
-                if (!userEditedMarket) {
-                    selectedMarketZoneId = suggestion.marketZoneId
-                    marketSource = suggestion.source
+            result.onSuccess { resolution ->
+                candidates = InstrumentListingCandidates.prepareForUi(resolution.candidates)
+                selectedResolved = when {
+                    candidates.size == 1 -> candidates.first()
+                    else -> null
                 }
-            }.onFailure {
-                resolved = null
+                if (!userEditedMarket) {
+                    when {
+                        candidates.size == 1 ->
+                            selectedResolved?.let { suggestion ->
+                                selectedMarketZoneId = suggestion.marketZoneId
+                                marketSource = suggestion.source
+                            }
+                        candidates.size > 1 -> selectedMarketZoneId = null
+                    }
+                }
+                InstrumentResolveLog.uiReceived(
+                    symbol = trimmed,
+                    uiCount = candidates.size,
+                    selected = selectedResolved?.let { InstrumentListingCandidates.listingLabel(it) }
+                )
+            }.onFailure { error ->
+                candidates = emptyList()
+                selectedResolved = null
                 if (!userEditedMarket) selectedMarketZoneId = null
+                InstrumentResolveLog.resolveFinished(
+                    symbol = trimmed,
+                    success = false,
+                    rawCount = 0,
+                    uiCount = 0,
+                    listings = emptyList(),
+                    error = error.message
+                )
             }
         }
     }
+
+    val resolved = selectedResolved
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2620,6 +2654,7 @@ private fun AddStrategyDeploymentDialog(
                     onValueChange = {
                         symbol = it
                         userEditedMarket = false
+                        selectedResolved = null
                     }
                 )
                 val resolvedCompanyName = resolved?.companyName?.takeIf { it.isNotBlank() }
@@ -2636,6 +2671,19 @@ private fun AddStrategyDeploymentDialog(
                         text = "Resolving company name…",
                         fontSize = 12.sp,
                         color = TextSecondary
+                    )
+                }
+                if (!resolving && candidates.size > 1) {
+                    InstrumentListingPicker(
+                        candidates = candidates,
+                        selected = selectedResolved,
+                        onSelect = { picked ->
+                            selectedResolved = picked
+                            if (!userEditedMarket) {
+                                selectedMarketZoneId = picked.marketZoneId
+                                marketSource = picked.source
+                            }
+                        }
                     )
                 }
                 InstrumentResolutionPanel(
@@ -2674,6 +2722,7 @@ private fun AddStrategyDeploymentDialog(
                 else -> resolved?.currencyCode ?: DeploymentMarket.currencyForZone(zoneId)
             }
             val companyName = resolved?.companyName?.takeIf { it.isNotBlank() }
+            val listingChosen = candidates.isEmpty() || selectedResolved != null
             Button(
                 onClick = {
                     if (zoneId != null) {
@@ -2684,12 +2733,14 @@ private fun AddStrategyDeploymentDialog(
                             currency,
                             marketSource,
                             companyName,
+                            selectedResolved?.identity,
                             maxDollars,
                             autoStartOnMarketOpen
                         )
                     }
                 },
-                enabled = symbol.isNotBlank() && maxDollars > 0 && zoneId != null,
+                enabled = symbol.isNotBlank() && maxDollars > 0 && zoneId != null &&
+                    listingChosen && !resolving,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 modifier = Modifier.testTag("CreateStrategyDeploymentButton")
             ) {
@@ -2702,6 +2753,73 @@ private fun AddStrategyDeploymentDialog(
             }
         }
     )
+}
+
+@Composable
+private fun InstrumentListingPicker(
+    candidates: List<ResolvedInstrument>,
+    selected: ResolvedInstrument?,
+    onSelect: (ResolvedInstrument) -> Unit
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.testTag("InstrumentListingPicker")
+    ) {
+        Text(
+            "Listing / exchange",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            if (selected == null) {
+                "Multiple venues found — select one to continue."
+            } else {
+                "Selected listing:"
+            },
+            fontSize = 12.sp,
+            color = if (selected == null) LossRed else TextSecondary,
+            lineHeight = 15.sp
+        )
+        candidates.forEach { candidate ->
+            val label = InstrumentListingCandidates.listingLabel(candidate)
+            val picked = selected?.identity?.dedupeKey() == candidate.identity?.dedupeKey()
+            val borderColor = if (picked) BrandRed else TableHeaderBg
+            val background = if (picked) BrandRed.copy(alpha = 0.2f) else DarkBackground
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(background)
+                    .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                    .clickable { onSelect(candidate) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .testTag("InstrumentListingOption-${candidate.identity?.dedupeKey()}"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                RadioButton(
+                    selected = picked,
+                    onClick = { onSelect(candidate) },
+                    colors = RadioButtonDefaults.colors(
+                        selectedColor = BrandRed,
+                        unselectedColor = TextSecondary
+                    )
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        label,
+                        fontSize = 14.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    candidate.companyName?.takeIf { it.isNotBlank() }?.let { name ->
+                        Text(name, fontSize = 12.sp, color = TextSecondary, lineHeight = 15.sp)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -2792,7 +2910,7 @@ private fun InstrumentResolutionPanel(
 private fun DeploymentMarketSection(
     deployment: StrategyDeployment,
     canEdit: Boolean,
-    onResolveSymbol: (String, (Result<ResolvedInstrument>) -> Unit) -> Unit,
+    onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
 ) {
     var ibSuggestion by remember(deployment.id) { mutableStateOf<ResolvedInstrument?>(null) }
@@ -2803,13 +2921,18 @@ private fun DeploymentMarketSection(
         resolving = true
         onResolveSymbol(deployment.symbol) { result ->
             resolving = false
-            val suggestion = result.getOrNull()
-            ibSuggestion = suggestion
-            if (canEdit &&
-                suggestion?.companyName != null &&
-                deployment.companyName.isNullOrBlank()
-            ) {
-                onUpdate { it.copy(companyName = suggestion.companyName) }
+            result.onSuccess { resolution ->
+                val savedKey = deployment.instrument?.dedupeKey()
+                ibSuggestion = resolution.candidates.firstOrNull { candidate ->
+                    savedKey != null && candidate.identity?.dedupeKey() == savedKey
+                } ?: resolution.singleOrNull() ?: resolution.candidates.firstOrNull()
+                val suggestion = ibSuggestion
+                if (canEdit &&
+                    suggestion?.companyName != null &&
+                    deployment.companyName.isNullOrBlank()
+                ) {
+                    onUpdate { it.copy(companyName = suggestion.companyName) }
+                }
             }
         }
     }
@@ -2844,6 +2967,15 @@ private fun DeploymentMarketSection(
             fontSize = 12.sp,
             color = LossRed,
             lineHeight = 15.sp
+        )
+    }
+    deployment.instrument?.let { identity ->
+        Text(
+            "Saved listing: ${identity.primaryExch ?: identity.exchange} · ${identity.currency}",
+            fontSize = 12.sp,
+            color = TextSecondary,
+            lineHeight = 15.sp,
+            modifier = Modifier.testTag("SavedInstrumentListing")
         )
     }
 }

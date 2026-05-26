@@ -15,6 +15,7 @@ fun defaultStrategyDeployment(
     currencyCode: String = "USD",
     marketSource: MarketSource = MarketSource.LEGACY_INFERRED,
     companyName: String? = null,
+    instrument: InstrumentIdentity? = null,
     status: DeploymentStatus = DeploymentStatus.STOPPED
 ): StrategyDeployment {
     val symbolUpper = symbol.trim().uppercase()
@@ -27,6 +28,7 @@ fun defaultStrategyDeployment(
         currencyCode = currencyCode,
         marketSource = marketSource,
         companyName = companyName?.trim()?.takeIf { it.isNotBlank() },
+        instrument = instrument,
         maxDollars = maxDollars,
         sessionHistory = emptyList(),
         live = ActiveExecution.flat()

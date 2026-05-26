@@ -1,5 +1,6 @@
 package daytrader.data
 
+import daytrader.domain.InstrumentIdentity
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnLogic
@@ -23,11 +24,18 @@ object TouchTurnOrderLog {
         sessionDate: String,
         maxDollars: Int,
         currencyCode: String,
+        instrument: InstrumentIdentity? = null,
         setup: TouchTurnBracketSetup?,
         brokerGateway: BrokerGateway? = null
     ): Boolean {
         if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return false
-        val plan = TouchTurnOrderPlanner.buildOrderPlan(symbol, setup, maxDollars, currencyCode)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol,
+            setup,
+            maxDollars,
+            currencyCode,
+            instrument
+        )
             ?: return false
         logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)
         return true

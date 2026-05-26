@@ -22,6 +22,7 @@ object DeploymentPersistence {
             currencyCode = record.configuration.currencyCode,
             marketSource = parseMarketSource(record.configuration.marketSource),
             companyName = record.configuration.companyName,
+            instrument = InstrumentIdentityPersistence.toDomain(record.configuration.instrument),
             maxDollars = record.configuration.maxAtRisk,
             autoStartOnMarketOpen = record.configuration.autoStartOnMarketOpen,
             lastAutoStartSessionDate = record.configuration.lastAutoStartSessionDate,
@@ -43,7 +44,8 @@ object DeploymentPersistence {
                 marketZoneId = instance.marketZoneId,
                 currencyCode = instance.currencyCode,
                 marketSource = marketSourceLabel(instance.marketSource),
-                companyName = instance.companyName
+                companyName = instance.companyName,
+                instrument = InstrumentIdentityPersistence.toRecord(instance.instrument)
             ),
             live = toLiveRecord(instance.live),
             sessionHistory = instance.sessionHistory.map(::toSessionHistoryRecord),

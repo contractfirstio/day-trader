@@ -61,9 +61,9 @@ internal object IbTouchTurnBracketPlacer {
     }
 
     private fun contractFor(plan: TouchTurnOrderPlan, symbol: String): Contract {
-        val contract = IbContractMapper.stockForHistorical(symbol)
+        val contract = IbContractMapper.contractForSymbol(symbol, plan.instrument)
         val currency = plan.currencyCode.ifBlank { SymbolMarkets.currencyCode(symbol) }
-        if (currency.isNotBlank()) {
+        if (currency.isNotBlank() && contract.currency().isNullOrBlank()) {
             contract.currency(currency)
         }
         return contract

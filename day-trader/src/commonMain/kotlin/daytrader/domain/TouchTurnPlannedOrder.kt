@@ -30,6 +30,7 @@ data class TouchTurnPlannedOrder(
 data class TouchTurnOrderPlan(
     val symbol: String,
     val currencyCode: String,
+    val instrument: InstrumentIdentity? = null,
     val side: TouchTurnTradeSide,
     val quantity: Int,
     val orders: List<TouchTurnPlannedOrder>
@@ -51,7 +52,8 @@ object TouchTurnOrderPlanner {
         symbol: String,
         setup: TouchTurnBracketSetup,
         maxDollars: Int,
-        currencyCode: String = "USD"
+        currencyCode: String = "USD",
+        instrument: InstrumentIdentity? = null
     ): TouchTurnOrderPlan? {
         if (!setup.isActionable) return null
         val quantity = suggestedQuantity(maxDollars, setup.entry)
@@ -66,6 +68,7 @@ object TouchTurnOrderPlanner {
         return TouchTurnOrderPlan(
             symbol = symbol,
             currencyCode = currencyCode,
+            instrument = instrument,
             side = setup.side,
             quantity = quantity,
             orders = listOf(

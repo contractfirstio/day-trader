@@ -42,7 +42,8 @@ object InstrumentMarketResolver {
             currencyCode = resolvedCurrency,
             venueLabel = venue,
             source = MarketSource.IB,
-            companyName = snapshot.companyName?.takeIf { it.isNotBlank() }
+            companyName = snapshot.companyName?.takeIf { it.isNotBlank() },
+            identity = InstrumentIdentity.fromContractSnapshot(snapshot)
         )
     }
 

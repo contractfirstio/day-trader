@@ -1,5 +1,6 @@
 package daytrader.broker
 
+import daytrader.domain.StrategyDeployment
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
 
@@ -29,6 +30,33 @@ object SymbolMarkets {
         return trimmed
     }
 
+    fun matchesDeployment(deployment: StrategyDeployment, position: AccountPosition): Boolean {
+        if (!symbolsMatch(deployment.symbol, position.symbol)) return false
+        val instrument = deployment.instrument ?: return true
+        return instrument.currency.equals(position.currency, ignoreCase = true)
+    }
+
+    fun matchesDeployment(deployment: StrategyDeployment, order: WorkingOrder): Boolean {
+        if (!symbolsMatch(deployment.symbol, order.symbol)) return false
+        val instrument = deployment.instrument ?: return true
+        return instrument.currency.equals(order.currency, ignoreCase = true)
+    }
+
+    fun findOpenPosition(
+        deployment: StrategyDeployment,
+        positions: List<AccountPosition>
+    ): AccountPosition? =
+        positions.firstOrNull { pos -> matchesDeployment(deployment, pos) && pos.quantity != 0 }
+
+    fun openOrdersForDeployment(
+        deployment: StrategyDeployment,
+        orders: List<WorkingOrder>
+    ): List<WorkingOrder> =
+        orders.filter { order -> matchesDeployment(deployment, order) }
+
+    fun hasOpenOrders(deployment: StrategyDeployment, orders: List<WorkingOrder>): Boolean =
+        openOrdersForDeployment(deployment, orders).isNotEmpty()
+
     fun symbolsMatch(instanceSymbol: String, brokerSymbol: String): Boolean {
         val a = normalizeSymbol(instanceSymbol)
         val b = normalizeSymbol(brokerSymbol)
@@ -50,4 +78,7 @@ object SymbolMarkets {
 
     fun hasOpenOrders(instanceSymbol: String, orders: List<WorkingOrder>): Boolean =
         openOrdersForSymbol(instanceSymbol, orders).isNotEmpty()
+
+    fun hasOpenPosition(deployment: StrategyDeployment, positions: List<AccountPosition>): Boolean =
+        findOpenPosition(deployment, positions) != null
 }

@@ -3,6 +3,7 @@ package daytrader.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import daytrader.gateway.BrokerGateway
+import daytrader.domain.InstrumentIdentity
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.PositionRepository
@@ -21,8 +22,8 @@ fun rememberAppDependencies(
     positionRepository: PositionRepository,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
-    ensureLiveMarketData: ((String) -> Unit)? = null,
-    releaseLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }

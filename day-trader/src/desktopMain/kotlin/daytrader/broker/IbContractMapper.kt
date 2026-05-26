@@ -2,8 +2,25 @@ package daytrader.broker
 
 import com.ib.client.Contract
 import com.ib.client.protobuf.ContractProto
+import daytrader.domain.InstrumentIdentity
 
 internal object IbContractMapper {
+    fun fromIdentity(identity: InstrumentIdentity): Contract {
+        val contract = Contract()
+        identity.conId?.takeIf { it > 0 }?.let { contract.conid(it.toInt()) }
+        contract.symbol(identity.symbol.uppercase())
+        contract.secType(identity.secType.ifBlank { "STK" })
+        contract.exchange(identity.exchange.ifBlank { "SMART" })
+        contract.currency(identity.currency.uppercase())
+        identity.primaryExch?.takeIf { it.isNotBlank() }?.let { contract.primaryExch(it) }
+        identity.localSymbol?.takeIf { it.isNotBlank() }?.let { contract.localSymbol(it) }
+        identity.tradingClass?.takeIf { it.isNotBlank() }?.let { contract.tradingClass(it) }
+        return contract
+    }
+
+    fun contractForSymbol(symbol: String, instrument: InstrumentIdentity?): Contract =
+        instrument?.let { forDataRequest(fromIdentity(it)) }
+            ?: forDataRequest(stockForHistorical(symbol))
     fun usStock(symbol: String): Contract {
         val contract = Contract()
         contract.symbol(symbol.uppercase())
@@ -16,6 +33,35 @@ internal object IbContractMapper {
     /** Contract for historical bars — routes numeric symbols to SEHK (Hong Kong). */
     fun stockForHistorical(symbol: String): Contract =
         if (SymbolMarkets.isHongKong(symbol)) hkStock(symbol) else usStock(symbol)
+
+    fun smartStock(symbol: String, currency: String): Contract {
+        val contract = Contract()
+        contract.symbol(symbol.trim().uppercase())
+        contract.secType("STK")
+        contract.exchange("SMART")
+        contract.currency(currency.uppercase())
+        return contract
+    }
+
+    /**
+     * IB requires currency on SMART [reqContractDetails] (error 200 otherwise).
+     * Dual-listed symbols need separate USD and GBP lookups to surface NYSE + LSE.
+     */
+    fun describe(contract: Contract): String =
+        "symbol=${contract.symbol()} secType=${contract.getSecType()} " +
+            "exchange=${contract.exchange()} primary=${contract.primaryExch()} " +
+            "currency=${contract.currency()} conId=${contract.conid()}"
+
+    fun contractDetailsLookupContracts(symbol: String): List<Contract> {
+        val trimmed = symbol.trim().uppercase()
+        if (SymbolMarkets.isHongKong(trimmed)) {
+            return listOf(forDataRequest(hkStock(trimmed)))
+        }
+        return listOf(
+            forDataRequest(smartStock(trimmed, "USD")),
+            forDataRequest(smartStock(trimmed, "GBP"))
+        )
+    }
 
     fun hkStock(symbol: String): Contract {
         val digits = symbol.trim().uppercase().removeSuffix(".HK")

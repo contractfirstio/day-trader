@@ -2,6 +2,7 @@ package daytrader.data
 
 import daytrader.gateway.BrokerGateway
 import daytrader.domain.DeploymentMarket
+import daytrader.domain.InstrumentIdentity
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
@@ -27,7 +28,7 @@ class TouchTurnSessionBootstrap(
     private val executionGateway: BrokerGateway = sessionGateway,
     private val repository: StrategyDeploymentRepository,
     private val scope: CoroutineScope,
-    private val ensureLiveMarketData: ((String) -> Unit)? = null
+    private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     fun loadFirstCandle(instanceId: String, sessionDate: String) {
         scope.launch {
@@ -35,8 +36,9 @@ class TouchTurnSessionBootstrap(
             if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
 
             val symbol = instance.symbol
-            ensureLiveMarketData?.invoke(symbol)
-            val adrResult = sessionGateway.fetchFourteenDayAdr(symbol)
+            val instrument = DeploymentMarket.effectiveInstrument(instance)
+            ensureLiveMarketData?.invoke(symbol, instrument)
+            val adrResult = sessionGateway.fetchFourteenDayAdr(symbol, instrument)
             val adr14 = adrResult.getOrElse { error ->
                 repository.update(instanceId) { current ->
                     current.withTouchTurnCandleFailed(
@@ -47,7 +49,7 @@ class TouchTurnSessionBootstrap(
                 return@launch
             }
 
-            val candleResult = sessionGateway.fetchFirstFifteenMinuteCandle(symbol)
+            val candleResult = sessionGateway.fetchFirstFifteenMinuteCandle(symbol, instrument)
             val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val currency = DeploymentMarket.effectiveCurrencyCode(instance)
             repository.update(instanceId) { current ->
@@ -103,12 +105,14 @@ class TouchTurnSessionBootstrap(
                         )
                     }
                     val setup = session.setup
+                    val deploymentInstrument = DeploymentMarket.effectiveInstrument(updated)
                     val plan = setup?.let { s ->
                         TouchTurnOrderPlanner.buildOrderPlan(
                             symbol = updated.symbol,
                             setup = s,
                             maxDollars = updated.maxDollars,
-                            currencyCode = session.currencyCode
+                            currencyCode = session.currencyCode,
+                            instrument = deploymentInstrument
                         )
                     }
                     ordersPlaced = TouchTurnOrderLog.logAfterLiquidityEvaluation(
@@ -117,6 +121,7 @@ class TouchTurnSessionBootstrap(
                         sessionDate = session.sessionDate,
                         maxDollars = updated.maxDollars,
                         currencyCode = session.currencyCode,
+                        instrument = deploymentInstrument,
                         setup = setup,
                         brokerGateway = executionGateway
                     )

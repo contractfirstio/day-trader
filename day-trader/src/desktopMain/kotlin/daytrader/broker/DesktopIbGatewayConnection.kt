@@ -117,7 +117,7 @@ class DesktopIbGatewayConnection(
     private val keyToMktDataReqId = ConcurrentHashMap<String, Int>()
     private val contractDetailsReqIdToKey = ConcurrentHashMap<Int, String>()
     private val instrumentResolveIbReqToGatewayReq = ConcurrentHashMap<Int, Long>()
-    private val instrumentResolvePending = ConcurrentHashMap<Int, InstrumentResolvePending>()
+    private val instrumentResolveBatches = ConcurrentHashMap<Long, InstrumentResolveBatch>()
     private val instrumentResolveCompleted = ConcurrentHashMap.newKeySet<Long>()
     private val nextInstrumentResolveReqId = AtomicInteger(INSTRUMENT_RESOLVE_REQ_ID_START)
     private val historicalPrices = ConcurrentHashMap<String, Double>()
@@ -168,9 +168,17 @@ class DesktopIbGatewayConnection(
                         return@launch
                     }
                     is GatewayCommand.FetchFourteenDayAdr ->
-                        scope.launch { requestFourteenDayAdr(command.requestId, command.symbol) }
+                        scope.launch {
+                            requestFourteenDayAdr(command.requestId, command.symbol, command.instrument)
+                        }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
-                        scope.launch { requestFirstFifteenMinuteCandle(command.requestId, command.symbol) }
+                        scope.launch {
+                            requestFirstFifteenMinuteCandle(
+                                command.requestId,
+                                command.symbol,
+                                command.instrument
+                            )
+                        }
                     is GatewayCommand.ResolveInstrument ->
                         scope.launch { requestInstrumentResolve(command.requestId, command.symbol) }
                     is GatewayCommand.PlaceTouchTurnBracket -> {
@@ -223,7 +231,11 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.ConnectionStateChanged(state))
     }
 
-    private suspend fun requestFourteenDayAdr(gatewayRequestId: Long, symbol: String) {
+    private suspend fun requestFourteenDayAdr(
+        gatewayRequestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
         if (!client.isConnected) {
             emit(
                 GatewayEvent.FourteenDayAdrReady(
@@ -246,7 +258,7 @@ class DesktopIbGatewayConnection(
         val reqId = nextAdrHistoricalReqId.getAndIncrement()
         adrGatewayRequestId[reqId] = gatewayRequestId
         adrHistoricalSymbol[reqId] = trimmed
-        val contract = IbContractMapper.stockForHistorical(trimmed)
+        val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         requestPacer.enqueue {
             if (!client.isConnected) {
                 failAdrHistorical(reqId, "Disconnected before 14-day ADR request")
@@ -267,7 +279,11 @@ class DesktopIbGatewayConnection(
         }
     }
 
-    private suspend fun requestFirstFifteenMinuteCandle(gatewayRequestId: Long, symbol: String) {
+    private suspend fun requestFirstFifteenMinuteCandle(
+        gatewayRequestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
         if (!client.isConnected) {
             emit(
                 GatewayEvent.FirstFifteenMinuteCandleReady(
@@ -290,7 +306,7 @@ class DesktopIbGatewayConnection(
         val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
         touchTurnGatewayRequestId[reqId] = gatewayRequestId
         touchTurnHistoricalSymbol[reqId] = trimmed
-        val contract = IbContractMapper.stockForHistorical(trimmed)
+        val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         requestPacer.enqueue {
             if (!client.isConnected) {
                 failTouchTurnHistorical(
@@ -334,20 +350,31 @@ class DesktopIbGatewayConnection(
             )
             return
         }
-        val ibReqId = nextInstrumentResolveReqId.getAndIncrement()
-        instrumentResolveIbReqToGatewayReq[ibReqId] = gatewayRequestId
-        val contract = IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(trimmed))
-        requestPacer.enqueue {
-            if (!client.isConnected) {
-                failInstrumentResolve(gatewayRequestId, ibReqId, "Disconnected before contract details")
-                return@enqueue
+        val contracts = IbContractMapper.contractDetailsLookupContracts(trimmed)
+        val batch = InstrumentResolveBatch(gatewayRequestId, trimmed)
+        instrumentResolveBatches[gatewayRequestId] = batch
+        IbGatewayLog.instrumentResolve(
+            "IB batch start gatewayReqId=$gatewayRequestId symbol=$trimmed legs=${contracts.size}"
+        )
+        contracts.forEach { contract ->
+            val ibReqId = nextInstrumentResolveReqId.getAndIncrement()
+            batch.pendingIbReqIds.add(ibReqId)
+            instrumentResolveIbReqToGatewayReq[ibReqId] = gatewayRequestId
+            IbGatewayLog.instrumentResolve(
+                "IB leg request ibReqId=$ibReqId ${IbContractMapper.describe(contract)}"
+            )
+            requestPacer.enqueue {
+                if (!client.isConnected) {
+                    failInstrumentResolveBatch(gatewayRequestId, "Disconnected before contract details")
+                    return@enqueue
+                }
+                client.reqContractDetails(ibReqId, contract)
             }
-            client.reqContractDetails(ibReqId, contract)
         }
         scope.launch {
             delay(INSTRUMENT_RESOLVE_TIMEOUT_MS)
-            if (instrumentResolveIbReqToGatewayReq.containsKey(ibReqId)) {
-                emitInstrumentResolve(ibReqId)
+            if (instrumentResolveBatches.containsKey(gatewayRequestId)) {
+                emitInstrumentResolveBatch(gatewayRequestId)
             }
         }
     }
@@ -357,36 +384,83 @@ class DesktopIbGatewayConnection(
         contractDetails: ContractDetails
     ): Boolean {
         val gatewayRequestId = instrumentResolveIbReqToGatewayReq[reqId] ?: return false
+        val batch = instrumentResolveBatches[gatewayRequestId] ?: return false
         val contract = contractDetails.contract()
         val companyName = extractCompanyName(contractDetails, contract)
-        val pending = instrumentResolvePending.getOrPut(reqId) {
-            InstrumentResolvePending(gatewayRequestId)
-        }
         if (!companyName.isNullOrBlank()) {
-            pending.companyName = companyName
+            batch.companyName = companyName
         }
-        pending.snapshot = InstrumentMarketResolver.ContractSnapshot(
+        val snapshot = InstrumentMarketResolver.ContractSnapshot(
             symbol = contract.symbol().orEmpty(),
             exchange = contract.exchange(),
             primaryExch = contract.primaryExch(),
             currency = contract.currency(),
-            companyName = pending.companyName
+            companyName = batch.companyName
         )
-        pending.finishJob?.cancel()
-        pending.finishJob = scope.launch {
-            delay(INSTRUMENT_RESOLVE_DEBOUNCE_MS)
-            emitInstrumentResolve(reqId)
-        }
+        val conId = contract.conid().takeIf { it > 0 }?.toLong()
+        val resolved = InstrumentMarketResolver.fromIbContract(snapshot).copy(
+            identity = daytrader.domain.InstrumentIdentity.fromContractSnapshot(snapshot, conId)
+        )
+        batch.candidates[resolved.identity!!.dedupeKey()] = resolved
+        IbGatewayLog.instrumentResolve(
+            "IB contract detail ibReqId=$reqId gatewayReqId=$gatewayRequestId " +
+                "symbol=${snapshot.symbol} exchange=${snapshot.exchange} " +
+                "primary=${snapshot.primaryExch} currency=${snapshot.currency} conId=$conId " +
+                "venue=${resolved.venueLabel} batchSize=${batch.candidates.size}"
+        )
         return true
     }
 
-    private fun emitInstrumentResolve(ibReqId: Int) {
+    override fun contractDetailsEnd(reqId: Int) {
+        try {
+            if (instrumentResolveIbReqToGatewayReq.containsKey(reqId)) {
+                markInstrumentResolveLegFinished(reqId)
+            }
+        } catch (e: Exception) {
+            logCallbackFailure("contractDetailsEnd", e)
+        }
+    }
+
+    private fun markInstrumentResolveLegFinished(ibReqId: Int) {
         val gatewayRequestId = instrumentResolveIbReqToGatewayReq.remove(ibReqId) ?: return
-        val pending = instrumentResolvePending.remove(ibReqId) ?: return
-        pending.finishJob?.cancel()
+        val batch = instrumentResolveBatches[gatewayRequestId] ?: return
+        batch.pendingIbReqIds.remove(ibReqId)
+        IbGatewayLog.instrumentResolve(
+            "IB leg finished ibReqId=$ibReqId gatewayReqId=$gatewayRequestId " +
+                "symbol=${batch.symbol} pendingLegs=${batch.pendingIbReqIds.size} " +
+                "batchCandidates=${batch.candidates.size}"
+        )
+        if (batch.pendingIbReqIds.isEmpty()) {
+            scheduleInstrumentResolveBatchEmit(gatewayRequestId)
+        }
+    }
+
+    private fun scheduleInstrumentResolveBatchEmit(gatewayRequestId: Long) {
+        val batch = instrumentResolveBatches[gatewayRequestId] ?: return
+        batch.finishJob?.cancel()
+        batch.finishJob = scope.launch {
+            delay(INSTRUMENT_RESOLVE_DEBOUNCE_MS)
+            emitInstrumentResolveBatch(gatewayRequestId)
+        }
+    }
+
+    private fun emitInstrumentResolveBatch(gatewayRequestId: Long) {
+        val batch = instrumentResolveBatches.remove(gatewayRequestId) ?: return
+        batch.finishJob?.cancel()
+        batch.pendingIbReqIds.forEach { instrumentResolveIbReqToGatewayReq.remove(it) }
         if (!instrumentResolveCompleted.add(gatewayRequestId)) return
-        val snapshot = pending.snapshot
-        if (snapshot == null) {
+        val rawCount = batch.candidates.size
+        val candidates = daytrader.domain.InstrumentListingCandidates.prepareForUi(batch.candidates.values)
+        val labels = candidates.map(daytrader.domain.InstrumentListingCandidates::listingLabel)
+        if (candidates.isEmpty()) {
+            daytrader.domain.InstrumentResolveLog.resolveFinished(
+                symbol = batch.symbol,
+                success = false,
+                rawCount = rawCount,
+                uiCount = 0,
+                listings = emptyList(),
+                error = "No contract details returned"
+            )
             emit(
                 GatewayEvent.InstrumentResolved(
                     gatewayRequestId,
@@ -395,11 +469,17 @@ class DesktopIbGatewayConnection(
             )
             return
         }
-        val resolved = InstrumentMarketResolver.fromIbContract(snapshot)
+        daytrader.domain.InstrumentResolveLog.resolveFinished(
+            symbol = batch.symbol,
+            success = true,
+            rawCount = rawCount,
+            uiCount = candidates.size,
+            listings = labels
+        )
         emit(
             GatewayEvent.InstrumentResolved(
                 gatewayRequestId,
-                Result.success(resolved)
+                Result.success(daytrader.domain.InstrumentResolution(candidates))
             )
         )
     }
@@ -409,10 +489,19 @@ class DesktopIbGatewayConnection(
             ?: contractDetails.marketName()?.takeIf { it.isNotBlank() }
             ?: contract.description()?.takeIf { it.isNotBlank() }
 
-    private fun failInstrumentResolve(gatewayRequestId: Long, ibReqId: Int, message: String) {
-        instrumentResolveIbReqToGatewayReq.remove(ibReqId)
-        instrumentResolvePending.remove(ibReqId)?.finishJob?.cancel()
+    private fun failInstrumentResolveBatch(gatewayRequestId: Long, message: String) {
+        val batch = instrumentResolveBatches.remove(gatewayRequestId) ?: return
+        batch.finishJob?.cancel()
+        batch.pendingIbReqIds.forEach { instrumentResolveIbReqToGatewayReq.remove(it) }
         if (instrumentResolveCompleted.add(gatewayRequestId)) {
+            daytrader.domain.InstrumentResolveLog.resolveFinished(
+                symbol = batch.symbol,
+                success = false,
+                rawCount = batch.candidates.size,
+                uiCount = 0,
+                listings = emptyList(),
+                error = message
+            )
             emit(
                 GatewayEvent.InstrumentResolved(
                     gatewayRequestId,
@@ -703,6 +792,15 @@ class DesktopIbGatewayConnection(
         failTouchTurnHistorical(reqId, errorMsg)
         failAdrHistorical(reqId, errorMsg)
 
+        if (instrumentResolveIbReqToGatewayReq.containsKey(reqId)) {
+            if (errorCode == 200) {
+                IbGatewayLog.instrumentResolve(
+                    "IB leg error ibReqId=$reqId code=$errorCode msg=${errorMsg ?: ""} (leg skipped)"
+                )
+            }
+            markInstrumentResolveLegFinished(reqId)
+        }
+
         when {
             errorCode == 100 -> emitConnectionState(
                 GatewayConnectionState.Error(
@@ -906,44 +1004,57 @@ class DesktopIbGatewayConnection(
     private fun resolveSymbolForMarketDataKey(key: String): String? =
         openPositions[key]?.symbol ?: streamSymbolByMktDataKey[key]
 
-    /**
-     * Subscribes to IB streaming quotes for [symbol] (used by hybrid paper mode for emulator marks).
-     */
-    fun ensureStreamingMarketData(symbol: String) {
+    /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
+    private val streamInstrumentByKey = ConcurrentHashMap<String, daytrader.domain.InstrumentIdentity?>()
+
+    fun ensureStreamingMarketData(
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity? = null
+    ) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (norm.isBlank()) return
-        val firstSubscriber = incrementStreamRefCount(norm)
+        val refKey = streamRefKey(norm, instrument)
+        val firstSubscriber = incrementStreamRefCount(refKey)
         if (!firstSubscriber) {
-            IbGatewayLog.debug("ensureStreamingMarketData refcount++ symbol=$norm count=${streamSubscriptionRefCount[norm]}")
+            IbGatewayLog.debug("ensureStreamingMarketData refcount++ symbol=$norm count=${streamSubscriptionRefCount[refKey]}")
             return
         }
         IbGatewayLog.debug("ensureStreamingMarketData subscribe symbol=$norm connected=${client.isConnected}")
         if (!client.isConnected) {
-            pendingStreamSymbols.add(norm)
+            pendingStreamSymbols.add(refKey)
+            streamInstrumentByKey[refKey] = instrument
             return
         }
-        subscribeStreamingMarketData(norm)
+        subscribeStreamingMarketData(norm, instrument)
     }
 
     /**
      * Drops a symbol-only streaming subscription when the last holder releases it
      * (e.g. when no deployment session is running for that symbol).
      */
-    fun releaseStreamingMarketData(symbol: String) {
+    fun releaseStreamingMarketData(
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity? = null
+    ) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (norm.isBlank()) return
-        if (!decrementStreamRefCount(norm)) {
+        val refKey = streamRefKey(norm, instrument)
+        if (!decrementStreamRefCount(refKey)) {
             IbGatewayLog.debug(
-                "releaseStreamingMarketData refcount-- symbol=$norm count=${streamSubscriptionRefCount[norm]}"
+                "releaseStreamingMarketData refcount-- symbol=$norm count=${streamSubscriptionRefCount[refKey]}"
             )
             return
         }
-        pendingStreamSymbols.remove(norm)
+        pendingStreamSymbols.remove(refKey)
+        streamInstrumentByKey.remove(refKey)
         IbGatewayLog.debug("releaseStreamingMarketData cancel symbol=$norm")
-        cancelMarketData(streamingOnlyKey(norm))
+        cancelMarketData(streamingOnlyKey(norm, instrument))
         quotesBySymbol.remove(norm)
         scheduleQuotePublish()
     }
+
+    private fun streamRefKey(symbol: String, instrument: daytrader.domain.InstrumentIdentity?): String =
+        instrument?.dedupeKey()?.let { "$symbol|$it" } ?: symbol
 
     private fun incrementStreamRefCount(norm: String): Boolean {
         val next = (streamSubscriptionRefCount[norm] ?: 0) + 1
@@ -962,19 +1073,26 @@ class DesktopIbGatewayConnection(
     }
 
     private fun flushPendingStreamSubscriptions() {
-        val symbols = pendingStreamSymbols.toList()
+        val refKeys = pendingStreamSymbols.toList()
         pendingStreamSymbols.clear()
-        symbols.forEach { subscribeStreamingMarketData(it) }
+        refKeys.forEach { refKey ->
+            val instrument = streamInstrumentByKey.remove(refKey)
+            val symbol = refKey.substringBefore('|')
+            subscribeStreamingMarketData(symbol, instrument)
+        }
     }
 
-    private fun subscribeStreamingMarketData(norm: String) {
-        val key = streamingOnlyKey(norm)
+    private fun subscribeStreamingMarketData(
+        norm: String,
+        instrument: daytrader.domain.InstrumentIdentity? = null
+    ) {
+        val key = streamingOnlyKey(norm, instrument)
         if (keyToMktDataReqId.containsKey(key)) return
         val reqId = nextMktDataReqId.getAndIncrement()
         mktDataReqIdToKey[reqId] = key
         keyToMktDataReqId[key] = reqId
         streamSymbolByMktDataKey[key] = norm
-        val contract = IbContractMapper.stockForHistorical(norm)
+        val contract = IbContractMapper.contractForSymbol(norm, instrument)
         IbGatewayLog.debug("Subscribing streaming market data (symbol-only) reqId=$reqId key=$key symbol=$norm mode=${connectionMode.name}")
         requestPacer.enqueue {
             if (!client.isConnected) return@enqueue
@@ -982,7 +1100,10 @@ class DesktopIbGatewayConnection(
         }
     }
 
-    private fun streamingOnlyKey(symbol: String): String = "STREAM:$symbol"
+    private fun streamingOnlyKey(symbol: String, instrument: daytrader.domain.InstrumentIdentity? = null): String {
+        val listing = instrument?.dedupeKey()
+        return if (listing.isNullOrBlank()) "STREAM:$symbol" else "STREAM:$symbol:$listing"
+    }
 
     private fun updateMidPrice(key: String): Boolean {
         val bid = bidPrices[key]
@@ -1257,8 +1378,8 @@ class DesktopIbGatewayConnection(
         keyToMktDataReqId.clear()
         contractDetailsReqIdToKey.clear()
         instrumentResolveIbReqToGatewayReq.clear()
-        instrumentResolvePending.values.forEach { it.finishJob?.cancel() }
-        instrumentResolvePending.clear()
+        instrumentResolveBatches.values.forEach { it.finishJob?.cancel() }
+        instrumentResolveBatches.clear()
         instrumentResolveCompleted.clear()
         historicalReqIdToKey.clear()
         historicalPendingKeys.clear()
@@ -1967,9 +2088,11 @@ class DesktopIbGatewayConnection(
         val needsContractDetails: Boolean
     )
 
-    private data class InstrumentResolvePending(
+    private data class InstrumentResolveBatch(
         val gatewayRequestId: Long,
-        var snapshot: InstrumentMarketResolver.ContractSnapshot? = null,
+        val symbol: String,
+        val pendingIbReqIds: MutableSet<Int> = mutableSetOf(),
+        val candidates: LinkedHashMap<String, daytrader.domain.ResolvedInstrument> = linkedMapOf(),
         var companyName: String? = null,
         var finishJob: Job? = null
     )
