@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.broker.SymbolMarkets
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
 
@@ -31,21 +32,32 @@ data class LiveBrokerUiState(
     val symbol: String,
     val isConnected: Boolean,
     val statusMessage: String?,
+    val formattedBid: String?,
+    val formattedAsk: String?,
+    val formattedLast: String?,
     val position: LivePositionUi?,
     val openOrders: List<LiveOpenOrderUi>
 )
 
 object LiveBrokerUiMapper {
+    private val livePriceUiLogsEnabled: Boolean =
+        System.getenv("DAY_TRADER_LIVE_PRICE_UI_LOGS")?.equals("true", ignoreCase = true) == true
+
     fun forSymbol(
         symbol: String,
         positions: List<AccountPosition>,
+        quotes: Map<String, LiveQuote>,
         openOrders: List<WorkingOrder>,
         connection: GatewayConnectionState
     ): LiveBrokerUiState {
-        val isConnected = connection is GatewayConnectionState.Connected
-        val position = positions
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val quote = quotes[norm]
+        val hasLiveQuote = quote != null &&
+            (quote.bid != null || quote.ask != null || quote.last != null)
+        val isConnected = connection is GatewayConnectionState.Connected || hasLiveQuote
+        val accountPosition = positions
             .firstOrNull { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
-            ?.let(::toPositionUi)
+        val position = accountPosition?.let(::toPositionUi)
         val orders = openOrders
             .filter { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
             .sortedBy { it.orderId }
@@ -58,10 +70,35 @@ object LiveBrokerUiMapper {
             GatewayConnectionState.Connected -> null
         }
 
+        val currency = accountPosition?.currency ?: SymbolMarkets.currencyCode(symbol)
+        val formattedBid = accountPosition?.bidPrice?.takeIf { it > 0.0 }
+            ?.let { Formatters.moneyPlain(it, currency) }
+            ?: quote?.bid?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        val formattedAsk = accountPosition?.askPrice?.takeIf { it > 0.0 }
+            ?.let { Formatters.moneyPlain(it, currency) }
+            ?: quote?.ask?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        val formattedLast = accountPosition?.lastTradePrice?.takeIf { it > 0.0 }
+            ?.let { Formatters.moneyPlain(it, currency) }
+            ?: accountPosition?.marketPrice?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+            ?: quote?.last?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+
+        if (livePriceUiLogsEnabled) {
+            println(
+                "[LIVE_PRICE_UI] symbol=$symbol connected=$isConnected " +
+                    "posFound=${accountPosition != null} quoteFound=${quote != null} " +
+                    "bid=${accountPosition?.bidPrice ?: quote?.bid} ask=${accountPosition?.askPrice ?: quote?.ask} " +
+                    "last=${accountPosition?.lastTradePrice ?: quote?.last} mkt=${accountPosition?.marketPrice} " +
+                    "formattedBid=$formattedBid formattedAsk=$formattedAsk formattedLast=$formattedLast"
+            )
+        }
+
         return LiveBrokerUiState(
             symbol = symbol,
             isConnected = isConnected,
             statusMessage = statusMessage,
+            formattedBid = formattedBid,
+            formattedAsk = formattedAsk,
+            formattedLast = formattedLast,
             position = position,
             openOrders = orders
         )

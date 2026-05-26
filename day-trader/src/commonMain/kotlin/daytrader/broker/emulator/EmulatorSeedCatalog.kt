@@ -164,6 +164,9 @@ internal data class EmulatorPosition(
             quantity = quantity,
             avgPrice = avgPrice,
             marketPrice = marketPrice,
+            bidPrice = marketPrice,
+            askPrice = marketPrice,
+            lastTradePrice = marketPrice,
             priorClose = instrument.priorClose,
             totalUnrealizedPnL = pnl,
             currency = instrument.currency

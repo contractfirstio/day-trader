@@ -25,13 +25,15 @@ fun App(
     positionRepository: PositionRepository,
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
-    ensureLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String) -> Unit)? = null,
+    releaseLiveMarketData: ((String) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
         brokerGateway = brokerGateway,
         touchTurnSessionGateway = touchTurnSessionGateway,
-        ensureLiveMarketData = ensureLiveMarketData
+        ensureLiveMarketData = ensureLiveMarketData,
+        releaseLiveMarketData = releaseLiveMarketData
     )
     var currentScreen by remember { mutableStateOf(AppScreen.POSITIONS) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()

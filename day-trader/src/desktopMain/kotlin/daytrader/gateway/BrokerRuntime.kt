@@ -4,7 +4,9 @@ import daytrader.broker.DesktopIbGatewayConnection
 import daytrader.broker.IbConnectionMode
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorBrokerAdapter
+import daytrader.platform.CrashLogging
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
@@ -15,6 +17,8 @@ data class BrokerRuntime(
     val marketDataGateway: QueuedBrokerGateway? = null,
     /** Subscribes to IB streaming quotes for a symbol (hybrid mode only). */
     val ensureLiveMarketData: ((String) -> Unit)? = null,
+    /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
+    val releaseLiveMarketData: ((String) -> Unit)? = null,
     private val adapters: List<BrokerAdapter> = emptyList(),
     private val queueSets: List<BlockingGatewayQueues> = emptyList()
 ) {
@@ -32,7 +36,12 @@ data class BrokerRuntime(
     companion object {
         fun create(
             kind: BrokerKind = BrokerKind.fromEnvironment(),
-            scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            scope: CoroutineScope = CoroutineScope(
+                SupervisorJob() +
+                    Dispatchers.Default +
+                    CoroutineName("BrokerRuntime[$kind]") +
+                    CrashLogging.coroutineExceptionHandler("BrokerRuntime[$kind]")
+            )
         ): BrokerRuntime = when (kind) {
             BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> createHybrid(scope)
             else -> createSingle(kind, scope)
@@ -104,6 +113,7 @@ data class BrokerRuntime(
                 gateway = executionGateway,
                 marketDataGateway = marketDataGateway,
                 ensureLiveMarketData = { symbol -> ibAdapter.ensureStreamingMarketData(symbol) },
+                releaseLiveMarketData = { symbol -> ibAdapter.releaseStreamingMarketData(symbol) },
                 adapters = listOf(emulatorAdapter, ibAdapter),
                 queueSets = listOf(execQueues, mdQueues)
             )

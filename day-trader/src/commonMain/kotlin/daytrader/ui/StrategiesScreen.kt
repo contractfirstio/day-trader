@@ -892,6 +892,10 @@ private fun StrategyDeploymentDetail(
             }
         }
 
+        if (detailTab == StrategyDetailTab.LIVE) {
+            liveBroker?.let { broker -> TradingTabLiveMarketStrip(broker) }
+        }
+
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -1683,6 +1687,18 @@ private fun LiveTab(
                 TouchTurnSessionAutoStopStatus(instance = instance)
             }
         } else {
+            liveBroker?.let { broker ->
+                TouchTurnPanelGroup(
+                    title = "Market (${broker.symbol})",
+                    testTag = "LiveTabStoppedMarketGroup",
+                    compact = true
+                ) {
+                    LiveMarketQuotesBar(
+                        broker = broker,
+                        modifier = Modifier.testTag("LiveTabStoppedMarketQuotes")
+                    )
+                }
+            }
             val closedPipeline = remember(instance.sessionHistory, instance.id) {
                 if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
                     TouchTurnStatusBreadcrumbMapper.pipelineForLastClosedSession(instance)
@@ -1711,6 +1727,12 @@ private fun LiveTab(
                     color = TextSecondary,
                     fontSize = 13.sp,
                     modifier = Modifier.testTag("LiveTabStoppedHint")
+                )
+            }
+            liveBroker?.let { broker ->
+                LiveBrokerSection(
+                    broker = broker,
+                    showPosition = true
                 )
             }
         }
@@ -1756,6 +1778,83 @@ private fun resolveLivePositionPnL(
         subtitle = subtitle,
         hasOpenPosition = false
     )
+}
+
+@Composable
+private fun LiveMarketQuotesBar(
+    broker: LiveBrokerUiState,
+    modifier: Modifier = Modifier,
+    prominent: Boolean = false
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(if (prominent) 12.dp else 8.dp)
+    ) {
+        LiveMarketQuoteCell(
+            label = "Bid",
+            value = broker.formattedBid ?: "—",
+            modifier = Modifier.weight(1f),
+            prominent = prominent
+        )
+        LiveMarketQuoteCell(
+            label = "Ask",
+            value = broker.formattedAsk ?: "—",
+            modifier = Modifier.weight(1f),
+            prominent = prominent
+        )
+        LiveMarketQuoteCell(
+            label = "Last",
+            value = broker.formattedLast ?: "—",
+            modifier = Modifier.weight(1f),
+            prominent = prominent
+        )
+    }
+}
+
+@Composable
+private fun LiveMarketQuoteCell(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    prominent: Boolean = false
+) {
+    Column(modifier = modifier) {
+        Text(
+            label,
+            fontSize = if (prominent) 10.sp else 9.sp,
+            color = TextSecondary,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
+        Text(
+            value,
+            fontSize = if (prominent) 16.sp else 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun TradingTabLiveMarketStrip(broker: LiveBrokerUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(TableHeaderBg)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .testTag("TradingTabLiveMarketStrip")
+    ) {
+        Text(
+            "Live market · ${broker.symbol}",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BrandRed
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        LiveMarketQuotesBar(broker = broker, prominent = true)
+    }
 }
 
 @Composable
@@ -1818,6 +1917,12 @@ private fun LiveTradingPositionPnLHeader(
             TouchTurnStatusBreadcrumbRow(
                 steps = breadcrumbSteps,
                 modifier = Modifier.testTag("TouchTurnStatusBreadcrumb")
+            )
+        }
+        broker?.let { liveBroker ->
+            LiveMarketQuotesBar(
+                broker = liveBroker,
+                modifier = Modifier.testTag("LiveTradingMarketQuotes")
             )
         }
         Row(
@@ -1904,6 +2009,14 @@ private fun LiveBrokerSection(
     ) {
         broker.statusMessage?.let { message ->
             Text(message, fontSize = 11.sp, color = TextSecondary)
+        }
+
+        TouchTurnPanelGroup(
+            title = "Market (${broker.symbol})",
+            testTag = "LiveBrokerMarketGroup",
+            compact = true
+        ) {
+            LiveMarketQuotesBar(broker = broker)
         }
 
         if (showPosition) {

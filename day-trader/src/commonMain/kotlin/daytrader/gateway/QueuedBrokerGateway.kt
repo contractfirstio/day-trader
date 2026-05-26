@@ -27,6 +27,9 @@ class QueuedBrokerGateway(
     private val _positions = MutableStateFlow<List<AccountPosition>>(emptyList())
     override val positions: StateFlow<List<AccountPosition>> = _positions.asStateFlow()
 
+    private val _quotes = MutableStateFlow<Map<String, LiveQuote>>(emptyMap())
+    override val quotes: StateFlow<Map<String, LiveQuote>> = _quotes.asStateFlow()
+
     private val _openOrders = MutableStateFlow<List<WorkingOrder>>(emptyList())
     override val openOrders: StateFlow<List<WorkingOrder>> = _openOrders.asStateFlow()
 
@@ -129,6 +132,7 @@ class QueuedBrokerGateway(
             is GatewayEvent.PositionsSnapshot -> _positions.value = event.positions
             is GatewayEvent.OpenOrdersSnapshot -> _openOrders.value = event.orders
             is GatewayEvent.FillsSnapshot -> _fills.value = event.fills
+            is GatewayEvent.QuotesSnapshot -> _quotes.value = event.quotes
             is GatewayEvent.FirstFifteenMinuteCandleReady -> {
                 pendingCandles.remove(event.requestId)?.complete(event.result)
             }

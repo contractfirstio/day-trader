@@ -10,8 +10,10 @@ import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.data.DeploymentSessionController
+import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.DeploymentSessionStopWatcher
 import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.MarketOpenAutoStarter
@@ -60,10 +62,13 @@ class StrategiesViewModel(
     private val marketFilter: MarketFilterState,
     private val brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
-    ensureLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String) -> Unit)? = null,
+    private val releaseLiveMarketData: ((String) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+    private val livePriceUiLogsEnabled: Boolean =
+        System.getenv("DAY_TRADER_LIVE_PRICE_UI_LOGS")?.equals("true", ignoreCase = true) == true
     private val touchTurnBootstrap = sessionGateway?.let { session ->
         TouchTurnSessionBootstrap(
             sessionGateway = session,
@@ -80,6 +85,7 @@ class StrategiesViewModel(
     private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
     private var brokerPositions: List<AccountPosition> = emptyList()
+    private var brokerQuotes: Map<String, LiveQuote> = emptyMap()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
     private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
@@ -100,6 +106,15 @@ class StrategiesViewModel(
 
         repository.deployments
             .onEach { list ->
+                val previousById = deployments.associateBy { it.id }
+                for (deployment in list) {
+                    val was = previousById[deployment.id]
+                    if (was?.status == DeploymentStatus.RUNNING &&
+                        deployment.status != DeploymentStatus.RUNNING
+                    ) {
+                        maybeReleaseLiveMarketDataForSymbol(deployment.symbol)
+                    }
+                }
                 deployments = list
                 reconcileSelectedDeployment(list)
             }
@@ -143,6 +158,17 @@ class StrategiesViewModel(
                 }
                 .launchIn(scope)
         }
+
+        // Live bid/ask/last come from the session gateway (IB in hybrid mode), not the execution gateway.
+        sessionGateway?.quotes
+            ?.onEach { quotes ->
+                if (livePriceUiLogsEnabled && quotes.isNotEmpty()) {
+                    println("[LIVE_PRICE_UI] quotes snapshot keys=${quotes.keys} size=${quotes.size}")
+                }
+                brokerQuotes = quotes
+                emitUiState()
+            }
+            ?.launchIn(scope)
 
         MarketOpenCountdownWatcher(scope = scope).start()
         marketFilter.applyStartupDefaultIfNeeded()
@@ -308,6 +334,12 @@ class StrategiesViewModel(
     fun onDismissStartBlockedAlert() {
         startBlockedAlert = null
         emitUiState()
+    }
+
+    private fun maybeReleaseLiveMarketDataForSymbol(symbol: String) {
+        val release = releaseLiveMarketData ?: return
+        if (LiveMarketDataLifecycle.anyRunningDeploymentNeedsQuotes(symbol, deployments)) return
+        release(symbol)
     }
 
     fun onToggleSession(id: String) {
@@ -560,6 +592,7 @@ class StrategiesViewModel(
                     LiveBrokerUiMapper.forSymbol(
                         symbol = instance.symbol,
                         positions = brokerPositions,
+                        quotes = brokerQuotes,
                         openOrders = brokerOpenOrders,
                         connection = brokerConnection
                     )

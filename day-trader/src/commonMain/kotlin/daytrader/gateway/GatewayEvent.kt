@@ -12,6 +12,9 @@ sealed interface GatewayEvent {
 
     data class FillsSnapshot(val fills: List<BrokerFill>) : GatewayEvent
 
+    /** Live quote snapshots for UI display (bid/ask/last). */
+    data class QuotesSnapshot(val quotes: Map<String, LiveQuote>) : GatewayEvent
+
     data class FirstFifteenMinuteCandleReady(
         val requestId: Long,
         val result: Result<OhlcBar>

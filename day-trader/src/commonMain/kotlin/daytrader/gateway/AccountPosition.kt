@@ -7,6 +7,9 @@ data class AccountPosition(
     val quantity: Int,
     val avgPrice: Double,
     val marketPrice: Double,
+    val bidPrice: Double? = null,
+    val askPrice: Double? = null,
+    val lastTradePrice: Double? = null,
     val priorClose: Double?,
     val totalUnrealizedPnL: Double,
     val currency: String

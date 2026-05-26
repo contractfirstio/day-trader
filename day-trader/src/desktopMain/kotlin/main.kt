@@ -13,6 +13,7 @@ import daytrader.data.GatewayPositionRepository
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
 import daytrader.platform.AppFileSystem
+import daytrader.platform.CrashLogging
 import daytrader.ui.App
 import daytrader.ui.BrokerSelectionScreen
 
@@ -21,7 +22,9 @@ private sealed interface StartupPhase {
     data class Running(val runtime: BrokerRuntime) : StartupPhase
 }
 
-fun main() = application {
+fun main() {
+    CrashLogging.installDefaultHandlers()
+    application {
     var phase by remember { mutableStateOf<StartupPhase>(StartupPhase.ChooseBroker) }
     var pendingSelection by remember { mutableStateOf(BrokerKind.fromEnvironment()) }
 
@@ -75,10 +78,12 @@ fun main() = application {
                         brokerKind = current.runtime.kind,
                         touchTurnSessionGateway = current.runtime.marketDataGateway
                             ?: current.runtime.gateway,
-                        ensureLiveMarketData = current.runtime.ensureLiveMarketData
+                        ensureLiveMarketData = current.runtime.ensureLiveMarketData,
+                        releaseLiveMarketData = current.runtime.releaseLiveMarketData
                     )
                 }
             }
         }
+    }
     }
 }

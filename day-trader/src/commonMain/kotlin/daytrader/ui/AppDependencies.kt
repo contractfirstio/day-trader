@@ -21,7 +21,8 @@ fun rememberAppDependencies(
     positionRepository: PositionRepository,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
-    ensureLiveMarketData: ((String) -> Unit)? = null
+    ensureLiveMarketData: ((String) -> Unit)? = null,
+    releaseLiveMarketData: ((String) -> Unit)? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
@@ -33,7 +34,8 @@ fun rememberAppDependencies(
         positionRepository,
         brokerGateway,
         touchTurnSessionGateway,
-        ensureLiveMarketData
+        ensureLiveMarketData,
+        releaseLiveMarketData
     ) {
         AppDependencies(
             marketFilter = marketFilter,
@@ -43,7 +45,8 @@ fun rememberAppDependencies(
                 marketFilter = marketFilter,
                 brokerGateway = brokerGateway,
                 touchTurnSessionGateway = touchTurnSessionGateway,
-                ensureLiveMarketData = ensureLiveMarketData
+                ensureLiveMarketData = ensureLiveMarketData,
+                releaseLiveMarketData = releaseLiveMarketData
             ),
             positionsViewModel = PositionsViewModel(positionRepository)
         )

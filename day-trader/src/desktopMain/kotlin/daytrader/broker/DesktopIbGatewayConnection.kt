@@ -36,6 +36,7 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,9 @@ class DesktopIbGatewayConnection(
     private val priorCloses = ConcurrentHashMap<String, Double>()
     private val bidPrices = ConcurrentHashMap<String, Double>()
     private val askPrices = ConcurrentHashMap<String, Double>()
+    private val lastTradePrices = ConcurrentHashMap<String, Double>()
+    private val quotesBySymbol = ConcurrentHashMap<String, LiveQuote>()
+    private var quotesPublishJob: Job? = null
 
     private val mktDataReqIdToKey = ConcurrentHashMap<Int, String>()
     private val keyToMktDataReqId = ConcurrentHashMap<String, Int>()
@@ -130,6 +134,7 @@ class DesktopIbGatewayConnection(
     /** Keys for symbol-only streaming (paper/hybrid emulator marks). */
     private val streamSymbolByMktDataKey = ConcurrentHashMap<String, String>()
     private val pendingStreamSymbols = ConcurrentHashMap.newKeySet<String>()
+    private val streamSubscriptionRefCount = ConcurrentHashMap<String, Int>()
     private val nextMktDataReqId = AtomicInteger(MKT_DATA_REQ_ID_START)
     private val nextContractDetailsReqId = AtomicInteger(CONTRACT_DETAILS_REQ_ID_START)
     private val nextHistoricalReqId = AtomicInteger(HISTORICAL_REQ_ID_START)
@@ -795,6 +800,7 @@ class DesktopIbGatewayConnection(
             }
         }
         if (!keyToMktDataReqId.containsKey(key)) {
+            IbGatewayLog.debug("Subscribing streaming market data (position) key=$key symbol=${open.symbol}")
             requestPacer.enqueue {
                 enqueueStreamingMarketData(key, open)
             }
@@ -813,6 +819,7 @@ class DesktopIbGatewayConnection(
         val reqId = nextMktDataReqId.getAndIncrement()
         mktDataReqIdToKey[reqId] = key
         keyToMktDataReqId[key] = reqId
+        IbGatewayLog.debug("reqMktData start reqId=$reqId key=$key symbol=${open.symbol} mode=${connectionMode.name}")
         client.reqMktData(reqId, IbContractMapper.forDataRequest(open.contract), "", false, false, null)
     }
 
@@ -824,6 +831,7 @@ class DesktopIbGatewayConnection(
         when (field) {
             TickType.LAST.index(),
             TickType.DELAYED_LAST.index() -> {
+                lastTradePrices[key] = price
                 marketPrices[key] = price
                 priceUpdated = true
             }
@@ -849,11 +857,41 @@ class DesktopIbGatewayConnection(
 
         if (priceUpdated) {
             IbGatewayLog.tickPrice(key, field, price)
+            resolveSymbolForMarketDataKey(key)?.let { symbol ->
+                updateQuoteFor(symbol, key)
+                if (field == TickType.BID.index() || field == TickType.DELAYED_BID.index()) {
+                    IbGatewayLog.debug("Tick BID symbol=$symbol key=$key price=$price")
+                } else if (field == TickType.ASK.index() || field == TickType.DELAYED_ASK.index()) {
+                    IbGatewayLog.debug("Tick ASK symbol=$symbol key=$key price=$price")
+                } else if (field == TickType.LAST.index() || field == TickType.DELAYED_LAST.index()) {
+                    IbGatewayLog.debug("Tick LAST symbol=$symbol key=$key price=$price")
+                }
+            }
             openPositions[key]?.let { logPositionDiagThrottled(it, "tick") }
             forwardLiveMarkIfNeeded(key)
             if (!marketDataOnly) {
                 publishPositions(immediate = false)
             }
+        }
+    }
+
+    private fun updateQuoteFor(symbol: String, key: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val quote = LiveQuote(
+            symbol = norm,
+            bid = bidPrices[key],
+            ask = askPrices[key],
+            last = lastTradePrices[key] ?: marketPrices[key]
+        )
+        quotesBySymbol[norm] = quote
+        scheduleQuotePublish()
+    }
+
+    private fun scheduleQuotePublish() {
+        quotesPublishJob?.cancel()
+        quotesPublishJob = scope.launch {
+            delay(PUBLISH_THROTTLE_MS)
+            emit(GatewayEvent.QuotesSnapshot(quotesBySymbol.toMap()))
         }
     }
 
@@ -874,11 +912,53 @@ class DesktopIbGatewayConnection(
     fun ensureStreamingMarketData(symbol: String) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (norm.isBlank()) return
+        val firstSubscriber = incrementStreamRefCount(norm)
+        if (!firstSubscriber) {
+            IbGatewayLog.debug("ensureStreamingMarketData refcount++ symbol=$norm count=${streamSubscriptionRefCount[norm]}")
+            return
+        }
+        IbGatewayLog.debug("ensureStreamingMarketData subscribe symbol=$norm connected=${client.isConnected}")
         if (!client.isConnected) {
             pendingStreamSymbols.add(norm)
             return
         }
         subscribeStreamingMarketData(norm)
+    }
+
+    /**
+     * Drops a symbol-only streaming subscription when the last holder releases it
+     * (e.g. when no deployment session is running for that symbol).
+     */
+    fun releaseStreamingMarketData(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank()) return
+        if (!decrementStreamRefCount(norm)) {
+            IbGatewayLog.debug(
+                "releaseStreamingMarketData refcount-- symbol=$norm count=${streamSubscriptionRefCount[norm]}"
+            )
+            return
+        }
+        pendingStreamSymbols.remove(norm)
+        IbGatewayLog.debug("releaseStreamingMarketData cancel symbol=$norm")
+        cancelMarketData(streamingOnlyKey(norm))
+        quotesBySymbol.remove(norm)
+        scheduleQuotePublish()
+    }
+
+    private fun incrementStreamRefCount(norm: String): Boolean {
+        val next = (streamSubscriptionRefCount[norm] ?: 0) + 1
+        streamSubscriptionRefCount[norm] = next
+        return next == 1
+    }
+
+    private fun decrementStreamRefCount(norm: String): Boolean {
+        val current = streamSubscriptionRefCount[norm] ?: return false
+        if (current <= 1) {
+            streamSubscriptionRefCount.remove(norm)
+            return true
+        }
+        streamSubscriptionRefCount[norm] = current - 1
+        return false
     }
 
     private fun flushPendingStreamSubscriptions() {
@@ -895,6 +975,7 @@ class DesktopIbGatewayConnection(
         keyToMktDataReqId[key] = reqId
         streamSymbolByMktDataKey[key] = norm
         val contract = IbContractMapper.stockForHistorical(norm)
+        IbGatewayLog.debug("Subscribing streaming market data (symbol-only) reqId=$reqId key=$key symbol=$norm mode=${connectionMode.name}")
         requestPacer.enqueue {
             if (!client.isConnected) return@enqueue
             client.reqMktData(reqId, IbContractMapper.forDataRequest(contract), "", false, false, null)
@@ -993,6 +1074,7 @@ class DesktopIbGatewayConnection(
         priorCloses.remove(key)
         bidPrices.remove(key)
         askPrices.remove(key)
+        lastTradePrices.remove(key)
     }
 
     private fun cancelAllMarketDataPaced() {
@@ -1013,6 +1095,7 @@ class DesktopIbGatewayConnection(
         priorCloses.clear()
         bidPrices.clear()
         askPrices.clear()
+        lastTradePrices.clear()
         streamSymbolByMktDataKey.clear()
         pendingStreamSymbols.clear()
     }
@@ -1189,6 +1272,10 @@ class DesktopIbGatewayConnection(
         clearLocalMarketDataCaches()
         historicalPrices.clear()
         lastTickDiagAtMs.clear()
+        quotesBySymbol.clear()
+        streamSubscriptionRefCount.clear()
+        quotesPublishJob?.cancel()
+        quotesPublishJob = null
         openPositions.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         openOrdersById.clear()
@@ -1196,6 +1283,7 @@ class DesktopIbGatewayConnection(
         fillsByExecId.clear()
         orderParentByOrderId.clear()
         emit(GatewayEvent.FillsSnapshot(emptyList()))
+        emit(GatewayEvent.QuotesSnapshot(emptyMap()))
         openOrdersLoadFinished = false
         enrichmentScheduled = false
         positionsLoadFinished = false
@@ -1701,7 +1789,7 @@ class DesktopIbGatewayConnection(
         val magnifier = open.priceMagnifier
         val contract = open.contract
         val portfolioMkt = open.portfolioMarketPrice
-        val tickMkt = marketPrices[key]
+        val tickMkt = lastTradePrices[key] ?: marketPrices[key]
         val bid = bidPrices[key]
         val ask = askPrices[key]
         val mid = resolveMidPrice(key)
@@ -1789,6 +1877,9 @@ class DesktopIbGatewayConnection(
         val magnifiers = IbPriceScale.resolvePriceMagnifiers(avgRaw, marketRaw, contractMagnifier)
         val avgMajor = IbPriceScale.toMajorCurrency(avgRaw, magnifiers.avgMagnifier)
         val marketMajor = IbPriceScale.toMajorCurrency(marketRaw, magnifiers.marketMagnifier)
+        val bidMajor = bidPrices[key]?.let { IbPriceScale.toMajorCurrency(it, magnifiers.marketMagnifier) }
+        val askMajor = askPrices[key]?.let { IbPriceScale.toMajorCurrency(it, magnifiers.marketMagnifier) }
+        val lastMajor = lastTradePrices[key]?.let { IbPriceScale.toMajorCurrency(it, magnifiers.marketMagnifier) }
         val closeMajor = priorCloses[key]?.let {
             IbPriceScale.toMajorCurrency(it, magnifiers.marketMagnifier)
         }
@@ -1806,6 +1897,9 @@ class DesktopIbGatewayConnection(
             quantity = open.quantity,
             avgPrice = avgMajor,
             marketPrice = marketMajor,
+            bidPrice = bidMajor,
+            askPrice = askMajor,
+            lastTradePrice = lastMajor,
             priorClose = closeMajor,
             totalUnrealizedPnL = pnl,
             currency = displayCurrency

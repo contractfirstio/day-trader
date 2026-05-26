@@ -12,6 +12,9 @@ interface BrokerGateway {
 
     val positions: StateFlow<List<AccountPosition>>
 
+    /** Live quotes for symbols that the gateway is subscribed to. */
+    val quotes: StateFlow<Map<String, LiveQuote>>
+
     val openOrders: StateFlow<List<WorkingOrder>>
 
     val fills: StateFlow<List<BrokerFill>>
