@@ -18,8 +18,8 @@ data class StrategySessionRowUi(
     val isInProgress: Boolean = false,
     val canDelete: Boolean = false,
     val isSelected: Boolean = false,
-    /** Touch Turn pipeline for the selected row only. */
-    val pipelineSteps: List<TouchTurnBreadcrumbStep>? = null,
+    /** Touch Turn pipeline graph for the selected row only. */
+    val pipelineGraph: TouchTurnPipelineGraph? = null,
     /** Touch Turn run facts for the selected row only. */
     val touchTurnRunDetail: TouchTurnRunRecordUi? = null
 )

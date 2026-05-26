@@ -216,4 +216,48 @@ class TouchTurnStatusBreadcrumbMapperTest {
         assertEquals("09:30", steps[0].timestamp)
         assertEquals("11:00", steps[6].timestamp)
     }
+
+    @Test
+    fun graph_notLiquidity_activePathUsesNoTradeBranch() {
+        val barTime = "20260522  09:30:00"
+        val now = barEnd(barTime) + 1
+        val session = readySession(
+            candle = bar(barTime),
+            rangeThreshold = 10.0,
+            now = now
+        )
+        val graph = TouchTurnStatusBreadcrumbMapper.graph(
+            instance = deployment(session),
+            hasOpenPosition = false,
+            nowEpochMillis = now
+        )
+        assertTrue(TouchTurnPipelineNodeId.NoTrade in graph.activePath)
+        assertTrue(TouchTurnPipelineNodeId.Orders !in graph.activePath)
+        assertTrue(graph.caption.contains("No trade"))
+        val liqToOrders = graph.edges.first {
+            it.from == TouchTurnPipelineNodeId.Liquidity && it.to == TouchTurnPipelineNodeId.Orders
+        }
+        assertEquals(TouchTurnPipelineEdgeState.Dimmed, liqToOrders.state)
+    }
+
+    @Test
+    fun graph_openPosition_activePathIncludesPosition() {
+        val barTime = "20260522  09:30:00"
+        val now = barEnd(barTime) + 1
+        val session = readySession(
+            candle = bar(barTime),
+            rangeThreshold = 0.01,
+            now = now
+        ).copy(ordersPlacedForSession = true)
+        val graph = TouchTurnStatusBreadcrumbMapper.graph(
+            instance = deployment(session),
+            hasOpenPosition = true,
+            nowEpochMillis = now
+        )
+        assertEquals(TouchTurnPipelineNodeId.Position, graph.activePath.last())
+        assertTrue(
+            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Position }.state ==
+                TouchTurnBreadcrumbStepState.CURRENT
+        )
+    }
 }

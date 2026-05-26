@@ -20,6 +20,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +40,10 @@ import daytrader.presentation.strategies.SessionHistoryUiState
 import daytrader.presentation.strategies.SessionHistorySortColumn
 import daytrader.presentation.strategies.SessionTradeDetailUiState
 import daytrader.presentation.strategies.StrategySessionRowUi
+import daytrader.presentation.strategies.TouchTurnPipelineNodeId
 import daytrader.presentation.strategies.TouchTurnRunRecordUi
+import daytrader.presentation.strategies.detailTitle
+import daytrader.presentation.strategies.isSelectable
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -326,19 +330,63 @@ private fun SessionHistoryExpandedSections(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        row.pipelineSteps?.let { steps ->
+        row.pipelineGraph?.let { graph ->
+            var selectedNode by rememberSaveable(row.id, "pipelineNode") {
+                mutableStateOf(graph.defaultSelectedNode())
+            }
+            LaunchedEffect(graph) {
+                if (selectedNode == null || graph.node(selectedNode!!)?.isSelectable() != true) {
+                    selectedNode = graph.defaultSelectedNode()
+                }
+            }
             SessionHistoryCollapsibleSection(
                 title = "Pipeline",
                 expanded = pipelineExpanded,
                 onToggle = { pipelineExpanded = !pipelineExpanded },
                 testTag = "SessionHistorySectionPipeline-${row.id}"
             ) {
-                TouchTurnStatusBreadcrumbRow(
-                    steps = steps,
+                Column(
                     modifier = Modifier
-                        .padding(top = 4.dp, bottom = 2.dp)
-                        .testTag("SessionHistoryBlotterRowPipeline-${row.id}")
-                )
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TouchTurnPipelineGraphView(
+                        graph = graph,
+                        compact = false,
+                        showTitle = false,
+                        selectedNodeId = selectedNode,
+                        onNodeSelected = { selectedNode = it },
+                        modifier = Modifier.testTag("SessionHistoryBlotterRowPipeline-${row.id}")
+                    )
+                    TouchTurnPipelineDetailPanel(
+                        selectedNodeId = selectedNode,
+                        graph = graph
+                    ) { nodeId ->
+                        when (nodeId) {
+                            TouchTurnPipelineNodeId.Orders,
+                            TouchTurnPipelineNodeId.Position ->
+                                tradeDetail?.let { detail ->
+                                    SessionTradeDetailPanel(
+                                        detail = detail,
+                                        testTagPrefix = "SessionHistoryTrade"
+                                    )
+                                } ?: Text(
+                                    "No trade recorded for this session.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                            TouchTurnPipelineNodeId.NoTrade ->
+                                TouchTurnPipelineSectionNoTrade(session = null, graph = graph)
+                            else ->
+                                Text(
+                                    graph.node(nodeId)?.label ?: nodeId.detailTitle(),
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
+                        }
+                    }
+                }
             }
         }
         row.touchTurnRunDetail?.let { detail ->

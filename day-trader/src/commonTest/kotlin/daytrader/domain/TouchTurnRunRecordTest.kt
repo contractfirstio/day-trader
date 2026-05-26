@@ -100,6 +100,51 @@ class TouchTurnRunRecordTest {
     }
 
     @Test
+    fun touchTurnAnalysisSession_restoresOpeningBarFromClosedRun() {
+        val candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = "20260522  09:30:00")
+        val setup = TouchTurnBracketSetup(
+            range = 11.0,
+            rangeThreshold = 5.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.SHORT,
+            entry = 110.0,
+            stopLoss = 113.0,
+            takeProfit = 103.0
+        )
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).onSessionStarted("2026-05-22")
+            .copy(
+                touchTurnSession = TouchTurnSessionContext(
+                    sessionDate = "2026-05-22",
+                    status = TouchTurnCandleStatus.READY,
+                    candle = candle,
+                    setup = setup,
+                    adr14 = 40.0,
+                    ordersPlacedForSession = true,
+                    decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+                )
+            )
+        val stopped = instance.onSessionStopped(
+            stopParams = SessionStopParams(
+                stopTrigger = TouchTurnSessionStopTrigger.MANUAL,
+                brokerId = BrokerId.EMULATOR
+            )
+        )
+
+        assertNull(stopped.touchTurnSession)
+        val analysis = stopped.touchTurnAnalysisSession()
+        requireNotNull(analysis)
+        assertEquals(candle, analysis.candle)
+        assertEquals(40.0, analysis.adr14)
+        assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, analysis.decisionOutcome)
+        assertEquals(true, analysis.ordersPlacedForSession)
+    }
+
+    @Test
     fun onSessionStopped_withoutStopParams_skipsRunRecord() {
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,

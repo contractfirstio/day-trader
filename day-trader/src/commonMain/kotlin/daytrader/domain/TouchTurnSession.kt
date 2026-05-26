@@ -987,3 +987,58 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
         )
     )
 }
+
+/** Most recent closed Touch Turn run with a persisted pipeline log. */
+fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+    return sessionHistory
+        .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
+        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+}
+
+/**
+ * Live or last-closed session context for the Trading tab pipeline detail panels.
+ * After stop, [touchTurnSession] is cleared but opening bar / ADR are restored from [StrategySession.touchTurnRunRecord].
+ */
+fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? {
+    touchTurnSession?.let { return it }
+    return lastClosedTouchTurnSession()?.toTouchTurnAnalysisContext()
+}
+
+fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
+    val record = touchTurnRunRecord
+    val milestones = touchTurnMilestones ?: record?.milestones ?: return null
+    val inputs = record?.marketInputs
+    val candle = inputs?.openingBar
+    val adr = inputs?.adr14
+    val threshold = adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) } ?: 0.0
+    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, threshold) }
+    val outcome = record?.decision?.outcome
+    return TouchTurnSessionContext(
+        sessionDate = date,
+        status = when {
+            inputs?.dataErrorMessage != null -> TouchTurnCandleStatus.FAILED
+            candle == null -> TouchTurnCandleStatus.LOADING
+            else -> TouchTurnCandleStatus.READY
+        },
+        candle = candle,
+        setup = setup,
+        errorMessage = inputs?.dataErrorMessage,
+        milestones = milestones,
+        currencyCode = inputs?.currencyCode ?: "USD",
+        marketZoneId = inputs?.marketZoneId ?: "America/New_York",
+        adr14 = adr,
+        rangeThreshold = threshold,
+        entryOrdersPermitted = when (outcome) {
+            TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> true
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnSessionOutcome.NO_TRADE_DOJI -> false
+            else -> hadLiquidityCandle == true && setup?.isActionable == true
+        },
+        ordersPlacedForSession = ordersPlacedForCandle == true ||
+            outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+        decisionOutcome = outcome,
+        plannedQuantity = record?.decision?.plannedQuantity,
+        plannedBracket = record?.decision?.plannedBracket
+    )
+}
