@@ -131,7 +131,9 @@ data class TouchTurnSessionContext(
     /** Written once when the no-trade / trade decision is known. */
     val decisionOutcome: TouchTurnSessionOutcome? = null,
     val plannedQuantity: Int? = null,
-    val plannedBracket: TouchTurnPlannedBracket? = null
+    val plannedBracket: TouchTurnPlannedBracket? = null,
+    /** Filled legs for a closed run (from persisted run record or derived from fills). */
+    val executedBracketLegs: List<TouchTurnOrderRole> = emptyList()
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
     val liquidityThresholdFromAdr: Double?
@@ -996,12 +998,39 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
     )
 }
 
-/** Most recent closed Touch Turn run with a persisted pipeline log. */
-fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? {
+/**
+ * Single post-stop session for pipeline UI, recap chart, and close panel.
+ * Prefers the latest closed run with broker fills; otherwise the latest closed run with milestones.
+ */
+fun StrategyDeployment.touchTurnPostStopSession(): StrategySession? {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+    inProgressSession()?.takeIf { it.sessionTrades.isNotEmpty() }?.let { return it }
+    sessionHistory
+        .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
+        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+        ?.let { return it }
     return sessionHistory
         .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
         .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+}
+
+/** Most recent closed Touch Turn run used for pipeline / recap / close. */
+fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? = touchTurnPostStopSession()
+
+/** Closed or in-progress run whose fills power the post-session Orders recap chart. */
+fun StrategyDeployment.touchTurnRecapSessionRun(): StrategySession? = touchTurnPostStopSession()
+
+/** Broker fills for the Trading tab order recap chart (running or most recent closed run with fills). */
+fun StrategyDeployment.touchTurnRecapSessionTrades(): List<SessionTrade> =
+    touchTurnRecapSessionRun()?.sessionTrades.orEmpty()
+
+/** Realized P&L for the recap chart — from fills on the same run as [touchTurnRecapSessionTrades]. */
+fun StrategyDeployment.touchTurnRecapSessionPnl(): Double? {
+    val trades = touchTurnRecapSessionTrades()
+    if (trades.isEmpty()) return null
+    val fromFills = trades.sessionRealizedPnL()
+    if (fromFills != 0.0) return fromFills
+    return touchTurnRecapSessionRun()?.pnl
 }
 
 /**
@@ -1010,7 +1039,7 @@ fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? {
  */
 fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? {
     touchTurnSession?.let { return it }
-    return lastClosedTouchTurnSession()?.toTouchTurnAnalysisContext()
+    return touchTurnPostStopSession()?.toTouchTurnAnalysisContext()
 }
 
 fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
@@ -1021,7 +1050,15 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
     val adr = inputs?.adr14
     val threshold = adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) } ?: 0.0
     val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, threshold) }
+    val plannedBracket = record?.decision?.plannedBracket
     val outcome = record?.decision?.outcome
+    val executedBracketLegs = record?.decision?.executedLegs?.takeIf { it.isNotEmpty() }
+        ?: TouchTurnBracketExecution.resolveFromTrades(
+            trades = sessionTrades,
+            plannedBracket = plannedBracket,
+            bracketSetup = setup,
+            sessionPnl = pnl.takeIf { sessionTrades.isNotEmpty() }
+        )
     return TouchTurnSessionContext(
         sessionDate = date,
         status = when {
@@ -1047,6 +1084,7 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
             outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
         decisionOutcome = outcome,
         plannedQuantity = record?.decision?.plannedQuantity,
-        plannedBracket = record?.decision?.plannedBracket
+        plannedBracket = plannedBracket,
+        executedBracketLegs = executedBracketLegs
     )
 }

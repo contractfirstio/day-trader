@@ -125,6 +125,7 @@ Optionally pre-select a card with `DAY_TRADER_BROKER`:
 |-------|---------|
 | `ib` *(default pre-selection)* | Interactive Brokers via IB Gateway / TWS |
 | `emulator`, `sim`, or `mock` | In-memory broker emulator (no Gateway required) |
+| `hybrid`, `paper-live`, `emulator-live-ib` | Paper execution (emulator) with **live IB** bid/ask/last for charts and fills |
 
 Example:
 
@@ -141,6 +142,10 @@ For Touch Turn, the first 15-minute bar is **time-shifted** so it closes after a
 |----------|---------|---------|
 | `DAY_TRADER_EMULATOR_CANDLE_CLOSE_SEC` | `10` | Seconds until the synthetic first 15m bar closes |
 | `off` or `0` | — | Use today’s 09:30 bar instead (often already closed) |
+| `DAY_TRADER_EMULATOR_FIRST_CANDLE_COLOR` | `auto` | `red` / `long` = red bar (long entry); `green` / `short` = green bar (short); `auto` = hash by symbol/day |
+| `DAY_TRADER_EMULATOR_FIRST_CANDLE_ALTERNATE` | `true` | When `auto`, flip green/red on each new session’s first-candle fetch (2nd session = long, 3rd = short, …) |
+| `DAY_TRADER_EMULATOR_ENTRY_FILL_IMMEDIATELY` | `false` | `true` = entry limit fills as soon as bracket is placed (legacy) |
+| `DAY_TRADER_EMULATOR_ENTRY_NEVER_FILL_PROB` | `0.25` | Chance price drifts away and the entry limit is never touched (otherwise price approaches over several ticks) |
 
 When a Touch Turn liquidity bracket is logged inside the entry window, the emulator **places working orders** and sets the market to the entry price. Every ~2s price tick can fill the entry limit and **open a blotter position** (TP/STOP legs activate after entry fills). Once the entry is filled, the emulator **walks price randomly between stop and take-profit** until one leg fills (the other is cancelled). IB still logs only — no live `placeOrder`.
 
@@ -153,6 +158,8 @@ When `DAY_TRADER_BROKER` is `ib` (default), the desktop app connects to IB Gatew
 - **Error** — use **Reconnect**; check Gateway is running and API clients are enabled
 
 Enrichment requests (`reqContractDetails`, streaming `reqMktData`) are **paced** (default **25 msg/sec**, **50 ms** min gap; override with `DAY_TRADER_IB_MAX_MSG_PER_SEC` / `DAY_TRADER_IB_MIN_INTERVAL_MS`) to stay under IB’s **50 messages/sec** limit. On error **100**, pacing backs off automatically for 20s. Shared `reqMktData` per contract avoids duplicate lines for positions + hybrid streaming. Positions publish as they arrive from IB. Reconnect waits 1.5s before resubscribing; position refresh only cancels market data for closed lines.
+
+**Hybrid paper mode** (`DAY_TRADER_BROKER=hybrid`): Touch Turn **order matching** is emulated (positions, brackets, fills), but **pricing is decoupled**: fill triggers use live **bid**, **ask**, and **last** from IB (`EmulatorPricingSource.LIVE_EXCHANGE`), not synthetic walks. The chart uses the IB session gateway; the emulator only consumes the same ticks via `ingestExternalQuote`. Full emulator mode (`emulator`) uses `EmulatorPricingSource.SYNTHETIC` instead. Limit/stop rules are identical (buy at ask, sell at bid); live mode waits for both bid and ask before evaluating fills.
 
 Market data uses **delayed-frozen** mode so US/UK lines still get a last price when those exchanges are closed; HK lines update while SEHK is open. **Market price for P&L** uses, in order: streaming ticks → bid/ask mid → **latest daily historical close** (`reqHistoricalData`, requested ~4s after load if no live price) → portfolio (only if distinct from avg cost) → avg cost fallback. Log codes **2119** (data farm connecting) and **10167** (no live subscription — delayed data) are informational.
 

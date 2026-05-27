@@ -1,6 +1,22 @@
 package daytrader.broker.emulator
 
 internal object EmulatorLog {
+    fun firstCandleColor(
+        symbol: String,
+        isGreen: Boolean,
+        fetchIndex: Int,
+        colorMode: EmulatorFirstCandleColorMode
+    ) {
+        val side = if (isGreen) "SHORT (green bar)" else "LONG (red bar)"
+        val mode = when (colorMode) {
+            EmulatorFirstCandleColorMode.AUTO ->
+                if (fetchIndex > 0) "auto-alternate#$fetchIndex" else "auto"
+            EmulatorFirstCandleColorMode.GREEN -> "forced-green"
+            EmulatorFirstCandleColorMode.RED -> "forced-red"
+        }
+        println("[Emulator] First 15m candle for $symbol: $side [$mode]")
+    }
+
     fun firstCandleScheduled(symbol: String, barTime: String, secondsUntilClose: Long) {
         println(
             "[Emulator] First 15m candle for $symbol closes in ${secondsUntilClose}s " +
@@ -12,12 +28,21 @@ internal object EmulatorLog {
         symbol: String,
         orderIds: List<Int>,
         entryPrice: Double,
+        initialMark: Double,
         walkFloor: Double,
-        walkCeiling: Double
+        walkCeiling: Double,
+        entryScenario: TouchTurnEntryScenario
     ) {
+        val entryNote = when (entryScenario) {
+            TouchTurnEntryScenario.IMMEDIATE -> "entry fills immediately"
+            TouchTurnEntryScenario.APPROACH_AND_FILL ->
+                "live price at bar close $initialMark, walking to entry $entryPrice"
+            TouchTurnEntryScenario.NEVER_FILL ->
+                "live price at bar close $initialMark, drifting away from entry $entryPrice"
+        }
         println(
             "[Emulator] Touch Turn bracket placed for $symbol (orders $orderIds); " +
-                "market set to $entryPrice — after entry, price walks $walkFloor..$walkCeiling"
+                "$entryNote; TP/SL activate after entry fills; then price walks $walkFloor..$walkCeiling"
         )
     }
 

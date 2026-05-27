@@ -187,6 +187,7 @@ class TouchTurnSessionBootstrap(
                         currencyCode = session.currencyCode,
                         instrument = deploymentInstrument,
                         setup = setup,
+                        openingBarClose = session.candle?.close,
                         brokerGateway = executionGateway
                     )
                     when {

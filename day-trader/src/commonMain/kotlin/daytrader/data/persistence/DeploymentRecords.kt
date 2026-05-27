@@ -146,7 +146,8 @@ data class TouchTurnRunMarketInputsRecord(
 data class TouchTurnSessionDecisionRecord(
     val outcome: String,
     val plannedQuantity: Int? = null,
-    val plannedBracket: TouchTurnPlannedBracketRecord? = null
+    val plannedBracket: TouchTurnPlannedBracketRecord? = null,
+    val executedLegs: List<String> = emptyList()
 )
 
 @Serializable

@@ -155,7 +155,11 @@ internal data class EmulatorPosition(
     val avgPrice: Double,
     val marketPrice: Double
 ) {
-    fun toAccountPosition(): daytrader.gateway.AccountPosition {
+    fun toAccountPosition(
+        bid: Double = marketPrice,
+        ask: Double = marketPrice,
+        last: Double = marketPrice
+    ): daytrader.gateway.AccountPosition {
         val pnl = (marketPrice - avgPrice) * quantity
         return daytrader.gateway.AccountPosition(
             account = account,
@@ -164,9 +168,9 @@ internal data class EmulatorPosition(
             quantity = quantity,
             avgPrice = avgPrice,
             marketPrice = marketPrice,
-            bidPrice = marketPrice,
-            askPrice = marketPrice,
-            lastTradePrice = marketPrice,
+            bidPrice = bid,
+            askPrice = ask,
+            lastTradePrice = last,
             priorClose = instrument.priorClose,
             totalUnrealizedPnL = pnl,
             currency = instrument.currency

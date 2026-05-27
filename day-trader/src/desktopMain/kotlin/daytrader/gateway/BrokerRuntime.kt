@@ -91,8 +91,8 @@ data class BrokerRuntime(
             ibAdapter = DesktopIbGatewayConnection(
                 queues = mdQueues,
                 connectionMode = IbConnectionMode.MARKET_DATA_ONLY,
-                onLiveMark = { symbol, price, priorClose ->
-                    emulatorAdapter.ingestLiveMark(symbol, price, priorClose)
+                onLiveQuote = { symbol, quote, priorClose ->
+                    emulatorAdapter.ingestExternalQuote(symbol, quote, priorClose)
                 },
                 scope = scope
             )

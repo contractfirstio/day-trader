@@ -15,6 +15,8 @@ internal class BracketPriceWalk(
     /** +1 = price rising toward TP, -1 = price falling toward TP. */
     val towardTakeProfitDirection: Int,
     val targetExit: BracketExitTarget,
+    /** Long exits fill on bid; short exits fill on ask. */
+    val isLongPosition: Boolean,
     var direction: Int
 )
 

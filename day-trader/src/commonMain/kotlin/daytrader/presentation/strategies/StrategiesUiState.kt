@@ -60,6 +60,7 @@ data class StrategiesUiState(
     val liveExecution: LiveExecutionUiState? = null,
     val liveBroker: LiveBrokerUiState? = null,
     val liveSessionTrades: LiveSessionTradesUiState? = null,
+    val touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
     val globalAutoStartEnabled: Boolean = true
 )

@@ -57,7 +57,9 @@ data class TouchTurnRunMarketInputs(
 data class TouchTurnSessionDecision(
     val outcome: TouchTurnSessionOutcome,
     val plannedQuantity: Int? = null,
-    val plannedBracket: TouchTurnPlannedBracket? = null
+    val plannedBracket: TouchTurnPlannedBracket? = null,
+    /** Filled bracket legs for this run (computed at session stop from broker fills). */
+    val executedLegs: List<TouchTurnOrderRole> = emptyList()
 )
 
 @Serializable
@@ -139,7 +141,8 @@ fun buildTouchTurnRunRecord(
     stopTrigger: TouchTurnSessionStopTrigger,
     brokerId: BrokerId,
     brokerUnrealizedPnLAtStop: Double?,
-    stopErrorMessage: String? = null
+    stopErrorMessage: String? = null,
+    sessionTrades: List<SessionTrade> = emptyList()
 ): TouchTurnRunRecord {
     val outcome = resolveTouchTurnSessionOutcome(touchTurnSession)
     val plannedBracket = touchTurnSession.plannedBracket
@@ -152,6 +155,14 @@ fun buildTouchTurnRunRecord(
                     takeProfit = setup.takeProfit
                 )
             }
+    val fillPnl = sessionTrades.sessionRealizedPnL()
+    val executedLegs = TouchTurnBracketExecution.resolveFromTrades(
+        trades = sessionTrades,
+        plannedBracket = plannedBracket,
+        bracketSetup = touchTurnSession.setup,
+        sessionPnl = fillPnl.takeIf { sessionTrades.isNotEmpty() && it != 0.0 }
+            ?: session.pnl.takeIf { sessionTrades.isNotEmpty() }
+    )
     return TouchTurnRunRecord(
         runContext = TouchTurnRunContext(
             maxDollars = session.maxAtRisk,
@@ -168,7 +179,8 @@ fun buildTouchTurnRunRecord(
         decision = TouchTurnSessionDecision(
             outcome = outcome,
             plannedQuantity = touchTurnSession.plannedQuantity,
-            plannedBracket = plannedBracket
+            plannedBracket = plannedBracket,
+            executedLegs = executedLegs
         ),
         stopEvent = TouchTurnStopEvent(
             stopTrigger = stopTrigger,

@@ -62,8 +62,11 @@ import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
+import daytrader.domain.inProgressSession
 import daytrader.domain.lastClosedTouchTurnSession
 import daytrader.domain.touchTurnAnalysisSession
+import daytrader.domain.touchTurnRecapSessionPnl
+import daytrader.domain.touchTurnRecapSessionTrades
 import kotlinx.coroutines.delay
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
@@ -203,6 +206,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveExecution = uiState.liveExecution,
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
+                touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
                 onTabChange = viewModel::onDetailTabChange,
                 onResolveSymbol = viewModel::resolveInstrumentForSymbol,
                 onUpdateDeployment = viewModel::onUpdateDeployment,
@@ -232,6 +236,7 @@ private fun StrategyDeploymentDetailPanel(
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
+    touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
@@ -262,6 +267,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
+                touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
@@ -822,6 +828,7 @@ private fun StrategyDeploymentDetail(
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
+    touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
@@ -925,6 +932,7 @@ private fun StrategyDeploymentDetail(
                     liveExecution = liveExecution,
                     liveBroker = liveBroker,
                     liveSessionTrades = liveSessionTrades,
+                    touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
                 )
@@ -1406,7 +1414,8 @@ private data class TouchTurnPriceLevel(
     val price: Double,
     val label: String,
     val color: Color,
-    val strokeWidthDp: Float = 2f
+    val strokeWidthDp: Float = 2f,
+    val kind: TouchTurnOrderLevelKind? = null
 )
 
 @Composable
@@ -1414,8 +1423,23 @@ internal fun TouchTurnOrderPreviewChart(
     candle: OhlcBar,
     setup: TouchTurnBracketSetup,
     fmt: (Double) -> String,
+    executedLevels: Set<TouchTurnOrderLevelKind> = emptySet(),
     modifier: Modifier = Modifier
 ) {
+    val showThrob = executedLevels.isNotEmpty()
+    val throbTransition = rememberInfiniteTransition(label = "touchTurnExecutedOrderThrob")
+    val throbAlpha by throbTransition.animateFloat(
+        initialValue = if (showThrob) 0.2f else 1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(550), repeatMode = RepeatMode.Reverse),
+        label = "touchTurnExecutedOrderThrobAlpha"
+    )
+    val throbStrokeBoost by throbTransition.animateFloat(
+        initialValue = if (showThrob) 0f else 1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(550), repeatMode = RepeatMode.Reverse),
+        label = "touchTurnExecutedOrderThrobStroke"
+    )
     val entryColor = Color(0xFF42A5F5)
     val bodyColor = when (setup.candleColor) {
         FirstCandleColor.GREEN -> CandleGreen
@@ -1445,15 +1469,23 @@ internal fun TouchTurnOrderPreviewChart(
             setup.entry,
             "Entry (${TouchTurnLogic.tradeSideLabel(setup.side)})",
             entryColor,
-            2.5f
+            2.5f,
+            TouchTurnOrderLevelKind.ENTRY
         ),
         TouchTurnPriceLevel(
             setup.takeProfit,
             "Take profit (${TouchTurnLogic.takeProfitFibLabel(setup.candleColor)})",
             GainGreen,
-            2.5f
+            2.5f,
+            TouchTurnOrderLevelKind.TAKE_PROFIT
         ),
-        TouchTurnPriceLevel(setup.stopLoss, "Stop loss", LossRed, 2.5f)
+        TouchTurnPriceLevel(
+            setup.stopLoss,
+            "Stop loss",
+            LossRed,
+            2.5f,
+            TouchTurnOrderLevelKind.STOP_LOSS
+        )
     )
 
     BoxWithConstraints(
@@ -1504,8 +1536,10 @@ internal fun TouchTurnOrderPreviewChart(
 
             levels.forEach { level ->
                 val yPos = y(level.price)
+                val executed = level.kind != null && level.kind in executedLevels
+                if (executed) return@forEach
                 drawLine(
-                    color = level.color,
+                    color = level.color.copy(alpha = 0.55f),
                     start = Offset(0f, yPos),
                     end = Offset(size.width, yPos),
                     strokeWidth = level.strokeWidthDp.dp.toPx()
@@ -1513,9 +1547,47 @@ internal fun TouchTurnOrderPreviewChart(
             }
         }
 
+        if (showThrob) {
+            Canvas(
+                modifier = Modifier
+                    .width(chartWidth)
+                    .fillMaxHeight()
+                    .testTag("TouchTurnOrderPreviewChartThrob")
+            ) {
+                fun y(price: Double): Float {
+                    val fraction = ((priceTop - price) / span).toFloat()
+                    return (fraction * size.height).coerceIn(0f, size.height)
+                }
+                val baseLevels = levels.filter { it.kind != null && it.kind in executedLevels }
+                baseLevels.forEach { level ->
+                    val yPos = y(level.price)
+                    val strokePx = level.strokeWidthDp.dp.toPx() * (1.6f + throbStrokeBoost * 1.4f)
+                    val glowAlpha = throbAlpha * 0.35f
+                    drawLine(
+                        color = level.color.copy(alpha = glowAlpha),
+                        start = Offset(0f, yPos),
+                        end = Offset(size.width, yPos),
+                        strokeWidth = strokePx * 2.2f
+                    )
+                    drawLine(
+                        color = level.color.copy(alpha = throbAlpha),
+                        start = Offset(0f, yPos),
+                        end = Offset(size.width, yPos),
+                        strokeWidth = strokePx
+                    )
+                }
+            }
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             levels.sortedByDescending { it.price }.forEach { level ->
                 val yOffset = chartHeight * yFraction(level.price) - 9.dp
+                val executed = level.kind != null && level.kind in executedLevels
+                val labelColor = when {
+                    executed -> level.color.copy(alpha = throbAlpha)
+                    level.kind != null -> level.color.copy(alpha = 0.55f)
+                    else -> level.color
+                }
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -1525,7 +1597,14 @@ internal fun TouchTurnOrderPreviewChart(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(level.label, fontSize = 8.sp, color = level.color, maxLines = 1, modifier = Modifier.weight(1f))
+                    Text(
+                        level.label,
+                        fontSize = 8.sp,
+                        color = labelColor,
+                        fontWeight = if (executed) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
                     Text(fmt(level.price), fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color.White)
                 }
             }
@@ -1543,6 +1622,9 @@ internal fun TouchTurnOrderPreviewChart(
             TouchTurnLegendDot("SL", LossRed)
             val sideLabel = if (setup.side == TouchTurnTradeSide.SHORT) "Short" else "Long"
             Text(sideLabel, fontSize = 9.sp, color = TextSecondary)
+            if (executedLevels.isNotEmpty()) {
+                Text("· pulsing = filled", fontSize = 9.sp, color = TextSecondary.copy(alpha = 0.85f))
+            }
         }
     }
 }
@@ -1589,10 +1671,19 @@ private fun TouchTurnLivePipelineDetailHost(
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
+    touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     inActiveTrade: Boolean,
+    hasOpenOrders: Boolean,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
+    val recapSessionTrades = remember(instance.id, instance.sessionHistory.size) {
+        instance.touchTurnRecapSessionTrades()
+    }
+    val recapSessionPnl = remember(instance.id, instance.sessionHistory.size, recapSessionTrades) {
+        instance.touchTurnRecapSessionPnl()
+            ?: liveSessionTrades?.tradeDetail?.realizedPnL
+    }
     TouchTurnPipelineDetailPanel(
         selectedNodeId = selectedNodeId,
         graph = pipelineGraph
@@ -1611,7 +1702,11 @@ private fun TouchTurnLivePipelineDetailHost(
             TouchTurnPipelineNodeId.Liquidity ->
                 TouchTurnPipelineSectionLiquidity(session = analysisSession)
             TouchTurnPipelineNodeId.Orders -> {
-                if (!sessionEnded && inActiveTrade) {
+                if (!sessionEnded && touchTurnLiveOrderChart != null) {
+                    TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                if (!sessionEnded && (inActiveTrade || hasOpenOrders)) {
                     liveBroker?.let { broker ->
                         LiveBrokerSection(broker = broker, showPosition = false, slimOrders = true)
                     } ?: Text(
@@ -1620,10 +1715,18 @@ private fun TouchTurnLivePipelineDetailHost(
                         color = TextSecondary
                     )
                 } else {
-                    TouchTurnPipelineSectionOrdersPreview(session = analysisSession)
+                    TouchTurnPipelineSectionOrdersPreview(
+                        session = analysisSession,
+                        sessionTrades = if (sessionEnded) recapSessionTrades else emptyList(),
+                        sessionPnl = if (sessionEnded) recapSessionPnl else null
+                    )
                 }
             }
             TouchTurnPipelineNodeId.Position -> {
+                if (!sessionEnded && touchTurnLiveOrderChart != null) {
+                    TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 val live = liveExecution
                 if (!sessionEnded && live != null && live.showPanel) {
                     LiveExecutionPanel(
@@ -1722,6 +1825,7 @@ private fun LiveTab(
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
+    touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
@@ -1817,7 +1921,9 @@ private fun LiveTab(
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
+                touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 inActiveTrade = inActiveTrade,
+                hasOpenOrders = hasOpenOrdersForGraph,
                 onAdjustStop = onAdjustStop,
                 onClosePosition = onClosePosition
             )

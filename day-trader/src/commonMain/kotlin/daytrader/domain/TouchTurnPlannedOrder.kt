@@ -33,7 +33,9 @@ data class TouchTurnOrderPlan(
     val instrument: InstrumentIdentity? = null,
     val side: TouchTurnTradeSide,
     val quantity: Int,
-    val orders: List<TouchTurnPlannedOrder>
+    val orders: List<TouchTurnPlannedOrder>,
+    /** First 15m bar close — emulator seeds live price here before walking to the entry limit. */
+    val openingBarClose: Double? = null
 )
 
 object TouchTurnOrderPlanner {
@@ -53,7 +55,8 @@ object TouchTurnOrderPlanner {
         setup: TouchTurnBracketSetup,
         maxDollars: Int,
         currencyCode: String = "USD",
-        instrument: InstrumentIdentity? = null
+        instrument: InstrumentIdentity? = null,
+        openingBarClose: Double? = null
     ): TouchTurnOrderPlan? {
         if (!setup.isActionable) return null
         val quantity = suggestedQuantity(maxDollars, setup.entry)
@@ -71,6 +74,7 @@ object TouchTurnOrderPlanner {
             instrument = instrument,
             side = setup.side,
             quantity = quantity,
+            openingBarClose = openingBarClose?.takeIf { it > 0.0 },
             orders = listOf(
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.ENTRY,

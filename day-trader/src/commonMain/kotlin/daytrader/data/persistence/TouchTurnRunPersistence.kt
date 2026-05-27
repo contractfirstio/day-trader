@@ -11,6 +11,7 @@ import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnStopEvent
+import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.BrokerId
 
@@ -33,7 +34,8 @@ internal object TouchTurnRunPersistence {
             decision = TouchTurnSessionDecision(
                 outcome = parseOutcome(record.decision.outcome),
                 plannedQuantity = record.decision.plannedQuantity,
-                plannedBracket = record.decision.plannedBracket?.toDomain()
+                plannedBracket = record.decision.plannedBracket?.toDomain(),
+                executedLegs = record.decision.executedLegs.mapNotNull(::parseOrderRole)
             ),
             stopEvent = TouchTurnStopEvent(
                 stopTrigger = resolveStopTrigger(
@@ -66,7 +68,8 @@ internal object TouchTurnRunPersistence {
             decision = TouchTurnSessionDecisionRecord(
                 outcome = record.decision.outcome.name.lowercase(),
                 plannedQuantity = record.decision.plannedQuantity,
-                plannedBracket = record.decision.plannedBracket?.toRecord()
+                plannedBracket = record.decision.plannedBracket?.toRecord(),
+                executedLegs = record.decision.executedLegs.map { it.name.lowercase() }
             ),
             stopEvent = TouchTurnStopEventRecord(
                 stopTrigger = record.stopEvent.stopTrigger.name.lowercase(),
@@ -147,4 +150,7 @@ internal object TouchTurnRunPersistence {
     private fun parseTradeSide(value: String): TouchTurnTradeSide =
         runCatching { TouchTurnTradeSide.valueOf(value.uppercase()) }
             .getOrDefault(TouchTurnTradeSide.LONG)
+
+    private fun parseOrderRole(value: String): TouchTurnOrderRole? =
+        runCatching { TouchTurnOrderRole.valueOf(value.uppercase()) }.getOrNull()
 }

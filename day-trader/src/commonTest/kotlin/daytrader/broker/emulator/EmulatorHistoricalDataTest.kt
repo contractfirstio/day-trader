@@ -131,6 +131,59 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun firstCandle_forcedRed_producesLongSetup() {
+        val instrument = EmulatorSeedCatalog.instruments()["SPY"]!!
+        val config = BrokerEmulatorConfig(
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.RED,
+            alternateFirstCandleColor = false
+        )
+        val bar = EmulatorHistoricalData.firstFifteenMinuteCandle(
+            symbol = "SPY",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = 1_700_000_000_000L
+        ).getOrThrow()
+        assertEquals(FirstCandleColor.RED, TouchTurnLogic.firstCandleColor(bar))
+        val adr = EmulatorHistoricalData.fourteenDayAdr("SPY", instrument).getOrThrow()
+        val setup = TouchTurnLogic.computeBracketSetup(bar, TouchTurnLogic.liquidityRangeThreshold(adr))
+        assertEquals(TouchTurnTradeSide.LONG, setup.side)
+    }
+
+    @Test
+    fun firstCandle_alternateFetchIndex_flipsColor() {
+        val instrument = EmulatorSeedCatalog.instruments()["AAPL"]!!
+        val config = BrokerEmulatorConfig(
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+            alternateFirstCandleColor = true
+        )
+        val now = 1_700_000_000_000L
+        val bar1 = EmulatorHistoricalData.firstFifteenMinuteCandle(
+            symbol = "AAPL",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now,
+            sessionCandleFetchIndex = 1
+        ).getOrThrow()
+        val bar2 = EmulatorHistoricalData.firstFifteenMinuteCandle(
+            symbol = "AAPL",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now,
+            sessionCandleFetchIndex = 2
+        ).getOrThrow()
+        assertEquals(FirstCandleColor.GREEN, TouchTurnLogic.firstCandleColor(bar1))
+        assertEquals(FirstCandleColor.RED, TouchTurnLogic.firstCandleColor(bar2))
+    }
+
+    @Test
+    fun parseFirstCandleColorMode_acceptsLongAndShortAliases() {
+        assertEquals(EmulatorFirstCandleColorMode.RED, EmulatorFirstCandleColorMode.parse("long"))
+        assertEquals(EmulatorFirstCandleColorMode.GREEN, EmulatorFirstCandleColorMode.parse("short"))
+    }
+
+    @Test
     fun parseFirstCandleSecondsUntilClose_defaultsOffAndCustom() {
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(null))
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(""))

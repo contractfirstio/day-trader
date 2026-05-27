@@ -4,7 +4,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.LiveQuote
 
-/** Resolves the best numeric live mark for charting (last trade, then market, then quote last). */
+/** Resolves the last-traded price for charting (prefer quote last, then position last/mark). */
 object LiveMarkPriceResolver {
     fun resolve(
         symbol: String,
@@ -14,8 +14,8 @@ object LiveMarkPriceResolver {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val quote = quotes[norm]
         val position = positions.firstOrNull { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
-        return position?.lastTradePrice?.takeIf { it > 0.0 }
+        return quote?.last?.takeIf { it > 0.0 }
+            ?: position?.lastTradePrice?.takeIf { it > 0.0 }
             ?: position?.marketPrice?.takeIf { it > 0.0 }
-            ?: quote?.last?.takeIf { it > 0.0 }
     }
 }

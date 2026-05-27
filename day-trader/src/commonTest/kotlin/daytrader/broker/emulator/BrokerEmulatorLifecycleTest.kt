@@ -17,7 +17,11 @@ class BrokerEmulatorLifecycleTest {
     fun placeBracket_fillsEntryImmediately_withPosition() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
-            config = BrokerEmulatorConfig(connectDelayMs = 1, simulateOrderProgress = false),
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true
+            ),
             emit = { events.add(it) }
         )
         engine.handleConnect()
@@ -42,6 +46,7 @@ class BrokerEmulatorLifecycleTest {
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.35,
                 bracketWalkDirectionFlipChance = 0.0
             ),
@@ -82,6 +87,7 @@ class BrokerEmulatorLifecycleTest {
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.5,
                 bracketWalkDirectionFlipChance = 0.0
             ),
