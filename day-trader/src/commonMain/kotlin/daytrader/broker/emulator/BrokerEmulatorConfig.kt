@@ -73,11 +73,14 @@ data class BrokerEmulatorConfig(
     /** When set, every Touch Turn bracket uses this entry scenario (tests / debugging). */
     val touchTurnEntryScenarioOverride: TouchTurnEntryScenario? = null,
     /**
-     * When true, [BrokerEmulatorEngine] does not synthesize price walks; marks come from
-     * [BrokerEmulatorEngine.ingestLiveMark] (hybrid paper + live IB data mode).
+     * Price feed for order fill triggers. [EmulatorPricingSource.SYNTHETIC] walks quotes inside
+     * the emulator; [EmulatorPricingSource.LIVE_EXCHANGE] uses [BrokerEmulatorEngine.ingestExternalQuote].
      */
-    val useLiveIbMarketData: Boolean = false
+    val pricingSource: EmulatorPricingSource = EmulatorPricingSource.SYNTHETIC
 ) {
+    /** @see pricingSource */
+    val useLiveIbMarketData: Boolean
+        get() = pricingSource == EmulatorPricingSource.LIVE_EXCHANGE
     companion object {
         val Default = BrokerEmulatorConfig()
 
@@ -94,7 +97,7 @@ data class BrokerEmulatorConfig(
 
         fun forLiveIbMarketData(): BrokerEmulatorConfig =
             fromEnvironment().copy(
-                useLiveIbMarketData = true,
+                pricingSource = EmulatorPricingSource.LIVE_EXCHANGE,
                 firstCandleSecondsUntilClose = null,
                 simulateOrderProgress = false,
                 bracketExitSpreadWidenFactor = 1.0

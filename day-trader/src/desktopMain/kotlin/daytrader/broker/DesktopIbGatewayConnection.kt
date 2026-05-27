@@ -63,7 +63,7 @@ class DesktopIbGatewayConnection(
     private val queues: BlockingGatewayQueues,
     private val config: IbGatewayConfig = IbGatewayConfig.fromEnvironment(),
     private val connectionMode: IbConnectionMode = IbConnectionMode.FULL,
-    private val onLiveMark: ((symbol: String, marketPrice: Double, priorClose: Double?) -> Unit)? = null,
+    private val onLiveQuote: ((symbol: String, quote: LiveQuote, priorClose: Double?) -> Unit)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : BrokerAdapter, DefaultEWrapper() {
 
@@ -1084,7 +1084,7 @@ class DesktopIbGatewayConnection(
                 }
             }
             openPositions[key]?.let { logPositionDiagThrottled(it, "tick") }
-            forwardLiveMarkIfNeeded(key)
+            forwardLiveQuoteIfNeeded(key)
             if (!marketDataOnly) {
                 publishPositions(immediate = false)
             }
@@ -1111,12 +1111,20 @@ class DesktopIbGatewayConnection(
         }
     }
 
-    private fun forwardLiveMarkIfNeeded(key: String) {
-        val listener = onLiveMark ?: return
+    private fun forwardLiveQuoteIfNeeded(key: String) {
+        val listener = onLiveQuote ?: return
         val symbol = resolveSymbolForMarketDataKey(key) ?: return
-        val mkt = marketPrices[key] ?: return
-        val close = priorCloses[key]
-        listener(symbol, mkt, close)
+        val bid = bidPrices[key] ?: return
+        val ask = askPrices[key] ?: return
+        if (bid <= 0.0 || ask <= 0.0) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val quote = LiveQuote(
+            symbol = norm,
+            bid = bid,
+            ask = ask,
+            last = lastTradePrices[key] ?: marketPrices[key]
+        )
+        listener(symbol, quote, priorCloses[key])
     }
 
     private fun resolveSymbolForMarketDataKey(key: String): String? =

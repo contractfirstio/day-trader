@@ -5,6 +5,7 @@ import daytrader.gateway.BrokerAdapter
 import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayEvent
+import daytrader.gateway.LiveQuote
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -92,11 +93,15 @@ class EmulatorBrokerAdapter(
         }
     }
 
-    fun ingestLiveMark(symbol: String, marketPrice: Double, priorClose: Double?) {
+    /** Feeds live exchange bid/ask/last into the emulator fill book (hybrid / [EmulatorPricingSource.LIVE_EXCHANGE]). */
+    fun ingestExternalQuote(symbol: String, quote: LiveQuote, priorClose: Double?) {
         scope.launch(Dispatchers.Default) {
-            engine.ingestLiveMark(symbol, marketPrice, priorClose)
+            engine.ingestExternalQuote(symbol, quote, priorClose)
         }
     }
+
+    fun ingestLiveQuote(symbol: String, quote: LiveQuote, priorClose: Double?) =
+        ingestExternalQuote(symbol, quote, priorClose)
 
     override fun shutdown() {
         engine.handleShutdown()

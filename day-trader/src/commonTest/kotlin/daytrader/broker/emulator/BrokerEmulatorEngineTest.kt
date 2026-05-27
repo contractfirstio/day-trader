@@ -9,6 +9,7 @@ import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
+import daytrader.gateway.LiveQuote
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -90,7 +91,7 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
-    fun liveIbMode_doesNotFillUntilIbMarkCrossesLimit() = runBlocking {
+    fun liveIbMode_doesNotFillUntilAskCrossesBuyLimit() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
@@ -114,12 +115,47 @@ class BrokerEmulatorEngineTest {
         engine.placeTouchTurnBracket(plan)
         assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
 
-        engine.ingestLiveMark("AAPL", 105.0, null)
+        engine.ingestLiveQuote(
+            "AAPL",
+            LiveQuote(symbol = "AAPL", bid = 104.8, ask = 105.2, last = 105.0),
+            priorClose = null
+        )
         assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
 
-        engine.ingestLiveMark("AAPL", 99.5, null)
+        engine.ingestLiveQuote(
+            "AAPL",
+            LiveQuote(symbol = "AAPL", bid = 99.3, ask = 99.6, last = 99.5),
+            priorClose = null
+        )
         val position = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.single()
         assertTrue(position.quantity > 0)
+    }
+
+    @Test
+    fun liveIbMode_ignoresLastOnlyUntilBidAndAskArrive() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 2.0,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 99.0,
+            takeProfit = 101.0
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        engine.ingestLiveQuote("AAPL", LiveQuote(symbol = "AAPL", last = 99.0), priorClose = null)
+        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
     }
 
     @Test

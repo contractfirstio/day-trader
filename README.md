@@ -125,6 +125,7 @@ Optionally pre-select a card with `DAY_TRADER_BROKER`:
 |-------|---------|
 | `ib` *(default pre-selection)* | Interactive Brokers via IB Gateway / TWS |
 | `emulator`, `sim`, or `mock` | In-memory broker emulator (no Gateway required) |
+| `hybrid`, `paper-live`, `emulator-live-ib` | Paper execution (emulator) with **live IB** bid/ask/last for charts and fills |
 
 Example:
 
@@ -157,6 +158,8 @@ When `DAY_TRADER_BROKER` is `ib` (default), the desktop app connects to IB Gatew
 - **Error** — use **Reconnect**; check Gateway is running and API clients are enabled
 
 Enrichment requests (`reqContractDetails`, streaming `reqMktData`) are **paced** (default **25 msg/sec**, **50 ms** min gap; override with `DAY_TRADER_IB_MAX_MSG_PER_SEC` / `DAY_TRADER_IB_MIN_INTERVAL_MS`) to stay under IB’s **50 messages/sec** limit. On error **100**, pacing backs off automatically for 20s. Shared `reqMktData` per contract avoids duplicate lines for positions + hybrid streaming. Positions publish as they arrive from IB. Reconnect waits 1.5s before resubscribing; position refresh only cancels market data for closed lines.
+
+**Hybrid paper mode** (`DAY_TRADER_BROKER=hybrid`): Touch Turn **order matching** is emulated (positions, brackets, fills), but **pricing is decoupled**: fill triggers use live **bid**, **ask**, and **last** from IB (`EmulatorPricingSource.LIVE_EXCHANGE`), not synthetic walks. The chart uses the IB session gateway; the emulator only consumes the same ticks via `ingestExternalQuote`. Full emulator mode (`emulator`) uses `EmulatorPricingSource.SYNTHETIC` instead. Limit/stop rules are identical (buy at ask, sell at bid); live mode waits for both bid and ask before evaluating fills.
 
 Market data uses **delayed-frozen** mode so US/UK lines still get a last price when those exchanges are closed; HK lines update while SEHK is open. **Market price for P&L** uses, in order: streaming ticks → bid/ask mid → **latest daily historical close** (`reqHistoricalData`, requested ~4s after load if no live price) → portfolio (only if distinct from avg cost) → avg cost fallback. Log codes **2119** (data farm connecting) and **10167** (no live subscription — delayed data) are informational.
 

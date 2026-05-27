@@ -51,6 +51,22 @@ internal data class EmulatorMarketQuote(
     }
 
     fun aggressivePrice(isLongPosition: Boolean): Double = if (isLongPosition) bid else ask
+
+    companion object {
+        /**
+         * Merges an IB [LiveQuote] into a book row. Returns null until both bid and ask are known
+         * (required before hybrid limit/stop evaluation).
+         */
+        fun fromLiveQuote(incoming: LiveQuote, existing: EmulatorMarketQuote? = null): EmulatorMarketQuote? {
+            val bid = incoming.bid?.takeIf { it > 0.0 } ?: existing?.bid ?: return null
+            val ask = incoming.ask?.takeIf { it > 0.0 } ?: existing?.ask ?: return null
+            val last = incoming.last?.takeIf { it > 0.0 }
+                ?: existing?.last
+                ?: (bid + ask) / 2.0
+            val halfSpread = max((ask - bid) / 2.0, last * 1e-6)
+            return EmulatorMarketQuote(last = last, bid = bid, ask = ask, halfSpread = halfSpread)
+        }
+    }
 }
 
 internal object EmulatorMarketQuoteBook {

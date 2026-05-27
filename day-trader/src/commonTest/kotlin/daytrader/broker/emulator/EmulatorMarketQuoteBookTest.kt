@@ -1,7 +1,10 @@
 package daytrader.broker.emulator
 
+import daytrader.gateway.LiveQuote
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmulatorMarketQuoteBookTest {
@@ -22,5 +25,30 @@ class EmulatorMarketQuoteBookTest {
     fun stops_useBidForSellStopAndAskForBuyStop() {
         assertTrue(EmulatorMarketQuoteBook.sellStopTriggered(bid = 98.0, stop = 99.0))
         assertTrue(EmulatorMarketQuoteBook.buyStopTriggered(ask = 102.0, stop = 101.0))
+    }
+
+    @Test
+    fun fromLiveQuote_requiresBidAndAsk() {
+        assertNull(EmulatorMarketQuote.fromLiveQuote(LiveQuote(symbol = "AAPL", last = 100.0)))
+        val book = EmulatorMarketQuote.fromLiveQuote(
+            LiveQuote(symbol = "AAPL", bid = 99.8, ask = 100.2, last = 100.0)
+        )!!
+        assertEquals(99.8, book.bid)
+        assertEquals(100.2, book.ask)
+        assertEquals(100.0, book.last)
+    }
+
+    @Test
+    fun fromLiveQuote_mergesPartialUpdates() {
+        val initial = EmulatorMarketQuote.fromLiveQuote(
+            LiveQuote(symbol = "AAPL", bid = 100.0, ask = 100.4, last = 100.2)
+        )!!
+        val merged = EmulatorMarketQuote.fromLiveQuote(
+            LiveQuote(symbol = "AAPL", last = 99.5),
+            existing = initial
+        )!!
+        assertEquals(100.0, merged.bid)
+        assertEquals(100.4, merged.ask)
+        assertEquals(99.5, merged.last)
     }
 }
