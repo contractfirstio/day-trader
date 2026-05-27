@@ -27,8 +27,6 @@ import daytrader.ui.theme.TextSecondary
 fun ConnectionStatusBar(
     brokerGateway: BrokerGateway,
     brokerKind: BrokerKind,
-    globalAutoStartEnabled: Boolean,
-    onGlobalAutoStartChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state by brokerGateway.connectionState.collectAsState()
@@ -51,19 +49,10 @@ fun ConnectionStatusBar(
                 color = brokerStatusColor(state)
             )
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            GlobalAutoStartKillSwitch(
-                enabled = globalAutoStartEnabled,
-                onEnabledChange = onGlobalAutoStartChange
-            )
-            BrokerReconnectButton(
-                state = state,
-                onReconnect = brokerGateway::reconnect
-            )
-        }
+        BrokerReconnectButton(
+            state = state,
+            onReconnect = brokerGateway::reconnect
+        )
     }
 }
 

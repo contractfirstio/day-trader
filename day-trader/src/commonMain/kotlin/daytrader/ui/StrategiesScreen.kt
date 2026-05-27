@@ -691,6 +691,11 @@ private fun StrategyDeploymentCard(
                         )
                     }
                 }
+                CompactAutoStartToggle(
+                    checked = row.autoStartOnMarketOpen,
+                    enabled = globalAutoStartEnabled,
+                    onCheckedChange = onAutoStartChange
+                )
                 IconButton(
                     onClick = onToggleSession,
                     modifier = Modifier.size(24.dp)
@@ -716,11 +721,6 @@ private fun StrategyDeploymentCard(
                     label = row.statusChipLabel,
                     accent = row.cardAccent,
                     compact = true
-                )
-                CompactAutoStartToggle(
-                    checked = row.autoStartOnMarketOpen,
-                    enabled = globalAutoStartEnabled,
-                    onCheckedChange = onAutoStartChange
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 CompactInstanceStat(

@@ -13,8 +13,6 @@ fun AppTopBar(
     brokerKind: BrokerKind,
     selectedMarketZoneId: String?,
     onMarketClick: (String) -> Unit,
-    globalAutoStartEnabled: Boolean,
-    onGlobalAutoStartChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -24,9 +22,7 @@ fun AppTopBar(
         )
         ConnectionStatusBar(
             brokerGateway = brokerGateway,
-            brokerKind = brokerKind,
-            globalAutoStartEnabled = globalAutoStartEnabled,
-            onGlobalAutoStartChange = onGlobalAutoStartChange
+            brokerKind = brokerKind
         )
     }
 }
