@@ -4,6 +4,8 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.beginTouchTurnSession
+import daytrader.diagnostics.SessionTrace
+import daytrader.domain.inProgressSession
 import daytrader.domain.onSessionStarted
 
 /**
@@ -33,6 +35,8 @@ object DeploymentSessionController {
                 started.withDemoLiveExecutionOnStart(sessionDate)
         }
         // Record session date on any start so market-open auto-start does not run again the same day.
-        return withSession.copy(lastAutoStartSessionDate = sessionDate)
+        val result = withSession.copy(lastAutoStartSessionDate = sessionDate)
+        result.inProgressSession()?.let { SessionTrace.sessionStarted(result, it) }
+        return result
     }
 }

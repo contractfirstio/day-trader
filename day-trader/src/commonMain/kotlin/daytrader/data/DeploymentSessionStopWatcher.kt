@@ -16,6 +16,7 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.onSessionStopped
 import daytrader.domain.withTouchTurnClosingMilestoneIfNeeded
 import daytrader.gateway.BrokerFill
+import daytrader.diagnostics.SessionTrace
 import daytrader.domain.resolveStopSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -69,6 +70,15 @@ class DeploymentSessionStopWatcher(
                 DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, now) ==
                     DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE
             if (stopAfterTrade || stopAfterDeadline) {
+                SessionTrace.autoStopCheck(
+                    deploymentId = instance.id,
+                    symbol = instance.symbol,
+                    sessionId = instance.inProgressSession()?.id,
+                    wouldStop = true,
+                    hasOpenPosition = hasOpenPosition,
+                    hasOpenOrders = hasOpenOrders,
+                    tradeCycleComplete = stopAfterTrade
+                )
                 stampClosingMilestone(instance.id)
             }
             if (stopAfterTrade) {

@@ -74,7 +74,7 @@ internal object TouchTurnRunPersistence {
             stopEvent = TouchTurnStopEventRecord(
                 stopTrigger = record.stopEvent.stopTrigger.name.lowercase(),
                 stopErrorMessage = record.stopEvent.stopErrorMessage,
-                brokerUnrealizedPnLAtStop = record.stopEvent.brokerUnrealizedPnLAtStop
+                brokerUnrealizedPnLAtStop = null
             ),
             milestones = TouchTurnPersistence.milestonesToRecord(record.milestones)
         )

@@ -206,10 +206,13 @@ object TouchTurnStatusBreadcrumbMapper {
     fun pipelineForLastClosedSession(instance: StrategyDeployment): List<TouchTurnBreadcrumbStep>? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         val run = instance.sessionHistory
-            .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
+            .filter {
+                it.status == SessionStatus.CLOSED &&
+                    (it.touchTurnMilestones != null || it.touchTurnRunRecord != null)
+            }
             .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
             ?: return null
-        val milestones = run.touchTurnMilestones ?: return null
+        val milestones = run.touchTurnMilestones ?: run.touchTurnRunRecord?.milestones ?: return null
         return stepsFromHistory(
             milestones = milestones,
             startedAt = run.startedAt,

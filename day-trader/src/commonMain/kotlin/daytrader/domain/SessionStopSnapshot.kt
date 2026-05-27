@@ -1,5 +1,6 @@
 package daytrader.domain
 
+
 /**
  * Captured when an instance run stops — persisted on the active [StrategySession].
  */
@@ -42,7 +43,8 @@ private fun StrategyDeployment.touchTurnStopSnapshot(
         positionOpened && brokerUnrealizedPnL != null -> brokerUnrealizedPnL
         else -> 0.0
     }
-    val tradeCount = sessionTrades.size.takeIf { it > 0 }
+    val deduped = sessionTrades.dedupeByExecId()
+    val tradeCount = deduped.roundTripCount().takeIf { it > 0 }
         ?: if (positionOpened) 1 else 0
     return SessionStopSnapshot(
         hadLiquidityCandle = hadLiquidity,
@@ -68,7 +70,8 @@ private fun StrategyDeployment.quickFlipStopSnapshot(
         demoPosition -> liveUnrealizedPnL()
         else -> 0.0
     }
-    val tradeCount = sessionTrades.size.takeIf { it > 0 }
+    val deduped = sessionTrades.dedupeByExecId()
+    val tradeCount = deduped.roundTripCount().takeIf { it > 0 }
         ?: if (positionOpened) maxOf(inProgressSession()?.trades ?: 0, 1) else 0
     return SessionStopSnapshot(
         hadLiquidityCandle = null,

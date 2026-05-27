@@ -12,5 +12,7 @@ expect object AppFileSystem {
     fun ensureAppDataDirectory()
     fun readText(fileName: String): String?
     fun writeTextAtomic(fileName: String, content: String)
+    /** Appends a single line (caller supplies trailing newline if needed). */
+    fun appendLine(fileName: String, line: String)
     fun deleteIfExists(fileName: String)
 }

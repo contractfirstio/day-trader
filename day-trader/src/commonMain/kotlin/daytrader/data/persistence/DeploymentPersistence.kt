@@ -48,7 +48,9 @@ object DeploymentPersistence {
                 instrument = InstrumentIdentityPersistence.toRecord(instance.instrument)
             ),
             live = toLiveRecord(instance.live),
-            sessionHistory = instance.sessionHistory.map(::toSessionHistoryRecord),
+            sessionHistory = SessionPersistenceSlimmer
+                .prepareDeploymentSessionsForPersist(instance.sessionHistory)
+                .map(::toSessionHistoryRecord),
             touchTurnSession = TouchTurnPersistence.toRecord(instance.touchTurnSession)
         )
 
@@ -66,8 +68,9 @@ object DeploymentPersistence {
             ordersPlacedForCandle = record.ordersPlacedForCandle,
             positionOpened = record.positionOpened,
             sessionTrades = record.sessionTrades.map(::toSessionTradeDomain),
-            touchTurnMilestones = record.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToDomain),
-            touchTurnStartedBy = record.touchTurnStartedBy?.let { value ->
+            touchTurnMilestones = SessionPersistenceSlimmer.restoreMilestonesFromRecord(record)
+                ?.let(TouchTurnPersistence::milestonesToDomain),
+            touchTurnStartedBy = SessionPersistenceSlimmer.restoreStartedByFromRecord(record)?.let { value ->
                 runCatching { TouchTurnSessionStartedBy.valueOf(value.uppercase()) }.getOrNull()
             },
             touchTurnRunRecord = TouchTurnRunPersistence.toDomain(record.touchTurnRunRecord)
@@ -86,7 +89,7 @@ object DeploymentPersistence {
             hadLiquidityCandle = day.hadLiquidityCandle,
             ordersPlacedForCandle = day.ordersPlacedForCandle,
             positionOpened = day.positionOpened,
-            sessionTrades = day.sessionTrades.map(::toSessionTradeRecord),
+            sessionTrades = day.sessionTrades.map(SessionPersistenceSlimmer::toSlimTradeRecord),
             touchTurnMilestones = day.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToRecord),
             touchTurnStartedBy = day.touchTurnStartedBy?.name?.lowercase(),
             touchTurnRunRecord = TouchTurnRunPersistence.toRecord(day.touchTurnRunRecord)

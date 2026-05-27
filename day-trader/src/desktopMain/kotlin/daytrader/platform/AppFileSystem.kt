@@ -107,6 +107,21 @@ actual object AppFileSystem {
         }
     }
 
+    actual fun appendLine(fileName: String, line: String) {
+        synchronized(writeLock) {
+            ensureAppDataDirectory()
+            val path = Path.of(appDataDirectory(), fileName)
+            path.parent?.let { Files.createDirectories(it) }
+            Files.writeString(
+                path,
+                line,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.APPEND,
+                StandardOpenOption.WRITE
+            )
+        }
+    }
+
     actual fun deleteIfExists(fileName: String) {
         val path = Path.of(appDataDirectory(), fileName)
         Files.deleteIfExists(path)

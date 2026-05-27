@@ -64,6 +64,7 @@ class DesktopIbGatewayConnection(
     private val config: IbGatewayConfig = IbGatewayConfig.fromEnvironment(),
     private val connectionMode: IbConnectionMode = IbConnectionMode.FULL,
     private val onLiveQuote: ((symbol: String, quote: LiveQuote, priorClose: Double?) -> Unit)? = null,
+    private val quoteBus: daytrader.marketdata.MarketQuoteBus? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : BrokerAdapter, DefaultEWrapper() {
 
@@ -1100,7 +1101,9 @@ class DesktopIbGatewayConnection(
             last = lastTradePrices[key] ?: marketPrices[key]
         )
         quotesBySymbol[norm] = quote
-        scheduleQuotePublish()
+        if (quoteBus == null || !marketDataOnly) {
+            scheduleQuotePublish()
+        }
     }
 
     private fun scheduleQuotePublish() {
@@ -1112,7 +1115,6 @@ class DesktopIbGatewayConnection(
     }
 
     private fun forwardLiveQuoteIfNeeded(key: String) {
-        val listener = onLiveQuote ?: return
         val symbol = resolveSymbolForMarketDataKey(key) ?: return
         val bid = bidPrices[key] ?: return
         val ask = askPrices[key] ?: return
@@ -1124,7 +1126,13 @@ class DesktopIbGatewayConnection(
             ask = ask,
             last = lastTradePrices[key] ?: marketPrices[key]
         )
-        listener(symbol, quote, priorCloses[key])
+        val priorClose = priorCloses[key]
+        val bus = quoteBus
+        if (bus != null) {
+            bus.publish(norm, quote, priorClose, daytrader.marketdata.QuoteSource.EXTERNAL)
+        } else {
+            onLiveQuote?.invoke(symbol, quote, priorClose)
+        }
     }
 
     private fun resolveSymbolForMarketDataKey(key: String): String? =
