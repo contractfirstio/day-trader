@@ -28,12 +28,21 @@ internal object EmulatorLog {
         symbol: String,
         orderIds: List<Int>,
         entryPrice: Double,
+        initialMark: Double,
         walkFloor: Double,
-        walkCeiling: Double
+        walkCeiling: Double,
+        entryScenario: TouchTurnEntryScenario
     ) {
+        val entryNote = when (entryScenario) {
+            TouchTurnEntryScenario.IMMEDIATE -> "entry fills immediately"
+            TouchTurnEntryScenario.APPROACH_AND_FILL ->
+                "live price at bar close $initialMark, walking to entry $entryPrice"
+            TouchTurnEntryScenario.NEVER_FILL ->
+                "live price at bar close $initialMark, drifting away from entry $entryPrice"
+        }
         println(
             "[Emulator] Touch Turn bracket placed for $symbol (orders $orderIds); " +
-                "market set to $entryPrice — after entry, price walks $walkFloor..$walkCeiling"
+                "$entryNote; TP/SL activate after entry fills; then price walks $walkFloor..$walkCeiling"
         )
     }
 

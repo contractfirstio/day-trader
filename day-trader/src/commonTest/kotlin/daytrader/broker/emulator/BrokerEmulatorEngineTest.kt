@@ -156,7 +156,11 @@ class BrokerEmulatorEngineTest {
     fun closeOpenPositionForSymbol_flattensHeldPosition() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
-            config = BrokerEmulatorConfig(connectDelayMs = 1, simulateOrderProgress = false),
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true
+            ),
             emit = { events.add(it) }
         )
         engine.handleConnect()

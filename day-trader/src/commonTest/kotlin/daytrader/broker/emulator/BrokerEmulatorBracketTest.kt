@@ -20,8 +20,10 @@ class BrokerEmulatorBracketTest {
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
-                marketTickIntervalMs = 100,
-                simulateOrderProgress = false
+                simulateOrderProgress = false,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.APPROACH_AND_FILL,
+                touchTurnEntryMinApproachTicks = 2,
+                touchTurnEntryStepPctOfRange = 0.15
             ),
             emit = { events.add(it) }
         )
@@ -32,21 +34,32 @@ class BrokerEmulatorBracketTest {
             range = 2.0,
             rangeThreshold = 0.5,
             isLiquidityCandle = true,
-            candleColor = FirstCandleColor.GREEN,
+            candleColor = FirstCandleColor.RED,
             side = TouchTurnTradeSide.LONG,
             entry = 100.0,
             stopLoss = 99.0,
             takeProfit = 101.0
         )
-        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 500,
+            currencyCode = "USD",
+            openingBarClose = 101.0
+        )!!
 
         engine.placeTouchTurnBracket(plan)
-        engine.runMarketTick()
-
-        val positions = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
-        val aapl = positions.firstOrNull { it.symbol == "AAPL" }
-        assertTrue(aapl != null, "expected AAPL position after entry fill")
-        assertTrue(aapl!!.quantity > 0)
+        var sawEntryPosition = false
+        repeat(12) {
+            engine.runMarketTick()
+            val aapl = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
+                .firstOrNull { it.symbol == "AAPL" }
+            if (aapl != null && aapl.quantity != 0) {
+                sawEntryPosition = true
+                return@repeat
+            }
+        }
+        assertTrue(sawEntryPosition, "expected AAPL position after entry fill (before bracket exit)")
     }
 
     @Test
@@ -56,6 +69,7 @@ class BrokerEmulatorBracketTest {
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.2,
                 bracketWalkDirectionFlipChance = 0.0
             ),
@@ -110,6 +124,7 @@ class BrokerEmulatorBracketTest {
                 config = BrokerEmulatorConfig(
                     connectDelayMs = 1,
                     simulateOrderProgress = false,
+                    touchTurnEntryFillImmediately = true,
                     bracketWalkStepPctOfRange = 0.18,
                     bracketWalkDirectionFlipChance = 0.2,
                     bracketExitSpreadWidenFactor = 1.35,

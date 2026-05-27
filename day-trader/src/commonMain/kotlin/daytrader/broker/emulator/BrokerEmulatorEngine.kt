@@ -9,6 +9,7 @@ import daytrader.domain.TouchTurnPlannedOrder
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
+import daytrader.gateway.LiveQuote
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
@@ -23,12 +24,8 @@ class BrokerEmulatorEngine(
     private val random: Random = Random(42)
 ) {
     private val catalog = EmulatorSeedCatalog.instruments()
-    private val livePrices: MutableMap<String, Double> =
-        if (config.useLiveIbMarketData) {
-            mutableMapOf()
-        } else {
-            catalog.mapValues { (_, instrument) -> instrument.referencePrice }.toMutableMap()
-        }
+    /** Synthetic bid/ask/last book; hybrid mode fills in from IB marks. */
+    private val symbolQuotes = mutableMapOf<String, EmulatorMarketQuote>()
     /** Symbols that have received at least one IB mark (hybrid mode fills gated on this). */
     private val symbolsWithLiveMarks = mutableSetOf<String>()
     private var positions = mutableListOf<EmulatorPosition>()
@@ -40,6 +37,9 @@ class BrokerEmulatorEngine(
     private val dynamicInstruments = mutableMapOf<String, EmulatorInstrument>()
     private val bracketManagedOrderIds = mutableSetOf<Int>()
     private val bracketPriceWalks = mutableMapOf<String, BracketPriceWalk>()
+    /** Exit walk prepared at bracket place; armed only after entry fills. */
+    private val pendingBracketWalks = mutableMapOf<String, BracketPriceWalk>()
+    private val bracketEntryPending = mutableMapOf<String, BracketEntryPending>()
     private val sessionFills = mutableListOf<BrokerFill>()
     private var firstCandleFetchCount = 0
 
@@ -55,6 +55,7 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Connected))
         publishPositions()
         publishOrders()
+        publishQuotes()
         startMarketSimulation()
         startOrderSimulation()
     }
@@ -69,11 +70,12 @@ class BrokerEmulatorEngine(
         bracketPriceWalks.clear()
         dynamicInstruments.clear()
         symbolsWithLiveMarks.clear()
-        if (config.useLiveIbMarketData) {
-            livePrices.clear()
-        }
+        symbolQuotes.clear()
+        pendingBracketWalks.clear()
+        bracketEntryPending.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        emit(GatewayEvent.QuotesSnapshot(emptyMap()))
         sessionFills.clear()
         emit(GatewayEvent.FillsSnapshot(emptyList()))
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Disconnected))
@@ -184,27 +186,69 @@ class BrokerEmulatorEngine(
         }
 
         if (!config.useLiveIbMarketData) {
-            livePrices[symbol] = entryPrice
             val legPrices = adjustedPlan.orders.map { it.price }
             val floor = legPrices.min()
             val ceiling = legPrices.max()
+            val range = (ceiling - floor).coerceAtLeast(0.01)
             val takeProfit = EmulatorBracketPlanAdjuster.takeProfitPrice(adjustedPlan) ?: ceiling
             val stopLoss = EmulatorBracketPlanAdjuster.stopLossPrice(adjustedPlan) ?: floor
             val towardTp = EmulatorBracketPlanAdjuster.towardTakeProfitDirection(adjustedPlan)
             val targetExit = pickBracketExitTarget()
-            bracketPriceWalks[symbol] = BracketPriceWalk(
+            val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
+            pendingBracketWalks[symbol] = BracketPriceWalk(
                 floor = floor,
                 ceiling = ceiling,
                 takeProfitPrice = takeProfit,
                 stopLossPrice = stopLoss,
                 towardTakeProfitDirection = towardTp,
                 targetExit = targetExit,
+                isLongPosition = isBuyEntry,
                 direction = directionTowardTarget(towardTp, targetExit)
             )
-            EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice, floor, ceiling)
-            fillEntryImmediately(entryId)
+            val initialMark = adjustedPlan.openingBarClose?.takeIf { it > 0.0 } ?: entryPrice
+            val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
+                range = range,
+                referencePrice = initialMark,
+                spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
+            )
+            quoteFor(symbol).setFromBarClose(initialMark, spread)
+            val entryScenario = pickTouchTurnEntryScenario()
+            when (entryScenario) {
+                TouchTurnEntryScenario.IMMEDIATE -> {
+                    setQuoteMid(symbol, entryPrice)
+                    fillEntryImmediately(entryId)
+                }
+                TouchTurnEntryScenario.APPROACH_AND_FILL,
+                TouchTurnEntryScenario.NEVER_FILL -> {
+                    bracketEntryPending[symbol] = BracketEntryPending(
+                        entryOrderId = entryId,
+                        entryPrice = entryPrice,
+                        openingBarClose = initialMark,
+                        isBuyEntry = isBuyEntry,
+                        scenario = entryScenario,
+                        range = range
+                    )
+                }
+            }
+            EmulatorLog.bracketPlaced(
+                symbol = symbol,
+                orderIds = listOf(entryId) + childIds,
+                entryPrice = entryPrice,
+                initialMark = initialMark,
+                walkFloor = floor,
+                walkCeiling = ceiling,
+                entryScenario = entryScenario
+            )
         } else {
-            EmulatorLog.bracketPlaced(symbol, listOf(entryId) + childIds, entryPrice, entryPrice, entryPrice)
+            EmulatorLog.bracketPlaced(
+                symbol = symbol,
+                orderIds = listOf(entryId) + childIds,
+                entryPrice = entryPrice,
+                initialMark = entryPrice,
+                walkFloor = entryPrice,
+                walkCeiling = entryPrice,
+                entryScenario = TouchTurnEntryScenario.APPROACH_AND_FILL
+            )
             onSymbolNeedsLiveQuotes(symbol)
         }
         publishPositions()
@@ -217,7 +261,13 @@ class BrokerEmulatorEngine(
     fun ingestLiveMark(symbol: String, marketPrice: Double, priorClose: Double?) {
         if (!config.useLiveIbMarketData || marketPrice <= 0.0) return
         val norm = SymbolMarkets.normalizeSymbol(symbol)
-        livePrices[norm] = marketPrice
+        val half = marketPrice * 0.0001
+        symbolQuotes[norm] = EmulatorMarketQuote(
+            last = marketPrice,
+            bid = marketPrice - half,
+            ask = marketPrice + half,
+            halfSpread = half
+        )
         symbolsWithLiveMarks.add(norm)
         priorClose?.takeIf { it > 0.0 }?.let { close ->
             dynamicInstruments[norm]?.let { instrument ->
@@ -228,13 +278,75 @@ class BrokerEmulatorEngine(
         refreshPositionMarks()
         publishPositions()
         publishOrders()
+        publishQuotes()
     }
 
-    /** Entry limit is placed at [livePrices]; fill right away so bracket children can activate. */
+    /** Entry limit fills when bid/ask cross the limit (buy at ask, sell at bid). */
     private fun fillEntryImmediately(entryOrderId: Int) {
         val entry = orders[entryOrderId] ?: return
         if (entry.remaining <= 0 || entry.isTerminal()) return
         applyFill(entry, entry.remaining)
+    }
+
+    private fun pickTouchTurnEntryScenario(): TouchTurnEntryScenario {
+        config.touchTurnEntryScenarioOverride?.let { return it }
+        if (config.touchTurnEntryFillImmediately) return TouchTurnEntryScenario.IMMEDIATE
+        return if (random.nextDouble() < config.touchTurnEntryNeverFillProbability) {
+            TouchTurnEntryScenario.NEVER_FILL
+        } else {
+            TouchTurnEntryScenario.APPROACH_AND_FILL
+        }
+    }
+
+    private fun isTouchTurnEntryFilled(symbol: String): Boolean {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        return orders.values.any { order ->
+            bracketManagedOrderIds.contains(order.orderId) &&
+                order.parentId == 0 &&
+                order.status == "Filled" &&
+                SymbolMarkets.symbolsMatch(order.symbol, norm)
+        }
+    }
+
+    private fun advanceEntryPendingQuote(symbol: String, pending: BracketEntryPending) {
+        val quote = quoteFor(symbol)
+        val step = pending.range * config.touchTurnEntryStepPctOfRange * (0.5 + random.nextDouble())
+        val epsilon = pending.range * 0.01
+        when (pending.scenario) {
+            TouchTurnEntryScenario.NEVER_FILL -> when {
+                pending.isBuyEntry -> quote.setMid(quote.last + step)
+                else -> quote.setMid(quote.last - step)
+            }
+            TouchTurnEntryScenario.APPROACH_AND_FILL -> when {
+                pending.isBuyEntry -> {
+                    var newAsk = quote.ask - step
+                    if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
+                        newAsk = maxOf(newAsk, pending.entryPrice + epsilon)
+                    }
+                    quote.ask = newAsk.coerceAtLeast(0.01)
+                    quote.last = (quote.ask + quote.bid) / 2.0
+                    quote.bid = quote.last - quote.halfSpread
+                }
+                else -> {
+                    var newBid = quote.bid + step
+                    if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
+                        newBid = minOf(newBid, pending.entryPrice - epsilon)
+                    }
+                    quote.bid = newBid.coerceAtLeast(0.01)
+                    quote.last = (quote.ask + quote.bid) / 2.0
+                    quote.ask = quote.last + quote.halfSpread
+                }
+            }
+            TouchTurnEntryScenario.IMMEDIATE -> Unit
+        }
+    }
+
+    private fun clearFilledEntryPending() {
+        bracketEntryPending.keys.toList().forEach { symbol ->
+            if (isTouchTurnEntryFilled(symbol)) {
+                bracketEntryPending.remove(symbol)
+            }
+        }
     }
 
     suspend fun runMarketTick() {
@@ -242,21 +354,34 @@ class BrokerEmulatorEngine(
         evaluateOrderFillsOnTick()
         if (!config.useLiveIbMarketData) {
             tickSymbolsForMarketData().forEach { symbol ->
-                val walk = bracketPriceWalks[symbol]
-                if (walk != null && shouldUseBracketPriceWalk(symbol)) {
-                    livePrices[symbol] = advanceBracketPriceWalk(symbol, walk)
-                } else {
-                    bracketPriceWalks.remove(symbol)
-                    val current = livePrices[symbol] ?: return@forEach
-                    val jitter = 1.0 + random.nextDouble(-config.marketTickJitterPct, config.marketTickJitterPct)
-                    livePrices[symbol] = (current * jitter).coerceAtLeast(0.01)
+                val pending = bracketEntryPending[symbol]
+                when {
+                    pending != null && !isTouchTurnEntryFilled(symbol) -> {
+                        advanceEntryPendingQuote(symbol, pending)
+                        pending.ticksElapsed++
+                    }
+                    shouldUseBracketPriceWalk(symbol) -> {
+                        val walk = bracketPriceWalks[symbol] ?: return@forEach
+                        quoteFor(symbol).setAggressivePrice(
+                            advanceBracketPriceWalk(symbol, walk),
+                            isLongPosition = walk.isLongPosition
+                        )
+                    }
+                    else -> {
+                        bracketPriceWalks.remove(symbol)
+                        val quote = symbolQuotes[symbol] ?: return@forEach
+                        val jitter = 1.0 + random.nextDouble(-config.marketTickJitterPct, config.marketTickJitterPct)
+                        quote.setMid(quote.last * jitter)
+                    }
                 }
             }
             evaluateOrderFillsOnTick()
+            clearFilledEntryPending()
         }
         refreshPositionMarks()
         publishPositions()
         publishOrders()
+        publishQuotes()
     }
 
     suspend fun runOrderProgressStep() {
@@ -285,12 +410,35 @@ class BrokerEmulatorEngine(
     }
 
     private fun seedBooks() {
+        if (!config.useLiveIbMarketData) {
+            seedDefaultSymbolQuotes()
+        }
         positions = mutableListOf()
         orders = if (config.useLiveIbMarketData) {
             mutableMapOf()
         } else {
-            val orderList = EmulatorSeedCatalog.initialOrders(catalog, livePrices) { allocateOrderId() }
+            val orderList = EmulatorSeedCatalog.initialOrders(catalog, symbolQuotes.mapValues { it.value.last }) {
+                allocateOrderId()
+            }
             orderList.associateBy { it.orderId }.toMutableMap()
+        }
+    }
+
+    private fun seedDefaultSymbolQuotes() {
+        symbolQuotes.clear()
+        catalog.forEach { (sym, instrument) ->
+            val ref = instrument.referencePrice
+            val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
+                range = ref * 0.02,
+                referencePrice = ref,
+                spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
+            )
+            symbolQuotes[sym] = EmulatorMarketQuote(
+                last = ref,
+                bid = ref - spread / 2.0,
+                ask = ref + spread / 2.0,
+                halfSpread = spread / 2.0
+            )
         }
     }
 
@@ -358,8 +506,9 @@ class BrokerEmulatorEngine(
 
     private fun advanceBracketPriceWalk(symbol: String, walk: BracketPriceWalk): Double {
         val range = walk.ceiling - walk.floor
-        if (range <= 0.0) return livePrices[symbol] ?: walk.floor
-        val current = livePrices[symbol] ?: (walk.floor + walk.ceiling) / 2.0
+        if (range <= 0.0) return quoteFor(symbol).aggressivePrice(walk.isLongPosition)
+        val quote = quoteFor(symbol)
+        val current = quote.aggressivePrice(walk.isLongPosition)
         val step = range * config.bracketWalkStepPctOfRange * (0.5 + random.nextDouble())
         var next = current + walk.direction * step
         if (next >= walk.ceiling) {
@@ -401,6 +550,7 @@ class BrokerEmulatorEngine(
     }
 
     private fun isOrderActiveForFill(order: EmulatorOrder): Boolean {
+        if (order.status == "PreSubmitted") return false
         if (order.parentId == 0) return true
         val parent = orders[order.parentId] ?: return false
         return parent.status == "Filled"
@@ -409,11 +559,11 @@ class BrokerEmulatorEngine(
     private fun maybeFillLimitOrder(order: EmulatorOrder) {
         val norm = SymbolMarkets.normalizeSymbol(order.symbol)
         if (config.useLiveIbMarketData && norm !in symbolsWithLiveMarks) return
-        val mkt = livePrices[norm] ?: return
+        val quote = symbolQuotes[norm] ?: return
         val limit = order.limitPrice ?: return
         val shouldFill = when (order.action.uppercase()) {
-            "BUY" -> mkt <= limit
-            "SELL" -> mkt >= limit
+            "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
+            "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)
             else -> false
         }
         if (shouldFill) {
@@ -424,11 +574,11 @@ class BrokerEmulatorEngine(
     private fun maybeFillStopOrder(order: EmulatorOrder) {
         val norm = SymbolMarkets.normalizeSymbol(order.symbol)
         if (config.useLiveIbMarketData && norm !in symbolsWithLiveMarks) return
-        val mkt = livePrices[norm] ?: return
+        val quote = symbolQuotes[norm] ?: return
         val stopPx = order.stopPrice ?: return
         val triggered = when (order.action.uppercase()) {
-            "SELL" -> mkt <= stopPx
-            "BUY" -> mkt >= stopPx
+            "SELL" -> EmulatorMarketQuoteBook.sellStopTriggered(quote.bid, stopPx)
+            "BUY" -> EmulatorMarketQuoteBook.buyStopTriggered(quote.ask, stopPx)
             else -> false
         }
         if (triggered) {
@@ -460,14 +610,28 @@ class BrokerEmulatorEngine(
 
     private fun refreshPositionMarks() {
         positions = positions.map { pos ->
-            val mkt = livePrices[pos.instrument.symbol] ?: pos.marketPrice
+            val sym = pos.instrument.symbol
+            val mkt = quoteMid(sym) ?: pos.marketPrice
             pos.copy(marketPrice = mkt)
         }.toMutableList()
     }
 
     private fun publishPositions() {
-        val snapshot = positions.map { it.toAccountPosition() }.sortedBy { it.symbol }
+        val snapshot = positions.map { pos ->
+            val q = symbolQuotes[pos.instrument.symbol]
+            if (q != null) {
+                pos.toAccountPosition(bid = q.bid, ask = q.ask, last = q.last)
+            } else {
+                pos.toAccountPosition()
+            }
+        }.sortedBy { it.symbol }
         emit(GatewayEvent.PositionsSnapshot(snapshot))
+    }
+
+    private fun publishQuotes() {
+        if (symbolQuotes.isEmpty()) return
+        val snapshot = symbolQuotes.mapValues { (sym, q) -> q.toLiveQuote(sym) }
+        emit(GatewayEvent.QuotesSnapshot(snapshot))
     }
 
     private fun publishOrders() {
@@ -511,8 +675,10 @@ class BrokerEmulatorEngine(
         adjustPositionForFill(order, fillQty)
         val realizedPnL = computeFillRealizedPnL(positionBefore, order, fillQty)
         if (remaining <= 0 && order.parentId == 0) {
+            val norm = SymbolMarkets.normalizeSymbol(order.symbol)
             activateChildOrders(order.orderId)
-            bracketPriceWalks[SymbolMarkets.normalizeSymbol(order.symbol)]?.let { walk ->
+            pendingBracketWalks.remove(norm)?.let { walk ->
+                bracketPriceWalks[norm] = walk
                 EmulatorLog.bracketExitWalkStarted(order.symbol, walk.floor, walk.ceiling)
             }
         }
@@ -527,6 +693,7 @@ class BrokerEmulatorEngine(
         refreshPositionMarks()
         publishPositions()
         publishOrders()
+        publishQuotes()
         EmulatorLog.orderFilled(order.symbol, order.orderId, fillQty, order.fillPrice(), positionQty)
     }
 
@@ -589,6 +756,8 @@ class BrokerEmulatorEngine(
             }
         }
         bracketPriceWalks.remove(norm)
+        pendingBracketWalks.remove(norm)
+        bracketEntryPending.remove(norm)
         if (cancelled > 0) {
             EmulatorLog.sessionOrdersCancelled(norm, cancelled)
         }
@@ -611,7 +780,7 @@ class BrokerEmulatorEngine(
         if (index < 0) return
         val pos = positions[index]
         val closeQty = kotlin.math.abs(pos.quantity)
-        val mark = livePrices[norm]?.takeIf { it > 0.0 } ?: pos.marketPrice
+        val mark = quoteMid(norm)?.takeIf { it > 0.0 } ?: pos.marketPrice
         val closeAction = if (pos.quantity > 0) "SELL" else "BUY"
         val closeOrder = EmulatorOrder(
             orderId = allocateOrderId(),
@@ -638,7 +807,7 @@ class BrokerEmulatorEngine(
     }
 
     private fun EmulatorOrder.fillPrice(): Double =
-        limitPrice ?: stopPrice ?: livePrices[SymbolMarkets.normalizeSymbol(symbol)] ?: 0.0
+        limitPrice ?: stopPrice ?: quoteMid(SymbolMarkets.normalizeSymbol(symbol)) ?: 0.0
 
     private fun cancelSiblingBracketOrders(parentOrderId: Int, filledOrderId: Int) {
         orders.entries.toList().forEach { (id, order) ->
@@ -665,7 +834,7 @@ class BrokerEmulatorEngine(
             else -> 0
         }
         if (signedQty == 0) return
-        val price = order.limitPrice ?: livePrices[order.symbol] ?: instrument.referencePrice
+        val price = order.limitPrice ?: quoteMid(order.symbol) ?: instrument.referencePrice
         val existing = positions.indexOfFirst { it.instrument.symbol == instrument.symbol }
         if (existing >= 0) {
             val pos = positions[existing]
@@ -677,7 +846,7 @@ class BrokerEmulatorEngine(
                 positions[existing] = pos.copy(
                     quantity = newQty,
                     avgPrice = newAvg,
-                    marketPrice = livePrices[instrument.symbol] ?: price
+                    marketPrice = quoteMid(instrument.symbol) ?: price
                 )
             }
         } else {
@@ -687,7 +856,7 @@ class BrokerEmulatorEngine(
                     instrument = instrument,
                     quantity = signedQty,
                     avgPrice = price,
-                    marketPrice = livePrices[instrument.symbol] ?: price
+                    marketPrice = quoteMid(instrument.symbol) ?: price
                 )
             )
         }
@@ -717,4 +886,29 @@ class BrokerEmulatorEngine(
     fun shouldRunMarketTicks(): Boolean = connected && ticksRunning
 
     fun shouldRunOrderSim(): Boolean = connected && orderSimRunning && config.simulateOrderProgress
+
+    private fun quoteFor(symbol: String): EmulatorMarketQuote {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        return symbolQuotes.getOrPut(norm) {
+            val ref = resolveInstrument(norm)?.referencePrice ?: 100.0
+            val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
+                range = ref * 0.02,
+                referencePrice = ref,
+                spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
+            )
+            EmulatorMarketQuote(
+                last = ref,
+                bid = ref - spread / 2.0,
+                ask = ref + spread / 2.0,
+                halfSpread = spread / 2.0
+            )
+        }
+    }
+
+    private fun quoteMid(symbol: String): Double? =
+        symbolQuotes[SymbolMarkets.normalizeSymbol(symbol)]?.last
+
+    private fun setQuoteMid(symbol: String, mid: Double) {
+        quoteFor(symbol).setMid(mid)
+    }
 }

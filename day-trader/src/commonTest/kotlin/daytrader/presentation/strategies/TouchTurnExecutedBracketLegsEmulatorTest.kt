@@ -24,6 +24,7 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.5,
                 bracketWalkDirectionFlipChance = 0.0
             ),
@@ -35,7 +36,13 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
 
         val candle = OhlcBar(open = 100.0, high = 102.0, low = 99.0, close = 101.5, time = "20260522  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 0.5)
-        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 500,
+            currencyCode = "USD",
+            openingBarClose = candle.close
+        )!!
         engine.placeTouchTurnBracket(plan)
 
         for (tick in 0 until 40) {
@@ -69,6 +76,7 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
             config = BrokerEmulatorConfig(
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.5,
                 bracketWalkDirectionFlipChance = 0.0,
                 bracketExitTakeProfitProbability = 1.0
@@ -81,7 +89,13 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
 
         val candle = OhlcBar(open = 100.0, high = 102.0, low = 99.0, close = 101.5, time = "20260522  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 0.5)
-        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 500,
+            currencyCode = "USD",
+            openingBarClose = candle.close
+        )!!
         engine.placeTouchTurnBracket(plan)
 
         for (tick in 0 until 40) {

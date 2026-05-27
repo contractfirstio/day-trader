@@ -26,15 +26,17 @@ object TouchTurnOrderLog {
         currencyCode: String,
         instrument: InstrumentIdentity? = null,
         setup: TouchTurnBracketSetup?,
+        openingBarClose: Double? = null,
         brokerGateway: BrokerGateway? = null
     ): Boolean {
         if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return false
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
-            symbol,
-            setup,
-            maxDollars,
-            currencyCode,
-            instrument
+            symbol = symbol,
+            setup = setup,
+            maxDollars = maxDollars,
+            currencyCode = currencyCode,
+            instrument = instrument,
+            openingBarClose = openingBarClose
         )
             ?: return false
         logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)

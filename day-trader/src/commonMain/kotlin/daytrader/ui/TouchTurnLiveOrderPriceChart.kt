@@ -159,11 +159,18 @@ fun TouchTurnLiveOrderPriceChart(
                 )
             }
 
-            if (priceSeries.size >= 2) {
+            if (priceSeries.isNotEmpty()) {
                 val path = Path()
-                priceSeries.forEachIndexed { index, price ->
-                    val point = Offset(xFor(index, priceSeries.size), yFor(price))
-                    if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                when (priceSeries.size) {
+                    1 -> {
+                        val y = yFor(priceSeries.single())
+                        path.moveTo(plotLeft, y)
+                        path.lineTo(plotRight, y)
+                    }
+                    else -> priceSeries.forEachIndexed { index, price ->
+                        val point = Offset(xFor(index, priceSeries.size), yFor(price))
+                        if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                    }
                 }
                 drawPath(
                     path = path,

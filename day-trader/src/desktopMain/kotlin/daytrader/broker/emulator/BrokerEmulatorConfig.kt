@@ -8,3 +8,9 @@ actual fun emulatorFirstCandleColorEnv(): String? =
 
 actual fun emulatorFirstCandleAlternateEnv(): String? =
     System.getenv("DAY_TRADER_EMULATOR_FIRST_CANDLE_ALTERNATE")
+
+actual fun emulatorEntryFillImmediatelyEnv(): String? =
+    System.getenv("DAY_TRADER_EMULATOR_ENTRY_FILL_IMMEDIATELY")
+
+actual fun emulatorEntryNeverFillProbEnv(): String? =
+    System.getenv("DAY_TRADER_EMULATOR_ENTRY_NEVER_FILL_PROB")

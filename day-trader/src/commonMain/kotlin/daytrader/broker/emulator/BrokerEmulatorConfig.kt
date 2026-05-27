@@ -56,6 +56,23 @@ data class BrokerEmulatorConfig(
      */
     val alternateFirstCandleColor: Boolean = true,
     /**
+     * When true, Touch Turn entry limits fill as soon as the bracket is placed (legacy behavior).
+     * Default false: price must reach the entry over one or more market ticks.
+     */
+    val touchTurnEntryFillImmediately: Boolean = false,
+    /** Probability the entry limit is never touched (price walks away). Ignored when [touchTurnEntryFillImmediately]. */
+    val touchTurnEntryNeverFillProbability: Double = 0.25,
+    /** Minimum market ticks before an approaching entry may fill (simulates time to reach the level). */
+    val touchTurnEntryMinApproachTicks: Int = 2,
+    /** Fraction of bracket range used as initial distance from entry when approaching. */
+    val touchTurnEntryStartOffsetPctOfRange: Double = 0.35,
+    /** Per-tick step size while approaching entry or drifting away (fraction of bracket range). */
+    val touchTurnEntryStepPctOfRange: Double = 0.10,
+    /** Bid/ask half-width as a fraction of bracket range (synthetic quote book). */
+    val emulatorQuoteSpreadPctOfRange: Double = 0.02,
+    /** When set, every Touch Turn bracket uses this entry scenario (tests / debugging). */
+    val touchTurnEntryScenarioOverride: TouchTurnEntryScenario? = null,
+    /**
      * When true, [BrokerEmulatorEngine] does not synthesize price walks; marks come from
      * [BrokerEmulatorEngine.ingestLiveMark] (hybrid paper + live IB data mode).
      */
@@ -69,7 +86,9 @@ data class BrokerEmulatorConfig(
             return Default.copy(
                 firstCandleSecondsUntilClose = seconds,
                 firstCandleColorMode = EmulatorFirstCandleColorMode.parse(emulatorFirstCandleColorEnv()),
-                alternateFirstCandleColor = parseFirstCandleAlternate(emulatorFirstCandleAlternateEnv())
+                alternateFirstCandleColor = parseFirstCandleAlternate(emulatorFirstCandleAlternateEnv()),
+                touchTurnEntryFillImmediately = parseEntryFillImmediately(emulatorEntryFillImmediatelyEnv()),
+                touchTurnEntryNeverFillProbability = parseEntryNeverFillProbability(emulatorEntryNeverFillProbEnv())
             )
         }
 
@@ -94,6 +113,15 @@ data class BrokerEmulatorConfig(
                 "false", "0", "off", "no" -> false
                 else -> true
             }
+
+        internal fun parseEntryFillImmediately(raw: String?): Boolean =
+            when (raw?.trim()?.lowercase()) {
+                "true", "1", "on", "yes" -> true
+                else -> false
+            }
+
+        internal fun parseEntryNeverFillProbability(raw: String?): Double =
+            raw?.trim()?.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: Default.touchTurnEntryNeverFillProbability
     }
 }
 
@@ -104,3 +132,9 @@ expect fun emulatorFirstCandleColorEnv(): String?
 
 /** `false` to keep a stable color per symbol/day when mode is `auto`. */
 expect fun emulatorFirstCandleAlternateEnv(): String?
+
+/** `true` for instant entry fill on bracket place (legacy). */
+expect fun emulatorEntryFillImmediatelyEnv(): String?
+
+/** `0`–`1` chance entry is never touched (default 0.25). */
+expect fun emulatorEntryNeverFillProbEnv(): String?
