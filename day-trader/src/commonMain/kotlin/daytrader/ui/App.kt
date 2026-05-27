@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -36,7 +37,7 @@ fun App(
         ensureLiveMarketData = ensureLiveMarketData,
         releaseLiveMarketData = releaseLiveMarketData
     )
-    var currentScreen by remember { mutableStateOf(AppScreen.POSITIONS) }
+    var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
 
@@ -47,27 +48,35 @@ fun App(
                     brokerGateway = brokerGateway,
                     brokerKind = brokerKind,
                     selectedMarketZoneId = selectedMarketZoneId,
-                    onMarketClick = dependencies.marketFilter::toggle,
-                    globalAutoStartEnabled = strategiesUi.globalAutoStartEnabled,
-                    onGlobalAutoStartChange = dependencies.strategiesViewModel::onGlobalAutoStartEnabledChange
+                    onMarketClick = dependencies.marketFilter::toggle
                 )
                 Row(modifier = Modifier.fillMaxSize()) {
                     NavigationRail(
                         containerColor = SurfaceDark,
                         header = {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
-                                contentDescription = "Logo",
-                                tint = BrandRed,
-                                modifier = Modifier.padding(vertical = 16.dp).size(32.dp)
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(vertical = 12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = "Logo",
+                                    tint = BrandRed,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                GlobalAutoStartKillSwitchRail(
+                                    enabled = strategiesUi.globalAutoStartEnabled,
+                                    onEnabledChange = dependencies.strategiesViewModel::onGlobalAutoStartEnabledChange
+                                )
+                            }
                         }
                     ) {
                         NavigationRailItem(
-                            selected = currentScreen == AppScreen.POSITIONS,
-                            onClick = { currentScreen = AppScreen.POSITIONS },
-                            icon = { Icon(Icons.Default.Wallet, "Positions") },
-                            label = { Text("Positions") },
+                            selected = currentScreen == AppScreen.STRATEGIES,
+                            onClick = { currentScreen = AppScreen.STRATEGIES },
+                            icon = { Icon(Icons.Default.AutoGraph, "Strategies") },
+                            label = { Text("Strategies") },
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = GainGreen,
                                 selectedTextColor = Color.White,
@@ -75,10 +84,10 @@ fun App(
                             )
                         )
                         NavigationRailItem(
-                            selected = currentScreen == AppScreen.STRATEGIES,
-                            onClick = { currentScreen = AppScreen.STRATEGIES },
-                            icon = { Icon(Icons.Default.AutoGraph, "Strategies") },
-                            label = { Text("Strategies") },
+                            selected = currentScreen == AppScreen.POSITIONS,
+                            onClick = { currentScreen = AppScreen.POSITIONS },
+                            icon = { Icon(Icons.Default.Wallet, "Positions") },
+                            label = { Text("Positions") },
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = GainGreen,
                                 selectedTextColor = Color.White,

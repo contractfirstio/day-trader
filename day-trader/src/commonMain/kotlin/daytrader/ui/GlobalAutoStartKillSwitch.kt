@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.ui.theme.BrandRed
@@ -73,6 +75,53 @@ fun GlobalAutoStartKillSwitch(
                 uncheckedTrackColor = BrandRed,
                 uncheckedBorderColor = LossRed
             )
+        )
+    }
+}
+
+/** Compact vertical layout for the navigation rail. */
+@Composable
+fun GlobalAutoStartKillSwitchRail(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val containerModifier = if (enabled) {
+        modifier
+    } else {
+        modifier
+            .background(TradeRedSurface, shape)
+            .border(1.dp, LossRed.copy(alpha = 0.85f), shape)
+    }
+    Column(
+        modifier = containerModifier
+            .width(72.dp)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            modifier = Modifier.testTag("GlobalAutoStartKillSwitch"),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = GainGreen,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = BrandRed,
+                uncheckedBorderColor = LossRed
+            )
+        )
+        Text(
+            text = if (enabled) "Auto-start" else "Auto-start OFF",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) Color.White else LossRed,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2
         )
     }
 }
