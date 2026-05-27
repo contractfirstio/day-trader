@@ -651,40 +651,43 @@ class BrokerEmulatorEngine(
 
     private fun applyFill(order: EmulatorOrder, fillQty: Int) {
         if (fillQty <= 0) return
+        val current = orders[order.orderId] ?: order
+        if (current.isTerminal() || current.remaining <= 0) return
+        val effectiveQty = minOf(fillQty, current.remaining)
         val positionBefore = positions.find {
-            SymbolMarkets.symbolsMatch(it.instrument.symbol, order.symbol)
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, current.symbol)
         }
-        val remaining = order.remaining - fillQty
-        val filled = order.filled + fillQty
-        val updated = order.copy(
+        val remaining = current.remaining - effectiveQty
+        val filled = current.filled + effectiveQty
+        val updated = current.copy(
             filled = filled,
             remaining = remaining,
             status = if (remaining <= 0) "Filled" else "Submitted"
         )
         updateOrder(updated)
-        adjustPositionForFill(order, fillQty)
-        val realizedPnL = computeFillRealizedPnL(positionBefore, order, fillQty)
-        if (remaining <= 0 && order.parentId == 0) {
-            val norm = SymbolMarkets.normalizeSymbol(order.symbol)
-            activateChildOrders(order.orderId)
+        adjustPositionForFill(current, effectiveQty)
+        val realizedPnL = computeFillRealizedPnL(positionBefore, current, effectiveQty)
+        if (remaining <= 0 && current.parentId == 0) {
+            val norm = SymbolMarkets.normalizeSymbol(current.symbol)
+            activateChildOrders(current.orderId)
             pendingBracketWalks.remove(norm)?.let { walk ->
                 bracketPriceWalks[norm] = walk
-                EmulatorLog.bracketExitWalkStarted(order.symbol, walk.floor, walk.ceiling)
+                EmulatorLog.bracketExitWalkStarted(current.symbol, walk.floor, walk.ceiling)
             }
         }
-        if (remaining <= 0 && order.parentId != 0) {
-            cancelSiblingBracketOrders(order.parentId, filledOrderId = order.orderId)
-            bracketPriceWalks.remove(SymbolMarkets.normalizeSymbol(order.symbol))
+        if (remaining <= 0 && current.parentId != 0) {
+            cancelSiblingBracketOrders(current.parentId, filledOrderId = current.orderId)
+            bracketPriceWalks.remove(SymbolMarkets.normalizeSymbol(current.symbol))
         }
         val positionQty = positions.find {
-            SymbolMarkets.symbolsMatch(it.instrument.symbol, order.symbol)
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, current.symbol)
         }?.quantity ?: 0
-        recordFill(order, fillQty, realizedPnL)
+        recordFill(current, effectiveQty, realizedPnL)
         refreshPositionMarks()
         publishPositions()
         publishOrders()
         publishQuotes()
-        EmulatorLog.orderFilled(order.symbol, order.orderId, fillQty, order.fillPrice(), positionQty)
+        EmulatorLog.orderFilled(current.symbol, current.orderId, effectiveQty, current.fillPrice(), positionQty)
     }
 
     private fun computeFillRealizedPnL(

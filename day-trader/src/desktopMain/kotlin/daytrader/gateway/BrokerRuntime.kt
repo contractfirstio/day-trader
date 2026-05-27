@@ -4,6 +4,8 @@ import daytrader.broker.DesktopIbGatewayConnection
 import daytrader.broker.IbConnectionMode
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorBrokerAdapter
+import daytrader.marketdata.MarketQuoteBus
+import daytrader.marketdata.MarketQuoteBusUiRelay
 import daytrader.platform.CrashLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineName
@@ -19,16 +21,20 @@ data class BrokerRuntime(
     val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
     val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
+    val quoteBus: MarketQuoteBus? = null,
     private val adapters: List<BrokerAdapter> = emptyList(),
-    private val queueSets: List<BlockingGatewayQueues> = emptyList()
+    private val queueSets: List<BlockingGatewayQueues> = emptyList(),
+    private val quoteUiRelay: MarketQuoteBusUiRelay? = null
 ) {
     fun start() {
+        quoteUiRelay?.start()
         adapters.forEach { it.start() }
         gateway.connect()
         marketDataGateway?.connect()
     }
 
     fun shutdown() {
+        quoteUiRelay?.stop()
         queueSets.forEach { it.outbound.offer(GatewayCommand.Shutdown) }
         adapters.forEach { it.shutdown() }
     }
@@ -51,6 +57,7 @@ data class BrokerRuntime(
             kind: BrokerKind,
             scope: CoroutineScope
         ): BrokerRuntime {
+            val quoteBus = MarketQuoteBus()
             val queues = BlockingGatewayQueues()
             val brokerId = BrokerId.from(kind)
             val adapter: BrokerAdapter = when (kind) {
@@ -59,6 +66,7 @@ data class BrokerRuntime(
                     emit = { queues.inbound.offer(it) },
                     receiveCommand = { queues.outbound.take() },
                     config = BrokerEmulatorConfig.fromEnvironment(),
+                    quoteBus = quoteBus,
                     scope = scope
                 )
                 BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> error("use createHybrid")
@@ -72,12 +80,14 @@ data class BrokerRuntime(
             return BrokerRuntime(
                 kind = kind,
                 gateway = gateway,
+                quoteBus = quoteBus,
                 adapters = listOf(adapter),
                 queueSets = listOf(queues)
             )
         }
 
         private fun createHybrid(scope: CoroutineScope): BrokerRuntime {
+            val quoteBus = MarketQuoteBus()
             val execQueues = BlockingGatewayQueues()
             val mdQueues = BlockingGatewayQueues()
             lateinit var ibAdapter: DesktopIbGatewayConnection
@@ -86,14 +96,18 @@ data class BrokerRuntime(
                 receiveCommand = { execQueues.outbound.take() },
                 config = BrokerEmulatorConfig.forLiveIbMarketData(),
                 onSymbolNeedsLiveQuotes = { symbol -> ibAdapter.ensureStreamingMarketData(symbol) },
+                quoteBus = quoteBus,
                 scope = scope
+            )
+            val quoteUiRelay = MarketQuoteBusUiRelay(
+                bus = quoteBus,
+                scope = scope,
+                onSnapshot = { quotes -> mdQueues.inbound.offer(GatewayEvent.QuotesSnapshot(quotes)) }
             )
             ibAdapter = DesktopIbGatewayConnection(
                 queues = mdQueues,
                 connectionMode = IbConnectionMode.MARKET_DATA_ONLY,
-                onLiveQuote = { symbol, quote, priorClose ->
-                    emulatorAdapter.ingestExternalQuote(symbol, quote, priorClose)
-                },
+                quoteBus = quoteBus,
                 scope = scope
             )
             val executionGateway = QueuedBrokerGateway(
@@ -118,8 +132,10 @@ data class BrokerRuntime(
                 releaseLiveMarketData = { symbol, instrument ->
                     ibAdapter.releaseStreamingMarketData(symbol, instrument)
                 },
+                quoteBus = quoteBus,
                 adapters = listOf(emulatorAdapter, ibAdapter),
-                queueSets = listOf(execQueues, mdQueues)
+                queueSets = listOf(execQueues, mdQueues),
+                quoteUiRelay = quoteUiRelay
             )
         }
     }
