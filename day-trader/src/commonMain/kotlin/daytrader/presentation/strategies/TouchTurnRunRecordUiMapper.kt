@@ -48,7 +48,8 @@ object TouchTurnRunRecordUiMapper {
                         "${fmt(bracket.takeProfit, currency)}"
                 )
             }
-            record.stopEvent.brokerUnrealizedPnLAtStop?.let { pnl ->
+            val pnlAtStop = record.stopEvent.brokerUnrealizedPnLAtStop ?: session?.pnl
+            pnlAtStop?.let { pnl ->
                 add("PnL@stop ${Formatters.money(pnl, currency, showSign = true)}")
             }
             record.stopEvent.stopErrorMessage?.takeIf { it.isNotBlank() }?.let { add(it) }

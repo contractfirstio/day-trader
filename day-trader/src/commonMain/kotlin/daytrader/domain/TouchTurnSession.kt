@@ -1010,7 +1010,10 @@ fun StrategyDeployment.touchTurnPostStopSession(): StrategySession? {
         .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
         ?.let { return it }
     return sessionHistory
-        .filter { it.status == SessionStatus.CLOSED && it.touchTurnMilestones != null }
+        .filter {
+            it.status == SessionStatus.CLOSED &&
+                (it.touchTurnMilestones != null || it.touchTurnRunRecord != null)
+        }
         .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
 }
 

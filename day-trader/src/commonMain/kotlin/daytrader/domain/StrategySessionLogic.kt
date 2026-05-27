@@ -1,5 +1,7 @@
 package daytrader.domain
 
+import daytrader.diagnostics.SessionTrace
+
 fun newStrategySessionId(): String = "session-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
 fun StrategyDeployment.inProgressSession(): StrategySession? =
@@ -92,27 +94,40 @@ fun StrategyDeployment.onSessionStopped(
             )
         else -> null
     }
+    val closedSession = activeSession?.copy(
+        status = SessionStatus.CLOSED,
+        stoppedAt = stoppedAt,
+        hadLiquidityCandle = snapshot?.hadLiquidityCandle,
+        ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
+        positionOpened = snapshot?.positionOpened,
+        pnl = snapshot?.sessionPnL ?: activeSession.pnl,
+        trades = when {
+            trades.isNotEmpty() -> trades.dedupeByExecId().roundTripCount()
+            else -> snapshot?.trades ?: activeSession.trades
+        },
+        sessionTrades = trades,
+        touchTurnMilestones = when (strategyType) {
+            StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurn?.milestones
+            StrategyType.QUICK_FLIP_SCALPER -> null
+        },
+        touchTurnRunRecord = touchTurnRecord
+    )
+    if (closedSession != null) {
+        SessionTrace.sessionClosed(
+            deployment = this,
+            session = closedSession,
+            rawTrades = trades,
+            runRecord = touchTurnRecord,
+            stopTrigger = resolvedStopTrigger?.name,
+            brokerUnrealizedPnL = stopParams?.brokerUnrealizedPnLAtStop,
+            hadOpenPosition = stopParams?.hasOpenPosition == true,
+            hadOpenOrders = stopParams?.hasOpenOrders == true
+        )
+    }
     return copy(
         sessionHistory = sessionHistory.map { session ->
-            if (session.status == SessionStatus.IN_PROGRESS) {
-                session.copy(
-                    status = SessionStatus.CLOSED,
-                    stoppedAt = stoppedAt,
-                    hadLiquidityCandle = snapshot?.hadLiquidityCandle,
-                    ordersPlacedForCandle = snapshot?.ordersPlacedForCandle,
-                    positionOpened = snapshot?.positionOpened,
-                    pnl = snapshot?.sessionPnL ?: session.pnl,
-                    trades = when {
-                        trades.isNotEmpty() -> trades.size
-                        else -> snapshot?.trades ?: session.trades
-                    },
-                    sessionTrades = trades,
-                    touchTurnMilestones = when (strategyType) {
-                        StrategyType.TOUCH_AND_TURN_SCALPER -> touchTurn?.milestones
-                        StrategyType.QUICK_FLIP_SCALPER -> null
-                    },
-                    touchTurnRunRecord = touchTurnRecord
-                )
+            if (session.status == SessionStatus.IN_PROGRESS && closedSession != null) {
+                closedSession
             } else {
                 session
             }

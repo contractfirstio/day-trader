@@ -6,6 +6,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.diagnostics.SessionTrace
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
@@ -682,7 +683,7 @@ class BrokerEmulatorEngine(
         val positionQty = positions.find {
             SymbolMarkets.symbolsMatch(it.instrument.symbol, current.symbol)
         }?.quantity ?: 0
-        recordFill(current, effectiveQty, realizedPnL)
+        recordFill(current, effectiveQty, realizedPnL, positionQty)
         refreshPositionMarks()
         publishPositions()
         publishOrders()
@@ -713,23 +714,34 @@ class BrokerEmulatorEngine(
         }
     }
 
-    private fun recordFill(order: EmulatorOrder, fillQty: Int, realizedPnL: Double?) {
+    private fun recordFill(
+        order: EmulatorOrder,
+        fillQty: Int,
+        realizedPnL: Double?,
+        positionQtyAfter: Int
+    ) {
         val execId = "emu-${order.orderId}-${sessionFills.size}"
-        sessionFills.add(
-            BrokerFill(
-                execId = execId,
-                orderId = order.orderId,
-                permId = order.orderId.toLong(),
-                parentOrderId = order.parentId,
-                symbol = order.symbol,
-                side = order.action,
-                quantity = fillQty,
-                price = order.fillPrice(),
-                time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME),
-                currency = order.currency,
-                commission = 0.0,
-                realizedPnL = realizedPnL
-            )
+        val fill = BrokerFill(
+            execId = execId,
+            orderId = order.orderId,
+            permId = order.orderId.toLong(),
+            parentOrderId = order.parentId,
+            symbol = order.symbol,
+            side = order.action,
+            quantity = fillQty,
+            price = order.fillPrice(),
+            time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            currency = order.currency,
+            commission = 0.0,
+            realizedPnL = realizedPnL
+        )
+        sessionFills.add(fill)
+        SessionTrace.fillRecorded(
+            deploymentId = null,
+            sessionId = null,
+            symbol = order.symbol,
+            fill = fill,
+            positionQtyAfter = positionQtyAfter
         )
         publishFills()
     }

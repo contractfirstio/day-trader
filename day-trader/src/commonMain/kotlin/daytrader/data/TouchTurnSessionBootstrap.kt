@@ -16,6 +16,7 @@ import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
+import daytrader.diagnostics.SessionTrace
 import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.withTouchTurnDecisionOutcome
@@ -74,12 +75,21 @@ class TouchTurnSessionBootstrap(
             val symbol = instance.symbol
             val instrument = DeploymentMarket.effectiveInstrument(instance)
             ensureLiveMarketData?.invoke(symbol, instrument)
+            val sessionId = instance.inProgressSession()?.id
             val adrResult = sessionGateway.fetchFourteenDayAdr(symbol, instrument)
             val adr14 = adrResult.getOrElse { error ->
+                val message = error.message ?: "Failed to load 14-day ADR"
+                SessionTrace.touchTurnData(
+                    deploymentId = instanceId,
+                    sessionId = sessionId,
+                    symbol = symbol,
+                    event = "adr_failed",
+                    message = message
+                )
                 repository.update(instanceId) { current ->
                     current.withTouchTurnCandleFailed(
                         sessionDate,
-                        error.message ?: "Failed to load 14-day ADR"
+                        message
                     )
                 }
                 return@launch
@@ -91,6 +101,14 @@ class TouchTurnSessionBootstrap(
             repository.update(instanceId) { current ->
                 candleResult.fold(
                     onSuccess = { bar ->
+                        SessionTrace.touchTurnData(
+                            deploymentId = instanceId,
+                            sessionId = current.inProgressSession()?.id,
+                            symbol = symbol,
+                            event = "data_ready",
+                            adr14 = adr14,
+                            barTime = bar.time
+                        )
                         val updated = current.withFirstFifteenMinuteCandle(
                             sessionDate = sessionDate,
                             candle = bar,
@@ -110,9 +128,17 @@ class TouchTurnSessionBootstrap(
                         updated
                     },
                     onFailure = { error ->
+                        val message = error.message ?: "Failed to load first 15-minute candle"
+                        SessionTrace.touchTurnData(
+                            deploymentId = instanceId,
+                            sessionId = current.inProgressSession()?.id,
+                            symbol = symbol,
+                            event = "candle_failed",
+                            message = message
+                        )
                         current.withTouchTurnCandleFailed(
                             sessionDate,
-                            error.message ?: "Failed to load first 15-minute candle"
+                            message
                         )
                     }
                 )

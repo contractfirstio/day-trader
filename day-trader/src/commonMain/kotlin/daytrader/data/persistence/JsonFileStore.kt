@@ -1,8 +1,11 @@
 package daytrader.data.persistence
 
+import daytrader.domain.SessionTrade
 import daytrader.platform.AppFileSystem
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.serializer
 
 object JsonFileStore {
@@ -28,6 +31,29 @@ object JsonFileStore {
     fun writeStrategiesScreen(document: StrategiesScreenDocument) {
         write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
+
+    fun appendSessionTraceLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun encodeSessionTradesForTrace(trades: List<SessionTrade>): JsonElement =
+        json.encodeToJsonElement(
+            trades.map { trade ->
+                SessionTradeRecord(
+                    execId = trade.execId,
+                    orderId = trade.orderId,
+                    permId = trade.permId,
+                    parentOrderId = trade.parentOrderId,
+                    side = trade.side,
+                    quantity = trade.quantity,
+                    price = trade.price,
+                    time = trade.time,
+                    currency = trade.currency,
+                    commission = trade.commission,
+                    realizedPnL = trade.realizedPnL
+                )
+            }
+        )
 
     internal fun readLegacyStrategyInstances(): LegacyDeploymentsDocument? =
         read<LegacyDeploymentsDocument>(AppDataFiles.LEGACY_STRATEGY_INSTANCES)
