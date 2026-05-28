@@ -186,5 +186,6 @@ data class StrategiesScreenDocument(
     /** Legacy key from pre-refactor `strategies-screen.json`; cleared on next save. */
     val selectedInstanceId: String? = null,
     val detailTab: String = "configuration",
-    val globalAutoStartEnabled: Boolean = true
+    val globalAutoStartEnabled: Boolean = true,
+    val tradingPanelDismissedRecapSessionId: Map<String, String> = emptyMap(),
 )

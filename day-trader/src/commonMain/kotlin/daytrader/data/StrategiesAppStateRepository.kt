@@ -24,7 +24,12 @@ data class StrategiesAppState(
     val strategyTypeFilter: StrategyType? = null,
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     /** Master switch: when false, no deployment auto-starts at market open. */
-    val globalAutoStartEnabled: Boolean = true
+    val globalAutoStartEnabled: Boolean = true,
+    /**
+     * deploymentId → closed session run id hidden on the Trading tab.
+     * A new closed run with a different id shows the recap again.
+     */
+    val tradingPanelDismissedRecapSessionId: Map<String, String> = emptyMap(),
 )
 
 interface StrategiesAppStateRepository {

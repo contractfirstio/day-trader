@@ -80,9 +80,10 @@ fun TouchTurnPipelineSectionStart(
             color = TextSecondary
         )
         Text(
-            when (instance.status) {
-                DeploymentStatus.RUNNING -> "Session is running."
-                else -> "Session ended — review each pipeline step above."
+            when {
+                instance.status == DeploymentStatus.RUNNING -> "Session is running."
+                run != null -> "Session ended — review each pipeline step above."
+                else -> "Deployment stopped. Start a session to begin the next run."
             },
             fontSize = 12.sp,
             color = Color.White
