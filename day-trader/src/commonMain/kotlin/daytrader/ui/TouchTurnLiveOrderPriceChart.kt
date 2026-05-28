@@ -227,14 +227,22 @@ fun TouchTurnLiveOrderPriceChart(
 }
 
 private fun buildPriceSeries(history: List<Double>, currentPrice: Double?): List<Double> {
-    if (history.isEmpty()) {
-        return currentPrice?.takeIf { it > 0.0 }?.let { listOf(it) } ?: emptyList()
+    // Guard against malformed chart snapshots (e.g. nullable platform values crossing boundaries).
+    val sanitized = history.mapNotNull { value ->
+        value.takeIf { it.isFinite() && it > 0.0 }
     }
-    val last = history.last()
-    return if (currentPrice != null && currentPrice > 0.0 && currentPrice != last) {
-        history + currentPrice
+    if (sanitized.isEmpty()) {
+        return currentPrice?.takeIf { it.isFinite() && it > 0.0 }?.let { listOf(it) } ?: emptyList()
+    }
+    val last = sanitized.lastOrNull()
+    return if (currentPrice != null &&
+        currentPrice.isFinite() &&
+        currentPrice > 0.0 &&
+        currentPrice != last
+    ) {
+        sanitized + currentPrice
     } else {
-        history
+        sanitized
     }
 }
 

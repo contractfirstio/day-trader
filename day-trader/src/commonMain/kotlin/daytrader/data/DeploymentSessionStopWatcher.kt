@@ -66,10 +66,11 @@ class DeploymentSessionStopWatcher(
                 hasOpenPosition = hasOpenPosition,
                 hasOpenOrders = hasOpenOrders
             )
+            val stopAfterNoTradeDecision = DeploymentSessionStopLogic.shouldStopAfterNoTradeDecision(instance)
             val stopAfterDeadline =
                 DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, now) ==
                     DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE
-            if (stopAfterTrade || stopAfterDeadline) {
+            if (stopAfterTrade || stopAfterNoTradeDecision || stopAfterDeadline) {
                 SessionTrace.autoStopCheck(
                     deploymentId = instance.id,
                     symbol = instance.symbol,
@@ -80,6 +81,10 @@ class DeploymentSessionStopWatcher(
                     tradeCycleComplete = stopAfterTrade
                 )
                 stampClosingMilestone(instance.id)
+            }
+            if (stopAfterNoTradeDecision) {
+                stopInstance(instance, positions, TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN)
+                continue
             }
             if (stopAfterTrade) {
                 stopInstance(instance, positions, TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN)

@@ -24,7 +24,7 @@ class BrokerEmulatorEngine(
     private val config: BrokerEmulatorConfig = BrokerEmulatorConfig.Default,
     private val emit: (GatewayEvent) -> Unit,
     private val onSymbolNeedsLiveQuotes: (String) -> Unit = {},
-    private val random: Random = Random(42)
+    private val random: Random = Random.Default
 ) {
     private val catalog = EmulatorSeedCatalog.instruments()
     private val quoteBook = EmulatorQuoteBook(config.pricingSource)
@@ -205,7 +205,15 @@ class BrokerEmulatorEngine(
                 isLongPosition = isBuyEntry,
                 direction = directionTowardTarget(towardTp, targetExit)
             )
-            val initialMark = adjustedPlan.openingBarClose?.takeIf { it > 0.0 } ?: entryPrice
+            val startOffset = (range * config.touchTurnEntryStartOffsetPctOfRange).coerceAtLeast(0.01)
+            val initialMarkFromOffset = if (isBuyEntry) {
+                // Buy limit should start above entry so price has to come down to fill.
+                entryPrice + startOffset
+            } else {
+                // Sell limit should start below entry so price has to rise to fill.
+                entryPrice - startOffset
+            }
+            val initialMark = initialMarkFromOffset.coerceIn(floor, ceiling)
             val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
                 range = range,
                 referencePrice = initialMark,

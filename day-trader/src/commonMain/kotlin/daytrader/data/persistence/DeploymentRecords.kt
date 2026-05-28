@@ -46,6 +46,7 @@ data class TouchTurnMilestoneTimestampsRecord(
     val dataFailedAt: String? = null,
     val barClosedAt: String? = null,
     val liquidityEvaluatedAt: String? = null,
+    val closeConfirmedAt: String? = null,
     val ordersPlacedAt: String? = null,
     val positionOpenedAt: String? = null,
     val closingSessionAt: String? = null

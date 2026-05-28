@@ -32,6 +32,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnSessionContext
@@ -41,6 +42,7 @@ import daytrader.presentation.strategies.TouchTurnExecutedBracketLegs
 import daytrader.presentation.strategies.toLevelKinds
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.LiquidityCalculationUi
+import daytrader.presentation.strategies.CloseConfirmationUi
 import daytrader.presentation.strategies.OpeningBarDetailUi
 import daytrader.presentation.strategies.SessionDataCaptureUi
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
@@ -130,6 +132,8 @@ fun TouchTurnPipelineSectionClose(
                     TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> "Outcome: bracket orders were submitted."
                     TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Outcome: no trade — opening bar was not liquid."
                     TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Outcome: no trade — doji / non-actionable bar."
+                    TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
+                        "Outcome: no trade — opening candle close did not confirm turn."
                     TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED -> "Outcome: no trade — data load failed."
                     TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Outcome: no trade — entry window expired."
                     TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "Outcome: no trade — order rejected."
@@ -425,6 +429,7 @@ fun TouchTurnPipelineSectionOrdersPreview(
     }
     val closeStatus = remember(session, tick) { session.candleCloseStatus() }
     val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
+    val closeConfirmation = remember(session, tick) { session.closeConfirmation() }
     val currency = session.currencyCode
     val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
 
@@ -433,10 +438,11 @@ fun TouchTurnPipelineSectionOrdersPreview(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (liquidityEval != LiquidityCandleEvaluation.LIQUIDITY ||
+            closeConfirmation != TouchTurnCloseConfirmation.PASSED ||
             closeStatus != FirstCandleCloseStatus.CLOSED
         ) {
             Text(
-                "Bracket preview is available once the bar is closed and passes the liquidity check.",
+                "Bracket preview is available once bar close passes liquidity and close-confirmation checks.",
                 fontSize = 11.sp,
                 color = TextSecondary
             )
@@ -504,6 +510,30 @@ fun TouchTurnPipelineSectionOrdersPreview(
 }
 
 @Composable
+fun TouchTurnPipelineSectionConfirmation(
+    session: TouchTurnSessionContext?,
+    modifier: Modifier = Modifier
+) {
+    if (session?.candle == null) {
+        Text("Close confirmation runs after liquidity is evaluated.", fontSize = 12.sp, color = TextSecondary)
+        return
+    }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(session.candle?.time, session.marketZoneId) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
+    val confirmation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.closeConfirmation(session) }
+    if (confirmation == null) {
+        Text("Close confirmation unavailable.", fontSize = 12.sp, color = TextSecondary)
+        return
+    }
+    TouchTurnCloseConfirmationCard(confirmation = confirmation, modifier = modifier)
+}
+
+@Composable
 fun TouchTurnPipelineSectionNoTrade(
     session: TouchTurnSessionContext?,
     graph: TouchTurnPipelineGraph?,
@@ -547,7 +577,7 @@ fun TouchTurnPipelineSectionNoTrade(
             }
             else -> {
                 Text(
-                    "No-trade path applies when liquidity fails or entry is blocked.",
+                    "No-trade path applies when liquidity fails, close confirmation fails, or entry is blocked.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -555,6 +585,48 @@ fun TouchTurnPipelineSectionNoTrade(
         }
         graph?.node(TouchTurnPipelineNodeId.Liquidity)?.timestamp?.let { time ->
             Text("Liquidity evaluated $time", fontSize = 10.sp, color = TextSecondary)
+        }
+        graph?.node(TouchTurnPipelineNodeId.Confirmation)?.timestamp?.let { time ->
+            Text("Close confirmation evaluated $time", fontSize = 10.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnCloseConfirmationCard(
+    confirmation: CloseConfirmationUi,
+    modifier: Modifier = Modifier
+) {
+    val statusColor = when (confirmation.confirmation) {
+        TouchTurnCloseConfirmation.PASSED -> GainGreen
+        TouchTurnCloseConfirmation.FAILED -> LossRed
+        TouchTurnCloseConfirmation.AWAITING_LIQUIDITY -> Color(0xFFFFB74D)
+        TouchTurnCloseConfirmation.UNKNOWN -> TextSecondary
+    }
+    val verdict = when (confirmation.confirmation) {
+        TouchTurnCloseConfirmation.PASSED -> "Close confirmation passed — close is outside the stop-to-entry band."
+        TouchTurnCloseConfirmation.FAILED -> "Close confirmation failed — close stayed between stop and entry."
+        TouchTurnCloseConfirmation.AWAITING_LIQUIDITY -> "Waiting for liquidity evaluation."
+        TouchTurnCloseConfirmation.UNKNOWN -> "Close confirmation unavailable."
+    }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(verdict, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = statusColor)
+        val close = confirmation.closePrice
+        val entry = confirmation.entryPrice
+        val stop = confirmation.stopPrice
+        if (close != null && entry != null && stop != null) {
+            Text(
+                "Close ${Formatters.moneyPlain(close, confirmation.currency)} · " +
+                    "Entry ${Formatters.moneyPlain(entry, confirmation.currency)} · " +
+                    "Stop ${Formatters.moneyPlain(stop, confirmation.currency)}",
+                fontSize = 11.sp,
+                color = Color.White
+            )
+            Text(
+                "Rule: confirm when close is NOT between stop and entry.",
+                fontSize = 10.sp,
+                color = TextSecondary
+            )
         }
     }
 }

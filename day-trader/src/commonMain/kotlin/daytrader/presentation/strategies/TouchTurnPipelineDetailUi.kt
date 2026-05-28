@@ -5,6 +5,7 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnDefaults
+import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionContext
@@ -57,6 +58,16 @@ data class LiquidityCalculationUi(
     val canCompare: Boolean
         get() = passes != null && evaluation != LiquidityCandleEvaluation.UNKNOWN
 }
+
+data class CloseConfirmationUi(
+    val confirmation: TouchTurnCloseConfirmation,
+    val closePositionRatio: Double?,
+    val closePrice: Double?,
+    val entryPrice: Double?,
+    val stopPrice: Double?,
+    val passes: Boolean?,
+    val currency: String
+)
 
 object TouchTurnPipelineDetailUiMapper {
     fun sessionDataCapture(session: TouchTurnSessionContext): SessionDataCaptureUi =
@@ -124,6 +135,29 @@ object TouchTurnPipelineDetailUiMapper {
             barLow = candle.low,
             barRange = candle.range,
             passes = passes,
+            currency = session.currencyCode
+        )
+    }
+
+    fun closeConfirmation(
+        session: TouchTurnSessionContext,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): CloseConfirmationUi? {
+        val candle = session.candle ?: return null
+        val setup = session.setup
+        val confirmation = session.closeConfirmation(nowEpochMillis)
+        val ratio = TouchTurnLogic.closePositionRatio(candle)
+        return CloseConfirmationUi(
+            confirmation = confirmation,
+            closePositionRatio = ratio,
+            closePrice = candle.close,
+            entryPrice = setup?.entry,
+            stopPrice = setup?.stopLoss,
+            passes = when (confirmation) {
+                TouchTurnCloseConfirmation.PASSED -> true
+                TouchTurnCloseConfirmation.FAILED -> false
+                else -> null
+            },
             currency = session.currencyCode
         )
     }

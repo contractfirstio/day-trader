@@ -15,6 +15,7 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_DATA_FAILED,
     NO_TRADE_NOT_LIQUIDITY,
     NO_TRADE_DOJI,
+    NO_TRADE_CLOSE_CONFIRMATION_FAILED,
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
     NO_TRADE_ORDER_REJECTED,
     TRADE_BRACKET_SUBMITTED
@@ -92,10 +93,13 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     if (session.status == TouchTurnCandleStatus.FAILED) return TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
     if (session.ordersPlacedForSession) return TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
     val setup = session.setup ?: return TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
-    if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-    if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
     val liquidityEvaluatedAt = session.milestones.liquidityEvaluatedAt?.let(::parseIsoToEpochMillis)
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
+    if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+    if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
+    if (session.closeConfirmation(evalInstant) == TouchTurnCloseConfirmation.FAILED) {
+        return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+    }
     if (session.entryWindowStatus(evalInstant) == TouchTurnEntryWindowStatus.EXPIRED) {
         return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
     }

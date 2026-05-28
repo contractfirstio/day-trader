@@ -1711,6 +1711,8 @@ private fun TouchTurnLivePipelineDetailHost(
                 TouchTurnPipelineSectionBar(session = analysisSession)
             TouchTurnPipelineNodeId.Liquidity ->
                 TouchTurnPipelineSectionLiquidity(session = analysisSession)
+            TouchTurnPipelineNodeId.Confirmation ->
+                TouchTurnPipelineSectionConfirmation(session = analysisSession)
             TouchTurnPipelineNodeId.Orders -> {
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
                     TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)

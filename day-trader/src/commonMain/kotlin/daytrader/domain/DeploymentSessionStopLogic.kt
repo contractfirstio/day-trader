@@ -15,6 +15,24 @@ enum class DeploymentSessionStopAction {
 
 object DeploymentSessionStopLogic {
     /**
+     * Touch Turn: stop immediately once a no-trade decision is known for the active session.
+     * This is market-zone agnostic because it keys off the resolved decision outcome only.
+     */
+    fun shouldStopAfterNoTradeDecision(instance: StrategyDeployment): Boolean {
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return false
+        return when (instance.touchTurnSession?.decisionOutcome) {
+            TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
+            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> true
+            TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            null -> false
+        }
+    }
+
+    /**
      * True when this run had a completed round-trip (entry + exit fill), is flat, and
      * session P&L (win/loss) can be recorded on stop.
      */
@@ -43,9 +61,13 @@ object DeploymentSessionStopLogic {
         return hasEntry && hasExit
     }
 
+    /**
+     * Prefer Touch Turn live session date because it is anchored to the strategy market zone.
+     * In-progress row date can be based on local machine date and drift for non-US sessions.
+     */
     fun sessionDateForRunningInstance(instance: StrategyDeployment): String? =
-        instance.inProgressSession()?.date
-            ?: instance.touchTurnSession?.sessionDate
+        instance.touchTurnSession?.sessionDate
+            ?: instance.inProgressSession()?.date
             ?: instance.lastAutoStartSessionDate
 
     /**
