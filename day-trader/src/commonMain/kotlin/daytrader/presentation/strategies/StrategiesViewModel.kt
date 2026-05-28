@@ -698,7 +698,11 @@ class StrategiesViewModel(
                         positions = brokerPositions,
                         quotes = brokerQuotes,
                         openOrders = brokerOpenOrders,
-                        connection = brokerConnection
+                        connection = brokerConnection,
+                        includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
+                            instance,
+                            state.tradingPanelDismissedRecapSessionId,
+                        ),
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
@@ -721,6 +725,12 @@ class StrategiesViewModel(
                 globalAutoStartEnabled = state.globalAutoStartEnabled,
                 tradingPanelShowsLastSessionRecap = selected?.let { instance ->
                     TradingPanelRecap.showsLastSession(
+                        instance,
+                        state.tradingPanelDismissedRecapSessionId,
+                    )
+                } == true,
+                tradingPanelShowsLiveMarketQuotes = selected?.let { instance ->
+                    TradingPanelRecap.showsLiveMarketQuotes(
                         instance,
                         state.tradingPanelDismissedRecapSessionId,
                     )

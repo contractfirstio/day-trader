@@ -207,6 +207,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveSessionTrades = uiState.liveSessionTrades,
                 touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
                 tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
+                tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = viewModel::onResetTradingPanel,
                 onTabChange = viewModel::onDetailTabChange,
                 onResolveSymbol = viewModel::resolveInstrumentForSymbol,
@@ -239,6 +240,7 @@ private fun StrategyDeploymentDetailPanel(
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: (String) -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -272,6 +274,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveSessionTrades = liveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
@@ -835,6 +838,7 @@ private fun StrategyDeploymentDetail(
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: () -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -916,7 +920,7 @@ private fun StrategyDeploymentDetail(
             }
         }
 
-        if (detailTab == StrategyDetailTab.LIVE) {
+        if (detailTab == StrategyDetailTab.LIVE && tradingPanelShowsLiveMarketQuotes) {
             liveBroker?.let { broker -> TradingTabLiveMarketStrip(broker) }
         }
 

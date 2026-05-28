@@ -16,4 +16,14 @@ object TradingPanelRecap {
         val lastClosed = instance.lastClosedTouchTurnSession() ?: return false
         return dismissedRecapSessionIdByDeployment[instance.id] != lastClosed.id
     }
+
+    /** Whether bid/ask/last should appear on the Trading tab for this deployment. */
+    fun showsLiveMarketQuotes(
+        instance: StrategyDeployment,
+        dismissedRecapSessionIdByDeployment: Map<String, String>,
+    ): Boolean {
+        if (instance.status == DeploymentStatus.RUNNING) return true
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return false
+        return showsLastSession(instance, dismissedRecapSessionIdByDeployment)
+    }
 }
