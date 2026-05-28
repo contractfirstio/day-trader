@@ -8,6 +8,8 @@ enum class SessionHistorySortColumn {
 
 data class StrategySessionRowUi(
     val id: String,
+    val deploymentId: String,
+    val sessionLogFolder: String,
     val formattedSessionTime: String,
     val positionLine: String,
     val hasTradeDetail: Boolean,

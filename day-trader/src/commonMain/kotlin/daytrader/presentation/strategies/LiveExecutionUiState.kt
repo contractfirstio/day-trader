@@ -5,6 +5,8 @@ import daytrader.domain.DeploymentStatus
 
 data class LiveExecutionUiState(
     val instanceId: String,
+    val sessionId: String? = null,
+    val sessionLogFolder: String? = null,
     val showPanel: Boolean,
     val isRunning: Boolean,
     val canManagePosition: Boolean,

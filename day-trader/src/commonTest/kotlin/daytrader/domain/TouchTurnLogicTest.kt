@@ -290,7 +290,11 @@ class TouchTurnLogicTest {
         val evaluated = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 10_000)
         assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
         val lateEval = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 90_000)
-        assertEquals(true, lateEval.touchTurnSession?.entryOrdersPermitted)
+        assertEquals(false, lateEval.touchTurnSession?.entryOrdersPermitted)
+        assertEquals(
+            TouchTurnCloseConfirmation.EXPIRED,
+            lateEval.touchTurnSession?.closeConfirmation(barEnd + 90_000)
+        )
     }
 
     @Test
@@ -372,5 +376,101 @@ class TouchTurnLogicTest {
         assertTrue(setup.isLiquidityCandle)
         assertEquals(FirstCandleColor.GREEN, TouchTurnLogic.firstCandleColor(bar))
         assertTrue(setup.isActionable)
+    }
+
+    @Test
+    fun closeConfirmation_passesWhenGreenCloseBelowEntryWithinOneMinuteOfBarClose() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 410.0,
+            low = 400.0,
+            close = 405.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val now = barEnd + 30_000
+        assertEquals(
+            TouchTurnCloseConfirmation.PASSED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+        )
+        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+        assertTrue(TouchTurnLogic.closeConfirmationWithinDeadline(bar, "Asia/Hong_Kong", now))
+    }
+
+    @Test
+    fun closeConfirmation_failsWhenGreenCloseAtOrAboveEntry() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 410.0,
+            low = 400.0,
+            close = 410.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val now = barEnd + 30_000
+        assertEquals(
+            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+        )
+        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+    }
+
+    @Test
+    fun closeConfirmation_passesWhenRedCloseAboveEntryWithinOneMinuteOfBarClose() {
+        val bar = OhlcBar(
+            open = 410.0,
+            high = 410.0,
+            low = 400.0,
+            close = 405.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val now = barEnd + 30_000
+        assertEquals(
+            TouchTurnCloseConfirmation.PASSED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+        )
+        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+    }
+
+    @Test
+    fun closeConfirmation_failsWhenRedCloseAtOrBelowEntry() {
+        val bar = OhlcBar(
+            open = 410.0,
+            high = 410.0,
+            low = 400.0,
+            close = 400.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val now = barEnd + 30_000
+        assertEquals(
+            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+        )
+        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+    }
+
+    @Test
+    fun closeConfirmation_expiredWhenMoreThanOneMinuteAfterBarClose() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 410.0,
+            low = 400.0,
+            close = 405.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val now = barEnd + 90_000
+        assertEquals(
+            TouchTurnCloseConfirmation.EXPIRED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+        )
+        assertFalse(TouchTurnLogic.closeConfirmationWithinDeadline(bar, "Asia/Hong_Kong", now))
     }
 }

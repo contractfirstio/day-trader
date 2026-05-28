@@ -1,5 +1,7 @@
 package daytrader.domain
 
+import daytrader.diagnostics.TimestampedConsoleLog
+
 /**
  * Console logging for symbol → venue listing resolution.
  * Enabled by default; set DAY_TRADER_INSTRUMENT_RESOLVE_LOGS=false to disable.
@@ -10,7 +12,7 @@ object InstrumentResolveLog {
             ?.equals("false", ignoreCase = true) != true
 
     fun line(message: String) {
-        if (enabled) println("[InstrumentResolve] $message")
+        if (enabled) TimestampedConsoleLog.line("InstrumentResolve", message)
     }
 
     fun resolveStarted(symbol: String, source: String) {

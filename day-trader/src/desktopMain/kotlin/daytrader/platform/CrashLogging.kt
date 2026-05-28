@@ -1,5 +1,6 @@
 package daytrader.platform
 
+import daytrader.diagnostics.LogTimestamps
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlin.coroutines.CoroutineContext
@@ -15,7 +16,7 @@ object CrashLogging {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 System.err.println(
-                    "[uncaught] thread=${thread.name} " +
+                    "${LogTimestamps.now().at} [uncaught] thread=${thread.name} " +
                         "exception=${throwable.javaClass.name}: ${throwable.message}"
                 )
                 throwable.printStackTrace(System.err)
@@ -39,7 +40,8 @@ object CrashLogging {
         val thread = Thread.currentThread()
         val coroutineName = ctx[CoroutineName]?.name
         return buildString {
-            append("[coroutine-uncaught] tag=").append(tag)
+            append(LogTimestamps.now().at)
+            append(" [coroutine-uncaught] tag=").append(tag)
             append(" thread=").append(thread.name)
             if (coroutineName != null) append(" coroutine=").append(coroutineName)
             append(" exception=").append(throwable.javaClass.name)

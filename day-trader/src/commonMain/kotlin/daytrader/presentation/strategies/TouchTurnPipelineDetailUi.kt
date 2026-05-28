@@ -65,6 +65,7 @@ data class CloseConfirmationUi(
     val closePrice: Double?,
     val entryPrice: Double?,
     val stopPrice: Double?,
+    val remainingMillis: Long?,
     val passes: Boolean?,
     val currency: String
 )
@@ -147,15 +148,22 @@ object TouchTurnPipelineDetailUiMapper {
         val setup = session.setup
         val confirmation = session.closeConfirmation(nowEpochMillis)
         val ratio = TouchTurnLogic.closePositionRatio(candle)
+        val remainingMillis = TouchTurnLogic.closeConfirmationRemainingMillis(
+            candle,
+            session.marketZoneId,
+            nowEpochMillis
+        )
         return CloseConfirmationUi(
             confirmation = confirmation,
             closePositionRatio = ratio,
             closePrice = candle.close,
             entryPrice = setup?.entry,
             stopPrice = setup?.stopLoss,
+            remainingMillis = remainingMillis,
             passes = when (confirmation) {
                 TouchTurnCloseConfirmation.PASSED -> true
-                TouchTurnCloseConfirmation.FAILED -> false
+                TouchTurnCloseConfirmation.FAILED,
+                TouchTurnCloseConfirmation.EXPIRED -> false
                 else -> null
             },
             currency = session.currencyCode

@@ -45,6 +45,11 @@ class SessionHistoryUiMapperTest {
         assertEquals(1, filtered.rows.size)
         val row = filtered.rows.single()
         assertEquals("hk", row.id)
+        assertEquals(deployment.id, row.deploymentId)
+        assertEquals(
+            SessionLogUi.logFolderRelativePath(deployment.id, "hk"),
+            row.sessionLogFolder
+        )
         assertEquals("HK", filtered.marketFilterLabel)
     }
 

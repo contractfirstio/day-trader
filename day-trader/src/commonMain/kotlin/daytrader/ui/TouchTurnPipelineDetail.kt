@@ -135,7 +135,8 @@ fun TouchTurnPipelineSectionClose(
                     TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
                         "Outcome: no trade — opening candle close did not confirm turn."
                     TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED -> "Outcome: no trade — data load failed."
-                    TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Outcome: no trade — entry window expired."
+                    TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
+                        "Outcome: no trade — close confirmation window expired (1 minute after bar close)."
                     TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "Outcome: no trade — order rejected."
                 },
                 fontSize = 11.sp,
@@ -577,7 +578,7 @@ fun TouchTurnPipelineSectionNoTrade(
             }
             else -> {
                 Text(
-                    "No-trade path applies when liquidity fails, close confirmation fails, or entry is blocked.",
+                    "No-trade path applies when liquidity fails or close confirmation fails or expires.",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -599,13 +600,16 @@ private fun TouchTurnCloseConfirmationCard(
 ) {
     val statusColor = when (confirmation.confirmation) {
         TouchTurnCloseConfirmation.PASSED -> GainGreen
-        TouchTurnCloseConfirmation.FAILED -> LossRed
+        TouchTurnCloseConfirmation.FAILED,
+        TouchTurnCloseConfirmation.EXPIRED -> LossRed
         TouchTurnCloseConfirmation.AWAITING_LIQUIDITY -> Color(0xFFFFB74D)
         TouchTurnCloseConfirmation.UNKNOWN -> TextSecondary
     }
     val verdict = when (confirmation.confirmation) {
-        TouchTurnCloseConfirmation.PASSED -> "Close confirmation passed — close is outside the stop-to-entry band."
-        TouchTurnCloseConfirmation.FAILED -> "Close confirmation failed — close stayed between stop and entry."
+        TouchTurnCloseConfirmation.PASSED -> "Close confirmation passed — close confirms the turn vs entry."
+        TouchTurnCloseConfirmation.FAILED -> "Close confirmation failed — close did not confirm the turn vs entry."
+        TouchTurnCloseConfirmation.EXPIRED ->
+            "Close confirmation expired — more than 1 minute since the 15-minute bar closed."
         TouchTurnCloseConfirmation.AWAITING_LIQUIDITY -> "Waiting for liquidity evaluation."
         TouchTurnCloseConfirmation.UNKNOWN -> "Close confirmation unavailable."
     }
@@ -623,11 +627,29 @@ private fun TouchTurnCloseConfirmationCard(
                 color = Color.White
             )
             Text(
-                "Rule: confirm when close is NOT between stop and entry.",
+                "Rule: green bar requires close below entry; red bar requires close above entry. " +
+                    "Both checks must pass within 1 minute of bar close.",
                 fontSize = 10.sp,
                 color = TextSecondary
             )
+            confirmation.remainingMillis?.let { remaining ->
+                Text(
+                    "Time remaining in confirmation window: ${formatConfirmationCountdown(remaining)}",
+                    fontSize = 10.sp,
+                    color = if (remaining > 0) Color(0xFFFFB74D) else TextSecondary
+                )
+            }
         }
+    }
+}
+
+private fun formatConfirmationCountdown(remainingMillis: Long): String {
+    val totalSec = remainingMillis / 1000
+    val m = totalSec / 60
+    val s = totalSec % 60
+    return when {
+        m > 0 -> "${m}m ${s}s"
+        else -> "${s}s"
     }
 }
 

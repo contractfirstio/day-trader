@@ -231,6 +231,12 @@ private fun SessionHistoryAccordionRow(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    SessionLogReference(
+                        deploymentId = row.deploymentId,
+                        sessionId = row.id,
+                        compact = true,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
             }
             if (row.canDelete) {
@@ -380,7 +386,7 @@ private fun SessionHistoryExpandedSections(
                                 TouchTurnPipelineSectionNoTrade(session = null, graph = graph)
                             TouchTurnPipelineNodeId.Confirmation ->
                                 Text(
-                                    "Close confirmation gate uses opening candle close position within range.",
+                                    "Close confirmation: green bar needs close below entry; red bar needs close above entry.",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )

@@ -15,4 +15,6 @@ expect object AppFileSystem {
     /** Appends a single line (caller supplies trailing newline if needed). */
     fun appendLine(fileName: String, line: String)
     fun deleteIfExists(fileName: String)
+    /** Absolute path for a relative app-data file (e.g. diagnostics). */
+    fun dataFilePath(fileName: String): String
 }

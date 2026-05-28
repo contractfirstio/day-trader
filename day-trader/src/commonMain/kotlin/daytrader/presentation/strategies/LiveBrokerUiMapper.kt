@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.broker.SymbolMarkets
+import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
@@ -83,8 +84,9 @@ object LiveBrokerUiMapper {
             ?: quote?.last?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
 
         if (livePriceUiLogsEnabled) {
-            println(
-                "[LIVE_PRICE_UI] symbol=$symbol connected=$isConnected " +
+            TimestampedConsoleLog.line(
+                "LIVE_PRICE_UI",
+                "symbol=$symbol connected=$isConnected " +
                     "posFound=${accountPosition != null} quoteFound=${quote != null} " +
                     "bid=${accountPosition?.bidPrice ?: quote?.bid} ask=${accountPosition?.askPrice ?: quote?.ask} " +
                     "last=${accountPosition?.lastTradePrice ?: quote?.last} mkt=${accountPosition?.marketPrice} " +

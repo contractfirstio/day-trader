@@ -26,10 +26,11 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
                 simulateOrderProgress = false,
                 touchTurnEntryFillImmediately = true,
                 bracketWalkStepPctOfRange = 0.5,
-                bracketWalkDirectionFlipChance = 0.0
+                bracketWalkDirectionFlipChance = 0.0,
+                bracketExitTakeProfitProbability = 0.0
             ),
             emit = { events.add(it) },
-            random = kotlin.random.Random(3)
+            random = kotlin.random.Random(1)
         )
         engine.handleConnect()
         engine.finishConnect()

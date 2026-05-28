@@ -144,9 +144,11 @@ actual object AppFileSystem {
         Files.deleteIfExists(path)
     }
 
+    actual fun dataFilePath(fileName: String): String = resolveDataPath(fileName).toString()
+
     private fun resolveDataPath(fileName: String): Path {
         val scope = dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
-        val scopeBase = if (isSessionTraceFile(fileName)) {
+        val scopeBase = if (isRunScopedFile(fileName)) {
             traceRunBaseDirectory().resolve(scope.dataDirectorySegment)
         } else {
             stableBaseDataDirectory().resolve(scope.dataDirectorySegment)
@@ -154,9 +156,12 @@ actual object AppFileSystem {
         return scopeBase.resolve(fileName)
     }
 
-    private fun isSessionTraceFile(fileName: String): Boolean {
+    private fun isRunScopedFile(fileName: String): Boolean =
+        isIbPriceLogFile(fileName)
+
+    private fun isIbPriceLogFile(fileName: String): Boolean {
         val normalized = fileName.replace('\\', '/')
-        return normalized == AppDataFiles.SESSION_TRACES_DIR ||
-            normalized.startsWith("${AppDataFiles.SESSION_TRACES_DIR}/")
+        return normalized == AppDataFiles.IB_PRICES_DIR ||
+            normalized.startsWith("${AppDataFiles.IB_PRICES_DIR}/")
     }
 }
