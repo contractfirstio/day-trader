@@ -65,4 +65,6 @@ data class StrategiesUiState(
     val globalAutoStartEnabled: Boolean = true,
     /** When false, the Trading tab shows an idle pipeline instead of the last closed session. */
     val tradingPanelShowsLastSessionRecap: Boolean = false,
+    /** When false, bid/ask/last are hidden on the Trading tab (idle Touch Turn panel). */
+    val tradingPanelShowsLiveMarketQuotes: Boolean = false,
 )

@@ -4,22 +4,23 @@ import daytrader.data.StrategiesAppState
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.StrategyCatalog
 import daytrader.data.StrategyDeploymentRepository
-import daytrader.broker.SessionTradeMatcher
-import daytrader.domain.currentSessionTimestampIso
+import daytrader.domain.lastClosedTouchTurnSession
+import daytrader.domain.withStopPrice
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
-import daytrader.data.DeploymentSessionController
 import daytrader.data.LiveMarketDataLifecycle
-import daytrader.data.DeploymentSessionStopWatcher
-import daytrader.data.SessionStopOrderCleanup
-import daytrader.data.MarketOpenAutoStarter
-import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.MarketOpenCountdownWatcher
-import daytrader.data.TouchTurnSessionBootstrap
+import daytrader.data.PreMarketClosePositionWatcher
+import daytrader.engine.TouchTurnCommand
+import daytrader.engine.TouchTurnEngineConfig
+import daytrader.engine.TouchTurnEnginePort
+import daytrader.engine.TouchTurnEvent
+import daytrader.domain.TouchTurnSessionStartedBy
+import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.DeploymentStatus
@@ -36,15 +37,11 @@ import daytrader.domain.InstrumentListingCandidates
 import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
-import daytrader.domain.resolveStopSnapshot
-import daytrader.domain.SessionStopParams
-import daytrader.domain.inferTouchTurnStopTrigger
-import daytrader.domain.onSessionStopped
-import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
-import daytrader.domain.lastClosedTouchTurnSession
-import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.domain.withClosedPosition
-import daytrader.domain.withStopPrice
+import daytrader.domain.withoutSessionHistoryEntry
+import daytrader.diagnostics.TimestampedConsoleLog
+import daytrader.diagnostics.SessionTrace
+import daytrader.diagnostics.UiActionLog
 import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.markets.marketLabelForZone
@@ -67,22 +64,15 @@ class StrategiesViewModel(
     private val marketFilter: MarketFilterState,
     private val brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
+    private val touchTurnEngine: TouchTurnEnginePort? = null,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+    private val useTouchTurnEngine = touchTurnEngine != null && TouchTurnEngineConfig.useEngine()
     private val livePriceUiLogsEnabled: Boolean =
         System.getenv("DAY_TRADER_LIVE_PRICE_UI_LOGS")?.equals("true", ignoreCase = true) == true
-    private val touchTurnBootstrap = sessionGateway?.let { session ->
-        TouchTurnSessionBootstrap(
-            sessionGateway = session,
-            executionGateway = brokerGateway ?: session,
-            repository = repository,
-            scope = scope,
-            ensureLiveMarketData = ensureLiveMarketData
-        )
-    }
 
     private var appState = StrategiesAppState()
     private var showAddDialog = false
@@ -145,7 +135,6 @@ class StrategiesViewModel(
             gateway.positions
                 .onEach {
                     brokerPositions = it
-                    recordTouchTurnPositionMilestones(it)
                     recordTouchTurnLivePrices()
                     emitUiState()
                 }
@@ -171,23 +160,13 @@ class StrategiesViewModel(
                 .launchIn(scope)
         }
 
-        var previousSessionConnection: GatewayConnectionState? = null
-        sessionGateway?.connectionState
-            ?.onEach { state ->
-                if (state == GatewayConnectionState.Connected &&
-                    previousSessionConnection != GatewayConnectionState.Connected
-                ) {
-                    touchTurnBootstrap?.retryStuckLoadsWhenConnected()
-                }
-                previousSessionConnection = state
-            }
-            ?.launchIn(scope)
-
-        // Live bid/ask/last come from the session gateway (IB in hybrid mode), not the execution gateway.
         sessionGateway?.quotes
             ?.onEach { quotes ->
                 if (livePriceUiLogsEnabled && quotes.isNotEmpty()) {
-                    println("[LIVE_PRICE_UI] quotes snapshot keys=${quotes.keys} size=${quotes.size}")
+                    TimestampedConsoleLog.line(
+                        "LIVE_PRICE_UI",
+                        "quotes snapshot keys=${quotes.keys} size=${quotes.size}"
+                    )
                 }
                 brokerQuotes = quotes
                 recordTouchTurnLivePrices()
@@ -195,35 +174,108 @@ class StrategiesViewModel(
             }
             ?.launchIn(scope)
 
+        touchTurnEngine?.events
+            ?.onEach { event -> handleTouchTurnEvent(event) }
+            ?.launchIn(scope)
+
         MarketOpenCountdownWatcher(scope = scope).start()
         marketFilter.applyStartupDefaultIfNeeded()
 
-        MarketOpenAutoStarter(
-            repository = repository,
-            touchTurnBootstrap = touchTurnBootstrap,
-            scope = scope,
-            isGlobalAutoStartEnabled = { appState.globalAutoStartEnabled },
-            canStartDeployment = { instance ->
-                when (brokerConnection) {
-                    GatewayConnectionState.Connecting -> false
-                    else -> !SymbolMarkets.hasOpenPosition(instance.symbol, brokerPositions)
-                }
-            },
-            onDeploymentAutoStarted = { instanceId ->
-                appStateRepository.update {
-                    it.copy(selectedDeploymentId = instanceId, detailTab = StrategyDetailTab.LIVE)
-                }
-            }
-        ).start()
-
         brokerGateway?.let { gateway ->
-            DeploymentSessionStopWatcher(gateway, repository, scope).start()
             PreMarketClosePositionWatcher(gateway, repository, scope).start()
         }
     }
 
+    private fun handleTouchTurnEvent(event: TouchTurnEvent) {
+        when (event) {
+            is TouchTurnEvent.StartBlocked -> {
+                UiActionLog.log(
+                    action = "engine_start_blocked",
+                    symbol = event.alert.instanceSymbol,
+                    details = mapOf(
+                        "displayName" to event.alert.instanceDisplayName,
+                        "reason" to event.alert.reason
+                    )
+                )
+                startBlockedAlert = event.alert
+                emitUiState()
+            }
+            is TouchTurnEvent.UiNavigate -> {
+                UiActionLog.log(
+                    action = "engine_ui_navigate",
+                    deploymentId = event.instanceId,
+                    details = mapOf("tab" to event.tab.name)
+                )
+                appStateRepository.update {
+                    it.copy(selectedDeploymentId = event.instanceId, detailTab = event.tab)
+                }
+            }
+            is TouchTurnEvent.SessionStopped -> {
+                UiActionLog.log(
+                    action = "engine_session_stopped",
+                    deploymentId = event.instanceId,
+                    sessionId = event.sessionId,
+                    details = mapOf("trigger" to event.trigger.name)
+                )
+                appStateRepository.update {
+                    it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.SESSION_HISTORY)
+                }
+            }
+            is TouchTurnEvent.SessionStarted -> {
+                UiActionLog.log(
+                    action = "engine_session_started",
+                    deploymentId = event.instanceId,
+                    sessionId = event.sessionId,
+                    details = mapOf(
+                        "sessionDate" to event.sessionDate,
+                        "startedBy" to event.startedBy.name
+                    )
+                )
+                appStateRepository.update {
+                    it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.LIVE)
+                }
+            }
+            is TouchTurnEvent.NoTradeDecision -> {
+                UiActionLog.log(
+                    action = "engine_no_trade_decision",
+                    deploymentId = event.instanceId,
+                    details = mapOf("outcome" to event.outcome.name)
+                )
+            }
+            is TouchTurnEvent.BracketSubmitted -> {
+                UiActionLog.log(
+                    action = "engine_bracket_submitted",
+                    deploymentId = event.instanceId,
+                    symbol = event.plan.symbol,
+                    details = mapOf("orderCount" to event.plan.orders.size.toString())
+                )
+            }
+            is TouchTurnEvent.PositionOpened -> {
+                UiActionLog.log(
+                    action = "engine_position_opened",
+                    deploymentId = event.instanceId,
+                    details = mapOf("milestoneAt" to event.milestoneAt)
+                )
+            }
+            is TouchTurnEvent.OrchestratorError -> {
+                UiActionLog.log(
+                    action = "engine_orchestrator_error",
+                    deploymentId = event.instanceId,
+                    details = mapOf("message" to event.message)
+                )
+                SessionTrace.log(
+                    type = "orchestrator_error",
+                    deploymentId = event.instanceId,
+                    details = mapOf("message" to event.message)
+                )
+            }
+        }
+    }
+
     fun onGlobalAutoStartEnabledChange(enabled: Boolean) {
+        UiActionLog.log(action = "toggle_global_auto_start", details = mapOf("enabled" to enabled.toString()))
         appStateRepository.update { it.copy(globalAutoStartEnabled = enabled) }
+        (touchTurnEngine)?.updateGlobalAutoStartEnabled(enabled)
     }
 
     fun onSearchChange(query: String) {
@@ -378,6 +430,17 @@ class StrategiesViewModel(
             companyName = companyName,
             instrument = instrument
         ).copy(autoStartOnMarketOpen = autoStartOnMarketOpen)
+        UiActionLog.log(
+            action = "create_deployment",
+            deploymentId = instance.id,
+            symbol = instance.symbol,
+            details = mapOf(
+                "strategy" to strategyType.name,
+                "maxDollars" to maxDollars.toString(),
+                "autoStartOnMarketOpen" to autoStartOnMarketOpen.toString(),
+                "marketZoneId" to marketZoneId
+            )
+        )
         repository.add(instance)
         appStateRepository.update {
             it.copy(
@@ -404,73 +467,34 @@ class StrategiesViewModel(
         val sessionDate = currentSessionDateIso()
         val existing = repository.deployments.value.find { it.id == id } ?: return
         val wasRunning = existing.status == DeploymentStatus.RUNNING
-        if (!wasRunning) {
-            val blockingPosition = SymbolMarkets.findOpenPosition(existing, brokerPositions)
-            if (blockingPosition != null) {
-                startBlockedAlert = StartBlockedAlertMapper.from(existing, blockingPosition)
-                emitUiState()
-                return
-            }
-        }
-        val brokerPosition = SymbolMarkets.findOpenPosition(existing, brokerPositions)
-        val hadOpenPosition = brokerPosition != null
-        val hasOpenOrders = SymbolMarkets.hasOpenOrders(existing, brokerOpenOrders)
-        if (wasRunning) {
-            brokerGateway?.let { SessionStopOrderCleanup.flattenSymbolForSession(it, existing.symbol) }
-        }
-        repository.update(id) { current ->
-            if (current.status == DeploymentStatus.RUNNING) {
-                val stoppedAt = currentSessionTimestampIso()
-                val sessionTrades = SessionTradeMatcher.captureForSessionStop(
-                    instance = current,
-                    fills = brokerFills,
-                    stoppedAt = stoppedAt
-                )
-                val snapshot = current.resolveStopSnapshot(
-                    hadOpenBrokerPosition = hadOpenPosition,
-                    brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
-                    sessionTrades = sessionTrades
-                )
-                val stopTrigger = inferTouchTurnStopTrigger(
-                    instance = current,
-                    sessionTrades = sessionTrades,
-                    hasOpenPosition = hadOpenPosition,
-                    hasOpenOrders = hasOpenOrders
-                )
-                current.onSessionStopped(
-                    stoppedAt = stoppedAt,
-                    snapshot = snapshot,
-                    stopParams = brokerGateway?.let { gateway ->
-                        SessionStopParams(
-                            stopTrigger = stopTrigger,
-                            brokerId = gateway.brokerId,
-                            stopErrorMessage = current.touchTurnSession?.errorMessage,
-                            brokerUnrealizedPnLAtStop = brokerPosition?.totalUnrealizedPnL,
-                            hasOpenPosition = hadOpenPosition,
-                            hasOpenOrders = hasOpenOrders
-                        )
-                    }
+        UiActionLog.forDeployment(
+            deployment = existing,
+            action = if (wasRunning) "stop_session" else "start_session",
+            details = mapOf("sessionDate" to sessionDate)
+        )
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            if (!wasRunning) {
+                touchTurnEngine.dispatch(
+                    TouchTurnCommand.StartSession(
+                        instanceId = id,
+                        sessionDate = sessionDate,
+                        startedBy = TouchTurnSessionStartedBy.MANUAL
+                    )
                 )
             } else {
-                DeploymentSessionController.start(
-                    instance = current,
-                    sessionDate = sessionDate,
-                    touchTurnBootstrap = touchTurnBootstrap,
-                    markAutoStarted = false
+                touchTurnEngine.dispatch(
+                    TouchTurnCommand.StopSession(
+                        instanceId = id,
+                        trigger = TouchTurnSessionStopTrigger.MANUAL
+                    )
                 )
             }
+            syncDeploymentsFromRepository()
+            emitUiState()
+            return
         }
-        repository.flushPersistence()
         syncDeploymentsFromRepository()
-        if (!wasRunning) {
-            appStateRepository.update {
-                it.copy(selectedDeploymentId = id, detailTab = StrategyDetailTab.LIVE)
-            }
-        } else {
-            appStateRepository.update {
-                it.copy(selectedDeploymentId = id, detailTab = StrategyDetailTab.SESSION_HISTORY)
-            }
-        }
+        emitUiState()
     }
 
     fun onSessionHistoryHeaderClick(column: SessionHistorySortColumn) {
@@ -493,6 +517,15 @@ class StrategiesViewModel(
 
     fun onAdjustStop(instanceId: String, stopText: String) {
         val newStop = stopText.toDoubleOrNull() ?: return
+        UiActionLog.forDeployment(
+            deployment = repository.deployments.value.find { it.id == instanceId },
+            action = "adjust_stop",
+            details = mapOf("stopPrice" to newStop.toString())
+        )
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            touchTurnEngine.dispatch(TouchTurnCommand.AdjustStop(instanceId, newStop))
+            return
+        }
         repository.update(instanceId) { instance ->
             val updated = instance.live.withStopPrice(
                 newStop = newStop,
@@ -504,6 +537,15 @@ class StrategiesViewModel(
 
     fun onClosePosition(instanceId: String) {
         val sessionDate = currentSessionDateIso()
+        UiActionLog.forDeployment(
+            deployment = repository.deployments.value.find { it.id == instanceId },
+            action = "close_position",
+            details = mapOf("sessionDate" to sessionDate)
+        )
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            touchTurnEngine.dispatch(TouchTurnCommand.ClosePosition(instanceId, sessionDate))
+            return
+        }
         repository.update(instanceId) { instance ->
             instance.withClosedPosition(sessionDate)
         }
@@ -518,14 +560,28 @@ class StrategiesViewModel(
 
     fun onDeleteSelected() {
         val id = appState.selectedDeploymentId ?: return
+        UiActionLog.forDeployment(
+            deployment = deployments.find { it.id == id },
+            action = "delete_deployment"
+        )
         repository.remove(id)
     }
 
     fun onDeleteSessionHistory(instanceId: String, runId: String) {
+        UiActionLog.forDeployment(
+            deployment = repository.deployments.value.find { it.id == instanceId },
+            action = "delete_session_history",
+            details = mapOf("runId" to runId)
+        )
         if (selectedSessionHistoryId == runId) selectedSessionHistoryId = null
-        repository.update(instanceId) { it.withoutSessionHistoryEntry(runId) }
-        repository.flushPersistence()
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            touchTurnEngine.dispatch(TouchTurnCommand.DeleteSessionHistory(instanceId, runId))
+        } else {
+            repository.update(instanceId) { it.withoutSessionHistoryEntry(runId) }
+            repository.flushPersistence()
+        }
         syncDeploymentsFromRepository()
+        emitUiState()
     }
 
     fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
@@ -546,16 +602,6 @@ class StrategiesViewModel(
 
     private fun syncDeploymentsFromRepository() {
         deployments = repository.deployments.value
-    }
-
-    private fun recordTouchTurnPositionMilestones(positions: List<AccountPosition>) {
-        for (instance in repository.deployments.value) {
-            if (instance.status != DeploymentStatus.RUNNING) continue
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
-            if (!SymbolMarkets.hasOpenPosition(instance.symbol, positions)) continue
-            if (instance.touchTurnSession?.milestones?.positionOpenedAt != null) continue
-            repository.update(instance.id) { it.withTouchTurnPositionOpenedIfNeeded() }
-        }
     }
 
     private fun emitUiState() {
@@ -652,7 +698,11 @@ class StrategiesViewModel(
                         positions = brokerPositions,
                         quotes = brokerQuotes,
                         openOrders = brokerOpenOrders,
-                        connection = brokerConnection
+                        connection = brokerConnection,
+                        includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
+                            instance,
+                            state.tradingPanelDismissedRecapSessionId,
+                        ),
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
@@ -675,6 +725,12 @@ class StrategiesViewModel(
                 globalAutoStartEnabled = state.globalAutoStartEnabled,
                 tradingPanelShowsLastSessionRecap = selected?.let { instance ->
                     TradingPanelRecap.showsLastSession(
+                        instance,
+                        state.tradingPanelDismissedRecapSessionId,
+                    )
+                } == true,
+                tradingPanelShowsLiveMarketQuotes = selected?.let { instance ->
+                    TradingPanelRecap.showsLiveMarketQuotes(
                         instance,
                         state.tradingPanelDismissedRecapSessionId,
                     )

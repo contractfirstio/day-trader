@@ -10,6 +10,7 @@ import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerId
+import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.presentation.Formatters
 
 /**
@@ -94,6 +95,6 @@ object TouchTurnOrderLog {
     private fun fmt(price: Double, currency: String): String = Formatters.moneyPlain(price, currency)
 
     private fun line(message: String) {
-        println("[TouchTurn] $message")
+        TimestampedConsoleLog.line("TouchTurn", message)
     }
 }

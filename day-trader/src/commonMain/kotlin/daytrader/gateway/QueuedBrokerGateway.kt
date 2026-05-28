@@ -4,6 +4,7 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.diagnostics.SessionPriceLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -139,7 +140,10 @@ class QueuedBrokerGateway(
             is GatewayEvent.PositionsSnapshot -> _positions.value = event.positions
             is GatewayEvent.OpenOrdersSnapshot -> _openOrders.value = event.orders
             is GatewayEvent.FillsSnapshot -> _fills.value = event.fills
-            is GatewayEvent.QuotesSnapshot -> _quotes.value = event.quotes
+            is GatewayEvent.QuotesSnapshot -> {
+                SessionPriceLog.recordQuoteSnapshot(brokerId, event.quotes, _quotes.value)
+                _quotes.value = event.quotes
+            }
             is GatewayEvent.FirstFifteenMinuteCandleReady -> {
                 pendingCandles.remove(event.requestId)?.complete(event.result)
             }

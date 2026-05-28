@@ -52,4 +52,30 @@ class InferTouchTurnStopTriggerTest {
             )
         )
     }
+
+    @Test
+    fun closeConfirmationFailed_infersNoTradeDecisionStop() {
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "META",
+            maxDollars = 500,
+            status = DeploymentStatus.RUNNING
+        ).onSessionStarted("2026-05-28").copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-28",
+                status = TouchTurnCandleStatus.READY,
+                decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+            )
+        )
+
+        assertEquals(
+            TouchTurnSessionStopTrigger.NO_TRADE_DECISION,
+            inferTouchTurnStopTrigger(
+                instance = instance,
+                sessionTrades = emptyList(),
+                hasOpenPosition = false,
+                hasOpenOrders = false
+            )
+        )
+    }
 }

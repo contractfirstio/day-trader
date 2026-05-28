@@ -109,6 +109,7 @@ object TouchTurnRunRecordUiMapper {
 
     private fun stopShort(trigger: TouchTurnSessionStopTrigger): String = when (trigger) {
         TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN -> "Trade closed"
+        TouchTurnSessionStopTrigger.NO_TRADE_DECISION -> "No trade"
         TouchTurnSessionStopTrigger.OPEN_DEADLINE -> "Deadline"
         TouchTurnSessionStopTrigger.MANUAL -> "Manual"
         TouchTurnSessionStopTrigger.PRE_MARKET_CLOSE -> "Pre-close"

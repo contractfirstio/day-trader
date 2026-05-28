@@ -30,7 +30,7 @@ object SessionHistoryUiMapper {
             .filter { DeploymentMarket.sessionMatchesMarketFilter(it, instance, marketZoneFilter) }
         val isTouchTurn = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
         val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
-            .map { toRowUi(it, isTouchTurn, selectedRunId) }
+            .map { toRowUi(it, isTouchTurn, selectedRunId, instance) }
         val rollup = closedSessions.rollups(sessionDate)
         val selectedRun = displaySessions.find { it.id == selectedRunId }
         val selectedDetail = selectedRun
@@ -62,7 +62,8 @@ object SessionHistoryUiMapper {
     private fun toRowUi(
         run: StrategySession,
         isTouchTurn: Boolean,
-        selectedRunId: String?
+        selectedRunId: String?,
+        instance: StrategyDeployment
     ): StrategySessionRowUi {
         val inProgress = run.status == SessionStatus.IN_PROGRESS
         val isSelected = run.id == selectedRunId
@@ -90,7 +91,10 @@ object SessionHistoryUiMapper {
                         ?: runRecord?.let { r ->
                             r.decision.outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
                         },
-                    positionOpened = run.positionOpened
+                    positionOpened = run.positionOpened,
+                    decisionOutcome = runRecord?.decision?.outcome,
+                    instanceId = instance.id,
+                    symbol = instance.symbol
                 )
             }
         } else {
@@ -103,6 +107,8 @@ object SessionHistoryUiMapper {
         }
         return StrategySessionRowUi(
             id = run.id,
+            deploymentId = instance.id,
+            sessionLogFolder = SessionLogUi.logFolderRelativePath(instance.id, run.id),
             formattedSessionTime = Formatters.runSessionTimeDisplay(
                 startedAt = run.startedAt,
                 stoppedAt = run.stoppedAt,

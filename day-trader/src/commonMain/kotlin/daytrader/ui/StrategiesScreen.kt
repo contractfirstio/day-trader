@@ -57,8 +57,7 @@ import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
-import daytrader.domain.DeploymentSessionStopLogic
-import daytrader.domain.TouchTurnSessionStopLogic
+import daytrader.presentation.strategies.TouchTurnScreenLabels
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
@@ -208,6 +207,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveSessionTrades = uiState.liveSessionTrades,
                 touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
                 tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
+                tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = viewModel::onResetTradingPanel,
                 onTabChange = viewModel::onDetailTabChange,
                 onResolveSymbol = viewModel::resolveInstrumentForSymbol,
@@ -240,6 +240,7 @@ private fun StrategyDeploymentDetailPanel(
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: (String) -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -273,6 +274,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveSessionTrades = liveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
@@ -836,6 +838,7 @@ private fun StrategyDeploymentDetail(
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: () -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -917,7 +920,7 @@ private fun StrategyDeploymentDetail(
             }
         }
 
-        if (detailTab == StrategyDetailTab.LIVE) {
+        if (detailTab == StrategyDetailTab.LIVE && tradingPanelShowsLiveMarketQuotes) {
             liveBroker?.let { broker -> TradingTabLiveMarketStrip(broker) }
         }
 
@@ -1041,15 +1044,7 @@ private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeplo
             tick++
         }
     }
-    val elapsedSinceOpen = remember(marketZone, tick) {
-        TouchTurnLogic.millisSinceLastMarketOpenWallClock(marketZone)
-    }
-    val untilNextOpen = remember(marketZone, tick) {
-        TouchTurnLogic.millisUntilNextMarketOpen(marketZone)
-    }
-    val nextOpenLabel = remember(marketZone, tick) {
-        TouchTurnLogic.nextMarketOpenLocalLabel(marketZone)
-    }
+    val timers = remember(marketZone, tick) { TouchTurnScreenLabels.marketOpenTimers(marketZone) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1059,7 +1054,7 @@ private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeplo
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            "Market session (${TouchTurnLogic.marketOpenZoneAbbrev(marketZone)})",
+            "Market session (${timers.zoneAbbrev})",
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             color = Color.White
@@ -1073,7 +1068,7 @@ private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeplo
         ) {
             Text("Since market open", fontSize = 10.sp, color = TextSecondary)
             Text(
-                TouchTurnLogic.formatElapsedSinceMarketOpen(elapsedSinceOpen),
+                timers.elapsedSinceOpen,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -1088,13 +1083,13 @@ private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeplo
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "Next open at $nextOpenLabel",
+                "Next open at ${timers.nextOpenAt}",
                 fontSize = 10.sp,
                 color = TextSecondary,
                 modifier = Modifier.weight(1f)
             )
             Text(
-                TouchTurnLogic.formatCountdownToNextMarketOpen(untilNextOpen),
+                timers.countdownToNextOpen,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFFB74D),
@@ -1783,7 +1778,6 @@ private fun TouchTurnLivePipelineDetailHost(
 
 @Composable
 private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
-    val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER) ?: return
     var tick by remember(instance.id) { mutableIntStateOf(0) }
     LaunchedEffect(instance.id) {
         while (true) {
@@ -1791,14 +1785,7 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
             tick++
         }
     }
-    val sessionDate = remember(instance, tick) { DeploymentSessionStopLogic.sessionDateForRunningInstance(instance) }
-    val openEpoch = remember(instance, sessionDate) {
-        sessionDate?.let { TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, it) }
-    }
-    val remainingMs = remember(openEpoch, tick) {
-        openEpoch?.let { TouchTurnSessionStopLogic.millisUntilStopAfterOpen(it) }
-    }
-    val pastDeadline = remainingMs == 0L && openEpoch != null
+    val autoStop = remember(instance, tick) { TouchTurnScreenLabels.autoStopStatus(instance) } ?: return
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1811,20 +1798,20 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
             color = TextSecondary
         )
         Text(
-            "Stops when a trade closes (win or loss), or ${stopAfterMinOpen}m after RTH open " +
+            "Stops when a trade closes (win or loss), or ${autoStop.stopAfterMinOpen}m after RTH open " +
                 "(then cancels working orders and closes any open position).",
             fontSize = 10.sp,
             color = TextSecondary.copy(alpha = 0.85f)
         )
-        remainingMs?.let { remaining ->
+        if (autoStop.pastDeadline || autoStop.remainingLabel != null) {
             Text(
-                if (pastDeadline) {
-                    "Past ${stopAfterMinOpen}m after open — session will stop and flatten broker orders/position."
+                if (autoStop.pastDeadline) {
+                    TouchTurnScreenLabels.pastDeadlineLabel(autoStop.stopAfterMinOpen)
                 } else {
-                    TouchTurnSessionStopLogic.pendingStopAfterOpenLabel(remaining)
+                    autoStop.remainingLabel!!
                 },
                 fontSize = 11.sp,
-                color = if (pastDeadline) Color(0xFFFFB74D) else TextSecondary,
+                color = if (autoStop.pastDeadline) Color(0xFFFFB74D) else TextSecondary,
                 modifier = Modifier.testTag("SessionAutoStopLabel")
             )
         }
@@ -1877,6 +1864,8 @@ private fun LiveTab(
     val touchTurnPipelineGraph = if (isTouchTurn) {
         remember(
             instance,
+            instance.touchTurnSession?.decisionOutcome,
+            instance.touchTurnSession?.milestones,
             isRunning,
             showLastSessionRecap,
             liveBroker,
@@ -1918,6 +1907,18 @@ private fun LiveTab(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        val activeSessionId = when {
+            isRunning -> instance.inProgressSession()?.id
+            showLastSessionRecap -> lastClosedTouchTurnRun?.id
+            else -> null
+        }
+        activeSessionId?.let { sessionId ->
+            SessionLogReference(
+                deploymentId = instance.id,
+                sessionId = sessionId,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
+        }
         if (isTouchTurn && !isRunning && showLastSessionRecap) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

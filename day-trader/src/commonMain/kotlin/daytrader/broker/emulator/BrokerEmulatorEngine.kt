@@ -6,7 +6,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
-import daytrader.diagnostics.SessionTrace
+import daytrader.diagnostics.EmulatorPriceLog
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
@@ -43,9 +43,11 @@ class BrokerEmulatorEngine(
     private val bracketEntryPending = mutableMapOf<String, BracketEntryPending>()
     private val sessionFills = mutableListOf<BrokerFill>()
     private var firstCandleFetchCount = 0
+    private val externalFeedReadyLogged = mutableSetOf<String>()
 
     fun handleConnect() {
         if (connected) return
+        EmulatorLog.connectionState("connecting", config.pricingSource.name)
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Connecting))
     }
 
@@ -53,6 +55,7 @@ class BrokerEmulatorEngine(
         delay(config.connectDelayMs)
         seedBooks()
         connected = true
+        EmulatorLog.connectionState("connected", config.pricingSource.name)
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Connected))
         publishPositions()
         publishOrders()
@@ -65,12 +68,15 @@ class BrokerEmulatorEngine(
         connected = false
         ticksRunning = false
         orderSimRunning = false
+        EmulatorLog.connectionState("disconnected", config.pricingSource.name)
         positions.clear()
         orders.clear()
         bracketManagedOrderIds.clear()
         bracketPriceWalks.clear()
         dynamicInstruments.clear()
         quoteBook.clear()
+        EmulatorPriceLog.clearState()
+        externalFeedReadyLogged.clear()
         pendingBracketWalks.clear()
         bracketEntryPending.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
@@ -82,6 +88,7 @@ class BrokerEmulatorEngine(
     }
 
     suspend fun handleReconnect() {
+        EmulatorLog.connectionState("reconnecting", config.pricingSource.name)
         handleDisconnect()
         delay(config.reconnectDelayMs)
         handleConnect()
@@ -89,6 +96,7 @@ class BrokerEmulatorEngine(
     }
 
     fun handleShutdown() {
+        EmulatorLog.connectionState("shutdown", config.pricingSource.name)
         handleDisconnect()
     }
 
@@ -97,7 +105,9 @@ class BrokerEmulatorEngine(
         val trimmed = symbol.trim().uppercase()
         val instrument = resolveInstrument(trimmed)
         val result = if (instrument == null) {
-            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+            val message = "Unknown symbol: $symbol"
+            EmulatorLog.historicalFetchFailed("first_candle", trimmed, message)
+            Result.failure(IllegalArgumentException(message))
         } else {
             firstCandleFetchCount++
             val fetchIndex = if (
@@ -135,7 +145,9 @@ class BrokerEmulatorEngine(
         val trimmed = symbol.trim().uppercase()
         val instrument = resolveInstrument(trimmed)
         val result = if (instrument == null) {
-            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+            val message = "Unknown symbol: $symbol"
+            EmulatorLog.historicalFetchFailed("adr", trimmed, message)
+            Result.failure(IllegalArgumentException(message))
         } else {
             EmulatorHistoricalData.fourteenDayAdr(trimmed, instrument)
         }
@@ -143,7 +155,10 @@ class BrokerEmulatorEngine(
     }
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
-        if (!connected) return
+        if (!connected) {
+            EmulatorLog.bracketRejected(plan.symbol, "not_connected")
+            return
+        }
         val adjustedPlan = EmulatorBracketPlanAdjuster.widenExits(
             plan = plan,
             spreadWidenFactor = config.bracketExitSpreadWidenFactor
@@ -270,7 +285,18 @@ class BrokerEmulatorEngine(
      */
     fun ingestExternalQuote(symbol: String, quote: LiveQuote, priorClose: Double?) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
-        if (quoteBook.ingestExternal(norm, quote) == null) return
+        if (config.pricingSource.isSynthetic) {
+            EmulatorLog.externalQuoteIgnored(norm, "synthetic_mode")
+            return
+        }
+        val merged = quoteBook.ingestExternal(norm, quote)
+        if (merged == null) {
+            EmulatorLog.externalQuoteIgnored(norm, "incomplete_bid_ask")
+            return
+        }
+        if (quoteBook.canTriggerFills(norm) && externalFeedReadyLogged.add(norm)) {
+            EmulatorLog.externalFeedReady(norm)
+        }
         applyPriorClose(norm, priorClose)
         evaluateAndPublishAfterQuoteUpdate()
     }
@@ -630,7 +656,9 @@ class BrokerEmulatorEngine(
 
     private fun publishQuotes() {
         if (quoteBook.isEmpty) return
-        emit(GatewayEvent.QuotesSnapshot(quoteBook.toLiveQuoteSnapshot()))
+        val snapshot = quoteBook.toLiveQuoteSnapshot()
+        EmulatorPriceLog.recordSnapshot(snapshot, config.pricingSource.name)
+        emit(GatewayEvent.QuotesSnapshot(snapshot))
     }
 
     private fun publishOrders() {
@@ -696,7 +724,6 @@ class BrokerEmulatorEngine(
         publishPositions()
         publishOrders()
         publishQuotes()
-        EmulatorLog.orderFilled(current.symbol, current.orderId, effectiveQty, current.fillPrice(), positionQty)
     }
 
     private fun computeFillRealizedPnL(
@@ -744,12 +771,16 @@ class BrokerEmulatorEngine(
             realizedPnL = realizedPnL
         )
         sessionFills.add(fill)
-        SessionTrace.fillRecorded(
-            deploymentId = null,
-            sessionId = null,
+        EmulatorLog.orderFilled(
             symbol = order.symbol,
-            fill = fill,
-            positionQtyAfter = positionQtyAfter
+            orderId = order.orderId,
+            qty = fillQty,
+            price = order.fillPrice(),
+            positionQty = positionQtyAfter,
+            execId = execId,
+            parentOrderId = order.parentId.takeIf { it != 0 },
+            side = order.action,
+            realizedPnL = realizedPnL
         )
         publishFills()
     }
@@ -823,19 +854,31 @@ class BrokerEmulatorEngine(
         limitPrice ?: stopPrice ?: quoteMid(SymbolMarkets.normalizeSymbol(symbol)) ?: 0.0
 
     private fun cancelSiblingBracketOrders(parentOrderId: Int, filledOrderId: Int) {
+        val cancelled = mutableListOf<Int>()
+        val symbol = orders[filledOrderId]?.symbol
         orders.entries.toList().forEach { (id, order) ->
             if (order.parentId == parentOrderId && id != filledOrderId && !order.isTerminal()) {
+                cancelled += id
                 updateOrder(order.copy(status = "Cancelled"))
             }
+        }
+        if (cancelled.isNotEmpty() && symbol != null) {
+            EmulatorLog.bracketSiblingCancelled(symbol, filledOrderId, cancelled)
         }
         publishOrders()
     }
 
     private fun activateChildOrders(parentOrderId: Int) {
+        val activated = mutableListOf<Int>()
+        val symbol = orders[parentOrderId]?.symbol
         orders.entries.toList().forEach { (id, order) ->
             if (order.parentId == parentOrderId && order.status == "PreSubmitted") {
+                activated += id
                 orders[id] = order.copy(status = "Submitted")
             }
+        }
+        if (activated.isNotEmpty() && symbol != null) {
+            EmulatorLog.bracketChildrenActivated(symbol, parentOrderId, activated)
         }
     }
 

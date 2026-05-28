@@ -1,5 +1,6 @@
 package daytrader.domain
 
+import daytrader.diagnostics.TimestampedConsoleLog
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -137,12 +138,12 @@ object TouchTurnCandleLog {
 
     private fun line(message: String) {
         if (!enabled) return
-        println("[TouchTurnCandle] $message")
+        TimestampedConsoleLog.line("TouchTurnCandle", message)
     }
 
     private fun detail(message: String) {
         if (!enabled) return
-        println("[TouchTurnCandle]$message")
+        TimestampedConsoleLog.line("TouchTurnCandle", message)
     }
 
     private fun formatInstant(epochMillis: Long, zoneId: String): String {

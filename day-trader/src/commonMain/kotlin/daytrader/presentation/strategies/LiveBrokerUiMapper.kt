@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.broker.SymbolMarkets
+import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
@@ -48,7 +49,8 @@ object LiveBrokerUiMapper {
         positions: List<AccountPosition>,
         quotes: Map<String, LiveQuote>,
         openOrders: List<WorkingOrder>,
-        connection: GatewayConnectionState
+        connection: GatewayConnectionState,
+        includeMarketQuotes: Boolean = true,
     ): LiveBrokerUiState {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val quote = quotes[norm]
@@ -57,7 +59,7 @@ object LiveBrokerUiMapper {
         val isConnected = connection is GatewayConnectionState.Connected || hasLiveQuote
         val accountPosition = positions
             .firstOrNull { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
-        val position = accountPosition?.let(::toPositionUi)
+        val position = accountPosition?.let { toPositionUi(it, includeMarketQuotes) }
         val orders = openOrders
             .filter { SymbolMarkets.symbolsMatch(symbol, it.symbol) }
             .sortedBy { it.orderId }
@@ -71,20 +73,33 @@ object LiveBrokerUiMapper {
         }
 
         val currency = accountPosition?.currency ?: SymbolMarkets.currencyCode(symbol)
-        val formattedBid = accountPosition?.bidPrice?.takeIf { it > 0.0 }
-            ?.let { Formatters.moneyPlain(it, currency) }
-            ?: quote?.bid?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
-        val formattedAsk = accountPosition?.askPrice?.takeIf { it > 0.0 }
-            ?.let { Formatters.moneyPlain(it, currency) }
-            ?: quote?.ask?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
-        val formattedLast = accountPosition?.lastTradePrice?.takeIf { it > 0.0 }
-            ?.let { Formatters.moneyPlain(it, currency) }
-            ?: accountPosition?.marketPrice?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
-            ?: quote?.last?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        val formattedBid = if (includeMarketQuotes) {
+            accountPosition?.bidPrice?.takeIf { it > 0.0 }
+                ?.let { Formatters.moneyPlain(it, currency) }
+                ?: quote?.bid?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        } else {
+            null
+        }
+        val formattedAsk = if (includeMarketQuotes) {
+            accountPosition?.askPrice?.takeIf { it > 0.0 }
+                ?.let { Formatters.moneyPlain(it, currency) }
+                ?: quote?.ask?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        } else {
+            null
+        }
+        val formattedLast = if (includeMarketQuotes) {
+            accountPosition?.lastTradePrice?.takeIf { it > 0.0 }
+                ?.let { Formatters.moneyPlain(it, currency) }
+                ?: accountPosition?.marketPrice?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+                ?: quote?.last?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+        } else {
+            null
+        }
 
         if (livePriceUiLogsEnabled) {
-            println(
-                "[LIVE_PRICE_UI] symbol=$symbol connected=$isConnected " +
+            TimestampedConsoleLog.line(
+                "LIVE_PRICE_UI",
+                "symbol=$symbol connected=$isConnected " +
                     "posFound=${accountPosition != null} quoteFound=${quote != null} " +
                     "bid=${accountPosition?.bidPrice ?: quote?.bid} ask=${accountPosition?.askPrice ?: quote?.ask} " +
                     "last=${accountPosition?.lastTradePrice ?: quote?.last} mkt=${accountPosition?.marketPrice} " +
@@ -104,9 +119,10 @@ object LiveBrokerUiMapper {
         )
     }
 
-    fun positionUi(account: AccountPosition): LivePositionUi = toPositionUi(account)
+    fun positionUi(account: AccountPosition, includeMarketQuotes: Boolean = true): LivePositionUi =
+        toPositionUi(account, includeMarketQuotes)
 
-    private fun toPositionUi(account: AccountPosition): LivePositionUi {
+    private fun toPositionUi(account: AccountPosition, includeMarketQuotes: Boolean = true): LivePositionUi {
         val side = when {
             account.quantity > 0 -> "Long"
             account.quantity < 0 -> "Short"
@@ -121,7 +137,11 @@ object LiveBrokerUiMapper {
             sideLabel = side,
             quantity = kotlin.math.abs(account.quantity),
             formattedAvgPrice = Formatters.moneyPlain(account.avgPrice, account.currency),
-            formattedMarketPrice = Formatters.moneyPlain(account.marketPrice, account.currency),
+            formattedMarketPrice = if (includeMarketQuotes) {
+                Formatters.moneyPlain(account.marketPrice, account.currency)
+            } else {
+                "—"
+            },
             formattedUnrealizedPnL = Formatters.money(account.totalUnrealizedPnL, account.currency, showSign = true),
             unrealizedPnL = account.totalUnrealizedPnL,
             isPositivePnL = account.totalUnrealizedPnL >= 0,

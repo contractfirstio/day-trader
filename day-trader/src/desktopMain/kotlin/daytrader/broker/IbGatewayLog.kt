@@ -1,6 +1,7 @@
 package daytrader.broker
 
 import com.ib.client.Contract
+import daytrader.diagnostics.LogTimestamps
 
 /**
  * IB Gateway console logging is **off by default** so Touch Turn order logs stay readable.
@@ -242,7 +243,10 @@ internal object IbGatewayLog {
 
     private fun emit(message: String) {
         if (!loggingEnabled) return
-        println(message)
+        val stamp = LogTimestamps.now().at
+        message.lineSequence().forEach { line ->
+            println("$stamp $line")
+        }
     }
 
     private fun majorHint(raw: Double, magnifier: Int): String =

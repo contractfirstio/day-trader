@@ -10,7 +10,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnRunRecord
 import daytrader.domain.dedupeByExecId
 import daytrader.domain.sessionRealizedPnL
-import daytrader.domain.currentSessionTimestampIso
+import daytrader.diagnostics.LogTimestamps
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.LiveQuote
 import daytrader.platform.AppFileSystem
@@ -24,8 +24,11 @@ import kotlinx.serialization.serializer
 
 /**
  * Append-only JSONL for post-hoc analysis (not shown in the UI).
- * One file per session: `session-traces/{deploymentId}/{sessionId}.jsonl`.
- * Pre-session events go to `_pending.jsonl` under the deployment until [sessionStarted].
+ * Paired per session under `sessions/{deploymentId}/{sessionId}/`:
+ * - [AppDataFiles.SESSION_APPLICATION_LOG] — lifecycle and decisions
+ * - [AppDataFiles.SESSION_PRICES_LOG] — live IB quote updates (see [SessionPriceLog])
+ *
+ * Each JSONL line includes `at` (ISO local with millis) and `epochMs` for cross-file correlation.
  */
 object SessionTrace {
     private val json = Json { encodeDefaults = false }
@@ -38,10 +41,12 @@ object SessionTrace {
         details: Map<String, String> = emptyMap(),
         data: JsonObject? = null
     ) {
+        val stamp = LogTimestamps.now()
         val line = json.encodeToString(
             serializer = SessionTraceLine.serializer(),
             value = SessionTraceLine(
-                at = currentSessionTimestampIso(),
+                at = stamp.at,
+                epochMs = stamp.epochMs,
                 type = type,
                 brokerKind = runCatching { AppFileSystem.currentDataScope().name }.getOrNull(),
                 deploymentId = deploymentId,
@@ -234,16 +239,16 @@ object SessionTrace {
     private fun resolveTracePath(deploymentId: String?, sessionId: String?): String? =
         when {
             deploymentId != null && sessionId != null ->
-                AppDataFiles.sessionTraceFileName(deploymentId, sessionId)
+                AppDataFiles.sessionApplicationLogFileName(deploymentId, sessionId)
             deploymentId != null ->
-                AppDataFiles.sessionTracePendingFileName(deploymentId)
+                AppDataFiles.sessionPendingLogFileName(deploymentId)
             else ->
-                AppDataFiles.sessionTraceUnattributedFileName()
+                AppDataFiles.sessionOrphanLogFileName()
         }
 
     private fun flushPendingIntoSession(deploymentId: String, sessionId: String) {
-        val pendingPath = AppDataFiles.sessionTracePendingFileName(deploymentId)
-        val sessionPath = AppDataFiles.sessionTraceFileName(deploymentId, sessionId)
+        val pendingPath = AppDataFiles.sessionPendingLogFileName(deploymentId)
+        val sessionPath = AppDataFiles.sessionApplicationLogFileName(deploymentId, sessionId)
         val pending = runCatching { AppFileSystem.readText(pendingPath) }.getOrNull() ?: return
         pending.lineSequence()
             .filter { it.isNotBlank() }
@@ -268,6 +273,7 @@ object SessionTrace {
 @Serializable
 private data class SessionTraceLine(
     val at: String,
+    val epochMs: Long,
     val type: String,
     val brokerKind: String? = null,
     val deploymentId: String? = null,

@@ -4,6 +4,7 @@ import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.inProgressSession
 import daytrader.domain.riskReward
 import daytrader.presentation.Formatters
 
@@ -28,9 +29,12 @@ object LiveExecutionUiMapper {
         }
 
         val canManage = isRunning && execution.state == ExecutionState.FILLED
+        val session = instance.inProgressSession()
 
         return LiveExecutionUiState(
             instanceId = instance.id,
+            sessionId = session?.id,
+            sessionLogFolder = session?.id?.let { SessionLogUi.logFolderRelativePath(instance.id, it) },
             showPanel = isRunning,
             isRunning = isRunning,
             canManagePosition = canManage,

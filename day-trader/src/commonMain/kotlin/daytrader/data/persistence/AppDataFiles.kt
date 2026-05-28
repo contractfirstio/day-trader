@@ -3,24 +3,64 @@ package daytrader.data.persistence
 object AppDataFiles {
     const val DEPLOYMENTS = "deployments.json"
     const val STRATEGIES_SCREEN = "strategies-screen.json"
-    const val SESSION_TRACES_DIR = "session-traces"
-    const val SESSION_TRACE_PENDING = "_pending.jsonl"
-    const val SESSION_TRACE_ORPHAN = "orphan.jsonl"
 
-    /** Verbose JSONL for one session run: `session-traces/{deploymentId}/{sessionId}.jsonl`. */
-    fun sessionTraceFileName(deploymentId: String, sessionId: String): String =
-        "$SESSION_TRACES_DIR/$deploymentId/$sessionId.jsonl"
+    /**
+     * Per-session log root (paired application + price logs).
+     * macOS: `~/Library/Application Support/Day Trader/{broker-scope}/sessions/...`
+     */
+    const val SESSIONS_DIR = "sessions"
+    const val SESSION_APPLICATION_LOG = "application.jsonl"
+    const val SESSION_PRICES_LOG = "prices.jsonl"
+    const val SESSION_PENDING_LOG = "_pending.jsonl"
+    const val SESSION_ORPHAN_LOG = "orphan.jsonl"
 
-    /** Pre-session events (ADR/candle load) before [sessionId] exists. Flushed on session start. */
-    fun sessionTracePendingFileName(deploymentId: String): String =
-        "$SESSION_TRACES_DIR/$deploymentId/$SESSION_TRACE_PENDING"
+    /**
+     * Emulator broker/exchange diagnostics (not session-scoped — engine has no session id).
+     * macOS: `~/Library/Application Support/Day Trader/{broker-scope}/emulator/...`
+     */
+    const val EMULATOR_DIR = "emulator"
+    const val EMULATOR_ENGINE_LOG = "engine.jsonl"
+    const val EMULATOR_PRICES_LOG = "prices.jsonl"
 
-    /** Fills/events with no deployment context (e.g. emulator without active run). */
-    fun sessionTraceUnattributedFileName(): String =
-        "$SESSION_TRACES_DIR/_unattributed/$SESSION_TRACE_ORPHAN"
+    fun emulatorEngineLogFileName(): String =
+        "$EMULATOR_DIR/$EMULATOR_ENGINE_LOG"
+
+    fun emulatorPricesLogFileName(): String =
+        "$EMULATOR_DIR/$EMULATOR_PRICES_LOG"
+
+    const val IB_PRICES_DIR = "ib-prices"
+
+    /** Directory for one session run's paired logs. */
+    fun sessionDirectory(deploymentId: String, sessionId: String): String =
+        "$SESSIONS_DIR/${safeFileNameComponent(deploymentId)}/${safeFileNameComponent(sessionId)}"
+
+    /** Human-readable application events for one session. */
+    fun sessionApplicationLogFileName(deploymentId: String, sessionId: String): String =
+        "${sessionDirectory(deploymentId, sessionId)}/$SESSION_APPLICATION_LOG"
+
+    /** High-volume quote updates for one session. */
+    fun sessionPriceLogFileName(deploymentId: String, sessionId: String): String =
+        "${sessionDirectory(deploymentId, sessionId)}/$SESSION_PRICES_LOG"
+
+    /** Pre-session events before [sessionId] exists; flushed into application log on session start. */
+    fun sessionPendingLogFileName(deploymentId: String): String =
+        "$SESSIONS_DIR/${safeFileNameComponent(deploymentId)}/$SESSION_PENDING_LOG"
+
+    /** Events with no deployment context. */
+    fun sessionOrphanLogFileName(): String =
+        "$SESSIONS_DIR/_unattributed/$SESSION_ORPHAN_LOG"
 
     /** Pre-terminology-refactor format (`instances` + `performance` keys). */
     const val LEGACY_INSTANCES_JSON = "instances.json"
     const val LEGACY_STRATEGY_INSTANCES = "strategy-instances.json"
     const val LEGACY_STRATEGIES_APP_STATE = "app-state.json"
+
+    /** Per-symbol IB tick JSONL under `runs/{launchId}/{broker-scope}/ib-prices/`. */
+    fun ibPriceLogFileName(symbolOrKey: String): String =
+        "$IB_PRICES_DIR/${safeFileNameComponent(symbolOrKey)}.jsonl"
+
+    fun safeFileNameComponent(value: String): String {
+        val sanitized = value.replace(Regex("""[^\w.\-]"""), "_").trim('_', '.')
+        return sanitized.take(120).ifBlank { "unknown" }
+    }
 }

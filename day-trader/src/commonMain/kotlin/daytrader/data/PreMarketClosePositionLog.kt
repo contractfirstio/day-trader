@@ -1,5 +1,6 @@
 package daytrader.data
 
+import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.gateway.AccountPosition
 import daytrader.presentation.Formatters
 
@@ -38,6 +39,6 @@ object PreMarketClosePositionLog {
     }
 
     private fun line(message: String) {
-        println("[PreMarketClose] $message")
+        TimestampedConsoleLog.line("PreMarketClose", message)
     }
 }

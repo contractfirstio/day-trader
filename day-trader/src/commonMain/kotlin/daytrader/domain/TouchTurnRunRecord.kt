@@ -24,6 +24,8 @@ enum class TouchTurnSessionOutcome {
 @Serializable
 enum class TouchTurnSessionStopTrigger {
     TRADE_OUTCOME_KNOWN,
+    /** Liquidity / confirmation / order gate resolved with no trade. */
+    NO_TRADE_DECISION,
     OPEN_DEADLINE,
     MANUAL,
     PRE_MARKET_CLOSE,
@@ -97,11 +99,12 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
     if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
     if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
-    if (session.closeConfirmation(evalInstant) == TouchTurnCloseConfirmation.FAILED) {
-        return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-    }
-    if (session.entryWindowStatus(evalInstant) == TouchTurnEntryWindowStatus.EXPIRED) {
-        return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+    when (session.closeConfirmation(evalInstant)) {
+        TouchTurnCloseConfirmation.FAILED ->
+            return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+        TouchTurnCloseConfirmation.EXPIRED ->
+            return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+        else -> Unit
     }
     return TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
 }
@@ -121,6 +124,9 @@ fun inferTouchTurnStopTrigger(
     explicit?.let { return it }
     if (instance.touchTurnSession?.status == TouchTurnCandleStatus.FAILED) {
         return TouchTurnSessionStopTrigger.ERROR
+    }
+    if (DeploymentSessionStopLogic.shouldStopAfterNoTradeDecision(instance)) {
+        return TouchTurnSessionStopTrigger.NO_TRADE_DECISION
     }
     if (DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
             instance = instance,

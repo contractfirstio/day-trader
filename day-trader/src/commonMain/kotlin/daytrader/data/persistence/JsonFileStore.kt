@@ -36,6 +36,22 @@ object JsonFileStore {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }
 
+    fun appendSessionPriceLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun appendIbPriceTickLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun appendEmulatorEngineLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun appendEmulatorPriceLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
     fun encodeSessionTradesForTrace(trades: List<SessionTrade>): JsonElement =
         json.encodeToJsonElement(
             trades.map { trade ->
