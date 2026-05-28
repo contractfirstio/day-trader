@@ -46,6 +46,7 @@ data class TouchTurnMilestoneTimestampsRecord(
     val dataFailedAt: String? = null,
     val barClosedAt: String? = null,
     val liquidityEvaluatedAt: String? = null,
+    val closeConfirmedAt: String? = null,
     val ordersPlacedAt: String? = null,
     val positionOpenedAt: String? = null,
     val closingSessionAt: String? = null
@@ -186,5 +187,6 @@ data class StrategiesScreenDocument(
     /** Legacy key from pre-refactor `strategies-screen.json`; cleared on next save. */
     val selectedInstanceId: String? = null,
     val detailTab: String = "configuration",
-    val globalAutoStartEnabled: Boolean = true
+    val globalAutoStartEnabled: Boolean = true,
+    val tradingPanelDismissedRecapSessionId: Map<String, String> = emptyMap(),
 )

@@ -41,6 +41,7 @@ import daytrader.domain.SessionStopParams
 import daytrader.domain.inferTouchTurnStopTrigger
 import daytrader.domain.onSessionStopped
 import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
+import daytrader.domain.lastClosedTouchTurnSession
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.domain.withClosedPosition
 import daytrader.domain.withStopPrice
@@ -274,6 +275,18 @@ class StrategiesViewModel(
 
     fun onDetailTabChange(tab: StrategyDetailTab) {
         appStateRepository.update { it.copy(detailTab = tab) }
+        emitUiState()
+    }
+
+    fun onResetTradingPanel(deploymentId: String) {
+        val instance = deployments.find { it.id == deploymentId } ?: return
+        val lastClosed = instance.lastClosedTouchTurnSession() ?: return
+        appStateRepository.update { state ->
+            state.copy(
+                tradingPanelDismissedRecapSessionId =
+                    state.tradingPanelDismissedRecapSessionId + (deploymentId to lastClosed.id)
+            )
+        }
         emitUiState()
     }
 
@@ -643,15 +656,29 @@ class StrategiesViewModel(
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
-                    LiveSessionTradesUiMapper.forDeployment(
-                        instance = instance,
-                        liveFills = brokerFills,
-                        brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
+                    val showRecap = TradingPanelRecap.showsLastSession(
+                        instance,
+                        state.tradingPanelDismissedRecapSessionId,
                     )
+                    if (instance.status != DeploymentStatus.RUNNING && !showRecap) {
+                        null
+                    } else {
+                        LiveSessionTradesUiMapper.forDeployment(
+                            instance = instance,
+                            liveFills = brokerFills,
+                            brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
+                        )
+                    }
                 },
                 touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(selected),
                 startBlockedAlert = startBlockedAlert,
-                globalAutoStartEnabled = state.globalAutoStartEnabled
+                globalAutoStartEnabled = state.globalAutoStartEnabled,
+                tradingPanelShowsLastSessionRecap = selected?.let { instance ->
+                    TradingPanelRecap.showsLastSession(
+                        instance,
+                        state.tradingPanelDismissedRecapSessionId,
+                    )
+                } == true,
             )
         }
     }

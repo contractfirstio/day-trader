@@ -88,7 +88,9 @@ On first launch, deployments are loaded from disk or seeded from `mockStrategyDe
 
 Persistence is scoped by broker so IB and emulator state never share the same JSON files. After you choose a broker on the startup screen, data is written under a broker-specific subdirectory.
 
-Default base locations (override with `DAY_TRADER_DATA_DIR`):
+Deployments and UI state stay in the broker-scoped directory so they persist across launches. Only session trace logs are isolated per app launch under `runs/` (UTC timestamp + process id).
+
+Default base locations (set `DAY_TRADER_DATA_DIR` to override with a fixed path):
 
 | OS      | Base path                                   |
 |---------|---------------------------------------------|
@@ -96,12 +98,20 @@ Default base locations (override with `DAY_TRADER_DATA_DIR`):
 | Windows | `%APPDATA%\Day Trader\`                     |
 | Linux   | `~/.local/share/day-trader/`                |
 
+Effective default path pattern for session trace logs:
+
+| OS      | Pattern |
+|---------|---------|
+| macOS   | `~/Library/Application Support/Day Trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
+| Windows | `%APPDATA%\Day Trader\runs\run-YYYYMMDD-HHMMSS-PID\<broker>\session-traces\...` |
+| Linux   | `~/.local/share/day-trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
+
 | Broker               | Subdirectory            | Example (macOS)                                                                      |
 |----------------------|-------------------------|--------------------------------------------------------------------------------------|
 | Interactive Brokers  | `interactive-brokers/`  | `~/Library/Application Support/Day Trader/interactive-brokers/deployments.json`      |
 | Broker Emulator      | `emulator/`             | `~/Library/Application Support/Day Trader/emulator/deployments.json`                   |
 
-On first launch with Interactive Brokers, any legacy JSON files that still live at the base directory (from before this split) are moved into `interactive-brokers/` automatically.
+When using a fixed data directory (for example via `DAY_TRADER_DATA_DIR`), any legacy JSON files that still live at the base directory (from before the broker split) are moved into `interactive-brokers/` automatically on first IB launch.
 
 Example:
 

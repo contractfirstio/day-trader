@@ -9,6 +9,7 @@ enum class TouchTurnPipelineNodeId {
     Data,
     Bar,
     Liquidity,
+    Confirmation,
     Orders,
     Position,
     NoTrade,
@@ -74,6 +75,7 @@ fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
     TouchTurnPipelineNodeId.Data -> "Session data"
     TouchTurnPipelineNodeId.Bar -> "Opening 15-minute bar"
     TouchTurnPipelineNodeId.Liquidity -> "Liquidity check"
+    TouchTurnPipelineNodeId.Confirmation -> "Close confirmation"
     TouchTurnPipelineNodeId.Orders -> "Orders"
     TouchTurnPipelineNodeId.Position -> "Position"
     TouchTurnPipelineNodeId.NoTrade -> "No trade path"
@@ -86,9 +88,10 @@ object TouchTurnPipelineLayout {
         TouchTurnPipelineNodeId.Data -> 0.20f to 0.45f
         TouchTurnPipelineNodeId.Bar -> 0.35f to 0.45f
         TouchTurnPipelineNodeId.Liquidity -> 0.50f to 0.45f
-        TouchTurnPipelineNodeId.Orders -> 0.68f to 0.16f
-        TouchTurnPipelineNodeId.Position -> 0.84f to 0.16f
-        TouchTurnPipelineNodeId.NoTrade -> 0.68f to 0.74f
+        TouchTurnPipelineNodeId.Confirmation -> 0.64f to 0.45f
+        TouchTurnPipelineNodeId.Orders -> 0.77f to 0.16f
+        TouchTurnPipelineNodeId.Position -> 0.88f to 0.16f
+        TouchTurnPipelineNodeId.NoTrade -> 0.77f to 0.74f
         TouchTurnPipelineNodeId.Close -> 0.93f to 0.45f
     }
 
@@ -96,8 +99,10 @@ object TouchTurnPipelineLayout {
         Triple(TouchTurnPipelineNodeId.Start, TouchTurnPipelineNodeId.Data, null),
         Triple(TouchTurnPipelineNodeId.Data, TouchTurnPipelineNodeId.Bar, null),
         Triple(TouchTurnPipelineNodeId.Bar, TouchTurnPipelineNodeId.Liquidity, null),
-        Triple(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.Orders, "yes"),
+        Triple(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.Confirmation, "yes"),
         Triple(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.NoTrade, "no"),
+        Triple(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.Orders, "yes"),
+        Triple(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.NoTrade, "no"),
         Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position, "yes"),
         Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.NoTrade, "no"),
         Triple(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close, null),

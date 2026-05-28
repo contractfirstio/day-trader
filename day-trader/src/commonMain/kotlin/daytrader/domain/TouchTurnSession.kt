@@ -36,6 +36,15 @@ enum class TouchTurnEntryWindowStatus {
     UNKNOWN
 }
 
+/** Close-location gate after liquidity check (same 15m candle, no second candle wait). */
+@Serializable
+enum class TouchTurnCloseConfirmation {
+    AWAITING_LIQUIDITY,
+    PASSED,
+    FAILED,
+    UNKNOWN
+}
+
 /** Legacy Touch Turn session field (superseded by [TouchTurnSessionStopLogic] open-deadline auto-stop). */
 @Serializable
 enum class TouchTurnNoPositionCancelOutcome {
@@ -101,6 +110,7 @@ data class TouchTurnMilestoneTimestamps(
     val dataFailedAt: String? = null,
     val barClosedAt: String? = null,
     val liquidityEvaluatedAt: String? = null,
+    val closeConfirmedAt: String? = null,
     val ordersPlacedAt: String? = null,
     val positionOpenedAt: String? = null,
     val closingSessionAt: String? = null
@@ -148,6 +158,9 @@ data class TouchTurnSessionContext(
 
     fun entryWindowStatus(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnEntryWindowStatus =
         TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)
+
+    fun closeConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation =
+        TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis)
 
     /** Live panel: elapsed since the most recent 09:30 RTH open in [marketZoneId] (wall clock). */
     fun millisSinceLastMarketOpen(
@@ -319,6 +332,31 @@ object TouchTurnLogic {
         TouchTurnEntryWindowStatus.WITHIN_WINDOW -> "Entry window open (1 min after bar close)"
         TouchTurnEntryWindowStatus.EXPIRED -> "Entry window closed — deadline passed"
         TouchTurnEntryWindowStatus.UNKNOWN -> "Entry window unknown"
+    }
+
+    fun closeConfirmation(
+        candle: OhlcBar?,
+        setup: TouchTurnBracketSetup?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): TouchTurnCloseConfirmation {
+        val bar = candle ?: return TouchTurnCloseConfirmation.UNKNOWN
+        if (firstCandleCloseStatus(bar, marketZoneId, nowEpochMillis) != FirstCandleCloseStatus.CLOSED) {
+            return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
+        }
+        val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
+        if (!bracket.isLiquidityCandle || !bracket.isActionable) return TouchTurnCloseConfirmation.FAILED
+        val close = bar.close
+        val minBound = minOf(bracket.stopLoss, bracket.entry)
+        val maxBound = maxOf(bracket.stopLoss, bracket.entry)
+        val passes = close < minBound || close > maxBound
+        return if (passes) TouchTurnCloseConfirmation.PASSED else TouchTurnCloseConfirmation.FAILED
+    }
+
+    fun closePositionRatio(bar: OhlcBar): Double? {
+        val range = bar.range
+        if (range <= 0.0) return null
+        return ((bar.close - bar.low) / range).coerceIn(0.0, 1.0)
     }
 
     fun entryWindowExpiredAlert(
@@ -817,6 +855,10 @@ object TouchTurnDefaults {
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
     /** Max time after bar close to log or place Touch Turn entry orders. */
     const val ENTRY_WINDOW_AFTER_CLOSE_MS = 60_000L
+    /** For short setups (green liquidity candle), require close in the lower X of range. */
+    const val CLOSE_POSITION_SHORT_MAX = 0.35
+    /** For long setups (red liquidity candle), require close in the upper X of range. */
+    const val CLOSE_POSITION_LONG_MIN = 0.65
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
 }
@@ -884,6 +926,7 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
 
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
 fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
+    enforceCloseConfirmation: Boolean = true,
     nowEpochMillis: Long = System.currentTimeMillis()
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
@@ -892,10 +935,15 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
-    val entryOrdersPermitted = setup.isLiquidityCandle && setup.isActionable
+    val closeConfirmation = TouchTurnLogic.closeConfirmation(candle, setup, session.marketZoneId, nowEpochMillis)
+    val entryOrdersPermitted = setup.isLiquidityCandle &&
+        setup.isActionable &&
+        (!enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED)
     val decisionOutcome = when {
         !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
+        enforceCloseConfirmation && closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
+            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
         session.entryWindowStatus(nowEpochMillis) == TouchTurnEntryWindowStatus.EXPIRED ->
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
         else -> null
@@ -904,7 +952,8 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val milestones = session.milestones.let { m ->
         m.copy(
             barClosedAt = m.barClosedAt ?: at,
-            liquidityEvaluatedAt = at
+            liquidityEvaluatedAt = at,
+            closeConfirmedAt = at
         )
     }
     return copy(
@@ -1080,7 +1129,8 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
         entryOrdersPermitted = when (outcome) {
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> true
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
-            TouchTurnSessionOutcome.NO_TRADE_DOJI -> false
+            TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED -> false
             else -> hadLiquidityCandle == true && setup?.isActionable == true
         },
         ordersPlacedForSession = ordersPlacedForCandle == true ||

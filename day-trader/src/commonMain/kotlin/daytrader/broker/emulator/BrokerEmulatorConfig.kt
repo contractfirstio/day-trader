@@ -33,10 +33,9 @@ data class BrokerEmulatorConfig(
     val bracketExitSpreadWidenFactor: Double = 1.35,
     /**
      * When placing a bracket, probability the simulated exit is take-profit (vs stop).
-     * Set to 0.5 because entry is closer to stop than TP in Touch Turn math — an unbiased
-     * random walk would skew heavily toward stop losses.
+     * Default 0.67 so simulated outcomes land near 67% TP / 33% stop over many runs.
      */
-    val bracketExitTakeProfitProbability: Double = 0.5,
+    val bracketExitTakeProfitProbability: Double = 0.67,
     /** How often each tick steps toward the pre-selected [BracketExitTarget] (vs oscillating away). */
     val bracketWalkSteerTowardTargetProbability: Double = 0.88,
     val historicalDelayMs: Long = 120L,
@@ -61,11 +60,11 @@ data class BrokerEmulatorConfig(
      */
     val touchTurnEntryFillImmediately: Boolean = false,
     /** Probability the entry limit is never touched (price walks away). Ignored when [touchTurnEntryFillImmediately]. */
-    val touchTurnEntryNeverFillProbability: Double = 0.25,
+    val touchTurnEntryNeverFillProbability: Double = 0.0,
     /** Minimum market ticks before an approaching entry may fill (simulates time to reach the level). */
     val touchTurnEntryMinApproachTicks: Int = 2,
     /** Fraction of bracket range used as initial distance from entry when approaching. */
-    val touchTurnEntryStartOffsetPctOfRange: Double = 0.35,
+    val touchTurnEntryStartOffsetPctOfRange: Double = 0.60,
     /** Per-tick step size while approaching entry or drifting away (fraction of bracket range). */
     val touchTurnEntryStepPctOfRange: Double = 0.10,
     /** Bid/ask half-width as a fraction of bracket range (synthetic quote book). */

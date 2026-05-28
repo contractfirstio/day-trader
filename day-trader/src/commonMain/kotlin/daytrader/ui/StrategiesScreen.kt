@@ -207,6 +207,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
                 touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
+                tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
+                onResetTradingPanel = viewModel::onResetTradingPanel,
                 onTabChange = viewModel::onDetailTabChange,
                 onResolveSymbol = viewModel::resolveInstrumentForSymbol,
                 onUpdateDeployment = viewModel::onUpdateDeployment,
@@ -237,6 +239,8 @@ private fun StrategyDeploymentDetailPanel(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    tradingPanelShowsLastSessionRecap: Boolean,
+    onResetTradingPanel: (String) -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
@@ -268,6 +272,8 @@ private fun StrategyDeploymentDetailPanel(
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
@@ -829,6 +835,8 @@ private fun StrategyDeploymentDetail(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    tradingPanelShowsLastSessionRecap: Boolean,
+    onResetTradingPanel: () -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
@@ -933,6 +941,8 @@ private fun StrategyDeploymentDetail(
                     liveBroker = liveBroker,
                     liveSessionTrades = liveSessionTrades,
                     touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                    showLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                    onResetTradingPanel = onResetTradingPanel,
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
                 )
@@ -1701,6 +1711,8 @@ private fun TouchTurnLivePipelineDetailHost(
                 TouchTurnPipelineSectionBar(session = analysisSession)
             TouchTurnPipelineNodeId.Liquidity ->
                 TouchTurnPipelineSectionLiquidity(session = analysisSession)
+            TouchTurnPipelineNodeId.Confirmation ->
+                TouchTurnPipelineSectionConfirmation(session = analysisSession)
             TouchTurnPipelineNodeId.Orders -> {
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
                     TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
@@ -1826,23 +1838,27 @@ private fun LiveTab(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    showLastSessionRecap: Boolean,
+    onResetTradingPanel: () -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
     val isTouchTurn = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
     val isRunning = instance.status == DeploymentStatus.RUNNING
-    val sessionEnded = isTouchTurn && !isRunning
+    val sessionEnded = isTouchTurn && !isRunning && showLastSessionRecap
     val touchTurnInstance = instance.takeIf { isTouchTurn }
-    val lastClosedTouchTurnRun = remember(instance.id, instance.sessionHistory.size) {
-        instance.lastClosedTouchTurnSession()
+    val lastClosedTouchTurnRun = remember(instance.id, instance.sessionHistory.size, showLastSessionRecap) {
+        if (showLastSessionRecap) instance.lastClosedTouchTurnSession() else null
     }
     val analysisSession = remember(
         instance.id,
         instance.touchTurnSession,
-        instance.sessionHistory.size
+        instance.sessionHistory.size,
+        showLastSessionRecap,
     ) {
-        instance.touchTurnAnalysisSession()
+        if (!isRunning && !showLastSessionRecap) null
+        else instance.touchTurnAnalysisSession()
     }
     var pipelineTick by remember(instance.id) { mutableIntStateOf(0) }
     LaunchedEffect(instance.id, instance.touchTurnSession?.candle?.time) {
@@ -1862,27 +1878,35 @@ private fun LiveTab(
         remember(
             instance,
             isRunning,
+            showLastSessionRecap,
             liveBroker,
             liveExecution,
             hasOpenPositionForGraph,
             hasOpenOrdersForGraph,
             pipelineTick,
-            instance.sessionHistory.size
+            instance.sessionHistory.size,
         ) {
-            if (isRunning) {
-                TouchTurnStatusBreadcrumbMapper.graph(
+            when {
+                isRunning -> TouchTurnStatusBreadcrumbMapper.graph(
                     instance = instance,
                     hasOpenPosition = hasOpenPositionForGraph,
                     hasOpenOrders = hasOpenOrdersForGraph
                 )
-            } else {
-                TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
+                showLastSessionRecap -> TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
+                else -> TouchTurnStatusBreadcrumbMapper.graph(
+                    instance = instance,
+                    hasOpenPosition = false,
+                    hasOpenOrders = false,
+                )
             }
         }
     } else {
         null
     }
-    var selectedPipelineNode by rememberSaveable(instance.id) { mutableStateOf<TouchTurnPipelineNodeId?>(null) }
+    var selectedPipelineNode by rememberSaveable(instance.id, showLastSessionRecap) {
+        mutableStateOf<TouchTurnPipelineNodeId?>(null)
+    }
+    val pipelineLiveSessionTrades = if (isRunning || showLastSessionRecap) liveSessionTrades else null
     LaunchedEffect(touchTurnPipelineGraph) {
         val graph = touchTurnPipelineGraph ?: return@LaunchedEffect
         val current = selectedPipelineNode?.let { graph.node(it) }
@@ -1894,6 +1918,40 @@ private fun LiveTab(
         modifier = Modifier.fillMaxWidth().testTag("LiveTab"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (isTouchTurn && !isRunning && showLastSessionRecap) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Showing last session",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("TradingPanelLastSessionLabel"),
+                )
+                TextButton(
+                    onClick = onResetTradingPanel,
+                    modifier = Modifier.testTag("TradingPanelResetButton"),
+                ) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Reset panel")
+                }
+            }
+        }
+        if (isTouchTurn && !isRunning && !showLastSessionRecap) {
+            Text(
+                "Ready for the next session. Past runs stay on the Session history tab.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("TradingPanelIdleHint"),
+            )
+        }
         if (isTouchTurn && touchTurnPipelineGraph != null) {
             val headerStyle = when {
                 sessionEnded || inActiveTrade -> LiveTradingHeaderStyle.BreadcrumbOnly
@@ -1920,7 +1978,7 @@ private fun LiveTab(
                 sessionEnded = sessionEnded,
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
-                liveSessionTrades = liveSessionTrades,
+                liveSessionTrades = pipelineLiveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 inActiveTrade = inActiveTrade,
                 hasOpenOrders = hasOpenOrdersForGraph,

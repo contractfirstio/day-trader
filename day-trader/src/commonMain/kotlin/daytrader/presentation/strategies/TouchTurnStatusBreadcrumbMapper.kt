@@ -9,7 +9,9 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.inProgressSession
 import daytrader.presentation.Formatters
@@ -39,15 +41,17 @@ object TouchTurnStatusBreadcrumbMapper {
     private const val IDX_DATA = 1
     private const val IDX_BAR = 2
     private const val IDX_LIQUIDITY = 3
-    private const val IDX_ORDERS = 4
-    private const val IDX_POSITION = 5
-    private const val IDX_CLOSE = 6
+    private const val IDX_CONFIRM = 4
+    private const val IDX_ORDERS = 5
+    private const val IDX_POSITION = 6
+    private const val IDX_CLOSE = 7
 
     private val pipelineLabels = listOf(
         "Starting session",
         "Data",
         "Bar",
         "Liquidity",
+        "Confirm",
         "Orders",
         "Position",
         "Closing session"
@@ -69,10 +73,16 @@ object TouchTurnStatusBreadcrumbMapper {
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
+        val resolvedPhase = resolvePhase(session, hasOpenPosition, nowEpochMillis)
         val phase = if (closing) {
-            Phase(index = IDX_CLOSE)
+            // Preserve branch skips (e.g. no-trade) while marking session as closed.
+            Phase(
+                index = IDX_CLOSE,
+                skippedFromIndex = resolvedPhase.skippedFromIndex,
+                terminal = true
+            )
         } else {
-            resolvePhase(session, hasOpenPosition, nowEpochMillis)
+            resolvedPhase
         }
         if (phase.failed) {
             return pipelineLabels.mapIndexed { index, label ->
@@ -122,6 +132,7 @@ object TouchTurnStatusBreadcrumbMapper {
             }
             IDX_BAR -> milestones.barClosedAt
             IDX_LIQUIDITY -> milestones.liquidityEvaluatedAt
+            IDX_CONFIRM -> milestones.closeConfirmedAt
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt
@@ -172,6 +183,21 @@ object TouchTurnStatusBreadcrumbMapper {
 
         if (hasOpenPosition) return Phase(index = IDX_POSITION)
 
+        when (session.decisionOutcome) {
+            TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED ->
+                return Phase(index = IDX_DATA, failed = true)
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ->
+                return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
+            TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
+                return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
+            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED ->
+                return Phase(index = IDX_ORDERS, skippedFromIndex = IDX_POSITION, terminal = true)
+            TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            null -> Unit
+        }
+
         val closeStatus = session.candleCloseStatus(nowEpochMillis)
         if (closeStatus != FirstCandleCloseStatus.CLOSED) {
             return Phase(index = IDX_BAR)
@@ -184,6 +210,15 @@ object TouchTurnStatusBreadcrumbMapper {
             LiquidityCandleEvaluation.NOT_LIQUIDITY ->
                 return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
             LiquidityCandleEvaluation.LIQUIDITY -> Unit
+        }
+
+        val closeConfirmation = session.closeConfirmation(nowEpochMillis)
+        when (closeConfirmation) {
+            TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
+            TouchTurnCloseConfirmation.UNKNOWN -> return Phase(index = IDX_CONFIRM)
+            TouchTurnCloseConfirmation.FAILED ->
+                return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
+            TouchTurnCloseConfirmation.PASSED -> Unit
         }
 
         if (session.ordersPlacedForSession) {
@@ -285,6 +320,7 @@ object TouchTurnStatusBreadcrumbMapper {
             IDX_DATA -> if (dataFailed) milestones.dataFailedAt else milestones.dataReadyAt
             IDX_BAR -> milestones.barClosedAt
             IDX_LIQUIDITY -> milestones.liquidityEvaluatedAt
+            IDX_CONFIRM -> milestones.closeConfirmedAt
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt ?: stoppedAt.takeIf { it.isNotBlank() }
@@ -400,6 +436,16 @@ object TouchTurnStatusBreadcrumbMapper {
             }
         }
 
+        when (steps[IDX_CONFIRM].state) {
+            TouchTurnBreadcrumbStepState.COMPLETED,
+            TouchTurnBreadcrumbStepState.CURRENT -> {
+                path.add(TouchTurnPipelineNodeId.Confirmation)
+                if (steps[IDX_CONFIRM].state == TouchTurnBreadcrumbStepState.CURRENT) return path
+            }
+            TouchTurnBreadcrumbStepState.UPCOMING -> Unit
+            else -> return path
+        }
+
         val ordersSkipped = steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED
         val positionSkipped = steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.SKIPPED
 
@@ -479,6 +525,9 @@ object TouchTurnStatusBreadcrumbMapper {
                 )
                 TouchTurnPipelineNodeId.Liquidity -> PipelineNodeMeta(
                     IDX_LIQUIDITY, pipelineLabels[IDX_LIQUIDITY], "Liq", true
+                )
+                TouchTurnPipelineNodeId.Confirmation -> PipelineNodeMeta(
+                    IDX_CONFIRM, pipelineLabels[IDX_CONFIRM], "Confirm", true
                 )
                 TouchTurnPipelineNodeId.Orders -> PipelineNodeMeta(
                     IDX_ORDERS, pipelineLabels[IDX_ORDERS], "Orders", true
@@ -586,7 +635,8 @@ object TouchTurnStatusBreadcrumbMapper {
             return "${failed.label} failed${failed.timestamp?.let { " · $it" } ?: ""}"
         }
         if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
-            steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED
+            (steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED ||
+                steps[IDX_CONFIRM].state == TouchTurnBreadcrumbStepState.COMPLETED)
         ) {
             return buildString {
                 append("No trade path")
@@ -612,6 +662,7 @@ object TouchTurnStatusBreadcrumbMapper {
         IDX_DATA -> TouchTurnPipelineNodeId.Data
         IDX_BAR -> TouchTurnPipelineNodeId.Bar
         IDX_LIQUIDITY -> TouchTurnPipelineNodeId.Liquidity
+        IDX_CONFIRM -> TouchTurnPipelineNodeId.Confirmation
         IDX_ORDERS -> TouchTurnPipelineNodeId.Orders
         IDX_POSITION -> TouchTurnPipelineNodeId.Position
         IDX_CLOSE -> TouchTurnPipelineNodeId.Close

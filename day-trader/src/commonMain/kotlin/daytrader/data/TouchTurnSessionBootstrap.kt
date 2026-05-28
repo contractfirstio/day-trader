@@ -1,6 +1,7 @@
 package daytrader.data
 
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerId
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.FirstCandleCloseStatus
@@ -19,6 +20,7 @@ import daytrader.domain.withTouchTurnCandleFailed
 import daytrader.diagnostics.SessionTrace
 import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.withTouchTurnDecisionOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -180,14 +182,27 @@ class TouchTurnSessionBootstrap(
                 )
                 val evaluatedAt = System.currentTimeMillis()
                 var ordersPlaced = false
+                val enforceCloseConfirmation = executionGateway.brokerId != BrokerId.EMULATOR ||
+                    emulatorRequireCloseConfirmation()
                 repository.update(instanceId) { current ->
-                    val updated = current.withLiquidityEvaluatedIfClosed(evaluatedAt)
+                    val updated = current.withLiquidityEvaluatedIfClosed(
+                        enforceCloseConfirmation = enforceCloseConfirmation,
+                        nowEpochMillis = evaluatedAt
+                    )
                     val session = updated.touchTurnSession ?: return@update updated
                     when (session.decisionOutcome) {
                         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
                         TouchTurnSessionOutcome.NO_TRADE_DOJI,
+                        TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
                         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> return@update updated
                         else -> Unit
+                    }
+                    if (enforceCloseConfirmation &&
+                        session.closeConfirmation(evaluatedAt) != TouchTurnCloseConfirmation.PASSED
+                    ) {
+                        return@update updated.withTouchTurnDecisionOutcome(
+                            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+                        )
                     }
                     if (session.entryWindowStatus(evaluatedAt) == TouchTurnEntryWindowStatus.EXPIRED) {
                         return@update updated.withTouchTurnDecisionOutcome(
@@ -232,3 +247,11 @@ class TouchTurnSessionBootstrap(
         const val LIQUIDITY_POLL_MS = 5_000L
     }
 }
+
+expect fun emulatorRequireCloseConfirmationEnv(): String?
+
+private fun emulatorRequireCloseConfirmation(): Boolean =
+    when (emulatorRequireCloseConfirmationEnv()?.trim()?.lowercase()) {
+        "true", "1", "on", "yes" -> true
+        else -> false
+    }

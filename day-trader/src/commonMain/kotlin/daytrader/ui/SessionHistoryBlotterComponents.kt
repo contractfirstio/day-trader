@@ -378,6 +378,12 @@ private fun SessionHistoryExpandedSections(
                                 )
                             TouchTurnPipelineNodeId.NoTrade ->
                                 TouchTurnPipelineSectionNoTrade(session = null, graph = graph)
+                            TouchTurnPipelineNodeId.Confirmation ->
+                                Text(
+                                    "Close confirmation gate uses opening candle close position within range.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
                             else ->
                                 Text(
                                     graph.node(nodeId)?.label ?: nodeId.detailTitle(),

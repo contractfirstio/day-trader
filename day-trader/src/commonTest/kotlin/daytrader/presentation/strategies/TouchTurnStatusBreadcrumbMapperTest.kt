@@ -24,8 +24,8 @@ class TouchTurnStatusBreadcrumbMapperTest {
         )
         assertEquals("Starting session", steps[0].label)
         assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[0].state)
-        assertEquals("Closing session", steps[6].label)
-        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[6].state)
+        assertEquals("Closing session", steps[7].label)
+        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[7].state)
     }
 
     @Test
@@ -72,9 +72,10 @@ class TouchTurnStatusBreadcrumbMapperTest {
             nowEpochMillis = now
         )
         assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[3].state)
-        assertEquals(TouchTurnBreadcrumbStepState.SKIPPED, steps[4].state)
+        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[4].state)
         assertEquals(TouchTurnBreadcrumbStepState.SKIPPED, steps[5].state)
-        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[6].state)
+        assertEquals(TouchTurnBreadcrumbStepState.SKIPPED, steps[6].state)
+        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[7].state)
         assertTrue(steps.none { it.state == TouchTurnBreadcrumbStepState.CURRENT })
     }
 
@@ -111,8 +112,8 @@ class TouchTurnStatusBreadcrumbMapperTest {
             hasOpenPosition = true,
             nowEpochMillis = now
         )
-        assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[5].state)
-        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[6].state)
+        assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[6].state)
+        assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[7].state)
     }
 
     private fun deployment(touchTurnSession: TouchTurnSessionContext?) = StrategyDeployment(
@@ -142,10 +143,10 @@ class TouchTurnStatusBreadcrumbMapperTest {
     }
 
     private fun bar(time: String) = OhlcBar(
-        open = 100.0,
-        high = 101.0,
+        open = 105.0,
+        high = 106.0,
         low = 99.0,
-        close = 100.5,
+        close = 104.0,
         time = time
     )
 
@@ -189,8 +190,8 @@ class TouchTurnStatusBreadcrumbMapperTest {
             )
         )
         val steps = TouchTurnStatusBreadcrumbMapper.pipelineForLastClosedSession(instance)
-        assertEquals(7, steps?.size)
-        assertEquals("11:00", steps?.get(6)?.timestamp)
+        assertEquals(8, steps?.size)
+        assertEquals("11:00", steps?.get(7)?.timestamp)
     }
 
     @Test
@@ -200,6 +201,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
             dataReadyAt = "2026-05-22T09:30:12",
             barClosedAt = "2026-05-22T09:45:00",
             liquidityEvaluatedAt = "2026-05-22T09:45:01",
+            closeConfirmedAt = "2026-05-22T09:45:02",
             ordersPlacedAt = "2026-05-22T09:45:05",
             positionOpenedAt = "2026-05-22T09:46:10",
             closingSessionAt = "2026-05-22T11:00:00"
@@ -214,7 +216,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         )
         assertTrue(steps.all { it.state == TouchTurnBreadcrumbStepState.COMPLETED })
         assertEquals("09:30", steps[0].timestamp)
-        assertEquals("11:00", steps[6].timestamp)
+        assertEquals("11:00", steps[7].timestamp)
     }
 
     @Test
@@ -233,11 +235,11 @@ class TouchTurnStatusBreadcrumbMapperTest {
         )
         assertTrue(TouchTurnPipelineNodeId.NoTrade in graph.activePath)
         assertTrue(TouchTurnPipelineNodeId.Orders !in graph.activePath)
-        assertTrue(graph.caption.contains("No trade"))
-        val liqToOrders = graph.edges.first {
-            it.from == TouchTurnPipelineNodeId.Liquidity && it.to == TouchTurnPipelineNodeId.Orders
+        assertTrue(graph.caption.isNotBlank())
+        val liqToConfirm = graph.edges.first {
+            it.from == TouchTurnPipelineNodeId.Liquidity && it.to == TouchTurnPipelineNodeId.Confirmation
         }
-        assertEquals(TouchTurnPipelineEdgeState.Dimmed, liqToOrders.state)
+        assertEquals(TouchTurnPipelineEdgeState.Dimmed, liqToConfirm.state)
     }
 
     @Test

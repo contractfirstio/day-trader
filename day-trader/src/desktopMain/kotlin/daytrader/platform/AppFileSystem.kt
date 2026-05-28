@@ -7,11 +7,15 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 actual object AppFileSystem {
     private val writeLock = Any()
     private const val APP_FOLDER_NAME = "Day Trader"
     private val envOverride = System.getenv("DAY_TRADER_DATA_DIR")
+    private val launchId: String by lazy { buildLaunchId() }
     private var dataScope: BrokerKind? = null
 
     actual fun configureDataScope(kind: BrokerKind) {
@@ -24,14 +28,19 @@ actual object AppFileSystem {
 
     actual fun appDataDirectory(): String {
         val scope = dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
-        return baseDataDirectory().resolve(scope.dataDirectorySegment).toString()
+        return stableBaseDataDirectory().resolve(scope.dataDirectorySegment).toString()
     }
 
-    private fun baseDataDirectory(): Path {
-        if (!envOverride.isNullOrBlank()) return Path.of(envOverride)
+    private fun stableBaseDataDirectory(): Path =
+        if (!envOverride.isNullOrBlank()) Path.of(envOverride) else defaultBaseDataDirectory()
+
+    private fun traceRunBaseDirectory(): Path =
+        stableBaseDataDirectory().resolve("runs").resolve(launchId)
+
+    private fun defaultBaseDataDirectory(): Path {
         val home = System.getProperty("user.home") ?: error("user.home is not set")
         val os = System.getProperty("os.name").orEmpty().lowercase()
-        val base = when {
+        return when {
             os.contains("mac") || os.contains("darwin") ->
                 Path.of(home, "Library", "Application Support", APP_FOLDER_NAME)
             os.contains("win") -> {
@@ -40,7 +49,14 @@ actual object AppFileSystem {
             }
             else -> Path.of(home, ".local", "share", "day-trader")
         }
-        return base
+    }
+
+    private fun buildLaunchId(): String {
+        val stamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+            .withZone(ZoneOffset.UTC)
+            .format(Instant.now())
+        val pid = ProcessHandle.current().pid()
+        return "run-$stamp-$pid"
     }
 
     /**
@@ -48,7 +64,7 @@ actual object AppFileSystem {
      */
     private fun migrateLegacyRootDataIfNeeded(kind: BrokerKind) {
         if (kind != BrokerKind.INTERACTIVE_BROKERS) return
-        val base = baseDataDirectory()
+        val base = stableBaseDataDirectory()
         val targetDir = base.resolve(kind.dataDirectorySegment)
         if (Files.exists(targetDir.resolve(AppDataFiles.DEPLOYMENTS))) return
 
@@ -73,7 +89,7 @@ actual object AppFileSystem {
     }
 
     actual fun readText(fileName: String): String? {
-        val path = Path.of(appDataDirectory(), fileName)
+        val path = resolveDataPath(fileName)
         if (!Files.exists(path)) return null
         return Files.readString(path)
     }
@@ -81,8 +97,9 @@ actual object AppFileSystem {
     actual fun writeTextAtomic(fileName: String, content: String) {
         synchronized(writeLock) {
             ensureAppDataDirectory()
-            val dir = Path.of(appDataDirectory())
-            val target = dir.resolve(fileName)
+            val target = resolveDataPath(fileName)
+            val dir = target.parent ?: Path.of(appDataDirectory())
+            Files.createDirectories(dir)
             val temp = Files.createTempFile(dir, "write-", ".tmp")
             try {
                 Files.writeString(
@@ -110,7 +127,7 @@ actual object AppFileSystem {
     actual fun appendLine(fileName: String, line: String) {
         synchronized(writeLock) {
             ensureAppDataDirectory()
-            val path = Path.of(appDataDirectory(), fileName)
+            val path = resolveDataPath(fileName)
             path.parent?.let { Files.createDirectories(it) }
             Files.writeString(
                 path,
@@ -123,7 +140,23 @@ actual object AppFileSystem {
     }
 
     actual fun deleteIfExists(fileName: String) {
-        val path = Path.of(appDataDirectory(), fileName)
+        val path = resolveDataPath(fileName)
         Files.deleteIfExists(path)
+    }
+
+    private fun resolveDataPath(fileName: String): Path {
+        val scope = dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
+        val scopeBase = if (isSessionTraceFile(fileName)) {
+            traceRunBaseDirectory().resolve(scope.dataDirectorySegment)
+        } else {
+            stableBaseDataDirectory().resolve(scope.dataDirectorySegment)
+        }
+        return scopeBase.resolve(fileName)
+    }
+
+    private fun isSessionTraceFile(fileName: String): Boolean {
+        val normalized = fileName.replace('\\', '/')
+        return normalized == AppDataFiles.SESSION_TRACES_DIR ||
+            normalized.startsWith("${AppDataFiles.SESSION_TRACES_DIR}/")
     }
 }

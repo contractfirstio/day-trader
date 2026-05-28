@@ -9,14 +9,16 @@ object StrategiesAppStatePersistence {
         StrategiesAppState(
             selectedDeploymentId = document.selectedDeploymentId ?: document.selectedInstanceId,
             detailTab = parseDetailTab(document.detailTab),
-            globalAutoStartEnabled = document.globalAutoStartEnabled
+            globalAutoStartEnabled = document.globalAutoStartEnabled,
+            tradingPanelDismissedRecapSessionId = document.tradingPanelDismissedRecapSessionId,
         )
 
     fun toDocument(state: StrategiesAppState): StrategiesScreenDocument =
         StrategiesScreenDocument(
             selectedDeploymentId = state.selectedDeploymentId,
             detailTab = detailTabLabel(state.detailTab),
-            globalAutoStartEnabled = state.globalAutoStartEnabled
+            globalAutoStartEnabled = state.globalAutoStartEnabled,
+            tradingPanelDismissedRecapSessionId = state.tradingPanelDismissedRecapSessionId,
         )
 
     private fun parseDetailTab(value: String): StrategyDetailTab =

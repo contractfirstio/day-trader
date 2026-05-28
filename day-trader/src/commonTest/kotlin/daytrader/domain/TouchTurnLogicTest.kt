@@ -271,7 +271,7 @@ class TouchTurnLogicTest {
 
     @Test
     fun entryOrdersPermitted_whenLiquidityActionableAfterBarClose() {
-        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0, time = "20250522  09:30:00")
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 401.0, time = "20250522  09:30:00")
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
@@ -287,9 +287,9 @@ class TouchTurnLogicTest {
                 marketZoneId = "Asia/Hong_Kong"
             )
         )
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(barEnd + 10_000)
+        val evaluated = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 10_000)
         assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
-        val lateEval = instance.withLiquidityEvaluatedIfClosed(barEnd + 90_000)
+        val lateEval = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 90_000)
         assertEquals(true, lateEval.touchTurnSession?.entryOrdersPermitted)
     }
 

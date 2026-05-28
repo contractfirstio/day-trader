@@ -62,5 +62,7 @@ data class StrategiesUiState(
     val liveSessionTrades: LiveSessionTradesUiState? = null,
     val touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
-    val globalAutoStartEnabled: Boolean = true
+    val globalAutoStartEnabled: Boolean = true,
+    /** When false, the Trading tab shows an idle pipeline instead of the last closed session. */
+    val tradingPanelShowsLastSessionRecap: Boolean = false,
 )

@@ -70,6 +70,7 @@ internal object TouchTurnPersistence {
             dataFailedAt = dataFailedAt,
             barClosedAt = barClosedAt,
             liquidityEvaluatedAt = liquidityEvaluatedAt,
+            closeConfirmedAt = closeConfirmedAt,
             ordersPlacedAt = ordersPlacedAt,
             positionOpenedAt = positionOpenedAt,
             closingSessionAt = closingSessionAt
@@ -82,6 +83,7 @@ internal object TouchTurnPersistence {
             dataFailedAt = dataFailedAt,
             barClosedAt = barClosedAt,
             liquidityEvaluatedAt = liquidityEvaluatedAt,
+            closeConfirmedAt = closeConfirmedAt,
             ordersPlacedAt = ordersPlacedAt,
             positionOpenedAt = positionOpenedAt,
             closingSessionAt = closingSessionAt
