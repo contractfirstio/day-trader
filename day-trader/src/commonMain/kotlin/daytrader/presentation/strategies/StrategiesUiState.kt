@@ -67,4 +67,6 @@ data class StrategiesUiState(
     val tradingPanelShowsLastSessionRecap: Boolean = false,
     /** When false, bid/ask/last are hidden on the Trading tab (idle Touch Turn panel). */
     val tradingPanelShowsLiveMarketQuotes: Boolean = false,
+    /** Live Touch Turn pipeline graph for the selected deployment (engine-aligned). */
+    val touchTurnPipelineGraph: TouchTurnPipelineGraph? = null,
 )

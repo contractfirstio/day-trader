@@ -63,10 +63,10 @@ object TouchTurnStatusBreadcrumbMapper {
         instance: StrategyDeployment,
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean = false,
+        sessionTrades: List<SessionTrade> = emptyList(),
         nowEpochMillis: Long = System.currentTimeMillis()
     ): List<TouchTurnBreadcrumbStep> {
         val session = instance.touchTurnSession
-        val sessionTrades = instance.inProgressSession()?.sessionTrades ?: emptyList()
         val milestones = session?.milestones ?: TouchTurnMilestoneTimestamps()
         val closing = isClosingPhase(
             instance = instance,
@@ -375,12 +375,14 @@ object TouchTurnStatusBreadcrumbMapper {
         instance: StrategyDeployment,
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean = false,
+        sessionTrades: List<SessionTrade> = emptyList(),
         nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnPipelineGraph {
         val stepList = steps(
             instance = instance,
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
         val graph = buildGraph(
@@ -396,6 +398,7 @@ object TouchTurnStatusBreadcrumbMapper {
             graph = graph,
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis,
             source = "live"
         )
@@ -419,6 +422,7 @@ object TouchTurnStatusBreadcrumbMapper {
             graph = graph,
             hasOpenPosition = false,
             hasOpenOrders = false,
+            sessionTrades = run?.sessionTrades.orEmpty(),
             nowEpochMillis = System.currentTimeMillis(),
             source = "last_closed_recap",
             sessionOverride = session
@@ -847,12 +851,12 @@ object TouchTurnStatusBreadcrumbMapper {
         graph: TouchTurnPipelineGraph,
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean,
+        sessionTrades: List<SessionTrade>,
         nowEpochMillis: Long,
         source: String,
         sessionOverride: TouchTurnSessionContext? = null
     ) {
         val session = sessionOverride ?: instance.touchTurnSession
-        val sessionTrades = instance.inProgressSession()?.sessionTrades ?: emptyList()
         val closing = isClosingPhase(
             instance = instance,
             hasOpenPosition = hasOpenPosition,

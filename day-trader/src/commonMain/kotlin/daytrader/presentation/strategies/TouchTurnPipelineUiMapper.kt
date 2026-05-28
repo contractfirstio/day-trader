@@ -1,0 +1,93 @@
+package daytrader.presentation.strategies
+
+import daytrader.broker.SessionTradeMatcher
+import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionTrade
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategyType
+import daytrader.domain.inProgressSession
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerFill
+import daytrader.gateway.WorkingOrder
+
+/**
+ * Resolves Touch Turn pipeline graph inputs from the same broker + session signals
+ * the engine uses ([daytrader.data.DeploymentSessionStopEvaluator]), so the live
+ * pipeline graph reflects the true run state.
+ */
+object TouchTurnPipelineUiMapper {
+    data class LiveContext(
+        val hasOpenPosition: Boolean,
+        val hasOpenOrders: Boolean,
+        val sessionTrades: List<SessionTrade>,
+        val nowEpochMillis: Long
+    )
+
+    fun liveContext(
+        instance: StrategyDeployment,
+        brokerPositions: List<AccountPosition>,
+        brokerOpenOrders: List<WorkingOrder>,
+        brokerFills: List<BrokerFill>,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): LiveContext = LiveContext(
+        hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions),
+        hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders),
+        sessionTrades = liveSessionTrades(instance, brokerFills),
+        nowEpochMillis = nowEpochMillis
+    )
+
+    fun liveSessionTrades(
+        instance: StrategyDeployment,
+        brokerFills: List<BrokerFill>
+    ): List<SessionTrade> {
+        val run = instance.inProgressSession() ?: return emptyList()
+        return SessionTradeMatcher.toSessionTrades(
+            SessionTradeMatcher.fillsForSession(
+                symbol = instance.symbol,
+                startedAt = run.startedAt,
+                stoppedAt = null,
+                fills = brokerFills
+            )
+        )
+    }
+
+    fun graphForDeployment(
+        instance: StrategyDeployment,
+        brokerPositions: List<AccountPosition>,
+        brokerOpenOrders: List<WorkingOrder>,
+        brokerFills: List<BrokerFill>,
+        showLastSessionRecap: Boolean,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): TouchTurnPipelineGraph? {
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        return when {
+            instance.status == DeploymentStatus.RUNNING -> {
+                val ctx = liveContext(
+                    instance = instance,
+                    brokerPositions = brokerPositions,
+                    brokerOpenOrders = brokerOpenOrders,
+                    brokerFills = brokerFills,
+                    nowEpochMillis = nowEpochMillis
+                )
+                TouchTurnStatusBreadcrumbMapper.graph(
+                    instance = instance,
+                    hasOpenPosition = ctx.hasOpenPosition,
+                    hasOpenOrders = ctx.hasOpenOrders,
+                    sessionTrades = ctx.sessionTrades,
+                    nowEpochMillis = ctx.nowEpochMillis
+                )
+            }
+            showLastSessionRecap ->
+                TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
+            else ->
+                TouchTurnStatusBreadcrumbMapper.graph(
+                    instance = instance,
+                    hasOpenPosition = false,
+                    hasOpenOrders = false,
+                    sessionTrades = emptyList(),
+                    nowEpochMillis = nowEpochMillis
+                )
+        }
+    }
+}

@@ -206,6 +206,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
                 touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
+                touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
                 tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = viewModel::onResetTradingPanel,
@@ -239,6 +240,7 @@ private fun StrategyDeploymentDetailPanel(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: (String) -> Unit,
@@ -273,6 +275,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                touchTurnPipelineGraph = touchTurnPipelineGraph,
                 tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
@@ -837,6 +840,7 @@ private fun StrategyDeploymentDetail(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: () -> Unit,
@@ -944,6 +948,7 @@ private fun StrategyDeploymentDetail(
                     liveBroker = liveBroker,
                     liveSessionTrades = liveSessionTrades,
                     touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                    touchTurnPipelineGraph = touchTurnPipelineGraph,
                     showLastSessionRecap = tradingPanelShowsLastSessionRecap,
                     onResetTradingPanel = onResetTradingPanel,
                     onAdjustStop = onAdjustStop,
@@ -1825,6 +1830,7 @@ private fun LiveTab(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     showLastSessionRecap: Boolean,
     onResetTradingPanel: () -> Unit,
     onAdjustStop: (String, String) -> Unit,
@@ -1847,51 +1853,7 @@ private fun LiveTab(
         if (!isRunning && !showLastSessionRecap) null
         else instance.touchTurnAnalysisSession()
     }
-    var pipelineTick by remember(instance.id) { mutableIntStateOf(0) }
-    LaunchedEffect(instance.id, instance.touchTurnSession?.candle?.time) {
-        if (!isTouchTurn || !isRunning) return@LaunchedEffect
-        while (true) {
-            delay(1_000)
-            pipelineTick++
-        }
-    }
-    val hasOpenPositionForGraph = resolveLivePositionPnL(
-        instance.symbol,
-        liveBroker,
-        liveExecution
-    ).hasOpenPosition
     val hasOpenOrdersForGraph = liveBroker?.openOrders?.isNotEmpty() == true
-    val touchTurnPipelineGraph = if (isTouchTurn) {
-        remember(
-            instance,
-            instance.touchTurnSession?.decisionOutcome,
-            instance.touchTurnSession?.milestones,
-            isRunning,
-            showLastSessionRecap,
-            liveBroker,
-            liveExecution,
-            hasOpenPositionForGraph,
-            hasOpenOrdersForGraph,
-            pipelineTick,
-            instance.sessionHistory.size,
-        ) {
-            when {
-                isRunning -> TouchTurnStatusBreadcrumbMapper.graph(
-                    instance = instance,
-                    hasOpenPosition = hasOpenPositionForGraph,
-                    hasOpenOrders = hasOpenOrdersForGraph
-                )
-                showLastSessionRecap -> TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
-                else -> TouchTurnStatusBreadcrumbMapper.graph(
-                    instance = instance,
-                    hasOpenPosition = false,
-                    hasOpenOrders = false,
-                )
-            }
-        }
-    } else {
-        null
-    }
     var selectedPipelineNode by rememberSaveable(instance.id, showLastSessionRecap) {
         mutableStateOf<TouchTurnPipelineNodeId?>(null)
     }

@@ -87,6 +87,7 @@ class StrategiesViewModel(
     private var startBlockedAlert: StartBlockedByPositionAlert? = null
     private var selectedMarketZoneId: String? = null
     private var selectedSessionHistoryId: String? = null
+    private var pipelineRefreshTick: Int = 0
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
@@ -183,6 +184,19 @@ class StrategiesViewModel(
 
         brokerGateway?.let { gateway ->
             PreMarketClosePositionWatcher(gateway, repository, scope).start()
+        }
+
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                val selected = deployments.find { it.id == appState.selectedDeploymentId }
+                val needsPipelineRefresh = selected?.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+                    selected.status == DeploymentStatus.RUNNING
+                if (needsPipelineRefresh) {
+                    pipelineRefreshTick++
+                    emitUiState()
+                }
+            }
         }
     }
 
@@ -674,6 +688,25 @@ class StrategiesViewModel(
             state.strategyTypeFilter != null ||
             selectedMarketZoneId != null
 
+        val touchTurnPipelineGraph = selected?.let { instance ->
+            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+                instance.status == DeploymentStatus.RUNNING
+            ) {
+                pipelineRefreshTick
+            }
+            TouchTurnPipelineUiMapper.graphForDeployment(
+                instance = instance,
+                brokerPositions = brokerPositions,
+                brokerOpenOrders = brokerOpenOrders,
+                brokerFills = brokerFills,
+                showLastSessionRecap = TradingPanelRecap.showsLastSession(
+                    instance,
+                    state.tradingPanelDismissedRecapSessionId,
+                ),
+                nowEpochMillis = System.currentTimeMillis()
+            )
+        }
+
         _uiState.update {
             StrategiesUiState(
                 filteredRows = listRows,
@@ -735,6 +768,7 @@ class StrategiesViewModel(
                         state.tradingPanelDismissedRecapSessionId,
                     )
                 } == true,
+                touchTurnPipelineGraph = touchTurnPipelineGraph,
             )
         }
     }
