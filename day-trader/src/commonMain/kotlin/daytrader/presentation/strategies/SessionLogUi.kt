@@ -33,7 +33,8 @@ object SessionLogUi {
         append(
             "Follow the Day Trader log diagnosis workflow: find $applicationLogPath, " +
                 "correlate emulator/emulator/*.jsonl by epochMs+symbol if hybrid/emulator, " +
-                "then explain with code. Cite log lines and epochMs."
+                "compare `touch_turn_state_sync` lines (engine.* vs ui.* fields, mismatches) with " +
+                "`ui_action` engine_* events, then explain with code. Cite log lines and epochMs."
         )
     }
 

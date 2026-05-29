@@ -25,7 +25,7 @@ import kotlinx.serialization.serializer
 /**
  * Append-only JSONL for post-hoc analysis (not shown in the UI).
  * Paired per session under `sessions/{deploymentId}/{sessionId}/`:
- * - [AppDataFiles.SESSION_APPLICATION_LOG] — lifecycle and decisions
+ * - [AppDataFiles.SESSION_APPLICATION_LOG] — lifecycle, decisions, and engine/UI sync (`touch_turn_state_sync`)
  * - [AppDataFiles.SESSION_PRICES_LOG] — live IB quote updates (see [SessionPriceLog])
  *
  * Each JSONL line includes `at` (ISO local with millis) and `epochMs` for cross-file correlation.

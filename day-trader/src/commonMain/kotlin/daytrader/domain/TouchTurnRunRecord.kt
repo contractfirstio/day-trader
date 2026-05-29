@@ -29,7 +29,9 @@ enum class TouchTurnSessionStopTrigger {
     OPEN_DEADLINE,
     MANUAL,
     PRE_MARKET_CLOSE,
-    ERROR
+    ERROR,
+    /** App quit or startup recovery of a persisted in-progress run from a prior process. */
+    APPLICATION_SHUTDOWN
 }
 
 @Serializable

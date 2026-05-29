@@ -12,6 +12,7 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.diagnostics.TouchTurnStateSyncLog
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.inProgressSession
 import daytrader.domain.lastClosedTouchTurnSession
@@ -376,7 +377,9 @@ object TouchTurnStatusBreadcrumbMapper {
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean = false,
         sessionTrades: List<SessionTrade> = emptyList(),
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        syncTrigger: String = "ui_graph_refresh",
+        syncTriggerDetails: Map<String, String> = emptyMap()
     ): TouchTurnPipelineGraph {
         val stepList = steps(
             instance = instance,
@@ -400,34 +403,34 @@ object TouchTurnStatusBreadcrumbMapper {
             hasOpenOrders = hasOpenOrders,
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis,
-            source = "live"
+            source = "live",
+            syncTrigger = syncTrigger,
+            syncTriggerDetails = syncTriggerDetails
         )
         return graph
     }
 
     fun graphForLastClosedSession(instance: StrategyDeployment): TouchTurnPipelineGraph? {
-        val steps = pipelineForLastClosedSession(instance) ?: return null
-        val run = instance.lastClosedTouchTurnSession()
-        val session = run?.toTouchTurnAnalysisContext()
-        val graph = buildGraph(
-            steps = steps,
-            session = session,
-            nowEpochMillis = System.currentTimeMillis()
-        )
-        logPipelineGraph(
+        val run = instance.lastClosedTouchTurnSession() ?: return null
+        val runRecord = run.touchTurnRunRecord
+        val milestones = run.touchTurnMilestones ?: runRecord?.milestones ?: return null
+        return graphFromHistory(
+            milestones = milestones,
+            startedAt = run.startedAt,
+            stoppedAt = run.stoppedAt,
+            hadLiquidityCandle = run.hadLiquidityCandle
+                ?: runRecord?.let { record ->
+                    record.decision.outcome != TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+                },
+            ordersPlacedForCandle = run.ordersPlacedForCandle
+                ?: runRecord?.let { record ->
+                    record.decision.outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+                },
+            positionOpened = run.positionOpened,
+            decisionOutcome = runRecord?.decision?.outcome,
             instanceId = instance.id,
-            symbol = instance.symbol,
-            instance = instance,
-            steps = steps,
-            graph = graph,
-            hasOpenPosition = false,
-            hasOpenOrders = false,
-            sessionTrades = run?.sessionTrades.orEmpty(),
-            nowEpochMillis = System.currentTimeMillis(),
-            source = "last_closed_recap",
-            sessionOverride = session
+            symbol = instance.symbol
         )
-        return graph
     }
 
     fun graphFromHistory(
@@ -854,7 +857,9 @@ object TouchTurnStatusBreadcrumbMapper {
         sessionTrades: List<SessionTrade>,
         nowEpochMillis: Long,
         source: String,
-        sessionOverride: TouchTurnSessionContext? = null
+        sessionOverride: TouchTurnSessionContext? = null,
+        syncTrigger: String = "ui_graph_refresh",
+        syncTriggerDetails: Map<String, String> = emptyMap()
     ) {
         val session = sessionOverride ?: instance.touchTurnSession
         val closing = isClosingPhase(
@@ -882,6 +887,26 @@ object TouchTurnStatusBreadcrumbMapper {
             nowEpochMillis = nowEpochMillis,
             source = source
         )
+        if (source == "live") {
+            TouchTurnStateSyncLog.recordLive(
+                instance = instance,
+                steps = steps,
+                graph = graph,
+                session = session,
+                hasOpenPosition = hasOpenPosition,
+                hasOpenOrders = hasOpenOrders,
+                sessionTrades = sessionTrades,
+                closingPhase = closing,
+                phaseIndex = phase.index,
+                phaseSkippedFrom = phase.skippedFromIndex,
+                phaseTerminal = phase.terminal,
+                usesNoTradePipeline = usesNoTradePipeline(session, steps, nowEpochMillis),
+                closeConfirmation = session?.closeConfirmation(nowEpochMillis),
+                nowEpochMillis = nowEpochMillis,
+                trigger = syncTrigger,
+                triggerDetails = syncTriggerDetails
+            )
+        }
     }
 
     private fun indexToNodeId(index: Int): TouchTurnPipelineNodeId = when (index) {

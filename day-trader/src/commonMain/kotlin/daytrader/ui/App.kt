@@ -28,7 +28,8 @@ fun App(
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
-    releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
+    releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
@@ -40,6 +41,20 @@ fun App(
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
+
+    val viewModel = dependencies.strategiesViewModel
+    DisposableEffect(viewModel) {
+        onRegisterApplicationQuit?.invoke(
+            ApplicationQuitCoordinator(
+                hasRunningSessions = viewModel::hasRunningSessions,
+                runningSymbols = viewModel::runningSessionSymbols,
+                stopRunningSessions = viewModel::shutdownRunningSessions
+            )
+        )
+        onDispose {
+            viewModel.shutdownRunningSessions()
+        }
+    }
 
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = DarkBackground) {

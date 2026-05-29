@@ -11,9 +11,17 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnRunContext
+import daytrader.domain.TouchTurnRunMarketInputs
+import daytrader.domain.TouchTurnRunRecord
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnSessionDecision
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnSessionStartedBy
+import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnStopEvent
 import daytrader.domain.withLiquidityEvaluatedIfClosed
+import daytrader.gateway.BrokerId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -346,6 +354,72 @@ class TouchTurnStatusBreadcrumbMapperTest {
                 it.to == TouchTurnPipelineNodeId.Orders
         }
         assertEquals(TouchTurnPipelineEdgeState.Unreachable, confirmToOrders.state)
+    }
+
+    @Test
+    fun graphForLastClosedSession_tradeRun_matchesHistoryPathNotNoTrade() {
+        val bar = OhlcBar(open = 123.2, high = 123.4, low = 121.9, close = 122.7, time = "20260529  09:30:00")
+        val milestones = TouchTurnMilestoneTimestamps(
+            startingSessionAt = "2026-05-29T09:31:00",
+            dataReadyAt = "2026-05-29T09:31:02",
+            barClosedAt = "2026-05-29T09:45:02",
+            liquidityEvaluatedAt = "2026-05-29T09:45:02",
+            closeConfirmedAt = "2026-05-29T09:45:02",
+            ordersPlacedAt = "2026-05-29T09:45:02",
+            positionOpenedAt = "2026-05-29T09:45:02",
+            closingSessionAt = "2026-05-29T09:45:13"
+        )
+        val closedRun = StrategySession(
+            id = "session-aaf7b8170f74267a",
+            date = "2026-05-29",
+            startedAt = "2026-05-29T09:31:00",
+            stoppedAt = "2026-05-29T09:45:13",
+            pnl = -23.49,
+            trades = 1,
+            maxAtRisk = 10_000,
+            status = SessionStatus.CLOSED,
+            positionOpened = true,
+            hadLiquidityCandle = true,
+            ordersPlacedForCandle = true,
+            touchTurnMilestones = milestones,
+            touchTurnRunRecord = TouchTurnRunRecord(
+                runContext = TouchTurnRunContext(
+                    maxDollars = 10_000,
+                    startedBy = TouchTurnSessionStartedBy.AUTO_MARKET_OPEN,
+                    brokerId = BrokerId.EMULATOR
+                ),
+                marketInputs = TouchTurnRunMarketInputs(
+                    openingBar = bar,
+                    adr14 = 4.62,
+                    currencyCode = "HKD",
+                    marketZoneId = "Asia/Hong_Kong"
+                ),
+                decision = TouchTurnSessionDecision(
+                    outcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+                    plannedQuantity = 82
+                ),
+                stopEvent = TouchTurnStopEvent(stopTrigger = TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN),
+                milestones = milestones
+            )
+        )
+        val instance = deployment(touchTurnSession = null).copy(
+            status = DeploymentStatus.STOPPED,
+            sessionHistory = listOf(closedRun)
+        )
+        val recapGraph = TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)!!
+        val historyGraph = TouchTurnStatusBreadcrumbMapper.graphFromHistory(
+            milestones = milestones,
+            startedAt = closedRun.startedAt,
+            stoppedAt = closedRun.stoppedAt,
+            hadLiquidityCandle = true,
+            ordersPlacedForCandle = true,
+            positionOpened = true,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+        )
+        assertEquals(historyGraph.activePath, recapGraph.activePath)
+        assertTrue(TouchTurnPipelineNodeId.Orders in recapGraph.activePath)
+        assertTrue(TouchTurnPipelineNodeId.Position in recapGraph.activePath)
+        assertTrue(TouchTurnPipelineNodeId.NoTrade !in recapGraph.activePath)
     }
 
     @Test

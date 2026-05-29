@@ -15,6 +15,7 @@ import daytrader.gateway.WorkingOrder
 import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.PreMarketClosePositionWatcher
+import daytrader.data.RunningSessionShutdown
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
@@ -41,6 +42,7 @@ import daytrader.domain.withClosedPosition
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.diagnostics.SessionTrace
+import daytrader.diagnostics.TouchTurnStateSyncLog
 import daytrader.diagnostics.UiActionLog
 import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.markets.MarketFilterState
@@ -118,6 +120,9 @@ class StrategiesViewModel(
                 deployments = list
                 pruneTouchTurnPriceHistories()
                 reconcileSelectedDeployment(list)
+                // Engine auto-start/stop updates the repository off the manual toggle path;
+                // refresh the left-rail cards immediately so status chips don't stay on Stopped.
+                emitUiState()
             }
             .launchIn(scope)
 
@@ -231,9 +236,11 @@ class StrategiesViewModel(
                     sessionId = event.sessionId,
                     details = mapOf("trigger" to event.trigger.name)
                 )
+                TouchTurnStateSyncLog.clearDeployment(event.instanceId)
                 appStateRepository.update {
                     it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.SESSION_HISTORY)
                 }
+                emitUiState()
             }
             is TouchTurnEvent.SessionStarted -> {
                 UiActionLog.log(
@@ -245,15 +252,29 @@ class StrategiesViewModel(
                         "startedBy" to event.startedBy.name
                     )
                 )
+                recordTouchTurnEngineSync(
+                    deploymentId = event.instanceId,
+                    trigger = "engine_session_started",
+                    triggerDetails = mapOf(
+                        "sessionDate" to event.sessionDate,
+                        "startedBy" to event.startedBy.name
+                    )
+                )
                 appStateRepository.update {
                     it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.LIVE)
                 }
+                emitUiState()
             }
             is TouchTurnEvent.NoTradeDecision -> {
                 UiActionLog.log(
                     action = "engine_no_trade_decision",
                     deploymentId = event.instanceId,
                     details = mapOf("outcome" to event.outcome.name)
+                )
+                recordTouchTurnEngineSync(
+                    deploymentId = event.instanceId,
+                    trigger = "engine_no_trade_decision",
+                    triggerDetails = mapOf("outcome" to event.outcome.name)
                 )
             }
             is TouchTurnEvent.BracketSubmitted -> {
@@ -263,12 +284,22 @@ class StrategiesViewModel(
                     symbol = event.plan.symbol,
                     details = mapOf("orderCount" to event.plan.orders.size.toString())
                 )
+                recordTouchTurnEngineSync(
+                    deploymentId = event.instanceId,
+                    trigger = "engine_bracket_submitted",
+                    triggerDetails = mapOf("orderCount" to event.plan.orders.size.toString())
+                )
             }
             is TouchTurnEvent.PositionOpened -> {
                 UiActionLog.log(
                     action = "engine_position_opened",
                     deploymentId = event.instanceId,
                     details = mapOf("milestoneAt" to event.milestoneAt)
+                )
+                recordTouchTurnEngineSync(
+                    deploymentId = event.instanceId,
+                    trigger = "engine_position_opened",
+                    triggerDetails = mapOf("milestoneAt" to event.milestoneAt)
                 )
             }
             is TouchTurnEvent.OrchestratorError -> {
@@ -284,6 +315,32 @@ class StrategiesViewModel(
                 )
             }
         }
+    }
+
+    fun hasRunningSessions(): Boolean =
+        repository.deployments.value.any { it.status == DeploymentStatus.RUNNING }
+
+    fun runningSessionSymbols(): List<String> =
+        repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING }
+            .map { it.symbol }
+            .sorted()
+
+    /** Stop all running deployments and persist — call before broker/runtime teardown. */
+    fun shutdownRunningSessions(
+        trigger: TouchTurnSessionStopTrigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
+    ) {
+        val gateway = brokerGateway ?: sessionGateway ?: return
+        RunningSessionShutdown.stopAllRunning(
+            repository = repository,
+            gateway = gateway,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+            brokerFills = brokerFills,
+            trigger = trigger
+        )
+        syncDeploymentsFromRepository()
+        emitUiState()
     }
 
     fun onGlobalAutoStartEnabledChange(enabled: Boolean) {
@@ -830,6 +887,30 @@ class StrategiesViewModel(
             openOrders = symbolOrders,
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup
+        )
+    }
+
+    private fun recordTouchTurnEngineSync(
+        deploymentId: String,
+        trigger: String,
+        triggerDetails: Map<String, String> = emptyMap()
+    ) {
+        val instance = deployments.find { it.id == deploymentId } ?: return
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
+        val ctx = TouchTurnPipelineUiMapper.liveContext(
+            instance = instance,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+            brokerFills = brokerFills
+        )
+        TouchTurnStatusBreadcrumbMapper.graph(
+            instance = instance,
+            hasOpenPosition = ctx.hasOpenPosition,
+            hasOpenOrders = ctx.hasOpenOrders,
+            sessionTrades = ctx.sessionTrades,
+            nowEpochMillis = ctx.nowEpochMillis,
+            syncTrigger = trigger,
+            syncTriggerDetails = triggerDetails
         )
     }
 }

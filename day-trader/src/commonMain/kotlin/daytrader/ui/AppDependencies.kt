@@ -12,6 +12,8 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.PositionRepository
+import daytrader.data.RunningSessionShutdown
+import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
@@ -51,6 +53,13 @@ fun rememberAppDependencies(
         engineScope
     ) {
         val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+        (brokerGateway ?: sessionGateway)?.let { executionGateway ->
+            RunningSessionShutdown.stopAllRunning(
+                repository = strategyRepository,
+                gateway = executionGateway,
+                trigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
+            )
+        }
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
             val engine = TouchTurnEngine(
                 sessionGateway = session,

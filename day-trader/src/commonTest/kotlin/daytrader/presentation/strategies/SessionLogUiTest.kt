@@ -30,7 +30,7 @@ class SessionLogUiTest {
             Broker: emulator
             Symptom: {one sentence}
 
-            Follow the Day Trader log diagnosis workflow: find /Users/me/Library/Application Support/Day Trader/emulator/sessions/d1/session-abc/application.jsonl, correlate emulator/emulator/*.jsonl by epochMs+symbol if hybrid/emulator, then explain with code. Cite log lines and epochMs.
+            Follow the Day Trader log diagnosis workflow: find /Users/me/Library/Application Support/Day Trader/emulator/sessions/d1/session-abc/application.jsonl, correlate emulator/emulator/*.jsonl by epochMs+symbol if hybrid/emulator, compare `touch_turn_state_sync` lines (engine.* vs ui.* fields, mismatches) with `ui_action` engine_* events, then explain with code. Cite log lines and epochMs.
             """.trimIndent(),
             prompt,
         )

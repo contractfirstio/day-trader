@@ -15,6 +15,8 @@ import daytrader.gateway.BrokerRuntime
 import daytrader.platform.AppFileSystem
 import daytrader.platform.CrashLogging
 import daytrader.ui.App
+import daytrader.ui.ApplicationQuitConfirmDialog
+import daytrader.ui.ApplicationQuitCoordinator
 import daytrader.ui.BrokerSelectionScreen
 
 private sealed interface StartupPhase {
@@ -27,6 +29,16 @@ fun main() {
     application {
     var phase by remember { mutableStateOf<StartupPhase>(StartupPhase.ChooseBroker) }
     var pendingSelection by remember { mutableStateOf(BrokerKind.fromEnvironment()) }
+    var applicationQuit by remember { mutableStateOf<ApplicationQuitCoordinator?>(null) }
+    var showQuitConfirm by remember { mutableStateOf(false) }
+
+    fun performApplicationQuit() {
+        if (phase is StartupPhase.Running) {
+            applicationQuit?.stopRunningSessions?.invoke()
+            (phase as StartupPhase.Running).runtime.shutdown()
+        }
+        exitApplication()
+    }
 
     val windowTitle = when (val current = phase) {
         StartupPhase.ChooseBroker -> "Day Trader — Choose Broker"
@@ -47,15 +59,27 @@ fun main() {
 
     Window(
         onCloseRequest = {
-            if (phase is StartupPhase.Running) {
-                (phase as StartupPhase.Running).runtime.shutdown()
+            val quit = applicationQuit
+            if (phase is StartupPhase.Running && quit != null && quit.hasRunningSessions()) {
+                showQuitConfirm = true
+            } else {
+                performApplicationQuit()
             }
-            exitApplication()
         },
         title = windowTitle,
         state = windowState
     ) {
         MaterialTheme {
+            if (showQuitConfirm) {
+                ApplicationQuitConfirmDialog(
+                    runningSymbols = applicationQuit?.runningSymbols?.invoke().orEmpty(),
+                    onConfirmQuit = {
+                        showQuitConfirm = false
+                        performApplicationQuit()
+                    },
+                    onDismiss = { showQuitConfirm = false }
+                )
+            }
             when (val current = phase) {
                 StartupPhase.ChooseBroker -> BrokerSelectionScreen(
                     selected = pendingSelection,
@@ -79,7 +103,8 @@ fun main() {
                         touchTurnSessionGateway = current.runtime.marketDataGateway
                             ?: current.runtime.gateway,
                         ensureLiveMarketData = current.runtime.ensureLiveMarketData,
-                        releaseLiveMarketData = current.runtime.releaseLiveMarketData
+                        releaseLiveMarketData = current.runtime.releaseLiveMarketData,
+                        onRegisterApplicationQuit = { applicationQuit = it }
                     )
                 }
             }
