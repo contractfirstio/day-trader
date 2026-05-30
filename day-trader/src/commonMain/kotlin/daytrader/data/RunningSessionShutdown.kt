@@ -6,6 +6,7 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.WorkingOrder
 
 /**
@@ -16,6 +17,7 @@ object RunningSessionShutdown {
     fun stopAllRunning(
         repository: StrategyDeploymentRepository,
         gateway: BrokerGateway?,
+        brokerKind: BrokerKind? = null,
         brokerPositions: List<AccountPosition> = emptyList(),
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
         brokerFills: List<BrokerFill> = emptyList(),
@@ -29,7 +31,8 @@ object RunningSessionShutdown {
                     instance = instance,
                     brokerPositions = brokerPositions,
                     brokerOpenOrders = brokerOpenOrders,
-                    brokerFills = brokerFills
+                    brokerFills = brokerFills,
+                    brokerKind = brokerKind
                 ),
                 gateway = gateway,
                 explicitTrigger = trigger

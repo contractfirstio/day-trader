@@ -88,6 +88,7 @@ fun StrategyDeployment.onSessionStopped(
                 touchTurnSession = touchTurn,
                 stopTrigger = resolvedStopTrigger,
                 brokerId = stopParams.brokerId,
+                brokerKind = stopParams.brokerKind,
                 brokerUnrealizedPnLAtStop = stopParams.brokerUnrealizedPnLAtStop,
                 stopErrorMessage = stopParams.stopErrorMessage,
                 sessionTrades = trades

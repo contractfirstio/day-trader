@@ -18,4 +18,24 @@ object LiveMarkPriceResolver {
             ?: position?.lastTradePrice?.takeIf { it > 0.0 }
             ?: position?.marketPrice?.takeIf { it > 0.0 }
     }
+
+    fun quoteForSymbol(symbol: String, quotes: Map<String, LiveQuote>): LiveQuote? =
+        quotes[SymbolMarkets.normalizeSymbol(symbol)]
+
+    fun isFillReady(quote: LiveQuote?): Boolean =
+        quote?.bid?.let { it > 0.0 } == true && quote.ask?.let { it > 0.0 } == true
+
+    /** When paper fills need bid/ask but the UI already has a last price. */
+    fun fillReadinessHint(quote: LiveQuote?, requiresBidAskForFills: Boolean): String? {
+        if (!requiresBidAskForFills) return null
+        if (quote == null) return null
+        if (isFillReady(quote)) return null
+        if (quote.last?.let { it > 0.0 } == true ||
+            quote.bid?.let { it > 0.0 } == true ||
+            quote.ask?.let { it > 0.0 } == true
+        ) {
+            return "Waiting for bid/ask before paper fills"
+        }
+        return null
+    }
 }

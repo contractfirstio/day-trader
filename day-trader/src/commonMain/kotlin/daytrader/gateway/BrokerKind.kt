@@ -1,5 +1,8 @@
 package daytrader.gateway
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 enum class BrokerKind {
     INTERACTIVE_BROKERS,
     EMULATOR,

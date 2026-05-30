@@ -1,6 +1,7 @@
 package daytrader.domain
 
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -81,6 +82,7 @@ class TouchTurnRunRecordTest {
             stopParams = SessionStopParams(
                 stopTrigger = TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN,
                 brokerId = BrokerId.EMULATOR,
+                brokerKind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
                 brokerUnrealizedPnLAtStop = 12.5
             )
         )
@@ -90,6 +92,7 @@ class TouchTurnRunRecordTest {
         assertEquals(500, record.runContext.maxDollars)
         assertEquals(TouchTurnSessionStartedBy.AUTO_MARKET_OPEN, record.runContext.startedBy)
         assertEquals(BrokerId.EMULATOR, record.runContext.brokerId)
+        assertEquals(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA, record.runContext.brokerKind)
         assertEquals(candle, record.marketInputs.openingBar)
         assertEquals(40.0, record.marketInputs.adr14)
         assertEquals("HKD", record.marketInputs.currencyCode)

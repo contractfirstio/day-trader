@@ -8,7 +8,9 @@ import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnRunContext
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import daytrader.presentation.Formatters
 
 /** Compact, collapsible Touch Turn session facts for session history rows. */
@@ -29,7 +31,7 @@ object TouchTurnRunRecordUiMapper {
                 buildString {
                     append(startedByShort(record.runContext.startedBy))
                     append(" · ")
-                    append(brokerShort(record.runContext.brokerId))
+                    append(brokerShort(record.runContext))
                     append(" · ")
                     append(Formatters.maxAtRisk(record.runContext.maxDollars))
                 }
@@ -120,6 +122,13 @@ object TouchTurnRunRecordUiMapper {
     private fun startedByShort(startedBy: TouchTurnSessionStartedBy): String = when (startedBy) {
         TouchTurnSessionStartedBy.MANUAL -> "Manual"
         TouchTurnSessionStartedBy.AUTO_MARKET_OPEN -> "Auto"
+    }
+
+    private fun brokerShort(context: TouchTurnRunContext): String = when (context.brokerKind) {
+        BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper·IB"
+        BrokerKind.EMULATOR -> "Emu"
+        BrokerKind.INTERACTIVE_BROKERS -> "IB"
+        null -> brokerShort(context.brokerId)
     }
 
     private fun brokerShort(brokerId: BrokerId): String = when (brokerId) {

@@ -131,7 +131,8 @@ data class TouchTurnRunRecordRecord(
 data class TouchTurnRunContextRecord(
     val maxDollars: Int,
     val startedBy: String,
-    val brokerId: String
+    val brokerId: String,
+    val brokerKind: String? = null
 )
 
 @Serializable

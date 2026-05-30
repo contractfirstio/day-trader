@@ -17,7 +17,9 @@ data class TouchTurnLiveOrderChartUiState(
     val priceHistory: List<Double>,
     val currentPrice: Double?,
     val levels: List<TouchTurnOrderLevelUi>,
-    val context: TouchTurnPriceChartContext = TouchTurnPriceChartContext.ORDERS_AND_POSITION
+    val context: TouchTurnPriceChartContext = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
+    /** Shown under the chart title when live bid/ask are required for paper fills. */
+    val statusHint: String? = null
 )
 
 object TouchTurnLiveOrderChartUiMapper {
@@ -28,7 +30,8 @@ object TouchTurnLiveOrderChartUiMapper {
         currentPrice: Double?,
         openOrders: List<WorkingOrder>,
         plannedBracket: TouchTurnPlannedBracket?,
-        bracketSetup: TouchTurnBracketSetup?
+        bracketSetup: TouchTurnBracketSetup?,
+        statusHint: String? = null
     ): TouchTurnLiveOrderChartUiState? {
         val levels = TouchTurnLiveOrderLevels.fromWorkingOrders(
             openOrders = openOrders,
@@ -43,7 +46,8 @@ object TouchTurnLiveOrderChartUiMapper {
             priceHistory = priceHistory,
             currentPrice = currentPrice,
             levels = levels,
-            context = TouchTurnPriceChartContext.ORDERS_AND_POSITION
+            context = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
+            statusHint = statusHint
         )
     }
 }

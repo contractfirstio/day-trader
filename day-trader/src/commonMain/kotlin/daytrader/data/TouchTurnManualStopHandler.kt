@@ -12,6 +12,7 @@ import daytrader.domain.SessionStopParams
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.WorkingOrder
 
 /**
@@ -24,7 +25,8 @@ object TouchTurnManualStopHandler {
         val brokerPositions: List<AccountPosition>,
         val brokerOpenOrders: List<WorkingOrder>,
         val brokerFills: List<BrokerFill>,
-        val flattenOnBroker: Boolean = true
+        val flattenOnBroker: Boolean = true,
+        val brokerKind: BrokerKind? = null
     )
 
     data class Result(
@@ -68,6 +70,7 @@ object TouchTurnManualStopHandler {
                 SessionStopParams(
                     stopTrigger = stopTrigger,
                     brokerId = it.brokerId,
+                    brokerKind = input.brokerKind,
                     stopErrorMessage = instance.touchTurnSession?.errorMessage,
                     brokerUnrealizedPnLAtStop = brokerPosition?.totalUnrealizedPnL,
                     hasOpenPosition = hadOpenPosition,

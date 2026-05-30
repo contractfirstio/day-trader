@@ -45,7 +45,7 @@ import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
-import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
@@ -67,6 +67,7 @@ class TouchTurnEngine(
     private val executionGateway: BrokerGateway?,
     private val repository: StrategyDeploymentRepository,
     private val scope: CoroutineScope,
+    private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val uiEffects: TouchTurnUiEffects = NoOpTouchTurnUiEffects,
     private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val isGlobalAutoStartEnabled: () -> Boolean = { true },
@@ -277,7 +278,8 @@ class TouchTurnEngine(
                 instance = instance,
                 brokerPositions = brokerPositions.value,
                 brokerOpenOrders = brokerOpenOrders.value,
-                brokerFills = brokerFills.value
+                brokerFills = brokerFills.value,
+                brokerKind = brokerKind
             ),
             gateway = gateway,
             explicitTrigger = command.trigger
@@ -527,9 +529,9 @@ class TouchTurnEngine(
         }
         TouchTurnCandleLog.candleClosed(instanceId, instance.symbol, session)
         val evaluatedAt = System.currentTimeMillis()
-        val executionGw = executionGateway ?: sessionGateway
-        val enforceCloseConfirmation = executionGw?.brokerId != BrokerId.EMULATOR ||
+        val enforceCloseConfirmation = brokerKind.usesLiveIbMarketData ||
             emulatorRequireCloseConfirmation()
+        val executionGw = executionGateway ?: sessionGateway
         TouchTurnDecisionLog.bootstrapCandleClosed(
             instanceId = instanceId,
             symbol = instance.symbol,
@@ -827,7 +829,11 @@ class TouchTurnEngine(
     }
 
     private fun quoteForSymbol(symbol: String): LiveQuote? {
-        val gateway = executionGateway ?: sessionGateway ?: return null
+        val gateway = if (brokerKind.usesLiveIbMarketData) {
+            sessionGateway ?: executionGateway
+        } else {
+            executionGateway ?: sessionGateway
+        } ?: return null
         val normalized = SymbolMarkets.normalizeSymbol(symbol)
         return gateway.quotes.value[normalized]
     }

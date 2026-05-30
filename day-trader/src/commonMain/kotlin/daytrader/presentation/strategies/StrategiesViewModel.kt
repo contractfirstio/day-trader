@@ -9,6 +9,7 @@ import daytrader.domain.withStopPrice
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
@@ -66,12 +67,14 @@ class StrategiesViewModel(
     private val marketFilter: MarketFilterState,
     private val brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
+    private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val touchTurnEngine: TouchTurnEnginePort? = null,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+    private val requiresBidAskForFills = brokerKind.usesLiveIbMarketData
     private val useTouchTurnEngine = touchTurnEngine != null && TouchTurnEngineConfig.useEngine()
     private val livePriceUiLogsEnabled: Boolean =
         System.getenv("DAY_TRADER_LIVE_PRICE_UI_LOGS")?.equals("true", ignoreCase = true) == true
@@ -86,6 +89,7 @@ class StrategiesViewModel(
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
     private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
+    private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var startBlockedAlert: StartBlockedByPositionAlert? = null
     private var selectedMarketZoneId: String? = null
     private var selectedSessionHistoryId: String? = null
@@ -185,6 +189,15 @@ class StrategiesViewModel(
                 emitUiState()
             }
             ?.launchIn(scope)
+
+        if (sessionGateway != null && sessionGateway !== brokerGateway) {
+            sessionGateway.connectionState
+                .onEach {
+                    marketDataConnection = it
+                    emitUiState()
+                }
+                .launchIn(scope)
+        }
 
         touchTurnEngine?.events
             ?.onEach { event -> handleTouchTurnEvent(event) }
@@ -340,6 +353,7 @@ class StrategiesViewModel(
         RunningSessionShutdown.stopAllRunning(
             repository = repository,
             gateway = gateway,
+            brokerKind = brokerKind,
             brokerPositions = brokerPositions,
             brokerOpenOrders = brokerOpenOrders,
             brokerFills = brokerFills,
@@ -794,11 +808,17 @@ class StrategiesViewModel(
                         positions = brokerPositions,
                         quotes = brokerQuotes,
                         openOrders = brokerOpenOrders,
-                        connection = brokerConnection,
+                        connection = if (requiresBidAskForFills) marketDataConnection else brokerConnection,
                         includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
                             instance,
                             state.tradingPanelDismissedRecapSessionId,
                         ),
+                        requireBidAskForFills = requiresBidAskForFills &&
+                            instance.status == DeploymentStatus.RUNNING &&
+                            (
+                                instance.touchTurnSession?.ordersPlacedForSession == true ||
+                                    instance.touchTurnSession?.entryOrdersPermitted == true
+                                )
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
@@ -884,9 +904,16 @@ class StrategiesViewModel(
             deployment = deployment,
             session = session,
             priceHistory = history,
-            currentPrice = currentPrice
+            currentPrice = currentPrice,
+            statusHint = fillReadinessHint(deployment.symbol)
         )
     }
+
+    private fun fillReadinessHint(symbol: String): String? =
+        LiveMarkPriceResolver.fillReadinessHint(
+            quote = LiveMarkPriceResolver.quoteForSymbol(symbol, brokerQuotes),
+            requiresBidAskForFills = requiresBidAskForFills
+        )
 
     private fun buildTouchTurnLiveOrderChart(
         instance: StrategyDeployment?
@@ -916,7 +943,8 @@ class StrategiesViewModel(
             currentPrice = currentPrice,
             openOrders = symbolOrders,
             plannedBracket = session.plannedBracket,
-            bracketSetup = session.setup
+            bracketSetup = session.setup,
+            statusHint = fillReadinessHint(deployment.symbol)
         )
     }
 

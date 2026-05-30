@@ -1,6 +1,7 @@
 package daytrader.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,9 +28,11 @@ import daytrader.ui.theme.TextSecondary
 fun ConnectionStatusBar(
     brokerGateway: BrokerGateway,
     brokerKind: BrokerKind,
+    marketDataGateway: BrokerGateway? = null,
     modifier: Modifier = Modifier
 ) {
-    val state by brokerGateway.connectionState.collectAsState()
+    val executionState by brokerGateway.connectionState.collectAsState()
+    val marketDataState = marketDataGateway?.connectionState?.collectAsState()?.value
 
     Row(
         modifier = modifier
@@ -43,28 +46,90 @@ fun ConnectionStatusBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BrokerModeBadge(brokerId = brokerGateway.brokerId, brokerKind = brokerKind)
-            Text(
-                text = brokerStatusLabel(state, brokerKind),
-                style = MaterialTheme.typography.bodyMedium,
-                color = brokerStatusColor(state)
+            if (brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA && marketDataGateway != null) {
+                HybridConnectionStatus(
+                    executionState = executionState,
+                    marketDataState = marketDataState ?: GatewayConnectionState.Disconnected
+                )
+            } else {
+                Text(
+                    text = brokerStatusLabel(executionState, brokerKind),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = brokerStatusColor(executionState)
+                )
+            }
+        }
+        HybridReconnectButtons(
+            brokerKind = brokerKind,
+            executionState = executionState,
+            marketDataState = marketDataState,
+            onReconnectExecution = brokerGateway::reconnect,
+            onReconnectMarketData = marketDataGateway?.let { gateway -> { gateway.reconnect() } }
+        )
+    }
+}
+
+@Composable
+private fun HybridConnectionStatus(
+    executionState: GatewayConnectionState,
+    marketDataState: GatewayConnectionState
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = "Paper execution · ${connectionShortLabel(executionState)}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = brokerStatusColor(executionState)
+        )
+        Text(
+            text = "IB market data · ${connectionShortLabel(marketDataState)}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = brokerStatusColor(marketDataState)
+        )
+    }
+}
+
+@Composable
+private fun HybridReconnectButtons(
+    brokerKind: BrokerKind,
+    executionState: GatewayConnectionState,
+    marketDataState: GatewayConnectionState?,
+    onReconnectExecution: () -> Unit,
+    onReconnectMarketData: (() -> Unit)?
+) {
+    if (brokerKind != BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA || onReconnectMarketData == null) {
+        BrokerReconnectButton(state = executionState, onReconnect = onReconnectExecution)
+        return
+    }
+    val marketState = marketDataState ?: GatewayConnectionState.Disconnected
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (needsReconnect(executionState)) {
+            BrokerReconnectButton(
+                state = executionState,
+                onReconnect = onReconnectExecution,
+                labelPrefix = "Paper"
             )
         }
-        BrokerReconnectButton(
-            state = state,
-            onReconnect = brokerGateway::reconnect
-        )
+        if (needsReconnect(marketState)) {
+            BrokerReconnectButton(
+                state = marketState,
+                onReconnect = onReconnectMarketData,
+                labelPrefix = "IB Data"
+            )
+        }
     }
 }
 
 @Composable
 private fun BrokerReconnectButton(
     state: GatewayConnectionState,
-    onReconnect: () -> Unit
+    onReconnect: () -> Unit,
+    labelPrefix: String? = null
 ) {
-    if (state !is GatewayConnectionState.Disconnected && state !is GatewayConnectionState.Error) {
+    if (!needsReconnect(state)) {
         return
     }
-    val label = if (state is GatewayConnectionState.Disconnected) "Connect" else "Reconnect"
+    val baseLabel = if (state is GatewayConnectionState.Disconnected) "Connect" else "Reconnect"
+    val label = labelPrefix?.let { "$baseLabel $it" } ?: baseLabel
     Button(
         onClick = onReconnect,
         enabled = state !is GatewayConnectionState.Connecting,
@@ -75,6 +140,16 @@ private fun BrokerReconnectButton(
     ) {
         Text(label)
     }
+}
+
+private fun needsReconnect(state: GatewayConnectionState): Boolean =
+    state is GatewayConnectionState.Disconnected || state is GatewayConnectionState.Error
+
+private fun connectionShortLabel(state: GatewayConnectionState): String = when (state) {
+    GatewayConnectionState.Disconnected -> "Not connected"
+    GatewayConnectionState.Connecting -> "Connecting…"
+    GatewayConnectionState.Connected -> "Connected"
+    is GatewayConnectionState.Error -> "Error"
 }
 
 private fun brokerStatusLabel(state: GatewayConnectionState, brokerKind: BrokerKind): String {

@@ -2161,6 +2161,14 @@ private fun TradingTabLiveMarketStrip(broker: LiveBrokerUiState) {
         )
         Spacer(modifier = Modifier.height(6.dp))
         LiveMarketQuotesBar(broker = broker, prominent = true)
+        broker.fillReadinessHint?.let { hint ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = hint,
+                fontSize = 10.sp,
+                color = TextSecondary
+            )
+        }
     }
 }
 

@@ -11,6 +11,7 @@ import daytrader.gateway.BrokerKind
 fun AppTopBar(
     brokerGateway: BrokerGateway,
     brokerKind: BrokerKind,
+    marketDataGateway: BrokerGateway? = null,
     selectedMarketZoneId: String?,
     onMarketClick: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -22,7 +23,8 @@ fun AppTopBar(
         )
         ConnectionStatusBar(
             brokerGateway = brokerGateway,
-            brokerKind = brokerKind
+            brokerKind = brokerKind,
+            marketDataGateway = marketDataGateway
         )
     }
 }

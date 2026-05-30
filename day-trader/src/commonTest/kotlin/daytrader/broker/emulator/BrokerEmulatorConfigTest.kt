@@ -10,4 +10,15 @@ class BrokerEmulatorConfigTest {
         assertEquals(null, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose("off"))
         assertEquals(120L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose("120"))
     }
+
+    @Test
+    fun forLiveIbMarketData_usesLiveExchangePricingWithoutEmulatorScenarioTuning() {
+        val config = BrokerEmulatorConfig.forLiveIbMarketData()
+        assertEquals(EmulatorPricingSource.LIVE_EXCHANGE, config.pricingSource)
+        assertEquals(null, config.firstCandleSecondsUntilClose)
+        assertEquals(false, config.simulateOrderProgress)
+        assertEquals(1.0, config.bracketExitSpreadWidenFactor)
+        assertEquals(0.0, config.touchTurnEntryNeverFillProbability)
+        assertEquals(false, config.alternateFirstCandleColor)
+    }
 }

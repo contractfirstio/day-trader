@@ -36,6 +36,7 @@ data class LiveBrokerUiState(
     val formattedBid: String?,
     val formattedAsk: String?,
     val formattedLast: String?,
+    val fillReadinessHint: String? = null,
     val position: LivePositionUi?,
     val openOrders: List<LiveOpenOrderUi>
 )
@@ -51,6 +52,7 @@ object LiveBrokerUiMapper {
         openOrders: List<WorkingOrder>,
         connection: GatewayConnectionState,
         includeMarketQuotes: Boolean = true,
+        requireBidAskForFills: Boolean = false,
     ): LiveBrokerUiState {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val quote = quotes[norm]
@@ -114,6 +116,7 @@ object LiveBrokerUiMapper {
             formattedBid = formattedBid,
             formattedAsk = formattedAsk,
             formattedLast = formattedLast,
+            fillReadinessHint = LiveMarkPriceResolver.fillReadinessHint(quote, requireBidAskForFills),
             position = position,
             openOrders = orders
         )

@@ -87,6 +87,14 @@ fun TouchTurnLiveOrderPriceChart(
             fontSize = 11.sp,
             color = TextSecondary
         )
+        chart.statusHint?.let { hint ->
+            Text(
+                text = hint,
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
 
         if (priceSeries.isEmpty() && chart.levels.isEmpty()) {
             Text(

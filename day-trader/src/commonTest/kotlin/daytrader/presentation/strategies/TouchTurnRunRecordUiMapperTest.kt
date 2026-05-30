@@ -13,6 +13,7 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnStopEvent
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -58,6 +59,25 @@ class TouchTurnRunRecordUiMapperTest {
         assertTrue(ui.body.contains("Bar"))
         assertTrue(ui.body.contains("S×4"))
         assertTrue(ui.body.contains("PnL@stop"))
+    }
+
+    @Test
+    fun from_showsPaperLiveLabelWhenBrokerKindSet() {
+        val ui = TouchTurnRunRecordUiMapper.from(
+            TouchTurnRunRecord(
+                runContext = TouchTurnRunContext(
+                    maxDollars = 500,
+                    startedBy = TouchTurnSessionStartedBy.MANUAL,
+                    brokerId = BrokerId.EMULATOR,
+                    brokerKind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA
+                ),
+                marketInputs = TouchTurnRunMarketInputs(),
+                decision = TouchTurnSessionDecision(TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY),
+                stopEvent = TouchTurnStopEvent(TouchTurnSessionStopTrigger.NO_TRADE_DECISION),
+                milestones = TouchTurnMilestoneTimestamps()
+            )
+        )
+        assertTrue(ui.body.contains("Paper·IB"))
     }
 
     @Test

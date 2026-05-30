@@ -95,11 +95,16 @@ data class BrokerEmulatorConfig(
         }
 
         fun forLiveIbMarketData(): BrokerEmulatorConfig =
-            fromEnvironment().copy(
+            Default.copy(
                 pricingSource = EmulatorPricingSource.LIVE_EXCHANGE,
                 firstCandleSecondsUntilClose = null,
+                firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+                alternateFirstCandleColor = false,
                 simulateOrderProgress = false,
-                bracketExitSpreadWidenFactor = 1.0
+                bracketExitSpreadWidenFactor = 1.0,
+                touchTurnEntryFillImmediately = false,
+                touchTurnEntryNeverFillProbability = 0.0,
+                touchTurnEntryScenarioOverride = null
             )
 
         internal fun parseFirstCandleSecondsUntilClose(raw: String?): Long? =

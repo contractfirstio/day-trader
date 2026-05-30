@@ -35,6 +35,7 @@ fun App(
         positionRepository = positionRepository,
         brokerGateway = brokerGateway,
         touchTurnSessionGateway = touchTurnSessionGateway,
+        brokerKind = brokerKind,
         ensureLiveMarketData = ensureLiveMarketData,
         releaseLiveMarketData = releaseLiveMarketData
     )
@@ -62,6 +63,11 @@ fun App(
                 AppTopBar(
                     brokerGateway = brokerGateway,
                     brokerKind = brokerKind,
+                    marketDataGateway = if (touchTurnSessionGateway !== brokerGateway) {
+                        touchTurnSessionGateway
+                    } else {
+                        null
+                    },
                     selectedMarketZoneId = selectedMarketZoneId,
                     onMarketClick = dependencies.marketFilter::toggle
                 )

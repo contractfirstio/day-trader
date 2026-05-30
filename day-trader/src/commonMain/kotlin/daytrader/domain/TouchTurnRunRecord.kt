@@ -1,6 +1,7 @@
 package daytrader.domain
 
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -46,7 +47,9 @@ data class TouchTurnPlannedBracket(
 data class TouchTurnRunContext(
     val maxDollars: Int,
     val startedBy: TouchTurnSessionStartedBy,
-    val brokerId: BrokerId
+    val brokerId: BrokerId,
+    /** Startup broker mode (e.g. paper-live vs pure emulator); null on legacy rows. */
+    val brokerKind: BrokerKind? = null
 )
 
 @Serializable
@@ -152,6 +155,7 @@ fun buildTouchTurnRunRecord(
     touchTurnSession: TouchTurnSessionContext,
     stopTrigger: TouchTurnSessionStopTrigger,
     brokerId: BrokerId,
+    brokerKind: BrokerKind? = null,
     brokerUnrealizedPnLAtStop: Double?,
     stopErrorMessage: String? = null,
     sessionTrades: List<SessionTrade> = emptyList()
@@ -179,7 +183,8 @@ fun buildTouchTurnRunRecord(
         runContext = TouchTurnRunContext(
             maxDollars = session.maxAtRisk,
             startedBy = session.touchTurnStartedBy ?: TouchTurnSessionStartedBy.MANUAL,
-            brokerId = brokerId
+            brokerId = brokerId,
+            brokerKind = brokerKind
         ),
         marketInputs = TouchTurnRunMarketInputs(
             openingBar = touchTurnSession.candle,

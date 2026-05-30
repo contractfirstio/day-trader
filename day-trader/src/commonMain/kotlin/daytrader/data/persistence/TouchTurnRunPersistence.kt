@@ -14,6 +14,7 @@ import daytrader.domain.TouchTurnStopEvent
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
 
 internal object TouchTurnRunPersistence {
     fun toDomain(record: TouchTurnRunRecordRecord?): TouchTurnRunRecord? {
@@ -22,7 +23,8 @@ internal object TouchTurnRunPersistence {
             runContext = TouchTurnRunContext(
                 maxDollars = record.runContext.maxDollars,
                 startedBy = parseStartedBy(record.runContext.startedBy),
-                brokerId = parseBrokerId(record.runContext.brokerId)
+                brokerId = parseBrokerId(record.runContext.brokerId),
+                brokerKind = parseBrokerKind(record.runContext.brokerKind)
             ),
             marketInputs = TouchTurnRunMarketInputs(
                 openingBar = record.marketInputs.openingBar?.toDomain(),
@@ -56,7 +58,8 @@ internal object TouchTurnRunPersistence {
             runContext = TouchTurnRunContextRecord(
                 maxDollars = record.runContext.maxDollars,
                 startedBy = record.runContext.startedBy.name.lowercase(),
-                brokerId = record.runContext.brokerId.name.lowercase()
+                brokerId = record.runContext.brokerId.name.lowercase(),
+                brokerKind = record.runContext.brokerKind?.name?.lowercase()
             ),
             marketInputs = TouchTurnRunMarketInputsRecord(
                 openingBar = record.marketInputs.openingBar?.toRecord(),
@@ -146,6 +149,11 @@ internal object TouchTurnRunPersistence {
     private fun parseBrokerId(value: String): BrokerId =
         runCatching { BrokerId.valueOf(value.uppercase()) }
             .getOrDefault(BrokerId.EMULATOR)
+
+    private fun parseBrokerKind(value: String?): BrokerKind? {
+        value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return runCatching { BrokerKind.valueOf(value.uppercase()) }.getOrNull()
+    }
 
     private fun parseTradeSide(value: String): TouchTurnTradeSide =
         runCatching { TouchTurnTradeSide.valueOf(value.uppercase()) }

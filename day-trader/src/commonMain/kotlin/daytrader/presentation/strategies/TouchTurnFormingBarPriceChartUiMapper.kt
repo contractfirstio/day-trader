@@ -17,7 +17,8 @@ object TouchTurnFormingBarPriceChartUiMapper {
         deployment: StrategyDeployment,
         session: TouchTurnSessionContext,
         priceHistory: List<Double>,
-        currentPrice: Double?
+        currentPrice: Double?,
+        statusHint: String? = null
     ): TouchTurnLiveOrderChartUiState? {
         if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         if (!shouldRecordPrices(session)) return null
@@ -27,7 +28,8 @@ object TouchTurnFormingBarPriceChartUiMapper {
             priceHistory = priceHistory,
             currentPrice = currentPrice,
             levels = emptyList(),
-            context = TouchTurnPriceChartContext.OPENING_BAR_FORMING
+            context = TouchTurnPriceChartContext.OPENING_BAR_FORMING,
+            statusHint = statusHint
         )
     }
 }

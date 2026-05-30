@@ -8,6 +8,7 @@ import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.LoggingTouchTurnEngine
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerKind
 import daytrader.domain.InstrumentIdentity
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
@@ -33,6 +34,7 @@ fun rememberAppDependencies(
     positionRepository: PositionRepository,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
+    brokerKind: BrokerKind = BrokerKind.EMULATOR,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
 ): AppDependencies {
@@ -48,6 +50,7 @@ fun rememberAppDependencies(
         positionRepository,
         brokerGateway,
         touchTurnSessionGateway,
+        brokerKind,
         ensureLiveMarketData,
         releaseLiveMarketData,
         engineScope
@@ -57,6 +60,7 @@ fun rememberAppDependencies(
             RunningSessionShutdown.stopAllRunning(
                 repository = strategyRepository,
                 gateway = executionGateway,
+                brokerKind = brokerKind,
                 trigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
             )
         }
@@ -66,6 +70,7 @@ fun rememberAppDependencies(
                 executionGateway = brokerGateway ?: session,
                 repository = strategyRepository,
                 scope = engineScope,
+                brokerKind = brokerKind,
                 ensureLiveMarketData = ensureLiveMarketData,
                 isGlobalAutoStartEnabled = { appStateRepository.state.value.globalAutoStartEnabled },
                 releaseLiveMarketData = releaseLiveMarketData
@@ -82,6 +87,7 @@ fun rememberAppDependencies(
             marketFilter = marketFilter,
             brokerGateway = brokerGateway,
             touchTurnSessionGateway = touchTurnSessionGateway,
+            brokerKind = brokerKind,
             touchTurnEngine = touchTurnEngine,
             ensureLiveMarketData = ensureLiveMarketData,
             releaseLiveMarketData = releaseLiveMarketData
