@@ -9,6 +9,7 @@ import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.presentation.Formatters
 
 /** Values loaded from IB at the Data pipeline step (ADR + first 15m RTH bar). */
@@ -146,13 +147,16 @@ object TouchTurnPipelineDetailUiMapper {
     ): CloseConfirmationUi? {
         val candle = session.candle ?: return null
         val setup = session.setup
-        val confirmation = session.closeConfirmation(nowEpochMillis)
+        val confirmation = resolvedCloseConfirmation(session, nowEpochMillis)
         val ratio = TouchTurnLogic.closePositionRatio(candle)
-        val remainingMillis = TouchTurnLogic.closeConfirmationRemainingMillis(
-            candle,
-            session.marketZoneId,
-            nowEpochMillis
-        )
+        val remainingMillis = when (confirmation) {
+            TouchTurnCloseConfirmation.PASSED -> null
+            else -> TouchTurnLogic.closeConfirmationRemainingMillis(
+                candle,
+                session.marketZoneId,
+                nowEpochMillis
+            )
+        }
         return CloseConfirmationUi(
             confirmation = confirmation,
             closePositionRatio = ratio,
@@ -168,6 +172,23 @@ object TouchTurnPipelineDetailUiMapper {
             },
             currency = session.currencyCode
         )
+    }
+
+    /**
+     * Once brackets are submitted, confirmation is frozen as passed — live re-evaluation
+     * would show EXPIRED after the 1-minute post-close window even though orders were valid.
+     */
+    private fun resolvedCloseConfirmation(
+        session: TouchTurnSessionContext,
+        nowEpochMillis: Long
+    ): TouchTurnCloseConfirmation {
+        if (session.ordersPlacedForSession ||
+            session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED ||
+            session.milestones.closeConfirmedAt != null
+        ) {
+            return TouchTurnCloseConfirmation.PASSED
+        }
+        return session.closeConfirmation(nowEpochMillis)
     }
 
     private fun formatCountdown(remainingMs: Long): String {

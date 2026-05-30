@@ -61,6 +61,8 @@ data class StrategiesUiState(
     val liveBroker: LiveBrokerUiState? = null,
     val liveSessionTrades: LiveSessionTradesUiState? = null,
     val touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState? = null,
+    /** Streaming IB marks on the Opening bar pipeline step while the 15m candle is forming. */
+    val touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
     val globalAutoStartEnabled: Boolean = true,
     /** When false, the Trading tab shows an idle pipeline instead of the last closed session. */

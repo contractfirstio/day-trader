@@ -555,12 +555,12 @@ class DesktopIbGatewayConnection(
         emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
         paced {
-            client.reqMarketDataType(
-                if (marketDataOnly) MARKET_DATA_TYPE_LIVE else MARKET_DATA_TYPE_DELAYED_FROZEN
-            )
+            // Delayed-frozen keeps bid/ask/last after the close; live-only often streams nothing
+            // outside RTH (hybrid paper still needs marks for charts and fill simulation).
+            client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN)
         }
         if (marketDataOnly) {
-            flushPendingStreamSubscriptions()
+            resubscribeAllStreamingSymbols()
             return
         }
         paced { client.reqAccountUpdates(true, config.accountCode) }
@@ -1074,8 +1074,18 @@ class DesktopIbGatewayConnection(
 
         if (priceUpdated) {
             IbGatewayLog.tickPrice(key, field, price)
-            resolveSymbolForMarketDataKey(key)?.let { symbol ->
-                updateQuoteFor(symbol, key)
+            val symbol = resolveSymbolForMarketDataKey(key)
+            IbPriceDiskLog.tick(
+                symbol = symbol,
+                key = key,
+                field = field,
+                price = price,
+                bid = bidPrices[key],
+                ask = askPrices[key],
+                last = lastTradePrices[key] ?: marketPrices[key]
+            )
+            symbol?.let {
+                updateQuoteFor(it, key)
                 if (field == TickType.BID.index() || field == TickType.DELAYED_BID.index()) {
                     IbGatewayLog.debug("Tick BID symbol=$symbol key=$key price=$price")
                 } else if (field == TickType.ASK.index() || field == TickType.DELAYED_ASK.index()) {
@@ -1101,9 +1111,21 @@ class DesktopIbGatewayConnection(
             last = lastTradePrices[key] ?: marketPrices[key]
         )
         quotesBySymbol[norm] = quote
-        if (quoteBus == null || !marketDataOnly) {
-            scheduleQuotePublish()
+        val bus = quoteBus
+        when {
+            bus != null && marketDataOnly -> publishQuoteToBusIfPresent(norm, quote, priorCloses[key], bus)
+            bus == null || !marketDataOnly -> scheduleQuotePublish()
         }
+    }
+
+    private fun publishQuoteToBusIfPresent(
+        norm: String,
+        quote: LiveQuote,
+        priorClose: Double?,
+        bus: daytrader.marketdata.MarketQuoteBus
+    ) {
+        if (quote.bid == null && quote.ask == null && quote.last == null) return
+        bus.publish(norm, quote, priorClose, daytrader.marketdata.QuoteSource.EXTERNAL)
     }
 
     private fun scheduleQuotePublish() {
@@ -1115,6 +1137,7 @@ class DesktopIbGatewayConnection(
     }
 
     private fun forwardLiveQuoteIfNeeded(key: String) {
+        if (marketDataOnly && quoteBus != null) return
         val symbol = resolveSymbolForMarketDataKey(key) ?: return
         val bid = bidPrices[key] ?: return
         val ask = askPrices[key] ?: return
@@ -1127,16 +1150,20 @@ class DesktopIbGatewayConnection(
             last = lastTradePrices[key] ?: marketPrices[key]
         )
         val priorClose = priorCloses[key]
-        val bus = quoteBus
-        if (bus != null) {
-            bus.publish(norm, quote, priorClose, daytrader.marketdata.QuoteSource.EXTERNAL)
-        } else {
-            onLiveQuote?.invoke(symbol, quote, priorClose)
-        }
+        onLiveQuote?.invoke(symbol, quote, priorClose)
     }
 
     private fun resolveSymbolForMarketDataKey(key: String): String? =
-        openPositions[key]?.symbol ?: streamSymbolByMktDataKey[key]
+        openPositions[key]?.symbol
+            ?: streamSymbolByMktDataKey[key]
+            ?: symbolFromStreamingKey(key)
+
+    /** Parses `STREAM:SYMBOL` or `STREAM:SYMBOL:listing` when the map entry is missing. */
+    private fun symbolFromStreamingKey(key: String): String? {
+        if (!key.startsWith("STREAM:")) return null
+        val body = key.removePrefix("STREAM:")
+        return body.substringBefore(':').takeIf { it.isNotBlank() }
+    }
 
     /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
     private val streamInstrumentByKey = ConcurrentHashMap<String, daytrader.domain.InstrumentIdentity?>()
@@ -1148,6 +1175,7 @@ class DesktopIbGatewayConnection(
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (norm.isBlank()) return
         val refKey = streamRefKey(norm, instrument)
+        streamInstrumentByKey[refKey] = instrument
         val firstSubscriber = incrementStreamRefCount(refKey)
         if (!firstSubscriber) {
             IbGatewayLog.debug("ensureStreamingMarketData refcount++ symbol=$norm count=${streamSubscriptionRefCount[refKey]}")
@@ -1156,7 +1184,6 @@ class DesktopIbGatewayConnection(
         IbGatewayLog.debug("ensureStreamingMarketData subscribe symbol=$norm connected=${client.isConnected}")
         if (!client.isConnected) {
             pendingStreamSymbols.add(refKey)
-            streamInstrumentByKey[refKey] = instrument
             return
         }
         subscribeStreamingMarketData(norm, instrument)
@@ -1206,11 +1233,15 @@ class DesktopIbGatewayConnection(
         return false
     }
 
-    private fun flushPendingStreamSubscriptions() {
-        val refKeys = pendingStreamSymbols.toList()
+    /** Re-establishes symbol streaming after connect/reconnect (IB reqIds are reset on disconnect). */
+    private fun resubscribeAllStreamingSymbols() {
+        val activeKeys = streamSubscriptionRefCount.entries
+            .filter { it.value > 0 }
+            .map { it.key }
+        val refKeys = (pendingStreamSymbols.toList() + activeKeys).distinct()
         pendingStreamSymbols.clear()
         refKeys.forEach { refKey ->
-            val instrument = streamInstrumentByKey.remove(refKey)
+            val instrument = streamInstrumentByKey[refKey]
             val symbol = refKey.substringBefore('|')
             subscribeStreamingMarketData(symbol, instrument)
         }
@@ -1232,6 +1263,7 @@ class DesktopIbGatewayConnection(
                 normSymbol = norm
             )
         }
+        scheduleStreamingHistoricalFallback(key, norm, instrument)
     }
 
     private fun streamingOnlyKey(symbol: String, instrument: daytrader.domain.InstrumentIdentity? = null): String {
@@ -1353,7 +1385,6 @@ class DesktopIbGatewayConnection(
         askPrices.clear()
         lastTradePrices.clear()
         streamSymbolByMktDataKey.clear()
-        pendingStreamSymbols.clear()
     }
 
     private fun cancelAllContractDetailsPaced() {
@@ -1567,7 +1598,6 @@ class DesktopIbGatewayConnection(
         historicalPrices.clear()
         lastTickDiagAtMs.clear()
         quotesBySymbol.clear()
-        streamSubscriptionRefCount.clear()
         quotesPublishJob?.cancel()
         quotesPublishJob = null
         openPositions.clear()
@@ -2038,11 +2068,79 @@ class DesktopIbGatewayConnection(
         val close = historicalLastBarClose.remove(reqId) ?: return
         if (close <= 0.0) return
         historicalPrices[key] = close
+        if (key.startsWith("STREAM:")) {
+            applyStreamingHistoricalClose(key, close)
+            return
+        }
         openPositions[key]?.let { open ->
             IbGatewayLog.historicalCloseApplied(open.contract, close)
             logPositionDiag(open, "historical")
         }
         publishPositions(immediate = true)
+    }
+
+    private fun applyStreamingHistoricalClose(key: String, close: Double) {
+        val symbol = resolveSymbolForMarketDataKey(key) ?: return
+        marketPrices[key] = close
+        lastTradePrices[key] = close
+        priorCloses[key] = close
+        val spread = close * 0.0001
+        if (bidPrices[key] == null) bidPrices[key] = close - spread
+        if (askPrices[key] == null) askPrices[key] = close + spread
+        IbGatewayLog.debug("Streaming historical close symbol=$symbol key=$key close=$close")
+        updateQuoteFor(symbol, key)
+        forwardLiveQuoteIfNeeded(key)
+    }
+
+    private fun streamingKeyHasQuote(key: String): Boolean {
+        val bid = bidPrices[key]
+        val ask = askPrices[key]
+        if (bid != null && bid > 0.0 && ask != null && ask > 0.0) return true
+        val last = lastTradePrices[key] ?: marketPrices[key]
+        return last != null && last > 0.0
+    }
+
+    private fun scheduleStreamingHistoricalFallback(
+        key: String,
+        norm: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
+        if (!marketDataOnly) return
+        scope.launch {
+            delay(HISTORICAL_FALLBACK_DELAY_MS)
+            if (!client.isConnected) return@launch
+            if (keyToMktDataReqId[key] == null) return@launch
+            if (streamingKeyHasQuote(key)) return@launch
+            requestPacer.enqueue {
+                enqueueStreamingHistoricalClose(key, norm, instrument)
+            }
+        }
+    }
+
+    private fun enqueueStreamingHistoricalClose(
+        key: String,
+        norm: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
+        if (!client.isConnected || !historicalPendingKeys.add(key)) return
+        val reqId = nextHistoricalReqId.getAndIncrement()
+        historicalReqIdToKey[reqId] = key
+        val contract = IbContractMapper.forDataRequest(
+            IbContractMapper.contractForSymbol(norm, instrument)
+        )
+        IbGatewayLog.debug("Streaming historical fallback reqId=$reqId key=$key symbol=$norm")
+        client.reqHistoricalData(
+            reqId,
+            contract,
+            "",
+            HISTORICAL_DURATION,
+            HISTORICAL_BAR_SIZE,
+            HISTORICAL_WHAT_TO_SHOW,
+            1,
+            1,
+            false,
+            null
+        )
     }
 
     private fun needsHistoricalFallback(open: OpenPosition, key: String): Boolean {

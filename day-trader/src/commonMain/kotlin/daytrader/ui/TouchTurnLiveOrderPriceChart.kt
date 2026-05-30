@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnOrderLevelKind
+import daytrader.presentation.strategies.TouchTurnPriceChartContext
 import daytrader.presentation.strategies.TouchTurnOrderLevelUi
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -67,9 +68,17 @@ fun TouchTurnLiveOrderPriceChart(
     ) {
         val lastLabel = chart.currentPrice?.let { Formatters.moneyPlain(it, chart.currencyCode) }
             ?: priceSeries.lastOrNull()?.let { Formatters.moneyPlain(it, chart.currencyCode) }
+        val titlePrefix = when (chart.context) {
+            TouchTurnPriceChartContext.OPENING_BAR_FORMING ->
+                "Live stream · opening 15m bar"
+            TouchTurnPriceChartContext.ORDERS_AND_POSITION ->
+                "Live price"
+        }
         Text(
             text = buildString {
-                append("Live price · ${chart.symbol}")
+                append(titlePrefix)
+                append(" · ")
+                append(chart.symbol)
                 if (lastLabel != null) {
                     append(" · ")
                     append(lastLabel)

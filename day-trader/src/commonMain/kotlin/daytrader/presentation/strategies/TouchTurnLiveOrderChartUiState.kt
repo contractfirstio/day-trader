@@ -4,12 +4,20 @@ import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.gateway.WorkingOrder
 
+enum class TouchTurnPriceChartContext {
+    /** Streaming marks on the Opening 15-minute bar step while the bar is still forming. */
+    OPENING_BAR_FORMING,
+    /** Marks with bracket/order levels after orders are in play. */
+    ORDERS_AND_POSITION
+}
+
 data class TouchTurnLiveOrderChartUiState(
     val symbol: String,
     val currencyCode: String,
     val priceHistory: List<Double>,
     val currentPrice: Double?,
-    val levels: List<TouchTurnOrderLevelUi>
+    val levels: List<TouchTurnOrderLevelUi>,
+    val context: TouchTurnPriceChartContext = TouchTurnPriceChartContext.ORDERS_AND_POSITION
 )
 
 object TouchTurnLiveOrderChartUiMapper {
@@ -34,7 +42,8 @@ object TouchTurnLiveOrderChartUiMapper {
             currencyCode = currencyCode,
             priceHistory = priceHistory,
             currentPrice = currentPrice,
-            levels = levels
+            levels = levels,
+            context = TouchTurnPriceChartContext.ORDERS_AND_POSITION
         )
     }
 }

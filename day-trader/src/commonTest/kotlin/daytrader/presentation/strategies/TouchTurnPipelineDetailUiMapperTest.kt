@@ -1,11 +1,18 @@
 package daytrader.presentation.strategies
 
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.withLiquidityEvaluatedIfClosed
+import daytrader.domain.withOrdersPlacedForSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -50,6 +57,38 @@ class TouchTurnPipelineDetailUiMapperTest {
         assertEquals(FirstCandleCloseStatus.FORMING, detail.closeStatus)
         assertNotNull(detail.timeUntilCloseLabel)
         assertEquals(6.0, detail.range)
+    }
+
+    @Test
+    fun closeConfirmation_ordersPlaced_showsPassedAfterWindowExpired() {
+        val barTime = "20260529  08:00:00"
+        val zone = "Europe/London"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        val now = barEnd + 90_000
+        val base = StrategyDeployment(
+            id = "tt-detail",
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            status = DeploymentStatus.RUNNING,
+            symbol = "JD",
+            maxDollars = 500,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-29",
+                status = TouchTurnCandleStatus.READY,
+                candle = OhlcBar(open = 105.0, high = 110.0, low = 100.0, close = 104.0, time = barTime),
+                marketZoneId = zone,
+                rangeThreshold = 0.01,
+                adr14 = 0.04
+            )
+        )
+        val session = base.withLiquidityEvaluatedIfClosed(
+            enforceCloseConfirmation = false,
+            nowEpochMillis = barEnd + 4
+        ).withOrdersPlacedForSession(null).touchTurnSession!!
+        assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, session.decisionOutcome)
+        assertEquals(TouchTurnCloseConfirmation.EXPIRED, session.closeConfirmation(now))
+        val ui = TouchTurnPipelineDetailUiMapper.closeConfirmation(session, now)!!
+        assertEquals(TouchTurnCloseConfirmation.PASSED, ui.confirmation)
+        assertEquals(null, ui.remainingMillis)
     }
 
     @Test

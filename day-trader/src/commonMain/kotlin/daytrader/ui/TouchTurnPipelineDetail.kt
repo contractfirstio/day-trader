@@ -337,6 +337,7 @@ private fun DataCaptureRow(
 @Composable
 fun TouchTurnPipelineSectionBar(
     session: TouchTurnSessionContext?,
+    formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     modifier: Modifier = Modifier
 ) {
     val candle = session?.candle
@@ -363,11 +364,22 @@ fun TouchTurnPipelineSectionBar(
         Text("Opening bar not available yet.", fontSize = 12.sp, color = TextSecondary)
         return
     }
-    TouchTurnOpeningBarDetailCard(
-        detail = detail,
-        candle = candle,
-        modifier = modifier.testTag("TouchTurnPipelineSectionBar")
-    )
+    Column(
+        modifier = modifier.testTag("TouchTurnPipelineSectionBar"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TouchTurnOpeningBarDetailCard(
+            detail = detail,
+            candle = candle,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (detail.closeStatus == FirstCandleCloseStatus.FORMING) {
+            TouchTurnPipelineLiveOrderChart(
+                chart = formingBarPriceChart,
+                modifier = Modifier.testTag("TouchTurnFormingBarPriceChart")
+            )
+        }
+    }
 }
 
 @Composable

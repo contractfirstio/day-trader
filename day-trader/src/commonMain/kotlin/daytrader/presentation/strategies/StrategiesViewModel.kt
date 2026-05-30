@@ -92,6 +92,12 @@ class StrategiesViewModel(
     private var pipelineRefreshTick: Int = 0
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
 
+    private fun touchTurnPriceHistoryFor(symbol: String): LivePriceTickHistory =
+        touchTurnPriceHistories.getOrPut(SymbolMarkets.normalizeSymbol(symbol)) {
+            // ~15 minutes at one sample every 2s
+            LivePriceTickHistory(maxPoints = 450, minIntervalMillis = 2_000L)
+        }
+
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
 
@@ -811,6 +817,7 @@ class StrategiesViewModel(
                     }
                 },
                 touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(selected),
+                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(selected),
                 startBlockedAlert = startBlockedAlert,
                 globalAutoStartEnabled = state.globalAutoStartEnabled,
                 tradingPanelShowsLastSessionRecap = selected?.let { instance ->
@@ -836,14 +843,16 @@ class StrategiesViewModel(
             if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
             val session = deployment.touchTurnSession ?: continue
-            if (!session.ordersPlacedForSession && session.entryOrdersPermitted != true) continue
+            val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
+            val recordForOrders =
+                session.ordersPlacedForSession || session.entryOrdersPermitted == true
+            if (!recordForForming && !recordForOrders) continue
             val price = LiveMarkPriceResolver.resolve(
                 deployment.symbol,
                 brokerPositions,
                 brokerQuotes
             ) ?: continue
-            val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
-            touchTurnPriceHistories.getOrPut(norm) { LivePriceTickHistory() }.record(now, price)
+            touchTurnPriceHistoryFor(deployment.symbol).record(now, price)
         }
     }
 
@@ -856,6 +865,27 @@ class StrategiesViewModel(
             .map { SymbolMarkets.normalizeSymbol(it.symbol) }
             .toSet()
         touchTurnPriceHistories.keys.retainAll(activeSymbols)
+    }
+
+    private fun buildTouchTurnFormingBarPriceChart(
+        instance: StrategyDeployment?
+    ): TouchTurnLiveOrderChartUiState? {
+        val deployment = instance ?: return null
+        if (deployment.status != DeploymentStatus.RUNNING) return null
+        val session = deployment.touchTurnSession ?: return null
+        val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
+        val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
+        val currentPrice = LiveMarkPriceResolver.resolve(
+            deployment.symbol,
+            brokerPositions,
+            brokerQuotes
+        )
+        return TouchTurnFormingBarPriceChartUiMapper.build(
+            deployment = deployment,
+            session = session,
+            priceHistory = history,
+            currentPrice = currentPrice
+        )
     }
 
     private fun buildTouchTurnLiveOrderChart(

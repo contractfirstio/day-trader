@@ -21,6 +21,7 @@ import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnStopEvent
 import daytrader.domain.withLiquidityEvaluatedIfClosed
+import daytrader.domain.withOrdersPlacedForSession
 import daytrader.gateway.BrokerId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -251,6 +252,57 @@ class TouchTurnStatusBreadcrumbMapperTest {
             it.from == TouchTurnPipelineNodeId.Liquidity && it.to == TouchTurnPipelineNodeId.Confirmation
         }
         assertEquals(TouchTurnPipelineEdgeState.Dimmed, liqToConfirm.state)
+    }
+
+    @Test
+    fun graph_ordersPlacedAfterConfirmationWindow_staysOnTradePathNotNoTrade() {
+        val barTime = "20260529  08:00:00"
+        val zone = "Europe/London"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        val atLiquidity = barEnd + 4
+        val now = barEnd + 90_000
+        val bar = OhlcBar(open = 105.0, high = 110.0, low = 100.0, close = 104.0, time = barTime)
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-29",
+            status = TouchTurnCandleStatus.READY,
+            candle = bar,
+            marketZoneId = zone,
+            rangeThreshold = 0.01,
+            adr14 = 0.04
+        )
+        val withLiquidity = deployment(session).withLiquidityEvaluatedIfClosed(
+            enforceCloseConfirmation = false,
+            nowEpochMillis = atLiquidity
+        )
+        val withOrders = withLiquidity.withOrdersPlacedForSession(null)
+        val liveSession = withOrders.touchTurnSession!!
+        assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, liveSession.decisionOutcome)
+        assertEquals(TouchTurnCloseConfirmation.EXPIRED, liveSession.closeConfirmation(now))
+
+        val graph = TouchTurnStatusBreadcrumbMapper.graph(
+            instance = withOrders,
+            hasOpenPosition = false,
+            hasOpenOrders = true,
+            nowEpochMillis = now
+        )
+        assertTrue(TouchTurnPipelineNodeId.NoTrade !in graph.activePath)
+        assertTrue(
+            TouchTurnPipelineNodeId.Orders in graph.activePath ||
+                TouchTurnPipelineNodeId.Position in graph.activePath
+        )
+        assertEquals(
+            TouchTurnBreadcrumbStepState.COMPLETED,
+            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Confirmation }.state
+        )
+        val steps = TouchTurnStatusBreadcrumbMapper.steps(
+            instance = withOrders,
+            hasOpenPosition = false,
+            hasOpenOrders = true,
+            nowEpochMillis = now
+        )
+        assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[4].state)
+        assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[5].state)
+        assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[6].state)
     }
 
     @Test

@@ -206,6 +206,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                 liveBroker = uiState.liveBroker,
                 liveSessionTrades = uiState.liveSessionTrades,
                 touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
+                touchTurnFormingBarPriceChart = uiState.touchTurnFormingBarPriceChart,
                 touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
                 tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
@@ -240,6 +241,7 @@ private fun StrategyDeploymentDetailPanel(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
@@ -275,6 +277,7 @@ private fun StrategyDeploymentDetailPanel(
                 liveBroker = liveBroker,
                 liveSessionTrades = liveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
@@ -840,6 +843,7 @@ private fun StrategyDeploymentDetail(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
@@ -948,6 +952,7 @@ private fun StrategyDeploymentDetail(
                     liveBroker = liveBroker,
                     liveSessionTrades = liveSessionTrades,
                     touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                    touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                     touchTurnPipelineGraph = touchTurnPipelineGraph,
                     showLastSessionRecap = tradingPanelShowsLastSessionRecap,
                     onResetTradingPanel = onResetTradingPanel,
@@ -1682,6 +1687,7 @@ private fun TouchTurnLivePipelineDetailHost(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     inActiveTrade: Boolean,
     hasOpenOrders: Boolean,
     onAdjustStop: (String, String) -> Unit,
@@ -1708,7 +1714,10 @@ private fun TouchTurnLivePipelineDetailHost(
             TouchTurnPipelineNodeId.Data ->
                 TouchTurnPipelineSectionData(session = analysisSession, symbol = instance.symbol)
             TouchTurnPipelineNodeId.Bar ->
-                TouchTurnPipelineSectionBar(session = analysisSession)
+                TouchTurnPipelineSectionBar(
+                    session = analysisSession,
+                    formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart
+                )
             TouchTurnPipelineNodeId.Liquidity ->
                 TouchTurnPipelineSectionLiquidity(session = analysisSession)
             TouchTurnPipelineNodeId.Confirmation ->
@@ -1830,6 +1839,7 @@ private fun LiveTab(
     liveBroker: LiveBrokerUiState?,
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
+    touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     showLastSessionRecap: Boolean,
     onResetTradingPanel: () -> Unit,
@@ -1943,6 +1953,7 @@ private fun LiveTab(
                 liveBroker = liveBroker,
                 liveSessionTrades = pipelineLiveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                 inActiveTrade = inActiveTrade,
                 hasOpenOrders = hasOpenOrdersForGraph,
                 onAdjustStop = onAdjustStop,

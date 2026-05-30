@@ -229,6 +229,10 @@ object TouchTurnStatusBreadcrumbMapper {
             LiquidityCandleEvaluation.LIQUIDITY -> Unit
         }
 
+        if (tradeOrdersCommitted(session)) {
+            return Phase(index = IDX_POSITION)
+        }
+
         val closeConfirmation = session.closeConfirmation(nowEpochMillis)
         when (closeConfirmation) {
             TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
@@ -237,10 +241,6 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnCloseConfirmation.EXPIRED ->
                 return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
             TouchTurnCloseConfirmation.PASSED -> Unit
-        }
-
-        if (session.ordersPlacedForSession) {
-            return Phase(index = IDX_POSITION)
         }
 
         val entryPermitted = session.entryOrdersPermitted
@@ -817,11 +817,16 @@ object TouchTurnStatusBreadcrumbMapper {
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
+    private fun tradeOrdersCommitted(session: TouchTurnSessionContext?): Boolean =
+        session?.ordersPlacedForSession == true ||
+            session?.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+
     private fun confirmationStepFailed(
         session: TouchTurnSessionContext?,
         nowEpochMillis: Long
     ): Boolean {
         if (session == null) return false
+        if (tradeOrdersCommitted(session)) return false
         if (session.decisionOutcome in noTradeAfterConfirmationOutcomes) return true
         return session.closeConfirmation(nowEpochMillis) in setOf(
             TouchTurnCloseConfirmation.FAILED,
