@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.markets.MarketSessionStatusUi
@@ -45,8 +45,7 @@ import daytrader.ui.theme.MarketOpenSurface
 import daytrader.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 
-private val CardHeight = 156.dp
-private val CardShape = RoundedCornerShape(12.dp)
+private val CardShape = RoundedCornerShape(8.dp)
 private val ClosedBorder = Color(0xFF3D4454)
 private val ClosedSurface = Color(0xFF181B24)
 private val CountdownAmber = Color(0xFFFFB300)
@@ -66,28 +65,21 @@ fun MarketSessionsStatusBar(
     }
     val markets = remember(tick) { MarketSessionStatusUiMapper.all() }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .background(DarkBackground)
-            .testTag("MarketSessionsStatusBar")
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .testTag("MarketSessionsStatusBar"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            markets.forEach { market ->
-                MarketSessionCard(
-                    market = market,
-                    isFilterSelected = market.zoneId == selectedMarketZoneId,
-                    onClick = { onMarketClick(market.zoneId) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(CardHeight)
-                )
-            }
+        markets.forEach { market ->
+            MarketSessionCard(
+                market = market,
+                isFilterSelected = market.zoneId == selectedMarketZoneId,
+                onClick = { onMarketClick(market.zoneId) },
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -101,14 +93,14 @@ private fun MarketSessionCard(
 ) {
     val sessionBorderColor = if (market.isOpen) MarketOpenBorder else ClosedBorder
     val borderColor = if (isFilterSelected) BrandRed else sessionBorderColor
-    val borderWidth = if (isFilterSelected) 3.dp else 2.dp
+    val borderWidth = if (isFilterSelected) 2.dp else 1.dp
     val surfaceBrush = if (market.isOpen) {
         Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))
     } else {
         Brush.verticalGradient(listOf(ClosedSurface, Color(0xFF12141C)))
     }
 
-    Box(
+    Column(
         modifier = modifier
             .clickable(onClick = onClick)
             .border(
@@ -123,71 +115,47 @@ private fun MarketSessionCard(
                 shape = CardShape
             )
             .background(surfaceBrush, CardShape)
+            .padding(horizontal = 8.dp, vertical = 5.dp)
             .testTag("MarketSessionCard-${market.label}")
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MarketLiveIndicator(isLive = market.isOpen)
-                    Column {
-                        Text(
-                            text = market.label,
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
-                        Text(
-                            text = market.zoneAbbrev,
-                            color = TextSecondary,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-                MarketStatusPill(
-                    label = market.headline,
-                    isOpen = market.isOpen,
-                    modifier = Modifier.testTag("MarketSessionStatus-${market.label}")
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(72.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
+                MarketLiveIndicator(isLive = market.isOpen)
                 Text(
-                    text = if (market.isOpen) "SESSION ELAPSED" else "OPENS IN",
-                    color = TextSecondary,
+                    text = market.label,
+                    color = Color.White,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 1.2.sp
-                )
-                Text(
-                    text = market.subline,
-                    color = if (market.isOpen) Color(0xFF80E8A8) else CountdownAmber,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 32.sp,
-                    modifier = Modifier
-                        .testTag("MarketSessionCountdown-${market.label}")
-                        .padding(top = 4.dp)
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            MarketStatusPill(
+                label = market.headline,
+                isOpen = market.isOpen,
+                modifier = Modifier.testTag("MarketSessionStatus-${market.label}")
+            )
         }
+        Text(
+            text = if (market.isOpen) "Elapsed ${market.subline}" else "Opens in ${market.subline}",
+            color = if (market.isOpen) Color(0xFF80E8A8) else CountdownAmber,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp)
+                .testTag("MarketSessionCountdown-${market.label}")
+        )
     }
 }
 
@@ -201,17 +169,17 @@ private fun MarketStatusPill(
     val backgroundColor = if (isOpen) GainGreen.copy(alpha = 0.15f) else Color(0xFF2A2F3A)
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(4.dp))
             .background(backgroundColor)
-            .border(1.dp, pillColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 5.dp)
+            .border(1.dp, pillColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
     ) {
         Text(
             text = label,
             color = pillColor,
-            fontSize = 12.sp,
+            fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
+            letterSpacing = 0.5.sp
         )
     }
 }
@@ -219,7 +187,7 @@ private fun MarketStatusPill(
 @Composable
 private fun MarketLiveIndicator(isLive: Boolean) {
     Box(
-        modifier = Modifier.size(16.dp),
+        modifier = Modifier.size(10.dp),
         contentAlignment = Alignment.Center
     ) {
         if (isLive) {
@@ -232,20 +200,20 @@ private fun MarketLiveIndicator(isLive: Boolean) {
             )
             Box(
                 modifier = Modifier
-                    .size(14.dp)
+                    .size(9.dp)
                     .clip(CircleShape)
                     .background(GainGreen.copy(alpha = pulse * 0.35f))
             )
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(5.dp)
                     .clip(CircleShape)
                     .background(GainGreen)
             )
         } else {
             Box(
                 modifier = Modifier
-                    .size(8.dp)
+                    .size(5.dp)
                     .clip(CircleShape)
                     .background(ClosedBorder)
             )

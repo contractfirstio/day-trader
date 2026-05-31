@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import daytrader.domain.OhlcBar
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -91,7 +92,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp).testTag("StrategiesScreen")) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).testTag("StrategiesScreen")) {
         StrategiesHeader(
             searchQuery = uiState.searchQuery,
             onSearchChange = viewModel::onSearchChange,
@@ -101,132 +102,108 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             onAddInstance = viewModel::onShowAddDialog
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        if (uiState.hasActiveFilters) {
-            ActiveFiltersBanner(
-                searchQuery = uiState.searchQuery,
-                deploymentFilter = uiState.deploymentFilter,
-                strategyTypeFilter = uiState.strategyTypeFilter,
-                selectedMarketLabel = uiState.selectedMarketLabel,
-                filteredCount = uiState.filteredCount,
-                totalCount = uiState.totalCount,
-                onClearFilters = viewModel::onClearFilters
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-
-        DeploymentFilterRow(
-            filter = uiState.deploymentFilter,
-            onFilterChange = viewModel::onDeploymentFilterChange,
+        StrategiesFilterPanel(
+            searchQuery = uiState.searchQuery,
+            deploymentFilter = uiState.deploymentFilter,
+            strategyTypeFilter = uiState.strategyTypeFilter,
+            selectedMarketLabel = uiState.selectedMarketLabel,
             filteredCount = uiState.filteredCount,
             totalCount = uiState.totalCount,
-            hasActiveFilters = uiState.hasActiveFilters
+            hasActiveFilters = uiState.hasActiveFilters,
+            onDeploymentFilterChange = viewModel::onDeploymentFilterChange,
+            onStrategyTypeFilterChange = viewModel::onStrategyTypeFilterChange,
+            onClearFilters = viewModel::onClearFilters
         )
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        StrategyTypeFilterRow(
-            selectedType = uiState.strategyTypeFilter,
-            onTypeChange = viewModel::onStrategyTypeFilterChange
-        )
+        HorizontalSplitPane(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            leftContent = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
+                        .background(SurfaceDark, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .testTag("StrategyDeploymentList")
+                ) {
+                    Text(
+                        if (uiState.hasActiveFilters) {
+                            "Deployments (${uiState.filteredCount} of ${uiState.totalCount})"
+                        } else {
+                            "Deployments (${uiState.totalCount})"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        MarketFilterRow(
-            selectedMarketZoneId = uiState.selectedMarketZoneId,
-            onMarketToggle = viewModel::onMarketFilterToggle,
-            onClearMarket = viewModel::onClearMarketFilter
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            Column(
-                modifier = Modifier
-                    .weight(0.38f)
-                    .fillMaxHeight()
-                    .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
-                    .background(SurfaceDark, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .testTag("StrategyDeploymentList")
-            ) {
-                Text(
-                    if (uiState.hasActiveFilters) {
-                        "Deployments (${uiState.filteredCount} of ${uiState.totalCount})"
-                    } else {
-                        "Deployments (${uiState.totalCount})"
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (uiState.filteredRows.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "No deployments match your filter.",
-                            color = TextSecondary,
-                            fontSize = 13.sp
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(uiState.filteredRows, key = { it.id }) { row ->
-                            StrategyDeploymentCard(
-                                row = row,
-                                isSelected = row.id == uiState.selectedDeploymentId,
-                                onSelect = { viewModel.onSelectDeployment(row.id) },
-                                onToggleSession = { viewModel.onToggleSession(row.id) },
-                                globalAutoStartEnabled = uiState.globalAutoStartEnabled,
-                                onAutoStartChange = { enabled ->
-                                    viewModel.onUpdateDeployment(row.id) {
-                                        it.copy(autoStartOnMarketOpen = enabled)
-                                    }
-                                }
+                    if (uiState.filteredRows.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                "No deployments match your filter.",
+                                color = TextSecondary,
+                                fontSize = 13.sp
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(uiState.filteredRows, key = { it.id }) { row ->
+                                StrategyDeploymentCard(
+                                    row = row,
+                                    isSelected = row.id == uiState.selectedDeploymentId,
+                                    onSelect = { viewModel.onSelectDeployment(row.id) },
+                                    onToggleSession = { viewModel.onToggleSession(row.id) },
+                                    globalAutoStartEnabled = uiState.globalAutoStartEnabled,
+                                    onAutoStartChange = { enabled ->
+                                        viewModel.onUpdateDeployment(row.id) {
+                                            it.copy(autoStartOnMarketOpen = enabled)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
+            },
+            rightContent = {
+                StrategyDeploymentDetailPanel(
+                    selectedDeployment = uiState.selectedDeployment,
+                    cardPresentation = uiState.selectedCardPresentation,
+                    detailTab = uiState.detailTab,
+                    globalAutoStartEnabled = uiState.globalAutoStartEnabled,
+                    sessionHistory = uiState.sessionHistory,
+                    liveExecution = uiState.liveExecution,
+                    liveBroker = uiState.liveBroker,
+                    liveSessionTrades = uiState.liveSessionTrades,
+                    touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
+                    touchTurnFormingBarPriceChart = uiState.touchTurnFormingBarPriceChart,
+                    touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
+                    tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
+                    tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
+                    onResetTradingPanel = viewModel::onResetTradingPanel,
+                    onTabChange = viewModel::onDetailTabChange,
+                    onResolveSymbol = viewModel::resolveInstrumentForSymbol,
+                    onUpdateDeployment = viewModel::onUpdateDeployment,
+                    onStartStop = viewModel::onToggleSession,
+                    onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
+                    onSelectSessionHistory = viewModel::onSelectSessionHistory,
+                    onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
+                    onAdjustStop = viewModel::onAdjustStop,
+                    onClosePosition = viewModel::onClosePosition,
+                    onDuplicate = viewModel::onDuplicateSelected,
+                    onDelete = viewModel::onDeleteSelected,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            StrategyDeploymentDetailPanel(
-                selectedDeployment = uiState.selectedDeployment,
-                cardPresentation = uiState.selectedCardPresentation,
-                detailTab = uiState.detailTab,
-                globalAutoStartEnabled = uiState.globalAutoStartEnabled,
-                sessionHistory = uiState.sessionHistory,
-                liveExecution = uiState.liveExecution,
-                liveBroker = uiState.liveBroker,
-                liveSessionTrades = uiState.liveSessionTrades,
-                touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
-                touchTurnFormingBarPriceChart = uiState.touchTurnFormingBarPriceChart,
-                touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
-                tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
-                tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
-                onResetTradingPanel = viewModel::onResetTradingPanel,
-                onTabChange = viewModel::onDetailTabChange,
-                onResolveSymbol = viewModel::resolveInstrumentForSymbol,
-                onUpdateDeployment = viewModel::onUpdateDeployment,
-                onStartStop = viewModel::onToggleSession,
-                onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
-                onSelectSessionHistory = viewModel::onSelectSessionHistory,
-                onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
-                onAdjustStop = viewModel::onAdjustStop,
-                onClosePosition = viewModel::onClosePosition,
-                onDuplicate = viewModel::onDuplicateSelected,
-                onDelete = viewModel::onDeleteSelected,
-                modifier = Modifier
-                    .weight(0.62f)
-                    .fillMaxHeight()
-            )
-        }
+        )
     }
 }
 
@@ -299,7 +276,106 @@ private fun StrategyDeploymentDetailPanel(
 }
 
 @Composable
-private fun ActiveFiltersBanner(
+private fun StrategiesFilterPanel(
+    searchQuery: String,
+    deploymentFilter: DeploymentFilter,
+    strategyTypeFilter: StrategyType?,
+    selectedMarketLabel: String?,
+    filteredCount: Int,
+    totalCount: Int,
+    hasActiveFilters: Boolean,
+    onDeploymentFilterChange: (DeploymentFilter) -> Unit,
+    onStrategyTypeFilterChange: (StrategyType?) -> Unit,
+    onClearFilters: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceDark, RoundedCornerShape(6.dp))
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .testTag("StrategiesFilterPanel")
+    ) {
+        if (hasActiveFilters) {
+            ActiveFiltersSummaryRow(
+                searchQuery = searchQuery,
+                deploymentFilter = deploymentFilter,
+                strategyTypeFilter = strategyTypeFilter,
+                selectedMarketLabel = selectedMarketLabel,
+                filteredCount = filteredCount,
+                totalCount = totalCount,
+                onClearFilters = onClearFilters
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 4.dp),
+                color = TableHeaderBg,
+                thickness = 1.dp
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(
+                    label = "All",
+                    selected = deploymentFilter == DeploymentFilter.ALL,
+                    onClick = { onDeploymentFilterChange(DeploymentFilter.ALL) }
+                )
+                FilterChip(
+                    label = "Active",
+                    selected = deploymentFilter == DeploymentFilter.RUNNING,
+                    onClick = { onDeploymentFilterChange(DeploymentFilter.RUNNING) }
+                )
+                FilterChip(
+                    label = "Stopped",
+                    selected = deploymentFilter == DeploymentFilter.STOPPED,
+                    onClick = { onDeploymentFilterChange(DeploymentFilter.STOPPED) }
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 8.dp)
+                    .width(1.dp)
+                    .height(16.dp)
+                    .background(TableHeaderBg)
+            )
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    label = "All types",
+                    selected = strategyTypeFilter == null,
+                    onClick = { onStrategyTypeFilterChange(null) }
+                )
+                StrategyType.entries.forEach { type ->
+                    FilterChip(
+                        label = StrategyCatalog.displayName(type),
+                        selected = strategyTypeFilter == type,
+                        onClick = {
+                            onStrategyTypeFilterChange(if (strategyTypeFilter == type) null else type)
+                        }
+                    )
+                }
+            }
+            if (!hasActiveFilters) {
+                Text(
+                    "$totalCount total",
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveFiltersSummaryRow(
     searchQuery: String,
     deploymentFilter: DeploymentFilter,
     strategyTypeFilter: StrategyType?,
@@ -323,28 +399,31 @@ private fun ActiveFiltersBanner(
         strategyTypeFilter?.let { add(StrategyCatalog.displayName(it)) }
     }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MarketOpenSurface.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-            .border(1.dp, MarketOpenBorder.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "Filters active — showing $filteredCount of $totalCount deployments",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (parts.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(parts.joinToString(", "), color = TextSecondary, fontSize = 12.sp)
-            }
-        }
-        TextButton(onClick = onClearFilters) {
-            Text("Clear filters", color = GainGreen, fontSize = 12.sp)
+        Text(
+            buildString {
+                append("$filteredCount of $totalCount")
+                if (parts.isNotEmpty()) {
+                    append(" · ")
+                    append(parts.joinToString(", "))
+                }
+            },
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        TextButton(
+            onClick = onClearFilters,
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+            modifier = Modifier.height(20.dp)
+        ) {
+            Text("Clear", color = GainGreen, fontSize = 10.sp)
         }
     }
 }
@@ -490,129 +569,79 @@ private fun StrategiesHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Strategies", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(
+            "Strategies",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("Search symbol or strategy...", color = TextSecondary) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary) },
+                placeholder = {
+                    Text("Search…", color = TextSecondary, fontSize = 11.sp)
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = onClearSearch) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear search", tint = TextSecondary)
+                        IconButton(
+                            onClick = onClearSearch,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear search",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
                         }
                     }
                 },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 11.sp, color = Color.White),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = DarkBackground,
                     unfocusedContainerColor = DarkBackground,
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent
                 ),
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.width(240.dp).testTag("StrategySearchField")
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .width(200.dp)
+                    .height(32.dp)
+                    .testTag("StrategySearchField")
             )
             Button(
                 onClick = onAddInstance,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
                 shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.testTag("AddStrategyDeploymentButton")
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(32.dp)
+                    .testTag("AddStrategyDeploymentButton")
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Deploy strategy", color = Color.White, fontSize = 13.sp)
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Deploy", color = Color.White, fontSize = 11.sp)
             }
         }
-    }
-}
-
-@Composable
-private fun StrategyTypeFilterRow(
-    selectedType: StrategyType?,
-    onTypeChange: (StrategyType?) -> Unit
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(
-            label = "All strategies",
-            selected = selectedType == null,
-            onClick = { onTypeChange(null) }
-        )
-        StrategyType.entries.forEach { type ->
-            FilterChip(
-                label = StrategyCatalog.displayName(type),
-                selected = selectedType == type,
-                onClick = { onTypeChange(if (selectedType == type) null else type) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun MarketFilterRow(
-    selectedMarketZoneId: String?,
-    onMarketToggle: (String) -> Unit,
-    onClearMarket: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .testTag("MarketFilterRow"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        FilterChip(
-            label = "All markets",
-            selected = selectedMarketZoneId == null,
-            onClick = onClearMarket
-        )
-        RthMarketSessions.all.forEach { session ->
-            FilterChip(
-                label = session.label,
-                selected = selectedMarketZoneId == session.zoneId,
-                onClick = { onMarketToggle(session.zoneId) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun DeploymentFilterRow(
-    filter: DeploymentFilter,
-    onFilterChange: (DeploymentFilter) -> Unit,
-    filteredCount: Int,
-    totalCount: Int,
-    hasActiveFilters: Boolean
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                label = "All",
-                selected = filter == DeploymentFilter.ALL,
-                onClick = { onFilterChange(DeploymentFilter.ALL) }
-            )
-            FilterChip(
-                label = "Active",
-                selected = filter == DeploymentFilter.RUNNING,
-                onClick = { onFilterChange(DeploymentFilter.RUNNING) }
-            )
-            FilterChip(
-                label = "Stopped",
-                selected = filter == DeploymentFilter.STOPPED,
-                onClick = { onFilterChange(DeploymentFilter.STOPPED) }
-            )
-        }
-        Text(
-            if (hasActiveFilters) "$filteredCount of $totalCount" else "$totalCount total",
-            fontSize = 12.sp,
-            color = TextSecondary
-        )
     }
 }
 
@@ -624,12 +653,13 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
         text = label,
         modifier = Modifier
             .clickable(onClick = onClick)
-            .background(bg, RoundedCornerShape(16.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(16.dp))
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .background(bg, RoundedCornerShape(10.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
         color = if (selected) Color.White else TextSecondary,
-        fontSize = 12.sp,
-        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        fontSize = 10.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1
     )
 }
 

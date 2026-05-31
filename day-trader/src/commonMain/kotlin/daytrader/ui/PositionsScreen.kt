@@ -25,14 +25,15 @@ fun PositionsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-        Text("Current Positions", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text(
+            "Positions (${uiState.rows.size})",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Positions (${uiState.rows.size})", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Column(
             modifier = Modifier
