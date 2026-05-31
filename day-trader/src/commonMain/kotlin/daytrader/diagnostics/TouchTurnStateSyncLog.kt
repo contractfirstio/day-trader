@@ -178,6 +178,17 @@ object TouchTurnStateSyncLog {
             }
         }
 
+        if (engine.ordersPlacedForSession && !engine.hasOpenPosition && !engine.closingPhase) {
+            val ordersState = ui.stepStates.getOrNull(5)
+            val positionState = ui.stepStates.getOrNull(6)
+            if (ordersState != TouchTurnBreadcrumbStepState.CURRENT) {
+                mismatches += "engine waiting for entry but ui Orders step=${ordersState?.name}"
+            }
+            if (positionState != TouchTurnBreadcrumbStepState.UPCOMING) {
+                mismatches += "engine waiting for entry but ui Position step=${positionState?.name}"
+            }
+        }
+
         if (engine.hasOpenPosition) {
             val positionState = ui.stepStates.getOrNull(6)
             if (positionState != TouchTurnBreadcrumbStepState.COMPLETED &&
@@ -200,6 +211,22 @@ object TouchTurnStateSyncLog {
 
         if (engine.closingPhase && TouchTurnPipelineNodeId.Close !in ui.activePath) {
             mismatches += "engine closingPhase=true but Close not on ui activePath"
+        }
+
+        if (engine.closingPhase &&
+            engine.ordersPlacedForSession &&
+            !engine.hasOpenPosition &&
+            session?.milestones?.positionOpenedAt == null
+        ) {
+            val positionState = ui.stepStates.getOrNull(6)
+            if (positionState != TouchTurnBreadcrumbStepState.SKIPPED) {
+                mismatches += "engine closed without entry fill but ui Position step=${positionState?.name}"
+            }
+            if (TouchTurnPipelineNodeId.NoTrade in ui.activePath &&
+                TouchTurnPipelineNodeId.Orders in ui.activePath
+            ) {
+                mismatches += "engine closed without entry fill but ui activePath includes NoTrade after Orders"
+            }
         }
 
         return mismatches

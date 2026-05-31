@@ -82,6 +82,7 @@ object TouchTurnStatusBreadcrumbMapper {
             val skipFrom = when {
                 confirmationStepFailed(session, nowEpochMillis) -> IDX_ORDERS
                 resolvedPhase.skippedFromIndex != null -> resolvedPhase.skippedFromIndex
+                entryNeverFilled(session, hasOpenPosition) -> IDX_POSITION
                 else -> null
             }
             Phase(
@@ -198,7 +199,13 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnCandleStatus.READY -> Unit
         }
 
-        if (hasOpenPosition) return Phase(index = IDX_POSITION)
+        if (hasOpenPosition) {
+            return if (session.milestones.positionOpenedAt != null) {
+                Phase(index = IDX_POSITION, terminal = true)
+            } else {
+                Phase(index = IDX_POSITION)
+            }
+        }
 
         when (session.decisionOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED ->
@@ -230,7 +237,7 @@ object TouchTurnStatusBreadcrumbMapper {
         }
 
         if (tradeOrdersCommitted(session)) {
-            return Phase(index = IDX_POSITION)
+            return Phase(index = IDX_ORDERS)
         }
 
         val closeConfirmation = session.closeConfirmation(nowEpochMillis)
@@ -293,7 +300,8 @@ object TouchTurnStatusBreadcrumbMapper {
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         val noTradeAfterConfirm = decisionOutcome in noTradeAfterConfirmationOutcomes
         val ordersSkipped = notLiquidity || noTradeAfterConfirm
-        val positionSkipped = ordersSkipped || (ordersPlacedForCandle != true && positionOpened != true)
+        val positionSkipped = ordersSkipped ||
+            positionOpened != true && (ordersPlacedForCandle != true || milestones.positionOpenedAt == null)
         val dataFailed = milestones.dataFailedAt != null
         return pipelineLabels.mapIndexed { index, label ->
             val state = when (index) {
@@ -540,7 +548,7 @@ object TouchTurnStatusBreadcrumbMapper {
         if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
             orders == TouchTurnBreadcrumbStepState.COMPLETED
         ) {
-            return TouchTurnBreadcrumbStepState.COMPLETED
+            return TouchTurnBreadcrumbStepState.UPCOMING
         }
         if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
             orders == TouchTurnBreadcrumbStepState.CURRENT
@@ -634,8 +642,10 @@ object TouchTurnStatusBreadcrumbMapper {
                 }
                 else -> return path
             }
-        } else if (noTradeState == TouchTurnBreadcrumbStepState.COMPLETED ||
-            noTradeState == TouchTurnBreadcrumbStepState.CURRENT
+        } else if (
+            (noTradeState == TouchTurnBreadcrumbStepState.COMPLETED ||
+                noTradeState == TouchTurnBreadcrumbStepState.CURRENT) &&
+            steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED
         ) {
             path.add(TouchTurnPipelineNodeId.NoTrade)
             if (noTradeState == TouchTurnBreadcrumbStepState.CURRENT) {
@@ -782,6 +792,15 @@ object TouchTurnStatusBreadcrumbMapper {
         activePath: List<TouchTurnPipelineNodeId>
     ): String {
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.let { current ->
+            if (current.id == TouchTurnPipelineNodeId.Orders &&
+                nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
+                    ?.state == TouchTurnBreadcrumbStepState.UPCOMING
+            ) {
+                return buildString {
+                    append("Waiting for entry")
+                    current.timestamp?.let { append(" · $it") }
+                }
+            }
             return captionForNode(current)
         }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.FAILED }?.let { failed ->
@@ -820,6 +839,12 @@ object TouchTurnStatusBreadcrumbMapper {
     private fun tradeOrdersCommitted(session: TouchTurnSessionContext?): Boolean =
         session?.ordersPlacedForSession == true ||
             session?.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+
+    /** Brackets submitted but entry never filled before session close. */
+    private fun entryNeverFilled(session: TouchTurnSessionContext?, hasOpenPosition: Boolean): Boolean =
+        !hasOpenPosition &&
+            tradeOrdersCommitted(session) &&
+            session?.milestones?.positionOpenedAt == null
 
     private fun confirmationStepFailed(
         session: TouchTurnSessionContext?,

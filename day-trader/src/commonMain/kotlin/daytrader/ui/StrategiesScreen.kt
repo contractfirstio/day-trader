@@ -1897,12 +1897,23 @@ private fun LiveTab(
     var selectedPipelineNode by rememberSaveable(instance.id, showLastSessionRecap) {
         mutableStateOf<TouchTurnPipelineNodeId?>(null)
     }
+    var lastTrackedCurrentNode by remember(instance.id, showLastSessionRecap) {
+        mutableStateOf<TouchTurnPipelineNodeId?>(null)
+    }
     val pipelineLiveSessionTrades = if (isRunning || showLastSessionRecap) liveSessionTrades else null
     LaunchedEffect(touchTurnPipelineGraph) {
         val graph = touchTurnPipelineGraph ?: return@LaunchedEffect
-        val current = selectedPipelineNode?.let { graph.node(it) }
-        if (selectedPipelineNode == null || current == null || !current.isSelectable()) {
-            selectedPipelineNode = graph.defaultSelectedNode()
+        val currentActive = graph.currentNodeId()
+        val selected = selectedPipelineNode?.let { graph.node(it) }
+        when {
+            selectedPipelineNode == null || selected == null || !selected.isSelectable() -> {
+                selectedPipelineNode = graph.defaultSelectedNode()
+                lastTrackedCurrentNode = currentActive
+            }
+            currentActive != lastTrackedCurrentNode -> {
+                selectedPipelineNode = currentActive ?: graph.defaultSelectedNode()
+                lastTrackedCurrentNode = currentActive
+            }
         }
     }
     Column(

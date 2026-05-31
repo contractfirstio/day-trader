@@ -68,6 +68,31 @@ class TouchTurnStateSyncLogTest {
     }
 
     @Test
+    fun findMismatches_waitingForEntry_positionMustStayUpcoming() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            ordersPlacedForSession = true
+        )
+        val stepStates = List(8) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[5] = TouchTurnBreadcrumbStepState.CURRENT
+        stepStates[6] = TouchTurnBreadcrumbStepState.CURRENT
+        val mismatches = TouchTurnStateSyncLog.findMismatches(
+            engine = engineSnapshot(
+                sessionStatus = TouchTurnCandleStatus.READY,
+                ordersPlacedForSession = true,
+                hasOpenPosition = false
+            ),
+            ui = uiSnapshot(stepStates = stepStates),
+            session = session
+        )
+        assertEquals(
+            listOf("engine waiting for entry but ui Position step=CURRENT"),
+            mismatches
+        )
+    }
+
+    @Test
     fun findMismatches_openPosition_positionStepNotCurrent() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-22",
@@ -98,7 +123,7 @@ class TouchTurnStateSyncLogTest {
         )
         val stepStates = List(8) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
         stepStates[5] = TouchTurnBreadcrumbStepState.COMPLETED
-        stepStates[6] = TouchTurnBreadcrumbStepState.COMPLETED
+        stepStates[6] = TouchTurnBreadcrumbStepState.SKIPPED
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,

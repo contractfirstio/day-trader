@@ -54,9 +54,12 @@ data class TouchTurnPipelineGraph(
     val activePath: List<TouchTurnPipelineNodeId>,
     val caption: String
 ) {
+    fun currentNodeId(): TouchTurnPipelineNodeId? =
+        nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.id
+
     /** Best node to show when nothing is selected yet. */
     fun defaultSelectedNode(): TouchTurnPipelineNodeId? =
-        nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.id
+        currentNodeId()
             ?: activePath.lastOrNull { id ->
                 nodes.firstOrNull { it.id == id }?.state == TouchTurnBreadcrumbStepState.COMPLETED
             }
