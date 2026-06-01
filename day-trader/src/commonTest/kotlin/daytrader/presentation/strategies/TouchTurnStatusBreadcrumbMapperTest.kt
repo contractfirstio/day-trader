@@ -176,7 +176,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val barTime = "20260522  09:30:00"
         val zone = "America/New_York"
         val open = TouchTurnLogic.marketOpenEpochMillis("2026-05-22", zone, barTime)!!
-        val now = open + 120 * 60_000 + 1
+        val now = open + 90 * 60_000 + 1
         val session = readySession(
             candle = bar(barTime),
             rangeThreshold = 0.01,
@@ -372,7 +372,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val zone = "Europe/London"
         val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
         val atLiquidity = barEnd + 4
-        // Past confirmation deadline; keep within 2h-after-open auto-stop for graph timing.
+        // Past confirmation deadline; keep within 90m-after-open auto-stop for graph timing.
         val pastConfirmationDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         val graphNow = barEnd + 90_000
         val bar = OhlcBar(open = 105.0, high = 110.0, low = 100.0, close = 104.0, time = barTime)

@@ -44,7 +44,7 @@ class DeploymentSessionStopWatcherTest {
             positions = emptyList(),
             openOrders = emptyList(),
             fills = emptyList(),
-            nowEpochMillis = open + 120 * 60_000L
+            nowEpochMillis = open + 90 * 60_000L
         )
         assertTrue(candidates.any { it.trigger == TouchTurnSessionStopTrigger.OPEN_DEADLINE })
     }

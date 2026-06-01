@@ -30,7 +30,7 @@ object StrategyCatalog {
      * Other strategies return null (no open-deadline auto-stop).
      */
     fun stopAfterMinOpen(type: StrategyType): Int? = when (type) {
-        StrategyType.TOUCH_AND_TURN_SCALPER -> 120 // 2h after RTH open (was 90)
+        StrategyType.TOUCH_AND_TURN_SCALPER -> 90
         StrategyType.QUICK_FLIP_SCALPER -> null
     }
 

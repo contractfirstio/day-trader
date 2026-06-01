@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class TouchTurnSessionStopLogicTest {
     @Test
     fun stopAfterMinOpen_isTouchTurnOnly() {
-        assertEquals(120, StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER))
+        assertEquals(90, StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER))
         assertNull(StrategyCatalog.stopAfterMinOpen(StrategyType.QUICK_FLIP_SCALPER))
     }
 
@@ -34,7 +34,7 @@ class TouchTurnSessionStopLogicTest {
             DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE,
             TouchTurnSessionStopLogic.evaluateOpenDeadline(
                 instance = instance,
-                nowEpochMillis = open + 120 * 60_000
+                nowEpochMillis = open + 90 * 60_000
             )
         )
     }
