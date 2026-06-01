@@ -29,6 +29,7 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionStatus
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
+import daytrader.domain.inProgressSession
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
@@ -285,9 +286,11 @@ class StrategiesViewModel(
                 emitUiState()
             }
             is TouchTurnEvent.NoTradeDecision -> {
+                val sessionId = activeSessionId(event.instanceId)
                 UiActionLog.log(
                     action = "engine_no_trade_decision",
                     deploymentId = event.instanceId,
+                    sessionId = sessionId,
                     details = mapOf("outcome" to event.outcome.name)
                 )
                 recordTouchTurnEngineSync(
@@ -297,9 +300,11 @@ class StrategiesViewModel(
                 )
             }
             is TouchTurnEvent.BracketSubmitted -> {
+                val sessionId = activeSessionId(event.instanceId)
                 UiActionLog.log(
                     action = "engine_bracket_submitted",
                     deploymentId = event.instanceId,
+                    sessionId = sessionId,
                     symbol = event.plan.symbol,
                     details = mapOf("orderCount" to event.plan.orders.size.toString())
                 )
@@ -310,9 +315,11 @@ class StrategiesViewModel(
                 )
             }
             is TouchTurnEvent.PositionOpened -> {
+                val sessionId = activeSessionId(event.instanceId)
                 UiActionLog.log(
                     action = "engine_position_opened",
                     deploymentId = event.instanceId,
+                    sessionId = sessionId,
                     details = mapOf("milestoneAt" to event.milestoneAt)
                 )
                 recordTouchTurnEngineSync(
@@ -971,4 +978,7 @@ class StrategiesViewModel(
             syncTriggerDetails = triggerDetails
         )
     }
+
+    private fun activeSessionId(deploymentId: String): String? =
+        deployments.find { it.id == deploymentId }?.inProgressSession()?.id
 }

@@ -1753,11 +1753,12 @@ private fun TouchTurnLivePipelineDetailHost(
             TouchTurnPipelineNodeId.Confirmation ->
                 TouchTurnPipelineSectionConfirmation(session = analysisSession)
             TouchTurnPipelineNodeId.Orders -> {
+                val ordersCommitted = analysisSession?.sessionOrdersPlaced() == true
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
                     TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                if (!sessionEnded && (inActiveTrade || hasOpenOrders)) {
+                if (!sessionEnded && (inActiveTrade || hasOpenOrders || ordersCommitted)) {
                     liveBroker?.let { broker ->
                         LiveBrokerSection(broker = broker, showPosition = false, slimOrders = true)
                     } ?: Text(
@@ -1765,6 +1766,13 @@ private fun TouchTurnLivePipelineDetailHost(
                         fontSize = 11.sp,
                         color = TextSecondary
                     )
+                    if (ordersCommitted && !inActiveTrade && !hasOpenOrders) {
+                        Text(
+                            "Orders were submitted for this session; awaiting broker open-order visibility or fill.",
+                            fontSize = 11.sp,
+                            color = GainGreen
+                        )
+                    }
                 } else {
                     TouchTurnPipelineSectionOrdersPreview(
                         session = analysisSession,
