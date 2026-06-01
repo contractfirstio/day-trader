@@ -49,8 +49,7 @@ object TouchTurnManualStopHandler {
         val stoppedAt = currentSessionTimestampIso()
         val sessionTrades = SessionTradeMatcher.captureForSessionStop(
             instance = instance,
-            fills = input.brokerFills,
-            stoppedAt = stoppedAt
+            fills = input.brokerFills
         )
         val stopTrigger = explicitTrigger ?: inferTouchTurnStopTrigger(
             instance = instance,

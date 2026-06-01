@@ -29,17 +29,21 @@ object SessionTradeMatcher {
             .sortedWith(compareBy({ it.time }, { it.execId }))
     }
 
+    /**
+     * Fills to persist when a session stops. Uses the same open-ended window as
+     * [daytrader.data.DeploymentSessionStopEvaluator] (no [stoppedAt] upper bound) so a
+     * take-profit fill in the same broker snapshot as auto-stop is not dropped.
+     */
     fun captureForSessionStop(
         instance: StrategyDeployment,
-        fills: List<BrokerFill>,
-        stoppedAt: String
+        fills: List<BrokerFill>
     ): List<SessionTrade> {
         val run = instance.inProgressSession() ?: return emptyList()
         return toSessionTrades(
             fillsForSession(
                 symbol = instance.symbol,
                 startedAt = run.startedAt,
-                stoppedAt = stoppedAt,
+                stoppedAt = null,
                 fills = fills
             )
         )
@@ -64,14 +68,22 @@ object SessionTradeMatcher {
 
     private fun parseTime(raw: String): LocalDateTime? {
         if (raw.isBlank()) return null
+        val trimmed = raw.trim()
         return try {
-            LocalDateTime.parse(raw, isoFormatter)
+            LocalDateTime.parse(trimmed, isoFormatter)
         } catch (_: DateTimeParseException) {
             try {
-                LocalDateTime.parse(raw.trim(), ibTimeFormatter)
+                LocalDateTime.parse(trimmed, isoFractionFormatter)
             } catch (_: DateTimeParseException) {
-                null
+                try {
+                    LocalDateTime.parse(trimmed, ibTimeFormatter)
+                } catch (_: DateTimeParseException) {
+                    null
+                }
             }
         }
     }
+
+    private val isoFractionFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd['T'][' ']HH:mm:ss[.][SSSSSSSSS][SSSSSS][SSS][SS][S]")
 }

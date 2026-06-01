@@ -356,12 +356,13 @@ class TouchTurnEngine(
         liquidityJobs.remove(command.instanceId)?.cancel()
         loadJobs.remove(command.instanceId)?.cancel()
         val gateway = executionGateway ?: sessionGateway
+        val fillsForStop = command.brokerFillsAtDecision ?: brokerFills.value
         val result = TouchTurnManualStopHandler.stop(
             input = TouchTurnManualStopHandler.Input(
                 instance = instance,
                 brokerPositions = brokerPositions.value,
                 brokerOpenOrders = brokerOpenOrders.value,
-                brokerFills = brokerFills.value,
+                brokerFills = fillsForStop,
                 brokerKind = brokerKind
             ),
             gateway = gateway,
@@ -456,7 +457,13 @@ class TouchTurnEngine(
             val instance = repository.deployments.value.find { it.id == candidate.instanceId } ?: continue
             if (instance.status != DeploymentStatus.RUNNING) continue
             repository.update(candidate.instanceId) { it.withTouchTurnClosingMilestoneIfNeeded() }
-            dispatch(TouchTurnCommand.StopSession(candidate.instanceId, candidate.trigger))
+            dispatch(
+                TouchTurnCommand.StopSession(
+                    instanceId = candidate.instanceId,
+                    trigger = candidate.trigger,
+                    brokerFillsAtDecision = fills
+                )
+            )
         }
     }
 

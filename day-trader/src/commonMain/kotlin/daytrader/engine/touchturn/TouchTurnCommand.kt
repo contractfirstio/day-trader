@@ -17,7 +17,9 @@ sealed interface TouchTurnCommand {
 
     data class StopSession(
         val instanceId: String,
-        val trigger: TouchTurnSessionStopTrigger = TouchTurnSessionStopTrigger.MANUAL
+        val trigger: TouchTurnSessionStopTrigger = TouchTurnSessionStopTrigger.MANUAL,
+        /** Broker fills from the snapshot that triggered auto-stop; avoids queue races. */
+        val brokerFillsAtDecision: List<BrokerFill>? = null
     ) : TouchTurnCommand
 
     data class AdjustStop(val instanceId: String, val stopPrice: Double) : TouchTurnCommand
