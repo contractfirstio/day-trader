@@ -19,6 +19,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
     NO_TRADE_ORDER_REJECTED,
+    /** Opening 15m volume exceeded exhaustion threshold (high-conviction breakout). */
+    NO_TRADE_VOLUME_EXHAUSTION,
     TRADE_BRACKET_SUBMITTED
 }
 

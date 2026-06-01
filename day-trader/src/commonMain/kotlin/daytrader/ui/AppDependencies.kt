@@ -7,8 +7,12 @@ import daytrader.engine.TouchTurnEngine
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.LoggingTouchTurnEngine
+import daytrader.execution.BrokerGatewayExecutionManager
+import daytrader.execution.LoggingExecutionManager
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
+import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.domain.InstrumentIdentity
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
@@ -65,15 +69,27 @@ fun rememberAppDependencies(
             )
         }
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
+            val executionGateway = brokerGateway ?: session
+            val marketData = BrokerGatewayMarketDataProvider(
+                gateway = executionGateway,
+                ensureLiveMarketData = ensureLiveMarketData,
+                releaseLiveMarketData = releaseLiveMarketData
+            )
+            val baseExecution = BrokerGatewayExecutionManager(executionGateway)
+            val execution = if (executionGateway.brokerId == BrokerId.INTERACTIVE_BROKERS) {
+                baseExecution
+            } else {
+                LoggingExecutionManager(baseExecution, executionGateway.brokerId)
+            }
             val engine = TouchTurnEngine(
-                sessionGateway = session,
-                executionGateway = brokerGateway ?: session,
+                marketData = marketData,
+                execution = execution,
                 repository = strategyRepository,
                 scope = engineScope,
                 brokerKind = brokerKind,
-                ensureLiveMarketData = ensureLiveMarketData,
                 isGlobalAutoStartEnabled = { appStateRepository.state.value.globalAutoStartEnabled },
-                releaseLiveMarketData = releaseLiveMarketData
+                sessionGateway = session,
+                executionGateway = executionGateway
             )
             if (TouchTurnEngineConfig.shadowLogEnabled()) {
                 LoggingTouchTurnEngine(engine)

@@ -26,7 +26,8 @@ object DeploymentSessionStopLogic {
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
-            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> true
+            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> true
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             null -> false
         }

@@ -167,6 +167,33 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun liquidityResolved_whenSessionDateMarksClosedBeforeBarWallClockEnd() {
+        val sessionDate = "2026-06-01"
+        val zone = "Asia/Hong_Kong"
+        val barTime = "20260601  16:27:06"
+        val bar = OhlcBar(open = 384.0, high = 389.0, low = 383.0, close = 388.0, time = barTime)
+        val scheduledEnd = TouchTurnLogic.marketOpenEpochMillis(sessionDate, zone)!! +
+            TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        assertTrue(scheduledEnd < barEnd - 60_000)
+        val threshold = 1.0
+        assertEquals(
+            LiquidityCandleEvaluation.AWAITING_CLOSE,
+            TouchTurnLogic.liquidityCandleEvaluation(bar, zone, threshold, nowEpochMillis = scheduledEnd)
+        )
+        assertEquals(
+            LiquidityCandleEvaluation.LIQUIDITY,
+            TouchTurnLogic.liquidityCandleEvaluation(
+                bar,
+                zone,
+                threshold,
+                nowEpochMillis = scheduledEnd,
+                sessionDateIso = sessionDate
+            )
+        )
+    }
+
+    @Test
     fun liquidityAwaitingClose_whileBarForming() {
         val bar = OhlcBar(
             open = 400.0,

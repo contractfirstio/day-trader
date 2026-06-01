@@ -4,6 +4,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.OhlcBar
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnSignalContext
 import daytrader.platform.currentSessionDateIso
 import kotlin.math.abs
 import kotlin.math.sin
@@ -42,15 +43,77 @@ internal object EmulatorHistoricalData {
             secondsUntilClose = config.firstCandleSecondsUntilClose,
             nowEpochMillis = nowEpochMillis
         )
+        val volume = ref * 50_000.0 * profile.intradayRangePct.coerceAtLeast(0.01)
         return Result.success(
             OhlcBar(
                 open = open,
                 high = high,
                 low = low,
                 close = close,
-                time = barTime
+                time = barTime,
+                volume = volume
             )
         )
+    }
+
+    fun touchTurnSignalContext(
+        symbol: String,
+        instrument: EmulatorInstrument,
+        config: BrokerEmulatorConfig,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionCandleFetchIndex: Int = 0
+    ): Result<TouchTurnSignalContext> {
+        val sessionYmd = sessionDayYyyyMmDd()
+        val marketZoneId = instrument.marketZoneId
+        val history = fifteenMinuteBarHistory(
+            symbol = symbol,
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = nowEpochMillis,
+            sessionCandleFetchIndex = sessionCandleFetchIndex,
+            sessionYmd = sessionYmd
+        )
+        return TouchTurnLogic.deriveTouchTurnSignalContext(history, marketZoneId, sessionYmd)
+    }
+
+    private fun fifteenMinuteBarHistory(
+        symbol: String,
+        instrument: EmulatorInstrument,
+        config: BrokerEmulatorConfig,
+        nowEpochMillis: Long,
+        sessionCandleFetchIndex: Int,
+        sessionYmd: String
+    ): List<OhlcBar> {
+        val opening = firstFifteenMinuteCandle(
+            symbol = symbol,
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = nowEpochMillis,
+            sessionCandleFetchIndex = sessionCandleFetchIndex
+        ).getOrNull() ?: return emptyList()
+        val profile = symbolProfile(symbol, sessionYmd)
+        val ref = instrument.referencePrice
+        val priorCount = 35
+        val prior = (priorCount downTo 1).map { offset ->
+            val range = ref * profile.intradayRangePct * (0.7 + 0.1 * sin(offset.toDouble()))
+            val mid = ref + range * sin(offset * 0.3)
+            val open = mid - range * 0.3
+            val close = mid + range * 0.25
+            val high = maxOf(open, close) + range * 0.2
+            val low = minOf(open, close) - range * 0.15
+            val barOpenMillis = (opening.time?.let {
+                TouchTurnLogic.barStartEpochMillis(it, instrument.marketZoneId)
+            } ?: nowEpochMillis) - offset * TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
+            OhlcBar(
+                open = open,
+                high = high,
+                low = low,
+                close = close,
+                time = TouchTurnLogic.formatIbBarOpenTime(barOpenMillis, instrument.marketZoneId),
+                volume = ref * 40_000.0 * (0.8 + 0.05 * offset)
+            )
+        }
+        return prior + opening
     }
 
     fun fourteenDayAdr(symbol: String, instrument: EmulatorInstrument): Result<Double> {

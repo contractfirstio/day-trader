@@ -184,6 +184,27 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun touchTurnSignalContext_acceleratedCandle_hasAtrAndVolumeSma() {
+        val instrument = EmulatorSeedCatalog.instruments()["700"]
+            ?: EmulatorSeedCatalog.instruments().values.first()
+        val symbol = EmulatorSeedCatalog.instruments().entries
+            .first { it.value == instrument }.key
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val now = System.currentTimeMillis()
+        val result = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = symbol,
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val ctx = result.getOrThrow()
+        assertTrue(ctx.atr14 > 0.0)
+        assertTrue(ctx.volumeSma20 > 0.0)
+        assertTrue(ctx.firstCandle.volume > 0.0)
+    }
+
+    @Test
     fun parseFirstCandleSecondsUntilClose_defaultsOffAndCustom() {
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(null))
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(""))

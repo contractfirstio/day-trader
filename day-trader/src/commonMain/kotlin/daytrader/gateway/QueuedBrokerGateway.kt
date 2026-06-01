@@ -4,6 +4,7 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnSignalContext
 import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.diagnostics.SessionPriceLog
 import kotlinx.coroutines.CompletableDeferred
@@ -51,6 +52,7 @@ class QueuedBrokerGateway(
     private val requestIdLock = Any()
     private val pendingCandles = mutableMapOf<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val pendingAdr = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
+    private val pendingSignalContext = mutableMapOf<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
     private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<InstrumentResolution>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
@@ -96,6 +98,26 @@ class QueuedBrokerGateway(
 
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         sendCommand(GatewayCommand.PlaceTouchTurnBracket(plan))
+    }
+
+    override fun cancelOrder(orderId: Int) {
+        sendCommand(GatewayCommand.CancelOrder(orderId))
+    }
+
+    override suspend fun fetchTouchTurnSignalContext(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<TouchTurnSignalContext> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<TouchTurnSignalContext>>()
+        pendingSignalContext[requestId] = deferred
+        sendCommand(GatewayCommand.FetchTouchTurnSignalContext(requestId, symbol, instrument))
+        return try {
+            withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingSignalContext.remove(requestId)
+            Result.failure(e)
+        }
     }
 
     override fun cancelOpenOrdersForSymbol(symbol: String) {
@@ -166,6 +188,9 @@ class QueuedBrokerGateway(
             }
             is GatewayEvent.FourteenDayAdrReady -> {
                 pendingAdr.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.TouchTurnSignalContextReady -> {
+                pendingSignalContext.remove(event.requestId)?.complete(event.result)
             }
             is GatewayEvent.InstrumentResolved -> {
                 pendingInstrument.remove(event.requestId)?.complete(event.result)

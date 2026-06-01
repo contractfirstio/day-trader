@@ -29,6 +29,8 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnSignalContext
+import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BlockingGatewayQueues
@@ -38,14 +40,18 @@ import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
 import daytrader.gateway.LiveQuote
+import daytrader.gateway.QueuedBrokerGateway
 import daytrader.gateway.WorkingOrder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
@@ -152,6 +158,9 @@ class DesktopIbGatewayConnection(
     private val nextHistoricalReqId = AtomicInteger(HISTORICAL_REQ_ID_START)
     private val nextTouchTurnHistoricalReqId = AtomicInteger(TOUCH_TURN_HISTORICAL_REQ_ID_START)
     private val nextAdrHistoricalReqId = AtomicInteger(ADR_HISTORICAL_REQ_ID_START)
+    private val nextOneShotGatewayRequestId = AtomicLong(9_000_000_000L)
+    private val oneShotFirstCandle = ConcurrentHashMap<Long, CompletableDeferred<Result<OhlcBar>>>()
+    private val oneShotAdr = ConcurrentHashMap<Long, CompletableDeferred<Result<Double>>>()
 
     private var publishDebounceJob: Job? = null
     private var historicalFallbackJob: Job? = null
@@ -191,6 +200,20 @@ class DesktopIbGatewayConnection(
                                 command.instrument
                             )
                         }
+                    is GatewayCommand.FetchTouchTurnSignalContext ->
+                        scope.launch {
+                            emit(
+                                GatewayEvent.TouchTurnSignalContextReady(
+                                    command.requestId,
+                                    fetchTouchTurnSignalContextComposite(command.symbol, command.instrument)
+                                )
+                            )
+                        }
+                    is GatewayCommand.CancelOrder -> {
+                        if (!marketDataOnly) {
+                            scope.launch { cancelWorkingOrder(command.orderId) }
+                        }
+                    }
                     is GatewayCommand.ResolveInstrument ->
                         scope.launch { requestInstrumentResolve(command.requestId, command.symbol) }
                     is GatewayCommand.PlaceTouchTurnBracket -> {
@@ -249,21 +272,17 @@ class DesktopIbGatewayConnection(
         instrument: daytrader.domain.InstrumentIdentity?
     ) {
         if (!client.isConnected) {
-            emit(
-                GatewayEvent.FourteenDayAdrReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException("Not connected to IB Gateway"))
-                )
+            deliverAdrReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Not connected to IB Gateway"))
             )
             return
         }
         val trimmed = symbol.trim().uppercase()
         if (trimmed.isBlank()) {
-            emit(
-                GatewayEvent.FourteenDayAdrReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalArgumentException("Symbol is blank"))
-                )
+            deliverAdrReady(
+                gatewayRequestId,
+                Result.failure(IllegalArgumentException("Symbol is blank"))
             )
             return
         }
@@ -273,7 +292,7 @@ class DesktopIbGatewayConnection(
         adrCacheByKey[cacheKey]?.let { cached ->
             if (cached.sessionDay == sessionDay) {
                 IbGatewayLog.debug("ADR cache hit symbol=$trimmed sessionDay=$sessionDay")
-                emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, cached.result))
+                deliverAdrReady(gatewayRequestId, cached.result)
                 return
             }
         }
@@ -314,21 +333,17 @@ class DesktopIbGatewayConnection(
         instrument: daytrader.domain.InstrumentIdentity?
     ) {
         if (!client.isConnected) {
-            emit(
-                GatewayEvent.FirstFifteenMinuteCandleReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException("Not connected to IB Gateway"))
-                )
+            deliverFirstCandleReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Not connected to IB Gateway"))
             )
             return
         }
         val trimmed = symbol.trim().uppercase()
         if (trimmed.isBlank()) {
-            emit(
-                GatewayEvent.FirstFifteenMinuteCandleReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalArgumentException("Symbol is blank"))
-                )
+            deliverFirstCandleReady(
+                gatewayRequestId,
+                Result.failure(IllegalArgumentException("Symbol is blank"))
             )
             return
         }
@@ -1445,11 +1460,9 @@ class DesktopIbGatewayConnection(
         adrHistoricalMarketZoneId.remove(reqId)
         adrHistoricalCacheKey.remove(reqId)
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            emit(
-                GatewayEvent.FourteenDayAdrReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException("ADR request cancelled"))
-                )
+            deliverAdrReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("ADR request cancelled"))
             )
         }
         paced {
@@ -1465,11 +1478,9 @@ class DesktopIbGatewayConnection(
         adrHistoricalSymbol.remove(reqId)
         adrHistoricalCacheKey.remove(reqId)
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            emit(
-                GatewayEvent.FourteenDayAdrReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException(message))
-                )
+            deliverAdrReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException(message))
             )
         }
     }
@@ -1487,7 +1498,57 @@ class DesktopIbGatewayConnection(
         if (cacheKey != null) {
             adrCacheByKey[cacheKey] = CachedAdr(sessionDay, adrResult)
         }
-        emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, adrResult))
+        deliverAdrReady(gatewayRequestId, adrResult)
+    }
+
+    private fun deliverFirstCandleReady(gatewayRequestId: Long, result: Result<OhlcBar>) {
+        oneShotFirstCandle.remove(gatewayRequestId)?.complete(result)
+            ?: emit(GatewayEvent.FirstFifteenMinuteCandleReady(gatewayRequestId, result))
+    }
+
+    private fun deliverAdrReady(gatewayRequestId: Long, result: Result<Double>) {
+        oneShotAdr.remove(gatewayRequestId)?.complete(result)
+            ?: emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, result))
+    }
+
+    private suspend fun fetchTouchTurnSignalContextComposite(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<TouchTurnSignalContext> {
+        val candleDeferred = CompletableDeferred<Result<OhlcBar>>()
+        val adrDeferred = CompletableDeferred<Result<Double>>()
+        val candleSubId = nextOneShotGatewayRequestId.getAndIncrement()
+        val adrSubId = nextOneShotGatewayRequestId.getAndIncrement()
+        oneShotFirstCandle[candleSubId] = candleDeferred
+        oneShotAdr[adrSubId] = adrDeferred
+        requestFirstFifteenMinuteCandle(candleSubId, symbol, instrument)
+        val candle = withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { candleDeferred.await() }
+        if (candle.isFailure) return Result.failure(candle.exceptionOrNull()!!)
+        requestFourteenDayAdr(adrSubId, symbol, instrument)
+        val adr = withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { adrDeferred.await() }
+        if (adr.isFailure) return Result.failure(adr.exceptionOrNull()!!)
+        val bar = candle.getOrThrow()
+        val atrProxy = adr.getOrThrow()
+        val estimatedVolume = bar.volume.takeIf { it > 0.0 } ?: atrProxy * 10_000.0
+        return Result.success(
+            TouchTurnSignalContext(
+                firstCandle = bar,
+                atr14 = atrProxy,
+                volumeSma20 = estimatedVolume * 0.85
+            )
+        )
+    }
+
+    private fun cancelWorkingOrder(orderId: Int) {
+        if (!client.isConnected) return
+        val working = openOrdersById[orderId] ?: return
+        openOrdersById.remove(orderId)
+        paced {
+            if (!client.isConnected) return@paced
+            client.cancelOrder(orderId, OrderCancel())
+        }
+        publishOpenOrders()
+        IbGatewayLog.sessionOrdersCancelled(working.symbol, listOf(orderId))
     }
 
     private fun cancelTouchTurnHistorical(reqId: Int) {
@@ -1496,11 +1557,9 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            emit(
-                GatewayEvent.FirstFifteenMinuteCandleReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException("Historical request cancelled"))
-                )
+            deliverFirstCandleReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Historical request cancelled"))
             )
         }
         paced {
@@ -1516,11 +1575,9 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            emit(
-                GatewayEvent.FirstFifteenMinuteCandleReady(
-                    gatewayRequestId,
-                    Result.failure(IllegalStateException(message))
-                )
+            deliverFirstCandleReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException(message))
             )
         }
     }
@@ -1550,22 +1607,15 @@ class DesktopIbGatewayConnection(
         )
         if (first == null) {
             val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
-            emit(
-                GatewayEvent.FirstFifteenMinuteCandleReady(
-                    gatewayRequestId,
-                    Result.failure(
-                        IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
-                    )
+            deliverFirstCandleReady(
+                gatewayRequestId,
+                Result.failure(
+                    IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
                 )
             )
             return
         }
-        emit(
-            GatewayEvent.FirstFifteenMinuteCandleReady(
-                gatewayRequestId,
-                Result.success(first)
-            )
-        )
+        deliverFirstCandleReady(gatewayRequestId, Result.success(first))
     }
 
     private fun clearPositionState() {

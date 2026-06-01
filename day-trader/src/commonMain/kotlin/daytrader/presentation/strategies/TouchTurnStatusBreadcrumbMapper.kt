@@ -200,17 +200,16 @@ object TouchTurnStatusBreadcrumbMapper {
         }
 
         if (hasOpenPosition) {
-            return if (session.milestones.positionOpenedAt != null) {
-                Phase(index = IDX_POSITION, terminal = true)
-            } else {
-                Phase(index = IDX_POSITION)
-            }
+            // Stay on Position (CURRENT) until flat — milestone records entry time, not exit.
+            return Phase(index = IDX_POSITION)
         }
 
         when (session.decisionOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED ->
                 return Phase(index = IDX_DATA, failed = true)
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ->
+                return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION ->
                 return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
@@ -227,6 +226,10 @@ object TouchTurnStatusBreadcrumbMapper {
             return Phase(index = IDX_BAR)
         }
 
+        if (tradeOrdersCommitted(session)) {
+            return Phase(index = IDX_ORDERS)
+        }
+
         val liquidity = session.liquidityEvaluation(nowEpochMillis)
         when (liquidity) {
             LiquidityCandleEvaluation.AWAITING_CLOSE -> return Phase(index = IDX_BAR)
@@ -234,10 +237,6 @@ object TouchTurnStatusBreadcrumbMapper {
             LiquidityCandleEvaluation.NOT_LIQUIDITY ->
                 return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
             LiquidityCandleEvaluation.LIQUIDITY -> Unit
-        }
-
-        if (tradeOrdersCommitted(session)) {
-            return Phase(index = IDX_ORDERS)
         }
 
         val closeConfirmation = session.closeConfirmation(nowEpochMillis)
@@ -798,6 +797,12 @@ object TouchTurnStatusBreadcrumbMapper {
             ) {
                 return buildString {
                     append("Waiting for entry")
+                    current.timestamp?.let { append(" · $it") }
+                }
+            }
+            if (current.id == TouchTurnPipelineNodeId.Position) {
+                return buildString {
+                    append("In position — TP / SL working")
                     current.timestamp?.let { append(" · $it") }
                 }
             }

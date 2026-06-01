@@ -130,7 +130,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
     }
 
     @Test
-    fun openPosition_withMilestone_positionCompleted() {
+    fun openPosition_withMilestone_staysCurrentUntilFlat() {
         val barTime = "20260522  09:30:00"
         val now = barEnd(barTime) + 1
         val session = readySession(
@@ -147,7 +147,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
             nowEpochMillis = now
         )
         assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[5].state)
-        assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[6].state)
+        assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[6].state)
         assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[7].state)
     }
 
@@ -364,6 +364,34 @@ class TouchTurnStatusBreadcrumbMapperTest {
             it.from == TouchTurnPipelineNodeId.Liquidity && it.to == TouchTurnPipelineNodeId.Confirmation
         }
         assertEquals(TouchTurnPipelineEdgeState.Dimmed, liqToConfirm.state)
+    }
+
+    @Test
+    fun steps_ordersPlaced_currentOnOrdersWhenSessionDateClosedBeforeBarWallEnd() {
+        val sessionDate = "2026-06-01"
+        val zone = "Asia/Hong_Kong"
+        val barTime = "20260601  16:27:06"
+        val bar = OhlcBar(open = 384.0, high = 389.0, low = 383.0, close = 388.0, time = barTime)
+        val now = TouchTurnLogic.marketOpenEpochMillis(sessionDate, zone)!! +
+            TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS + 60_000
+        val session = TouchTurnSessionContext(
+            sessionDate = sessionDate,
+            status = TouchTurnCandleStatus.READY,
+            candle = bar,
+            marketZoneId = zone,
+            rangeThreshold = 1.0,
+            adr14 = 7.0,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            ordersPlacedForSession = true
+        )
+        val steps = TouchTurnStatusBreadcrumbMapper.steps(
+            instance = deployment(session),
+            hasOpenPosition = false,
+            hasOpenOrders = true,
+            nowEpochMillis = now
+        )
+        assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[2].state)
+        assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[5].state)
     }
 
     @Test

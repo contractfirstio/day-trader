@@ -111,7 +111,8 @@ object TouchTurnPipelineLog {
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
-        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+        TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
     )
 
     private fun line(message: String) {

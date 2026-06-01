@@ -160,6 +160,41 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.FourteenDayAdrReady(requestId, result))
     }
 
+    suspend fun fetchTouchTurnSignalContext(requestId: Long, symbol: String) {
+        delay(config.historicalDelayMs)
+        val trimmed = symbol.trim().uppercase()
+        val instrument = resolveInstrument(trimmed)
+        val result = if (instrument == null) {
+            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+        } else {
+            firstCandleFetchCount++
+            val fetchIndex = if (
+                config.alternateFirstCandleColor &&
+                config.firstCandleColorMode == EmulatorFirstCandleColorMode.AUTO
+            ) {
+                firstCandleFetchCount
+            } else {
+                0
+            }
+            EmulatorHistoricalData.touchTurnSignalContext(
+                symbol = trimmed,
+                instrument = instrument,
+                config = config,
+                sessionCandleFetchIndex = fetchIndex
+            )
+        }
+        emit(GatewayEvent.TouchTurnSignalContextReady(requestId, result))
+    }
+
+    fun cancelOrder(orderId: Int) {
+        if (!connected) return
+        val order = orders[orderId] ?: return
+        if (order.isTerminal()) return
+        updateOrder(order.copy(status = "Cancelled"))
+        EmulatorLog.sessionOrdersCancelled(order.symbol, 1)
+        publishOrders()
+    }
+
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         val symbolForAck = SymbolMarkets.normalizeSymbol(plan.symbol)
         if (!connected) {

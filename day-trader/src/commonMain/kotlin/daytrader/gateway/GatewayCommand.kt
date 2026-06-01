@@ -24,6 +24,14 @@ sealed interface GatewayCommand {
         val instrument: InstrumentIdentity? = null
     ) : GatewayCommand
 
+    data class FetchTouchTurnSignalContext(
+        val requestId: Long,
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null
+    ) : GatewayCommand
+
+    data class CancelOrder(val orderId: Int) : GatewayCommand
+
     data class ResolveInstrument(
         val requestId: Long,
         val symbol: String

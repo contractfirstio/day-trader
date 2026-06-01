@@ -94,6 +94,14 @@ class EmulatorBrokerAdapter(
                                 engine.fetchFourteenDayAdr(command.requestId, command.symbol)
                             }
                         }
+                    is GatewayCommand.FetchTouchTurnSignalContext ->
+                        launch {
+                            withEngine {
+                                engine.fetchTouchTurnSignalContext(command.requestId, command.symbol)
+                            }
+                        }
+                    is GatewayCommand.CancelOrder ->
+                        withEngine { engine.cancelOrder(command.orderId) }
                     is GatewayCommand.ResolveInstrument ->
                         emit(
                             GatewayEvent.InstrumentResolved(

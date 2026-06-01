@@ -72,7 +72,8 @@ data class OhlcBar(
     val low: Double,
     val close: Double,
     /** IB bar time, e.g. `20250522  09:30:00`. */
-    val time: String? = null
+    val time: String? = null,
+    val volume: Double = 0.0
 ) {
     val range: Double get() = high - low
 }
@@ -130,9 +131,13 @@ data class TouchTurnSessionContext(
     val currencyCode: String = "USD",
     /** IANA zone for bar close time (e.g. Asia/Hong_Kong). */
     val marketZoneId: String = "America/New_York",
-    /** Average daily range (high − low) over the last 14 completed sessions. */
+    /** Average daily range (high − low) over the last 14 completed sessions (legacy display). */
     val adr14: Double? = null,
-    /** Liquidity threshold = [adr14] × [TouchTurnDefaults.ADR_LIQUIDITY_RATIO] (25%). */
+    /** 14-period ATR on 15-minute bars used for liquidity range threshold. */
+    val atr14: Double? = null,
+    /** 20-period SMA of 15-minute volume (bars prior to the opening bar). */
+    val volumeSma20: Double? = null,
+    /** Liquidity threshold = [atr14] × [TouchTurnDefaults.ATR_LIQUIDITY_RATIO] (25%). */
     val rangeThreshold: Double = 0.0,
     /** Set when the bar closes: true if a liquidity bracket was eligible to be logged/placed. */
     val entryOrdersPermitted: Boolean? = null,
@@ -148,13 +153,23 @@ data class TouchTurnSessionContext(
     val executedBracketLegs: List<TouchTurnOrderRole> = emptyList()
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
+    val liquidityThresholdFromAtr: Double?
+        get() = atr14?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it) }
+
+    @Deprecated("Use liquidityThresholdFromAtr", ReplaceWith("liquidityThresholdFromAtr"))
     val liquidityThresholdFromAdr: Double?
-        get() = adr14?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
+        get() = liquidityThresholdFromAtr
     fun candleCloseStatus(nowEpochMillis: Long = System.currentTimeMillis()): FirstCandleCloseStatus =
         TouchTurnLogic.firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis, sessionDate)
 
     fun liquidityEvaluation(nowEpochMillis: Long = System.currentTimeMillis()): LiquidityCandleEvaluation =
-        TouchTurnLogic.liquidityCandleEvaluation(candle, marketZoneId, rangeThreshold, nowEpochMillis)
+        TouchTurnLogic.liquidityCandleEvaluation(
+            candle,
+            marketZoneId,
+            rangeThreshold,
+            nowEpochMillis,
+            sessionDate
+        )
 
     fun firstCandleColor(): FirstCandleColor? = candle?.let { TouchTurnLogic.firstCandleColor(it) }
 
@@ -162,7 +177,7 @@ data class TouchTurnSessionContext(
         TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)
 
     fun closeConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation =
-        TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis)
+        TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis, sessionDate)
 
     /** Live panel: elapsed since the most recent 09:30 RTH open in [marketZoneId] (wall clock). */
     fun millisSinceLastMarketOpen(
@@ -261,7 +276,8 @@ object TouchTurnLogic {
         expectedBarTime?.let { expected ->
             normalized.firstOrNull { it.time == expected }?.let { return it }
         }
-        return normalized.minByOrNull { barTimeSortKey(it.time) }
+        // Emulator accelerated bars are the latest session-day candle, not 09:30 RTH open.
+        return normalized.maxByOrNull { barTimeSortKey(it.time) }
     }
 
     fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
@@ -340,10 +356,13 @@ object TouchTurnLogic {
         candle: OhlcBar?,
         setup: TouchTurnBracketSetup?,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): TouchTurnCloseConfirmation {
         val bar = candle ?: return TouchTurnCloseConfirmation.UNKNOWN
-        if (firstCandleCloseStatus(bar, marketZoneId, nowEpochMillis) != FirstCandleCloseStatus.CLOSED) {
+        if (firstCandleCloseStatus(bar, marketZoneId, nowEpochMillis, sessionDateIso) !=
+            FirstCandleCloseStatus.CLOSED
+        ) {
             return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         }
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
@@ -685,9 +704,10 @@ object TouchTurnLogic {
         candle: OhlcBar?,
         marketZoneId: String,
         rangeThreshold: Double,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): LiquidityCandleEvaluation {
-        return when (firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis)) {
+        return when (firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis, sessionDateIso)) {
             FirstCandleCloseStatus.FORMING -> LiquidityCandleEvaluation.AWAITING_CLOSE
             FirstCandleCloseStatus.UNKNOWN -> LiquidityCandleEvaluation.UNKNOWN
             FirstCandleCloseStatus.CLOSED -> {
@@ -701,7 +721,7 @@ object TouchTurnLogic {
         }
     }
 
-    fun isLiquidityCandle(bar: OhlcBar, rangeThreshold: Double): Boolean = bar.range > rangeThreshold
+    fun isLiquidityCandle(bar: OhlcBar, rangeThreshold: Double): Boolean = bar.range >= rangeThreshold
 
     fun liquidityEvaluationLabel(evaluation: LiquidityCandleEvaluation): String = when (evaluation) {
         LiquidityCandleEvaluation.AWAITING_CLOSE -> "Liquidity: pending (candle still forming)"
@@ -759,7 +779,81 @@ object TouchTurnLogic {
         return Result.success(adr)
     }
 
-    fun liquidityRangeThreshold(adr14: Double): Double = adr14 * TouchTurnDefaults.ADR_LIQUIDITY_RATIO
+    fun liquidityRangeThreshold(adr14: Double): Double = adr14 * TouchTurnDefaults.ATR_LIQUIDITY_RATIO
+
+    fun liquidityRangeThresholdFromAtr(atr14: Double): Double = atr14 * TouchTurnDefaults.ATR_LIQUIDITY_RATIO
+
+    /**
+     * Wilder-style ATR over the last [period] completed bars (needs [period] true ranges).
+     */
+    fun computeAtr14(bars: List<OhlcBar>, period: Int = TouchTurnDefaults.ATR_LOOKBACK_PERIODS): Result<Double> {
+        val valid = bars.filter { it.high > 0.0 && it.low > 0.0 && it.high >= it.low }
+        if (valid.size < period + 1) {
+            return Result.failure(
+                IllegalStateException("Need ${period + 1} 15m bars for ATR($period), got ${valid.size}")
+            )
+        }
+        val slice = valid.takeLast(period + 1)
+        val trueRanges = slice.zipWithNext { prev, curr ->
+            maxOf(
+                curr.high - curr.low,
+                kotlin.math.abs(curr.high - prev.close),
+                kotlin.math.abs(curr.low - prev.close)
+            )
+        }
+        val atr = trueRanges.takeLast(period).average()
+        return Result.success(atr)
+    }
+
+    fun computeVolumeSma20(
+        bars: List<OhlcBar>,
+        period: Int = TouchTurnDefaults.VOLUME_SMA_PERIODS
+    ): Result<Double> {
+        val withVolume = bars.filter { it.volume > 0.0 }
+        if (withVolume.size < period) {
+            return Result.failure(
+                IllegalStateException("Need $period 15m bars with volume for SMA, got ${withVolume.size}")
+            )
+        }
+        return Result.success(withVolume.takeLast(period).map { it.volume }.average())
+    }
+
+    /** High-conviction breakout: opening bar volume above [ratio] × volume SMA. */
+    fun isVolumeExhaustion(
+        candleVolume: Double,
+        volumeSma20: Double,
+        ratio: Double = TouchTurnDefaults.VOLUME_EXHAUSTION_RATIO
+    ): Boolean = volumeSma20 > 0.0 && candleVolume > volumeSma20 * ratio
+
+    fun volumeExhaustionThreshold(volumeSma20: Double): Double =
+        volumeSma20 * TouchTurnDefaults.VOLUME_EXHAUSTION_RATIO
+
+    /**
+     * Derives signal inputs from a 15-minute history that includes today's opening bar.
+     */
+    fun deriveTouchTurnSignalContext(
+        bars: List<OhlcBar>,
+        marketZoneId: String,
+        sessionDayYyyyMmdd: String
+    ): Result<TouchTurnSignalContext> {
+        val first = selectFirstFifteenMinuteBar(bars, marketZoneId, sessionDayYyyyMmdd)
+            ?: return Result.failure(IllegalStateException("No opening 15m bar for session $sessionDayYyyyMmdd"))
+        val firstKey = barTimeSortKey(first.time)
+        val prior = bars
+            .filter { barTimeSortKey(it.time) < firstKey }
+            .sortedBy { barTimeSortKey(it.time) }
+        val atrResult = computeAtr14(prior)
+        val volumeResult = computeVolumeSma20(prior)
+        if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
+        if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
+        return Result.success(
+            TouchTurnSignalContext(
+                firstCandle = first,
+                atr14 = atrResult.getOrThrow(),
+                volumeSma20 = volumeResult.getOrThrow()
+            )
+        )
+    }
 
     fun barDayKey(barTime: String?): String? {
         val trimmed = barTime?.trim() ?: return null
@@ -882,8 +976,16 @@ object TouchTurnLogic {
 
 object TouchTurnDefaults {
     const val ADR_LOOKBACK_DAYS = 14
-    /** Liquidity when first 15m range exceeds this fraction of 14-day ADR. */
-    const val ADR_LIQUIDITY_RATIO = 0.25
+    const val ATR_LOOKBACK_PERIODS = 14
+    const val VOLUME_SMA_PERIODS = 20
+    /** Liquidity when first 15m range is at least this fraction of 14-period ATR. */
+    const val ATR_LIQUIDITY_RATIO = 0.25
+    @Deprecated("Use ATR_LIQUIDITY_RATIO", ReplaceWith("ATR_LIQUIDITY_RATIO"))
+    const val ADR_LIQUIDITY_RATIO = ATR_LIQUIDITY_RATIO
+    /** Opening-bar volume above this multiple of 20-period volume SMA aborts entry. */
+    const val VOLUME_EXHAUSTION_RATIO = 1.5
+    /** Post-entry observation window before resting bracket is left working unchecked. */
+    const val VOLUME_BUFFER_OBSERVATION_MS = 60_000L
     const val MIN_STOP_DISTANCE = 0.05
     /** Green (short) liquidity bar: take-profit distance as fraction of bar range. */
     const val TAKE_PROFIT_FIB_RATIO_GREEN = 0.618
@@ -937,12 +1039,14 @@ fun StrategyDeployment.withTouchTurnCandle(
 fun StrategyDeployment.withFirstFifteenMinuteCandle(
     sessionDate: String,
     candle: OhlcBar,
-    adr14: Double,
+    atr14: Double,
+    volumeSma20: Double,
+    adr14: Double? = null,
     currencyCode: String = "USD",
     marketZoneId: String = "America/New_York"
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
-    val threshold = TouchTurnLogic.liquidityRangeThreshold(adr14)
+    val threshold = TouchTurnLogic.liquidityRangeThresholdFromAtr(atr14)
     val prior = touchTurnSession?.milestones
     val at = currentSessionTimestampIso()
     return copy(
@@ -952,7 +1056,9 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
             candle = candle,
             currencyCode = currencyCode,
             marketZoneId = marketZoneId,
-            adr14 = adr14,
+            adr14 = adr14 ?: atr14,
+            atr14 = atr14,
+            volumeSma20 = volumeSma20,
             rangeThreshold = threshold,
             milestones = TouchTurnMilestoneTimestamps(
                 startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
@@ -973,11 +1079,21 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
     val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
-    val closeConfirmation = TouchTurnLogic.closeConfirmation(candle, setup, session.marketZoneId, nowEpochMillis)
+    val closeConfirmation = TouchTurnLogic.closeConfirmation(
+        candle,
+        setup,
+        session.marketZoneId,
+        nowEpochMillis,
+        session.sessionDate
+    )
+    val volumeSma = session.volumeSma20 ?: 0.0
+    val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma)
     val entryOrdersPermitted = setup.isLiquidityCandle &&
         setup.isActionable &&
+        !volumeExhausted &&
         (!enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED)
     val decisionOutcome = when {
+        volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
         !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
         enforceCloseConfirmation && closeConfirmation == TouchTurnCloseConfirmation.EXPIRED ->

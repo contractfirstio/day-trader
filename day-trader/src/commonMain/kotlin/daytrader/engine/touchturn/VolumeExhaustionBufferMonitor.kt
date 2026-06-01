@@ -1,0 +1,65 @@
+package daytrader.engine.touchturn
+
+import daytrader.domain.TouchTurnDefaults
+import daytrader.execution.ExecutionManager
+import daytrader.marketdata.MarketDataProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+
+/**
+ * Asynchronous 60-second post-entry observer: cancels the entry order if live volume
+ * exceeds the exhaustion threshold before the window ends.
+ */
+class VolumeExhaustionBufferMonitor(
+    private val marketData: MarketDataProvider,
+    private val execution: ExecutionManager,
+    private val scope: CoroutineScope
+) {
+    private val activeJobs = mutableMapOf<String, Job>()
+
+    fun start(
+        instanceId: String,
+        symbol: String,
+        entryOrderId: Int?,
+        volumeThreshold: Double
+    ) {
+        stop(instanceId)
+        if (entryOrderId == null || volumeThreshold <= 0.0) return
+        VolumeExhaustionLog.bufferActive(instanceId, symbol, entryOrderId, volumeThreshold)
+        activeJobs[instanceId] = scope.launch {
+            var accumulated = 0.0
+            val observer = marketData.observeVolumeTicks(symbol)
+                .onEach { tick ->
+                    if (tick.volumeDelta > 0.0) accumulated += tick.volumeDelta
+                    if (accumulated > volumeThreshold) {
+                        VolumeExhaustionLog.orderCancelled(instanceId, symbol, entryOrderId, accumulated)
+                        execution.cancelOrder(entryOrderId)
+                        stop(instanceId)
+                    }
+                }
+                .launchIn(this)
+            val deadline = System.currentTimeMillis() + TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS
+            while (isActive && System.currentTimeMillis() < deadline) {
+                delay(250)
+            }
+            observer.cancel()
+            if (activeJobs.containsKey(instanceId)) {
+                VolumeExhaustionLog.bufferCompleted(instanceId, symbol, accumulated)
+                stop(instanceId)
+            }
+        }
+    }
+
+    fun stop(instanceId: String) {
+        activeJobs.remove(instanceId)?.cancel()
+    }
+
+    fun stopAll() {
+        activeJobs.keys.toList().forEach { stop(it) }
+    }
+}

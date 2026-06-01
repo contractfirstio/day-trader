@@ -131,6 +131,8 @@ fun TouchTurnPipelineSectionClose(
                 when (o) {
                     TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> "Outcome: bracket orders were submitted."
                     TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Outcome: no trade — opening bar was not liquid."
+                    TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION ->
+                        "Outcome: no trade — opening bar volume exceeded exhaustion threshold."
                     TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Outcome: no trade — doji / non-actionable bar."
                     TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
                         "Outcome: no trade — opening candle close did not confirm turn."

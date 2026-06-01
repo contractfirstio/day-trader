@@ -106,6 +106,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED -> "Close gate"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Window expired"
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "No order"
+        TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "Volume exhaustion"
         TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> "Bracket"
     }
 
