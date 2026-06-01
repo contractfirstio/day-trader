@@ -49,6 +49,10 @@ import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
 import daytrader.presentation.strategies.TouchTurnPipelineNodeId
+import daytrader.presentation.strategies.TouchTurnReasonSeverity
+import daytrader.presentation.strategies.TouchTurnSessionReasonUi
+import daytrader.presentation.strategies.TouchTurnSessionStatusUi
+import daytrader.presentation.strategies.TouchTurnRunRecordUiMapper
 import daytrader.presentation.strategies.detailTitle
 import daytrader.presentation.strategies.fmt
 import daytrader.presentation.strategies.formattedAdr14
@@ -60,6 +64,57 @@ import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+
+@Composable
+fun TouchTurnSessionStatusBanner(
+    status: TouchTurnSessionStatusUi?,
+    modifier: Modifier = Modifier
+) {
+    if (status == null) return
+    val (background, border, headlineColor) = when (status.severity) {
+        TouchTurnReasonSeverity.Error -> Triple(
+            LossRed.copy(alpha = 0.12f),
+            LossRed.copy(alpha = 0.55f),
+            LossRed
+        )
+        TouchTurnReasonSeverity.Warning -> Triple(
+            Color(0xFFFFB74D).copy(alpha = 0.12f),
+            Color(0xFFFFB74D).copy(alpha = 0.5f),
+            Color(0xFFFFB74D)
+        )
+        TouchTurnReasonSeverity.Info -> Triple(
+            TableHeaderBg,
+            TextSecondary.copy(alpha = 0.35f),
+            Color.White
+        )
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(background, RoundedCornerShape(8.dp))
+            .border(1.dp, border, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnSessionStatusBanner"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            status.headline,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = headlineColor,
+            lineHeight = 15.sp
+        )
+        status.detail?.let { detail ->
+            Text(
+                detail,
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp,
+                modifier = Modifier.testTag("TouchTurnSessionStatusBannerDetail")
+            )
+        }
+    }
+}
 
 @Composable
 fun TouchTurnPipelineSectionStart(
@@ -81,9 +136,13 @@ fun TouchTurnPipelineSectionStart(
             fontSize = 11.sp,
             color = TextSecondary
         )
+        val runningHint = graph?.statusBanner?.detail
+            ?: graph?.statusBanner?.headline
         Text(
             when {
-                instance.status == DeploymentStatus.RUNNING -> "Session is running."
+                instance.status == DeploymentStatus.RUNNING && runningHint != null -> runningHint
+                instance.status == DeploymentStatus.RUNNING ->
+                    "Session is running — follow the pipeline for bar close, liquidity, and orders."
                 run != null -> "Session ended — review each pipeline step above."
                 else -> "Deployment stopped. Start a session to begin the next run."
             },
@@ -112,7 +171,16 @@ fun TouchTurnPipelineSectionClose(
 ) {
     val stoppedAt = closedRun?.stoppedAt?.takeIf { it.isNotBlank() }
         ?: graph?.node(TouchTurnPipelineNodeId.Close)?.timestamp
-    val outcome = closedRun?.touchTurnRunRecord?.decision?.outcome
+    val record = closedRun?.touchTurnRunRecord
+    val outcome = record?.decision?.outcome
+    val stopStatus = record?.let { r ->
+        val trigger = TouchTurnRunRecordUiMapper.effectiveStopTrigger(r, closedRun)
+        TouchTurnSessionReasonUi.forStopTrigger(
+            trigger = trigger,
+            stopErrorMessage = r.stopEvent.stopErrorMessage,
+            decisionOutcome = r.decision.outcome
+        )
+    }
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionClose"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -126,21 +194,11 @@ fun TouchTurnPipelineSectionClose(
         stoppedAt?.let { time ->
             Text("Stopped $time", fontSize = 11.sp, color = TextSecondary)
         }
+        stopStatus?.let { TouchTurnSessionStatusBanner(status = it) }
         outcome?.let { o ->
+            val explanation = TouchTurnSessionReasonUi.forDecisionOutcome(o)
             Text(
-                when (o) {
-                    TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> "Outcome: bracket orders were submitted."
-                    TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Outcome: no trade — opening bar was not liquid."
-                    TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION ->
-                        "Outcome: no trade — opening bar volume exceeded exhaustion threshold."
-                    TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Outcome: no trade — doji / non-actionable bar."
-                    TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
-                        "Outcome: no trade — opening candle close did not confirm turn."
-                    TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED -> "Outcome: no trade — data load failed."
-                    TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
-                        "Outcome: no trade — close confirmation window expired (1 minute after bar close)."
-                    TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "Outcome: no trade — order rejected."
-                },
+                explanation.detail ?: explanation.headline,
                 fontSize = 11.sp,
                 color = TextSecondary
             )
@@ -183,11 +241,11 @@ fun TouchTurnPipelineSectionData(
                 )
             }
             session.status == TouchTurnCandleStatus.FAILED -> {
-                Text(
-                    session.errorMessage ?: "Failed to load session data.",
-                    fontSize = 12.sp,
-                    color = LossRed,
-                    modifier = Modifier.testTag("TouchTurnDataCaptureError")
+                TouchTurnSessionStatusBanner(
+                    status = TouchTurnSessionReasonUi.forDecisionOutcome(
+                        TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+                        session
+                    )
                 )
             }
             else -> {
@@ -520,6 +578,22 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 fontWeight = FontWeight.SemiBold,
                 color = GainGreen
             )
+        } else {
+            session.decisionOutcome?.let { outcome ->
+                TouchTurnSessionStatusBanner(
+                    status = TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session)
+                )
+            } ?: if (session.entryOrdersPermitted == false) {
+                TouchTurnSessionStatusBanner(
+                    status = TouchTurnSessionStatusUi(
+                        headline = "Orders not placed yet",
+                        detail = TouchTurnSessionReasonUi.pendingEntryBlockDetail(session, System.currentTimeMillis()),
+                        severity = TouchTurnReasonSeverity.Warning
+                    )
+                )
+            } else {
+                Unit
+            }
         }
     }
 }
@@ -564,40 +638,36 @@ fun TouchTurnPipelineSectionNoTrade(
     val liquidityEval = remember(session, tick) { session?.liquidityEvaluation() }
     val entryPermitted = session?.entryOrdersPermitted
 
+    val noTradeExplanation = session?.decisionOutcome?.let {
+        TouchTurnSessionReasonUi.forDecisionOutcome(it, session)
+    } ?: when {
+        liquidityEval == LiquidityCandleEvaluation.NOT_LIQUIDITY ->
+            TouchTurnSessionReasonUi.forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY)
+        entryPermitted == false -> TouchTurnSessionStatusUi(
+            headline = "Entry not permitted",
+            detail = session?.let {
+                TouchTurnSessionReasonUi.pendingEntryBlockDetail(it, System.currentTimeMillis())
+            } ?: "Liquidity passed but entry orders were not permitted.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        graph?.activePath?.contains(TouchTurnPipelineNodeId.NoTrade) == true ->
+            TouchTurnSessionStatusUi(
+                headline = "No-trade path",
+                detail = "Orders and position steps were skipped for this session.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        else -> TouchTurnSessionStatusUi(
+            headline = "No-trade path",
+            detail = "Used when liquidity fails, volume exhaustion triggers, or close confirmation fails or expires.",
+            severity = TouchTurnReasonSeverity.Info
+        )
+    }
+
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionNoTrade"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        when {
-            liquidityEval == LiquidityCandleEvaluation.NOT_LIQUIDITY -> {
-                Text(
-                    "Opening bar range did not exceed 25% of 14-day ADR — no trade path for this session.",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
-            entryPermitted == false -> {
-                Text(
-                    "Liquidity passed but entry orders were not permitted (e.g. flat doji bar).",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
-            graph?.activePath?.contains(TouchTurnPipelineNodeId.NoTrade) == true -> {
-                Text(
-                    "Session took the no-trade branch — orders and position steps were skipped.",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
-            else -> {
-                Text(
-                    "No-trade path applies when liquidity fails or close confirmation fails or expires.",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-            }
-        }
+        TouchTurnSessionStatusBanner(status = noTradeExplanation)
         graph?.node(TouchTurnPipelineNodeId.Liquidity)?.timestamp?.let { time ->
             Text("Liquidity evaluated $time", fontSize = 10.sp, color = TextSecondary)
         }

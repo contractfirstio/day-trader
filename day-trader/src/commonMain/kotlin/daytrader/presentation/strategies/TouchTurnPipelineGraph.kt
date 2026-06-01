@@ -52,7 +52,9 @@ data class TouchTurnPipelineGraph(
     val nodes: List<TouchTurnPipelineNode>,
     val edges: List<TouchTurnPipelineEdge>,
     val activePath: List<TouchTurnPipelineNodeId>,
-    val caption: String
+    val caption: String,
+    /** Prominent explanation when trade was blocked, data failed, or session is stopping. */
+    val statusBanner: TouchTurnSessionStatusUi? = null
 ) {
     fun currentNodeId(): TouchTurnPipelineNodeId? =
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.id

@@ -395,10 +395,20 @@ object TouchTurnStatusBreadcrumbMapper {
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
+        val closing = isClosingPhase(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
+            nowEpochMillis = nowEpochMillis
+        )
         val graph = buildGraph(
             steps = stepList,
             session = instance.touchTurnSession,
-            nowEpochMillis = nowEpochMillis
+            nowEpochMillis = nowEpochMillis,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            closing = closing
         )
         logPipelineGraph(
             instanceId = instance.id,
@@ -471,7 +481,10 @@ object TouchTurnStatusBreadcrumbMapper {
         val graph = buildGraph(
             steps = steps,
             session = session,
-            nowEpochMillis = System.currentTimeMillis()
+            nowEpochMillis = System.currentTimeMillis(),
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            closing = true
         )
         TouchTurnPipelineLog.graphBuilt(
             instanceId = instanceId,
@@ -496,18 +509,29 @@ object TouchTurnStatusBreadcrumbMapper {
     fun buildGraph(
         steps: List<TouchTurnBreadcrumbStep>,
         session: TouchTurnSessionContext? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        hasOpenPosition: Boolean = false,
+        hasOpenOrders: Boolean = false,
+        closing: Boolean = false
     ): TouchTurnPipelineGraph {
         val noTradeState = noTradeNodeState(steps, session, nowEpochMillis)
         val activePath = activePathFor(steps, noTradeState, session, nowEpochMillis)
         val nodes = pipelineNodes(steps, noTradeState)
         val edges = pipelineEdges(activePath, nodes)
-        val caption = pipelineCaption(steps, nodes, activePath)
+        val caption = pipelineCaption(steps, nodes, activePath, session, nowEpochMillis)
+        val statusBanner = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            closing = closing,
+            nowEpochMillis = nowEpochMillis
+        )
         return TouchTurnPipelineGraph(
             nodes = nodes,
             edges = edges,
             activePath = activePath,
-            caption = caption
+            caption = caption,
+            statusBanner = statusBanner
         )
     }
 
@@ -788,43 +812,110 @@ object TouchTurnStatusBreadcrumbMapper {
     private fun pipelineCaption(
         steps: List<TouchTurnBreadcrumbStep>,
         nodes: List<TouchTurnPipelineNode>,
-        activePath: List<TouchTurnPipelineNodeId>
+        activePath: List<TouchTurnPipelineNodeId>,
+        session: TouchTurnSessionContext?,
+        nowEpochMillis: Long
     ): String {
+        session?.decisionOutcome?.takeIf { it != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED }?.let { outcome ->
+            val headline = TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session).headline
+            return appendTimestamp(headline, nodes)
+        }
+        if (session?.status == TouchTurnCandleStatus.FAILED) {
+            val headline = TouchTurnSessionReasonUi.forDecisionOutcome(
+                TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+                session
+            ).headline
+            return appendTimestamp(headline, nodes)
+        }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.let { current ->
-            if (current.id == TouchTurnPipelineNodeId.Orders &&
-                nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
-                    ?.state == TouchTurnBreadcrumbStepState.UPCOMING
-            ) {
-                return buildString {
-                    append("Waiting for entry")
-                    current.timestamp?.let { append(" · $it") }
+            when (current.id) {
+                TouchTurnPipelineNodeId.Orders -> if (
+                    nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
+                        ?.state == TouchTurnBreadcrumbStepState.UPCOMING
+                ) {
+                    return appendTimestamp("Waiting for entry fill", nodes, current.timestamp)
                 }
-            }
-            if (current.id == TouchTurnPipelineNodeId.Position) {
-                return buildString {
-                    append("In position — TP / SL working")
-                    current.timestamp?.let { append(" · $it") }
+                TouchTurnPipelineNodeId.Position -> {
+                    return appendTimestamp("In position — TP / SL working", nodes, current.timestamp)
                 }
+                TouchTurnPipelineNodeId.Close -> {
+                    session?.decisionOutcome?.let { outcome ->
+                        return appendTimestamp(
+                            TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session).headline,
+                            nodes,
+                            current.timestamp
+                        )
+                    }
+                }
+                else -> Unit
             }
             return captionForNode(current)
         }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.FAILED }?.let { failed ->
-            return "${failed.label} failed${failed.timestamp?.let { " · $it" } ?: ""}"
+            val detail = when (failed.id) {
+                TouchTurnPipelineNodeId.Data ->
+                    session?.errorMessage?.takeIf { it.isNotBlank() }
+                        ?: "Could not load opening bar or ATR"
+                TouchTurnPipelineNodeId.Confirmation ->
+                    TouchTurnSessionReasonUi.forDecisionOutcome(
+                        session?.decisionOutcome ?: TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+                        session
+                    ).headline.removePrefix("No trade — ")
+                else -> null
+            }
+            return buildString {
+                append(failed.label)
+                append(" failed")
+                detail?.let { append(" — $it") }
+                failed.timestamp?.let { append(" · $it") }
+            }
         }
         if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
             (steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED ||
                 steps[IDX_CONFIRM].state == TouchTurnBreadcrumbStepState.COMPLETED)
         ) {
-            return buildString {
-                append("No trade path")
-                steps[IDX_LIQUIDITY].timestamp?.let { append(" · $it") }
-            }
+            val reason = session?.decisionOutcome?.let {
+                TouchTurnSessionReasonUi.forDecisionOutcome(it, session).headline
+            } ?: "No trade — orders skipped"
+            return appendTimestamp(reason, nodes, steps[IDX_LIQUIDITY].timestamp)
+        }
+        if (session?.entryOrdersPermitted == false &&
+            steps[IDX_CONFIRM].state != TouchTurnBreadcrumbStepState.UPCOMING
+        ) {
+            return appendTimestamp(
+                TouchTurnSessionReasonUi.pendingEntryBlockDetail(session, nowEpochMillis),
+                nodes
+            )
         }
         activePath.lastOrNull()?.let { lastId ->
             nodes.firstOrNull { it.id == lastId && it.state == TouchTurnBreadcrumbStepState.COMPLETED }
-                ?.let { return captionForNode(it, suffix = "done") }
+                ?.let { node ->
+                    val outcome = session?.decisionOutcome
+                    if (node.id == TouchTurnPipelineNodeId.Close && outcome != null) {
+                        return appendTimestamp(
+                            TouchTurnSessionReasonUi.forDecisionOutcome(
+                                outcome,
+                                session
+                            ).headline,
+                            nodes,
+                            node.timestamp
+                        )
+                    }
+                    return captionForNode(node, suffix = "done")
+                }
         }
         return ""
+    }
+
+    private fun appendTimestamp(
+        text: String,
+        nodes: List<TouchTurnPipelineNode>,
+        explicitTimestamp: String? = null
+    ): String = buildString {
+        append(text)
+        val ts = explicitTimestamp
+            ?: nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.timestamp
+        ts?.let { append(" · $it") }
     }
 
     private fun captionForNode(node: TouchTurnPipelineNode, suffix: String? = null): String =

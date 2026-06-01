@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.strategies.TouchTurnBreadcrumbStep
 import daytrader.presentation.strategies.TouchTurnBreadcrumbStepState
+import daytrader.presentation.strategies.TouchTurnReasonSeverity
+import daytrader.ui.theme.LossRed
 import daytrader.presentation.strategies.TouchTurnPipelineEdgeState
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
 import daytrader.presentation.strategies.TouchTurnPipelineNode
@@ -160,6 +162,21 @@ fun TouchTurnPipelineGraphView(
                     modifier = Modifier
                         .padding(start = 2.dp)
                         .testTag("TouchTurnPipelineGraphSelectedLabel")
+                )
+            }
+            graph.statusBanner != null -> {
+                Text(
+                    graph.statusBanner.headline,
+                    fontSize = if (compact) 10.sp else 11.sp,
+                    color = when (graph.statusBanner.severity) {
+                        TouchTurnReasonSeverity.Error -> LossRed
+                        TouchTurnReasonSeverity.Warning -> Color(0xFFFFB74D)
+                        TouchTurnReasonSeverity.Info -> TextSecondary
+                    },
+                    maxLines = 2,
+                    modifier = Modifier
+                        .padding(start = 2.dp)
+                        .testTag("TouchTurnPipelineGraphStatusBanner")
                 )
             }
             graph.caption.isNotBlank() -> {

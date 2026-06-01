@@ -47,9 +47,12 @@ object TouchTurnOrderLifecycleResolver {
                         showLiveOrdersPanel = false,
                         showOrdersPreview = true,
                         showLiveOrderChart = false,
-                        statusMessage = null
+                        statusMessage = TouchTurnSessionReasonUi.orderLifecycleMessage(
+                            TouchTurnOrderLifecyclePhase.CLOSED_NO_FILL,
+                            session
+                        )
                     )
-                else -> notPlaced(previewWhenIdle = true)
+                else -> notPlaced(previewWhenIdle = true, session = session)
             }
         }
 
@@ -59,16 +62,22 @@ object TouchTurnOrderLifecycleResolver {
             ordersCommitted -> TouchTurnOrderLifecyclePhase.SUBMITTED_PENDING_BROKER_VISIBILITY
             else -> TouchTurnOrderLifecyclePhase.NOT_PLACED
         }
-        return livePhase(phase)
+        return livePhase(phase, session)
     }
 
-    private fun notPlaced(previewWhenIdle: Boolean): TouchTurnOrderLifecycleUi =
+    private fun notPlaced(
+        previewWhenIdle: Boolean,
+        session: TouchTurnSessionContext? = null
+    ): TouchTurnOrderLifecycleUi =
         TouchTurnOrderLifecycleUi(
             phase = TouchTurnOrderLifecyclePhase.NOT_PLACED,
             showLiveOrdersPanel = false,
             showOrdersPreview = previewWhenIdle,
             showLiveOrderChart = false,
-            statusMessage = null
+            statusMessage = TouchTurnSessionReasonUi.orderLifecycleMessage(
+                TouchTurnOrderLifecyclePhase.NOT_PLACED,
+                session
+            )
         )
 
     private fun closed(showOrdersPreview: Boolean): TouchTurnOrderLifecycleUi =
@@ -80,18 +89,17 @@ object TouchTurnOrderLifecycleResolver {
             statusMessage = null
         )
 
-    private fun livePhase(phase: TouchTurnOrderLifecyclePhase): TouchTurnOrderLifecycleUi {
+    private fun livePhase(
+        phase: TouchTurnOrderLifecyclePhase,
+        session: TouchTurnSessionContext?
+    ): TouchTurnOrderLifecycleUi {
         val showLiveOrdersPanel = phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
         return TouchTurnOrderLifecycleUi(
             phase = phase,
             showLiveOrdersPanel = showLiveOrdersPanel,
             showOrdersPreview = phase == TouchTurnOrderLifecyclePhase.NOT_PLACED,
             showLiveOrderChart = showLiveOrdersPanel,
-            statusMessage = when (phase) {
-                TouchTurnOrderLifecyclePhase.SUBMITTED_PENDING_BROKER_VISIBILITY ->
-                    "Bracket queued with broker; awaiting acknowledgment and open-order visibility."
-                else -> null
-            }
+            statusMessage = TouchTurnSessionReasonUi.orderLifecycleMessage(phase, session)
         )
     }
 }

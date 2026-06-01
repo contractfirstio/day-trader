@@ -1735,10 +1735,15 @@ private fun TouchTurnLivePipelineDetailHost(
         instance.touchTurnRecapSessionPnl()
             ?: liveSessionTrades?.tradeDetail?.realizedPnL
     }
-    TouchTurnPipelineDetailPanel(
-        selectedNodeId = selectedNodeId,
-        graph = pipelineGraph
-    ) { nodeId ->
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TouchTurnSessionStatusBanner(status = pipelineGraph?.statusBanner)
+        TouchTurnPipelineDetailPanel(
+            selectedNodeId = selectedNodeId,
+            graph = pipelineGraph
+        ) { nodeId ->
         when (nodeId) {
             TouchTurnPipelineNodeId.Start ->
                 TouchTurnPipelineSectionStart(
@@ -1829,6 +1834,7 @@ private fun TouchTurnLivePipelineDetailHost(
                 } else {
                     TouchTurnSessionAutoStopStatus(instance = instance)
                 }
+        }
         }
     }
 }

@@ -25,7 +25,13 @@ object TouchTurnRunRecordUiMapper {
     fun from(record: TouchTurnRunRecord, session: StrategySession? = null): TouchTurnRunRecordUi {
         val currency = record.marketInputs.currencyCode
         val stopTrigger = effectiveStopTrigger(record, session)
-        val teaser = "${outcomeShort(record.decision.outcome)} · ${stopShort(stopTrigger)}"
+        val outcomeLine = TouchTurnSessionReasonUi.forDecisionOutcome(record.decision.outcome).headline
+        val stopLine = TouchTurnSessionReasonUi.forStopTrigger(
+            trigger = stopTrigger,
+            stopErrorMessage = record.stopEvent.stopErrorMessage,
+            decisionOutcome = record.decision.outcome
+        ).headline
+        val teaser = "$outcomeLine · $stopLine"
         val body = buildList {
             add(
                 buildString {
