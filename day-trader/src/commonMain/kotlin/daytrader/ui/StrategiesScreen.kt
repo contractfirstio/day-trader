@@ -186,6 +186,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
                     touchTurnFormingBarPriceChart = uiState.touchTurnFormingBarPriceChart,
                     touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
+                    touchTurnOrderLifecycle = uiState.touchTurnOrderLifecycle,
                     tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
                     tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
                     onResetTradingPanel = viewModel::onResetTradingPanel,
@@ -220,6 +221,7 @@ private fun StrategyDeploymentDetailPanel(
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
+    touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: (String) -> Unit,
@@ -256,6 +258,7 @@ private fun StrategyDeploymentDetailPanel(
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
+                touchTurnOrderLifecycle = touchTurnOrderLifecycle,
                 tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
@@ -875,6 +878,7 @@ private fun StrategyDeploymentDetail(
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
+    touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
     tradingPanelShowsLastSessionRecap: Boolean,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: () -> Unit,
@@ -984,6 +988,7 @@ private fun StrategyDeploymentDetail(
                     touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                     touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                     touchTurnPipelineGraph = touchTurnPipelineGraph,
+                    touchTurnOrderLifecycle = touchTurnOrderLifecycle,
                     showLastSessionRecap = tradingPanelShowsLastSessionRecap,
                     onResetTradingPanel = onResetTradingPanel,
                     onAdjustStop = onAdjustStop,
@@ -1718,11 +1723,11 @@ private fun TouchTurnLivePipelineDetailHost(
     liveSessionTrades: LiveSessionTradesUiState?,
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
-    inActiveTrade: Boolean,
-    hasOpenOrders: Boolean,
+    orderLifecycle: TouchTurnOrderLifecycleUi?,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
+    val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
     val recapSessionTrades = remember(instance.id, instance.sessionHistory.size) {
         instance.touchTurnRecapSessionTrades()
     }
@@ -1753,12 +1758,12 @@ private fun TouchTurnLivePipelineDetailHost(
             TouchTurnPipelineNodeId.Confirmation ->
                 TouchTurnPipelineSectionConfirmation(session = analysisSession)
             TouchTurnPipelineNodeId.Orders -> {
-                val ordersCommitted = analysisSession?.sessionOrdersPlaced() == true
+                val lifecycle = orderLifecycle
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
                     TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                if (!sessionEnded && (inActiveTrade || hasOpenOrders || ordersCommitted)) {
+                if (!sessionEnded && lifecycle?.showLiveOrdersPanel == true) {
                     liveBroker?.let { broker ->
                         LiveBrokerSection(broker = broker, showPosition = false, slimOrders = true)
                     } ?: Text(
@@ -1766,14 +1771,14 @@ private fun TouchTurnLivePipelineDetailHost(
                         fontSize = 11.sp,
                         color = TextSecondary
                     )
-                    if (ordersCommitted && !inActiveTrade && !hasOpenOrders) {
+                    lifecycle.statusMessage?.let { message ->
                         Text(
-                            "Orders were submitted for this session; awaiting broker open-order visibility or fill.",
+                            message,
                             fontSize = 11.sp,
                             color = GainGreen
                         )
                     }
-                } else {
+                } else if (lifecycle?.showOrdersPreview != false) {
                     TouchTurnPipelineSectionOrdersPreview(
                         session = analysisSession,
                         sessionTrades = if (sessionEnded) recapSessionTrades else emptyList(),
@@ -1879,6 +1884,7 @@ private fun LiveTab(
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
+    touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
     showLastSessionRecap: Boolean,
     onResetTradingPanel: () -> Unit,
     onAdjustStop: (String, String) -> Unit,
@@ -1901,7 +1907,7 @@ private fun LiveTab(
         if (!isRunning && !showLastSessionRecap) null
         else instance.touchTurnAnalysisSession()
     }
-    val hasOpenOrdersForGraph = liveBroker?.openOrders?.isNotEmpty() == true
+    val orderLifecycle = touchTurnOrderLifecycle
     var selectedPipelineNode by rememberSaveable(instance.id, showLastSessionRecap) {
         mutableStateOf<TouchTurnPipelineNodeId?>(null)
     }
@@ -2003,8 +2009,7 @@ private fun LiveTab(
                 liveSessionTrades = pipelineLiveSessionTrades,
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
-                inActiveTrade = inActiveTrade,
-                hasOpenOrders = hasOpenOrdersForGraph,
+                orderLifecycle = orderLifecycle,
                 onAdjustStop = onAdjustStop,
                 onClosePosition = onClosePosition
             )

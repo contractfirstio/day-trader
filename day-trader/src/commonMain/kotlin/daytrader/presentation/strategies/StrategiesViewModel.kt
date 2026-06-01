@@ -26,7 +26,9 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
+import daytrader.domain.touchTurnAnalysisSession
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
@@ -772,6 +774,9 @@ class StrategiesViewModel(
             state.strategyTypeFilter != null ||
             selectedMarketZoneId != null
 
+        val showLastSessionRecap = selected?.let { instance ->
+            TradingPanelRecap.showsLastSession(instance, state.tradingPanelDismissedRecapSessionId)
+        } == true
         val touchTurnPipelineGraph = selected?.let { instance ->
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
                 instance.status == DeploymentStatus.RUNNING
@@ -783,12 +788,12 @@ class StrategiesViewModel(
                 brokerPositions = brokerPositions,
                 brokerOpenOrders = brokerOpenOrders,
                 brokerFills = brokerFills,
-                showLastSessionRecap = TradingPanelRecap.showsLastSession(
-                    instance,
-                    state.tradingPanelDismissedRecapSessionId,
-                ),
+                showLastSessionRecap = showLastSessionRecap,
                 nowEpochMillis = System.currentTimeMillis()
             )
+        }
+        val touchTurnOrderLifecycle = selected?.let { instance ->
+            touchTurnOrderLifecycleFor(instance, showLastSessionRecap)
         }
 
         _uiState.update {
@@ -822,10 +827,8 @@ class StrategiesViewModel(
                         ),
                         requireBidAskForFills = requiresBidAskForFills &&
                             instance.status == DeploymentStatus.RUNNING &&
-                            (
-                                instance.touchTurnSession?.ordersPlacedForSession == true ||
-                                    instance.touchTurnSession?.entryOrdersPermitted == true
-                                )
+                            touchTurnOrderLifecycleFor(instance, showLastSessionRecap = false)
+                                ?.phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
@@ -847,12 +850,7 @@ class StrategiesViewModel(
                 touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(selected),
                 startBlockedAlert = startBlockedAlert,
                 globalAutoStartEnabled = state.globalAutoStartEnabled,
-                tradingPanelShowsLastSessionRecap = selected?.let { instance ->
-                    TradingPanelRecap.showsLastSession(
-                        instance,
-                        state.tradingPanelDismissedRecapSessionId,
-                    )
-                } == true,
+                tradingPanelShowsLastSessionRecap = showLastSessionRecap,
                 tradingPanelShowsLiveMarketQuotes = selected?.let { instance ->
                     TradingPanelRecap.showsLiveMarketQuotes(
                         instance,
@@ -860,8 +858,31 @@ class StrategiesViewModel(
                     )
                 } == true,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
+                touchTurnOrderLifecycle = touchTurnOrderLifecycle,
             )
         }
+    }
+
+    private fun touchTurnOrderLifecycleFor(
+        instance: StrategyDeployment,
+        showLastSessionRecap: Boolean
+    ): TouchTurnOrderLifecycleUi? {
+        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        val sessionEnded = instance.status != DeploymentStatus.RUNNING && showLastSessionRecap
+        val live = LiveExecutionUiMapper.toLiveState(instance)
+        val inActiveTrade = live?.state == ExecutionState.FILLED && live.showPanel
+        val session = if (sessionEnded) instance.touchTurnAnalysisSession() else instance.touchTurnSession
+        val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions)
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
+        val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(instance, brokerFills)
+        return TouchTurnOrderLifecycleResolver.resolve(
+            session = session,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            inActiveTrade = inActiveTrade,
+            sessionEnded = sessionEnded,
+            hasSessionTrades = sessionTrades.isNotEmpty()
+        )
     }
 
     private fun recordTouchTurnLivePrices() {
@@ -929,12 +950,11 @@ class StrategiesViewModel(
         if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         if (deployment.status != DeploymentStatus.RUNNING) return null
         val session = deployment.touchTurnSession ?: return null
+        val lifecycle = touchTurnOrderLifecycleFor(deployment, showLastSessionRecap = false) ?: return null
+        if (!lifecycle.showLiveOrderChart) return null
         val symbolOrders = brokerOpenOrders.filter {
             SymbolMarkets.symbolsMatch(deployment.symbol, it.symbol)
         }
-        val hasBrokerActivity = symbolOrders.isNotEmpty() ||
-            SymbolMarkets.findOpenPosition(deployment, brokerPositions) != null
-        if (!session.ordersPlacedForSession && !hasBrokerActivity) return null
 
         val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
         val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()

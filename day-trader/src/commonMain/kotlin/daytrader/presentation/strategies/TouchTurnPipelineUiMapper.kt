@@ -21,6 +21,7 @@ object TouchTurnPipelineUiMapper {
         val hasOpenPosition: Boolean,
         val hasOpenOrders: Boolean,
         val sessionTrades: List<SessionTrade>,
+        val orderLifecycle: TouchTurnOrderLifecycleUi,
         val nowEpochMillis: Long
     )
 
@@ -29,13 +30,28 @@ object TouchTurnPipelineUiMapper {
         brokerPositions: List<AccountPosition>,
         brokerOpenOrders: List<WorkingOrder>,
         brokerFills: List<BrokerFill>,
+        inActiveTrade: Boolean = false,
+        sessionEnded: Boolean = false,
         nowEpochMillis: Long = System.currentTimeMillis()
-    ): LiveContext = LiveContext(
-        hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions),
-        hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders),
-        sessionTrades = liveSessionTrades(instance, brokerFills),
-        nowEpochMillis = nowEpochMillis
-    )
+    ): LiveContext {
+        val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions)
+        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
+        val sessionTrades = liveSessionTrades(instance, brokerFills)
+        return LiveContext(
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
+            orderLifecycle = TouchTurnOrderLifecycleResolver.resolve(
+                session = instance.touchTurnSession,
+                hasOpenPosition = hasOpenPosition,
+                hasOpenOrders = hasOpenOrders,
+                inActiveTrade = inActiveTrade,
+                sessionEnded = sessionEnded,
+                hasSessionTrades = sessionTrades.isNotEmpty()
+            ),
+            nowEpochMillis = nowEpochMillis
+        )
+    }
 
     fun liveSessionTrades(
         instance: StrategyDeployment,

@@ -71,4 +71,6 @@ data class StrategiesUiState(
     val tradingPanelShowsLiveMarketQuotes: Boolean = false,
     /** Live Touch Turn pipeline graph for the selected deployment (engine-aligned). */
     val touchTurnPipelineGraph: TouchTurnPipelineGraph? = null,
+    /** Broker-agnostic Touch Turn order lifecycle for the selected live/recap run. */
+    val touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi? = null,
 )
