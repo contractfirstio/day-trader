@@ -35,7 +35,7 @@ class TouchTurnPipelineUiMapperTest {
             sessionTrades = emptyList(),
             nowEpochMillis = now
         )
-        assertEquals(TouchTurnPipelineNodeId.Position, withoutLiveTrades.activePath.last())
+        assertEquals(TouchTurnPipelineNodeId.Orders, withoutLiveTrades.activePath.last())
         assertFalse(TouchTurnPipelineNodeId.Close in withoutLiveTrades.activePath)
 
         val withLiveTrades = TouchTurnStatusBreadcrumbMapper.graph(

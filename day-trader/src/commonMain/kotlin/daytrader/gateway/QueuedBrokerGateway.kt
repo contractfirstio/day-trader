@@ -4,13 +4,17 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.diagnostics.SessionPriceLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,6 +41,11 @@ class QueuedBrokerGateway(
 
     private val _fills = MutableStateFlow<List<BrokerFill>>(emptyList())
     override val fills: StateFlow<List<BrokerFill>> = _fills.asStateFlow()
+
+    private val _touchTurnBracketPlacements =
+        MutableSharedFlow<TouchTurnBracketAck>(extraBufferCapacity = 32)
+    override val touchTurnBracketPlacements: SharedFlow<TouchTurnBracketAck> =
+        _touchTurnBracketPlacements.asSharedFlow()
 
     private var nextRequestId = 1L
     private val requestIdLock = Any()
@@ -138,7 +147,15 @@ class QueuedBrokerGateway(
         when (event) {
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
             is GatewayEvent.PositionsSnapshot -> _positions.value = event.positions
-            is GatewayEvent.OpenOrdersSnapshot -> _openOrders.value = event.orders
+            is GatewayEvent.OpenOrdersSnapshot -> {
+                val previous = _openOrders.value.size
+                _openOrders.value = event.orders
+                ExecutionGatewayLog.openOrdersSnapshot(brokerId, event.orders, previous)
+            }
+            is GatewayEvent.TouchTurnBracketPlaced -> {
+                ExecutionGatewayLog.touchTurnBracketPlaced(brokerId, event.ack)
+                _touchTurnBracketPlacements.tryEmit(event.ack)
+            }
             is GatewayEvent.FillsSnapshot -> _fills.value = event.fills
             is GatewayEvent.QuotesSnapshot -> {
                 SessionPriceLog.recordQuoteSnapshot(brokerId, event.quotes, _quotes.value)

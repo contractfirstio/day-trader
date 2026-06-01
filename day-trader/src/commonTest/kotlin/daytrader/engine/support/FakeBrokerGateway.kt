@@ -11,8 +11,12 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
+import daytrader.gateway.TouchTurnBracketAck
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FakeBrokerGateway(
@@ -41,6 +45,10 @@ class FakeBrokerGateway(
 
     private val _fills = MutableStateFlow<List<BrokerFill>>(emptyList())
     override val fills: StateFlow<List<BrokerFill>> = _fills.asStateFlow()
+
+    private val _touchTurnBracketPlacements = MutableSharedFlow<TouchTurnBracketAck>(extraBufferCapacity = 8)
+    override val touchTurnBracketPlacements: SharedFlow<TouchTurnBracketAck> =
+        _touchTurnBracketPlacements.asSharedFlow()
 
     fun setPositions(positions: List<AccountPosition>) {
         _positions.value = positions
@@ -79,6 +87,14 @@ class FakeBrokerGateway(
 
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         placedBrackets.add(plan)
+        _touchTurnBracketPlacements.tryEmit(
+            TouchTurnBracketAck(
+                symbol = plan.symbol,
+                orderIds = listOf(1_000, 1_001, 1_002),
+                result = Result.success(Unit),
+                plan = plan
+            )
+        )
     }
 
     override fun cancelOpenOrdersForSymbol(symbol: String) = Unit

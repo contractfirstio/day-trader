@@ -1693,12 +1693,25 @@ class DesktopIbGatewayConnection(
     }
 
     private fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
+        val symbolForAck = SymbolMarkets.normalizeSymbol(plan.symbol)
         val submission = IbTouchTurnBracketPlacer.build(
             client = client,
             config = config,
             plan = plan,
             allocateOrderIds = ::allocateOrderIds
-        ) ?: return
+        ) ?: run {
+            emit(
+                GatewayEvent.TouchTurnBracketPlaced(
+                    daytrader.gateway.TouchTurnBracketAck(
+                        symbol = symbolForAck,
+                        orderIds = emptyList(),
+                        result = Result.failure(IllegalStateException("bracket_build_failed")),
+                        plan = plan
+                    )
+                )
+            )
+            return
+        }
         registerBracketOrderIds(
             submission.parentOrderId,
             submission.takeProfitOrderId,
@@ -1722,6 +1735,20 @@ class DesktopIbGatewayConnection(
                 submission.stopLossOrderId
             )
             scheduleExecutionsRefresh()
+            emit(
+                GatewayEvent.TouchTurnBracketPlaced(
+                    daytrader.gateway.TouchTurnBracketAck(
+                        symbol = submission.symbol,
+                        orderIds = listOf(
+                            submission.parentOrderId,
+                            submission.takeProfitOrderId,
+                            submission.stopLossOrderId
+                        ),
+                        result = Result.success(Unit),
+                        plan = plan
+                    )
+                )
+            )
         }
     }
 

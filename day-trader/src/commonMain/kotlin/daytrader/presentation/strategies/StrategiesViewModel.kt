@@ -90,6 +90,7 @@ class StrategiesViewModel(
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerQuotes: Map<String, LiveQuote> = emptyMap()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
+    private val lastBrokerOpenOrdersFingerprintByDeployment = mutableMapOf<String, String>()
     private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
@@ -159,8 +160,9 @@ class StrategiesViewModel(
                 }
                 .launchIn(scope)
             gateway.openOrders
-                .onEach {
-                    brokerOpenOrders = it
+                .onEach { orders ->
+                    brokerOpenOrders = orders
+                    logBrokerOpenOrdersForRunningTouchTurn(orders, "gateway_open_orders")
                     recordTouchTurnLivePrices()
                     emitUiState()
                 }
@@ -303,17 +305,32 @@ class StrategiesViewModel(
             }
             is TouchTurnEvent.BracketSubmitted -> {
                 val sessionId = activeSessionId(event.instanceId)
+                val instance = deployments.find { it.id == event.instanceId }
+                val symbolOrders = instance?.let {
+                    SymbolMarkets.openOrdersForDeployment(it, brokerOpenOrders)
+                }.orEmpty()
                 UiActionLog.log(
                     action = "engine_bracket_submitted",
                     deploymentId = event.instanceId,
                     sessionId = sessionId,
                     symbol = event.plan.symbol,
-                    details = mapOf("orderCount" to event.plan.orders.size.toString())
+                    details = buildMap {
+                        put("orderCount", event.plan.orders.size.toString())
+                        put("brokerOpenOrdersForSymbol", symbolOrders.size.toString())
+                        put(
+                            "brokerOrderIds",
+                            symbolOrders.joinToString(",") { "${it.orderId}:${it.status}" }
+                                .ifEmpty { "none" }
+                        )
+                    }
                 )
                 recordTouchTurnEngineSync(
                     deploymentId = event.instanceId,
                     trigger = "engine_bracket_submitted",
-                    triggerDetails = mapOf("orderCount" to event.plan.orders.size.toString())
+                    triggerDetails = buildMap {
+                        put("orderCount", event.plan.orders.size.toString())
+                        put("brokerOpenOrdersForSymbol", symbolOrders.size.toString())
+                    }
                 )
             }
             is TouchTurnEvent.PositionOpened -> {
@@ -995,8 +1012,56 @@ class StrategiesViewModel(
             sessionTrades = ctx.sessionTrades,
             nowEpochMillis = ctx.nowEpochMillis,
             syncTrigger = trigger,
-            syncTriggerDetails = triggerDetails
+            syncTriggerDetails = triggerDetails + brokerDiagnosticsDetails(instance, ctx.hasOpenOrders)
         )
+    }
+
+    private fun brokerDiagnosticsDetails(
+        instance: StrategyDeployment,
+        hasOpenOrders: Boolean
+    ): Map<String, String> {
+        val symbolOrders = SymbolMarkets.openOrdersForDeployment(instance, brokerOpenOrders)
+        val lifecycle = touchTurnOrderLifecycleFor(instance, showLastSessionRecap = false)
+        return mapOf(
+            "broker.openOrdersForSymbol" to symbolOrders.size.toString(),
+            "broker.openOrdersTotal" to brokerOpenOrders.size.toString(),
+            "broker.hasOpenOrders" to hasOpenOrders.toString(),
+            "broker.orderIdsForSymbol" to symbolOrders.joinToString(",") { "${it.orderId}:${it.status}" }
+                .ifEmpty { "none" },
+            "ui.orderLifecyclePhase" to (lifecycle?.phase?.name ?: "null"),
+            "ui.showLiveOrdersPanel" to (lifecycle?.showLiveOrdersPanel?.toString() ?: "null")
+        )
+    }
+
+    private fun logBrokerOpenOrdersForRunningTouchTurn(
+        orders: List<WorkingOrder>,
+        trigger: String
+    ) {
+        for (deployment in deployments) {
+            if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (deployment.status != DeploymentStatus.RUNNING) continue
+            val symbolOrders = SymbolMarkets.openOrdersForDeployment(deployment, orders)
+            val fingerprint = symbolOrders.joinToString("|") { "${it.orderId}:${it.status}:${it.remaining}" }
+            val last = lastBrokerOpenOrdersFingerprintByDeployment[deployment.id]
+            if (last == fingerprint) continue
+            lastBrokerOpenOrdersFingerprintByDeployment[deployment.id] = fingerprint
+            SessionTrace.brokerOpenOrders(
+                deploymentId = deployment.id,
+                sessionId = deployment.inProgressSession()?.id,
+                symbol = deployment.symbol,
+                ordersForSymbol = symbolOrders,
+                ordersTotal = orders.size,
+                trigger = trigger
+            )
+            recordTouchTurnEngineSync(
+                deploymentId = deployment.id,
+                trigger = "broker_open_orders_changed",
+                triggerDetails = mapOf(
+                    "countForSymbol" to symbolOrders.size.toString(),
+                    "countTotal" to orders.size.toString()
+                )
+            )
+        }
     }
 
     private fun activeSessionId(deploymentId: String): String? =

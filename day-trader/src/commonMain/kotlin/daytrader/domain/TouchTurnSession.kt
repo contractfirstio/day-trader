@@ -347,7 +347,7 @@ object TouchTurnLogic {
             return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         }
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
-        if (!bracket.isLiquidityCandle || !bracket.isActionable) return TouchTurnCloseConfirmation.FAILED
+        if (!bracket.isLiquidityCandle || !bracket.isActionable) return TouchTurnCloseConfirmation.FAILED                 
         if (!closeConfirmationWithinDeadline(bar, marketZoneId, nowEpochMillis)) {
             return TouchTurnCloseConfirmation.EXPIRED
         }
@@ -890,7 +890,7 @@ object TouchTurnDefaults {
     /** Red (long) liquidity bar: take-profit distance as fraction of bar range. */
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
     /** Max time after 15m bar close to pass close confirmation and place entry orders. */
-    const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 60_000L
+    const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 2 * 60 * 60_000L // 2h (was 60_000L = 1 min)
     @Deprecated("Use CLOSE_CONFIRMATION_AFTER_CLOSE_MS", ReplaceWith("CLOSE_CONFIRMATION_AFTER_CLOSE_MS"))
     const val ENTRY_WINDOW_AFTER_CLOSE_MS = CLOSE_CONFIRMATION_AFTER_CLOSE_MS
     /** For short setups (green liquidity candle), require close in the lower X of range. */

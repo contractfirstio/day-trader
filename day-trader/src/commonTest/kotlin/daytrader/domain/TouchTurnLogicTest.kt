@@ -289,11 +289,12 @@ class TouchTurnLogicTest {
         )
         val evaluated = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 10_000)
         assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
-        val lateEval = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 90_000)
+        val pastDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
+        val lateEval = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = pastDeadline)
         assertEquals(false, lateEval.touchTurnSession?.entryOrdersPermitted)
         assertEquals(
             TouchTurnCloseConfirmation.EXPIRED,
-            lateEval.touchTurnSession?.closeConfirmation(barEnd + 90_000)
+            lateEval.touchTurnSession?.closeConfirmation(pastDeadline)
         )
     }
 
@@ -466,7 +467,7 @@ class TouchTurnLogicTest {
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + 90_000
+        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         assertEquals(
             TouchTurnCloseConfirmation.EXPIRED,
             TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)

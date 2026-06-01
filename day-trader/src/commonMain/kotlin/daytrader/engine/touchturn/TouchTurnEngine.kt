@@ -48,6 +48,9 @@ import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
+import daytrader.gateway.TouchTurnBracketAck
+import daytrader.domain.TouchTurnOrderPlan
+import java.util.concurrent.ConcurrentHashMap
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.strategies.StartBlockedAlertMapper
 import daytrader.presentation.strategies.StrategyDetailTab
@@ -82,6 +85,14 @@ class TouchTurnEngine(
     private val liquidityJobs = mutableMapOf<String, Job>()
     private val loadJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
+    private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
+
+    private data class PendingBracketPlacement(
+        val plan: TouchTurnOrderPlan,
+        val sessionId: String?,
+        val evaluatedAt: Long,
+        val enforceCloseConfirmation: Boolean
+    )
 
     private val brokerPositions = MutableStateFlow<List<AccountPosition>>(emptyList())
     private val brokerOpenOrders = MutableStateFlow<List<daytrader.gateway.WorkingOrder>>(emptyList())
@@ -172,6 +183,78 @@ class TouchTurnEngine(
                 }
             }
         }
+        scope.launch {
+            gw.touchTurnBracketPlacements.collect { ack -> handleBracketAck(ack) }
+        }
+    }
+
+    private fun handleBracketAck(ack: TouchTurnBracketAck) {
+        val ackLatencyMs = pendingBracketPlacements.values.firstOrNull { pending ->
+            SymbolMarkets.symbolsMatch(pending.plan.symbol, ack.symbol)
+        }?.let { System.currentTimeMillis() - it.evaluatedAt }
+        val match = pendingBracketPlacements.entries.firstOrNull { (_, pending) ->
+            SymbolMarkets.symbolsMatch(pending.plan.symbol, ack.symbol)
+        } ?: run {
+            SessionTrace.bracketAckOrphan(
+                symbol = ack.symbol,
+                ack = ack,
+                pendingBracketCount = pendingBracketPlacements.size
+            )
+            return
+        }
+        val (instanceId, pending) = match
+        pendingBracketPlacements.remove(instanceId)
+        val openOrders = brokerOpenOrders.value
+        val openForSymbol = SymbolMarkets.openOrdersForSymbol(pending.plan.symbol, openOrders)
+        val openSummary = openForSymbol.joinToString(";") { "${it.orderId}:${it.status}" }.ifEmpty { "none" }
+        if (ack.result.isFailure) {
+            SessionTrace.bracketAcknowledged(
+                deploymentId = instanceId,
+                sessionId = pending.sessionId,
+                symbol = pending.plan.symbol,
+                ack = ack,
+                ackLatencyMs = ackLatencyMs ?: 0L,
+                openOrdersForSymbol = openForSymbol.size,
+                openOrdersTotal = openOrders.size,
+                openOrderSummary = openSummary
+            )
+            repository.update(instanceId) { current ->
+                current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+            }
+            val instance = repository.deployments.value.find { it.id == instanceId } ?: return
+            logLiquidityPollOutcome(
+                instance = instance,
+                sessionId = pending.sessionId,
+                ordersPlaced = false,
+                submittedPlan = null,
+                enforceCloseConfirmation = pending.enforceCloseConfirmation,
+                evaluatedAt = pending.evaluatedAt
+            )
+            notifyNoTradeDecisionIfNeeded(instanceId)
+            return
+        }
+        val plan = ack.plan ?: pending.plan
+        SessionTrace.bracketAcknowledged(
+            deploymentId = instanceId,
+            sessionId = pending.sessionId,
+            symbol = plan.symbol,
+            ack = ack,
+            ackLatencyMs = ackLatencyMs ?: 0L,
+            openOrdersForSymbol = openForSymbol.size,
+            openOrdersTotal = openOrders.size,
+            openOrderSummary = openSummary
+        )
+        repository.update(instanceId) { it.withOrdersPlacedForSession(plan) }
+        val instance = repository.deployments.value.find { it.id == instanceId } ?: return
+        logLiquidityPollOutcome(
+            instance = instance,
+            sessionId = pending.sessionId,
+            ordersPlaced = true,
+            submittedPlan = plan,
+            enforceCloseConfirmation = pending.enforceCloseConfirmation,
+            evaluatedAt = pending.evaluatedAt,
+            brokerAckOrderIds = ack.orderIds
+        )
     }
 
     private fun startTimers() {
@@ -540,6 +623,7 @@ class TouchTurnEngine(
             nowEpochMillis = evaluatedAt
         )
         var ordersPlaced = false
+        var bracketSubmitRequested = false
         var submittedPlan: daytrader.domain.TouchTurnOrderPlan? = null
         repository.update(instanceId) { current ->
             val updated = current.withLiquidityEvaluatedIfClosed(
@@ -578,22 +662,41 @@ class TouchTurnEngine(
                 currencyCode = updatedSession.currencyCode,
                 instrument = deploymentInstrument
             )
-            ordersPlaced = TouchTurnOrderLog.logAfterLiquidityEvaluation(
-                instanceId = updated.id,
-                symbol = updated.symbol,
-                sessionDate = updatedSession.sessionDate,
-                maxDollars = updated.maxDollars,
-                currencyCode = updatedSession.currencyCode,
-                instrument = deploymentInstrument,
-                setup = setup,
-                openingBarClose = updatedSession.candle?.close,
-                brokerGateway = executionGw
-            )
-            when {
-                ordersPlaced && plan != null -> {
-                    submittedPlan = plan
-                    updated.withOrdersPlacedForSession(plan)
+            if (plan != null && executionGw != null) {
+                submittedPlan = plan
+                pendingBracketPlacements[updated.id] = PendingBracketPlacement(
+                    plan = plan,
+                    sessionId = updated.inProgressSession()?.id,
+                    evaluatedAt = evaluatedAt,
+                    enforceCloseConfirmation = enforceCloseConfirmation
+                )
+                bracketSubmitRequested = TouchTurnOrderLog.logAfterLiquidityEvaluation(
+                    instanceId = updated.id,
+                    symbol = updated.symbol,
+                    sessionDate = updatedSession.sessionDate,
+                    maxDollars = updated.maxDollars,
+                    currencyCode = updatedSession.currencyCode,
+                    instrument = deploymentInstrument,
+                    setup = setup,
+                    openingBarClose = updatedSession.candle?.close,
+                    brokerGateway = executionGw
+                )
+                if (bracketSubmitRequested) {
+                    SessionTrace.bracketSubmitRequested(
+                        deploymentId = updated.id,
+                        sessionId = updated.inProgressSession()?.id,
+                        symbol = updated.symbol,
+                        orderCount = plan.orders.size,
+                        entryPrice = setup.entry,
+                        currencyCode = updatedSession.currencyCode,
+                        pendingBracketCount = pendingBracketPlacements.size
+                    )
+                } else {
+                    pendingBracketPlacements.remove(updated.id)
                 }
+            }
+            when {
+                bracketSubmitRequested -> updated
                 setup.isActionable ->
                     updated.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
                 else -> updated
@@ -602,14 +705,16 @@ class TouchTurnEngine(
         val after = repository.deployments.value.find { it.id == instanceId } ?: return
         val afterSession = after.touchTurnSession ?: return
         val afterSessionId = after.inProgressSession()?.id
-        logLiquidityPollOutcome(
-            instance = after,
-            sessionId = afterSessionId,
-            ordersPlaced = ordersPlaced,
-            submittedPlan = submittedPlan,
-            enforceCloseConfirmation = enforceCloseConfirmation,
-            evaluatedAt = evaluatedAt
-        )
+        if (!bracketSubmitRequested) {
+            logLiquidityPollOutcome(
+                instance = after,
+                sessionId = afterSessionId,
+                ordersPlaced = ordersPlaced,
+                submittedPlan = submittedPlan,
+                enforceCloseConfirmation = enforceCloseConfirmation,
+                evaluatedAt = evaluatedAt
+            )
+        }
         notifyNoTradeDecisionIfNeeded(instanceId)
         TouchTurnDecisionLog.watchPollExit(instanceId, after.symbol, "liquidity_poll_complete")
         liquidityJobs.remove(instanceId)?.cancel()
@@ -621,7 +726,8 @@ class TouchTurnEngine(
         ordersPlaced: Boolean,
         submittedPlan: daytrader.domain.TouchTurnOrderPlan?,
         enforceCloseConfirmation: Boolean,
-        evaluatedAt: Long
+        evaluatedAt: Long,
+        brokerAckOrderIds: List<Int> = emptyList()
     ) {
         val session = instance.touchTurnSession ?: return
         when (session.decisionOutcome) {
@@ -656,10 +762,18 @@ class TouchTurnEngine(
                 deploymentId = instance.id,
                 sessionId = sessionId,
                 symbol = instance.symbol,
-                details = mapOf(
-                    "orderCount" to submittedPlan.orders.size.toString(),
-                    "entrySide" to (session.setup?.side?.name ?: "unknown")
-                )
+                details = buildMap {
+                    put("orderCount", submittedPlan.orders.size.toString())
+                    put("entrySide", session.setup?.side?.name ?: "unknown")
+                    if (brokerAckOrderIds.isNotEmpty()) {
+                        put("brokerAckOrderIds", brokerAckOrderIds.joinToString(","))
+                    }
+                    put(
+                        "brokerHasOpenOrders",
+                        SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders.value).toString()
+                    )
+                    put("submitToAckMs", (System.currentTimeMillis() - evaluatedAt).toString())
+                }
             )
             quoteForSymbol(instance.symbol)?.let { quote ->
                 SessionTrace.quoteAtMilestone(

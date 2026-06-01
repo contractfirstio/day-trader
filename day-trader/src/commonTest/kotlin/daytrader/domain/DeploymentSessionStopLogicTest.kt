@@ -176,7 +176,7 @@ class DeploymentSessionStopLogicTest {
             DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE,
             DeploymentSessionStopLogic.evaluateDeadlineForInstance(
                 instance = instance,
-                nowEpochMillis = open + 90 * 60_000L
+                nowEpochMillis = open + 120 * 60_000L
             )
         )
     }

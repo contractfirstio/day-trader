@@ -4,7 +4,9 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.TouchTurnOrderPlan
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.emptyFlow
 
 interface BrokerGateway {
     val brokerId: BrokerId
@@ -19,6 +21,10 @@ interface BrokerGateway {
     val openOrders: StateFlow<List<WorkingOrder>>
 
     val fills: StateFlow<List<BrokerFill>>
+
+    /** Bracket submit acknowledgments from the execution broker (empty when unsupported). */
+    val touchTurnBracketPlacements: Flow<TouchTurnBracketAck>
+        get() = emptyFlow()
 
     fun connect()
 

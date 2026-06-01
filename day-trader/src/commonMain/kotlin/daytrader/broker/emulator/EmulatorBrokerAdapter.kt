@@ -9,6 +9,8 @@ import daytrader.gateway.LiveQuote
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.marketdata.QuoteSource
 import daytrader.marketdata.QuoteUpdate
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,7 +19,23 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
+/**
+ * Single-threaded access to [BrokerEmulatorEngine] via [engineMutex].
+ *
+ * **Order placement** ([orderActorJob]): brackets, cancels, closes, and coalesced market ticks /
+ * order progress — never ingests live quotes.
+ *
+ * **Pricing** ([pricingActorJob]): coalesced IB quotes from [latestExternalQuotes] only — never
+ * shares a channel with bracket placement.
+ *
+ * Quote bus updates only touch the concurrent quote map; the pricing actor flushes into the engine
+ * on its own schedule so a quote flood cannot block [controlChannel].
+ */
 class EmulatorBrokerAdapter(
     private val emit: (GatewayEvent) -> Unit,
     private val receiveCommand: suspend () -> GatewayCommand,
@@ -32,35 +50,50 @@ class EmulatorBrokerAdapter(
     private val engine = BrokerEmulatorEngine(
         config = config,
         emit = emit,
-        onSymbolNeedsLiveQuotes = onSymbolNeedsLiveQuotes
+        onSymbolNeedsLiveQuotes = ::requestLiveQuotesAsync
     )
+    private val engineMutex = Mutex()
     private var commandLoopJob: Job? = null
     private var marketJob: Job? = null
     private var orderJob: Job? = null
     private var quoteCollectorJob: Job? = null
-    private var actorJob: Job? = null
-    private val actorChannel = Channel<EmulatorActorMessage>(Channel.UNLIMITED)
+    private var orderActorJob: Job? = null
+    private var pricingActorJob: Job? = null
+    private val controlChannel = Channel<EmulatorControlMessage>(Channel.UNLIMITED)
+    private val pendingMarketTick = AtomicBoolean(false)
+    private val pendingOrderProgress = AtomicBoolean(false)
+    private val latestExternalQuotes = ConcurrentHashMap<String, QuoteUpdate>()
 
     override fun start() {
         emit(GatewayEvent.ConnectionStateChanged(daytrader.gateway.GatewayConnectionState.Disconnected))
-        startActorLoop(quoteBus != null)
+        startQuoteCollector(quoteBus != null)
+        startOrderActor()
+        startPricingActor()
         commandLoopJob = scope.launch(Dispatchers.Default) {
             while (isActive) {
                 when (val command = receiveCommand()) {
-                    GatewayCommand.Connect -> {
+                    GatewayCommand.Connect -> withEngine {
                         engine.handleConnect()
                         engine.finishConnect()
                     }
-                    GatewayCommand.Disconnect -> engine.handleDisconnect()
-                    GatewayCommand.Reconnect -> engine.handleReconnect()
+                    GatewayCommand.Disconnect -> withEngine { engine.handleDisconnect() }
+                    GatewayCommand.Reconnect -> withEngine { engine.handleReconnect() }
                     GatewayCommand.Shutdown -> {
-                        engine.handleShutdown()
+                        withEngine { engine.handleShutdown() }
                         return@launch
                     }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
-                        launch { engine.fetchFirstFifteenMinuteCandle(command.requestId, command.symbol) }
+                        launch {
+                            withEngine {
+                                engine.fetchFirstFifteenMinuteCandle(command.requestId, command.symbol)
+                            }
+                        }
                     is GatewayCommand.FetchFourteenDayAdr ->
-                        launch { engine.fetchFourteenDayAdr(command.requestId, command.symbol) }
+                        launch {
+                            withEngine {
+                                engine.fetchFourteenDayAdr(command.requestId, command.symbol)
+                            }
+                        }
                     is GatewayCommand.ResolveInstrument ->
                         emit(
                             GatewayEvent.InstrumentResolved(
@@ -72,15 +105,20 @@ class EmulatorBrokerAdapter(
                                 )
                             )
                         )
-                    is GatewayCommand.PlaceTouchTurnBracket ->
-                        actorChannel.trySend(EmulatorActorMessage.PlaceTouchTurnBracket(command.plan))
+                    is GatewayCommand.PlaceTouchTurnBracket -> {
+                        EmulatorLog.bracketQueueReceived(
+                            command.plan.symbol,
+                            latestExternalQuotes.size
+                        )
+                        controlChannel.send(EmulatorControlMessage.PlaceTouchTurnBracket(command.plan))
+                    }
                     is GatewayCommand.CancelOpenOrdersForSymbol ->
-                        actorChannel.trySend(EmulatorActorMessage.CancelOpenOrders(command.symbol))
+                        controlChannel.send(EmulatorControlMessage.CancelOpenOrders(command.symbol))
                     is GatewayCommand.CloseOpenPositionForSymbol ->
-                        actorChannel.trySend(EmulatorActorMessage.ClosePosition(command.symbol))
+                        controlChannel.send(EmulatorControlMessage.ClosePosition(command.symbol))
                     is GatewayCommand.FlattenSymbolForSymbol ->
-                        actorChannel.trySend(EmulatorActorMessage.FlattenSymbol(command.symbol))
-                    GatewayCommand.RequestExecutions -> engine.republishFills()
+                        controlChannel.send(EmulatorControlMessage.FlattenSymbol(command.symbol))
+                    GatewayCommand.RequestExecutions -> withEngine { engine.republishFills() }
                 }
             }
         }
@@ -88,7 +126,7 @@ class EmulatorBrokerAdapter(
             while (isActive) {
                 delay(config.marketTickIntervalMs)
                 if (engine.shouldRunMarketTicks()) {
-                    actorChannel.send(EmulatorActorMessage.MarketTick)
+                    pendingMarketTick.set(true)
                 }
             }
         }
@@ -96,47 +134,141 @@ class EmulatorBrokerAdapter(
             while (isActive) {
                 delay(config.orderProgressIntervalMs)
                 if (engine.shouldRunOrderSim()) {
-                    actorChannel.send(EmulatorActorMessage.OrderProgress)
+                    pendingOrderProgress.set(true)
                 }
             }
         }
     }
 
-    private fun startActorLoop(collectFromQuoteBus: Boolean) {
-        if (collectFromQuoteBus) {
-            val bus = quoteBus ?: error("collectFromQuoteBus requires quoteBus")
-            val quoteChannel = bus.subscribeUnlimited(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
-            quoteCollectorJob = scope.launch {
-                for (update in quoteChannel) {
-                    if (update.source == QuoteSource.EXTERNAL) {
-                        actorChannel.send(EmulatorActorMessage.ExternalQuote(update))
-                    }
-                }
-            }
-        }
-        actorJob = scope.launch {
-            for (message in actorChannel) {
-                when (message) {
-                    is EmulatorActorMessage.ExternalQuote ->
-                        engine.ingestExternalQuote(
-                            message.update.symbol,
-                            message.update.quote,
-                            message.update.priorClose
-                        )
-                    EmulatorActorMessage.MarketTick -> engine.runMarketTick()
-                    EmulatorActorMessage.OrderProgress -> engine.runOrderProgressStep()
-                    is EmulatorActorMessage.PlaceTouchTurnBracket ->
-                        engine.placeTouchTurnBracket(message.plan)
-                    is EmulatorActorMessage.CancelOpenOrders ->
-                        engine.cancelOpenOrdersForSymbol(message.symbol)
-                    is EmulatorActorMessage.ClosePosition ->
-                        engine.closeOpenPositionForSymbol(message.symbol)
-                    is EmulatorActorMessage.FlattenSymbol ->
-                        engine.flattenSymbolForSymbol(message.symbol)
+    private fun startQuoteCollector(collectFromQuoteBus: Boolean) {
+        if (!collectFromQuoteBus) return
+        val bus = quoteBus ?: error("collectFromQuoteBus requires quoteBus")
+        val quoteChannel = bus.subscribeUnlimited(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
+        quoteCollectorJob = scope.launch {
+            for (update in quoteChannel) {
+                if (update.source == QuoteSource.EXTERNAL) {
+                    latestExternalQuotes[update.symbol] = update
                 }
             }
         }
     }
+
+    private fun startOrderActor() {
+        orderActorJob = scope.launch {
+            while (isActive) {
+                drainControlChannel()
+                runCoalescedSimulationWork()
+                select {
+                    controlChannel.onReceive { message ->
+                        processControlMessage(message)
+                        drainControlChannel()
+                        runCoalescedSimulationWork()
+                    }
+                    onTimeout(ORDER_SELECT_TIMEOUT_MS) { }
+                }
+            }
+        }
+    }
+
+    private fun startPricingActor() {
+        pricingActorJob = scope.launch {
+            while (isActive) {
+                flushCoalescedExternalQuotes()
+                delay(QUOTE_FLUSH_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun drainControlChannel() {
+        while (true) {
+            val message = controlChannel.tryReceive().getOrNull() ?: break
+            processControlMessage(message)
+        }
+    }
+
+    private suspend fun runCoalescedSimulationWork() {
+        withEngine {
+            if (pendingMarketTick.getAndSet(false) && engine.shouldRunMarketTicks()) {
+                engine.runMarketTick()
+            }
+            if (pendingOrderProgress.getAndSet(false) && engine.shouldRunOrderSim()) {
+                engine.runOrderProgressStep()
+            }
+        }
+    }
+
+    private suspend fun flushCoalescedExternalQuotes() {
+        if (latestExternalQuotes.isEmpty()) return
+        val batch = latestExternalQuotes.values.toList()
+        latestExternalQuotes.clear()
+        EmulatorLog.quoteFlushBatch(batch.size)
+        withEngine {
+            for (update in batch) {
+                engine.ingestExternalQuote(
+                    update.symbol,
+                    update.quote,
+                    update.priorClose
+                )
+            }
+        }
+    }
+
+    private suspend fun processControlMessage(message: EmulatorControlMessage) {
+        when (message) {
+            is EmulatorControlMessage.PlaceTouchTurnBracket -> {
+                val symbol = message.plan.symbol
+                EmulatorLog.bracketPlaceStarted(symbol)
+                val startedAt = System.currentTimeMillis()
+                val durationMs = { System.currentTimeMillis() - startedAt }
+                runCatching {
+                    withEngine { engine.placeTouchTurnBracket(message.plan) }
+                }.fold(
+                    onSuccess = {
+                        EmulatorLog.bracketPlaceFinished(
+                            symbol = symbol,
+                            durationMs = durationMs(),
+                            success = true
+                        )
+                    },
+                    onFailure = { error ->
+                        EmulatorLog.bracketPlaceFinished(
+                            symbol = symbol,
+                            durationMs = durationMs(),
+                            success = false,
+                            errorType = error::class.simpleName,
+                            errorMessage = error.message ?: error.toString()
+                        )
+                    }
+                )
+            }
+            is EmulatorControlMessage.CancelOpenOrders ->
+                runCatching {
+                    withEngine { engine.cancelOpenOrdersForSymbol(message.symbol) }
+                }.onFailure { logControlMessageFailure("cancel_open_orders", message.symbol, it) }
+            is EmulatorControlMessage.ClosePosition ->
+                runCatching {
+                    withEngine { engine.closeOpenPositionForSymbol(message.symbol) }
+                }.onFailure { logControlMessageFailure("close_position", message.symbol, it) }
+            is EmulatorControlMessage.FlattenSymbol ->
+                runCatching {
+                    withEngine { engine.flattenSymbolForSymbol(message.symbol) }
+                }.onFailure { logControlMessageFailure("flatten_symbol", message.symbol, it) }
+        }
+    }
+
+    /** IB subscribe must not run on the order actor or inside [engineMutex] — fire-and-forget. */
+    private fun requestLiveQuotesAsync(symbol: String) {
+        scope.launch {
+            runCatching { onSymbolNeedsLiveQuotes(symbol) }
+                .onFailure { EmulatorLog.liveQuotesSubscribeFailed(symbol, it) }
+        }
+    }
+
+    private fun logControlMessageFailure(action: String, symbol: String, error: Throwable) {
+        EmulatorLog.controlMessageFailed(action, symbol, error)
+    }
+
+    private suspend fun <T> withEngine(block: suspend () -> T): T = engineMutex.withLock { block() }
 
     /**
      * Publishes a live exchange quote onto [quoteBus] (hybrid mode). When no bus is configured,
@@ -147,16 +279,7 @@ class EmulatorBrokerAdapter(
         if (bus != null) {
             bus.publish(symbol, quote, priorClose, QuoteSource.EXTERNAL)
         } else {
-            actorChannel.trySend(
-                EmulatorActorMessage.ExternalQuote(
-                    QuoteUpdate(
-                        symbol = symbol,
-                        quote = quote,
-                        priorClose = priorClose,
-                        source = QuoteSource.EXTERNAL
-                    )
-                )
-            )
+            engine.ingestExternalQuote(symbol, quote, priorClose)
         }
     }
 
@@ -166,21 +289,24 @@ class EmulatorBrokerAdapter(
     override fun shutdown() {
         engine.handleShutdown()
         quoteBus?.unsubscribe(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
-        actorChannel.close()
+        controlChannel.close()
         commandLoopJob?.cancel()
         marketJob?.cancel()
         orderJob?.cancel()
         quoteCollectorJob?.cancel()
-        actorJob?.cancel()
+        orderActorJob?.cancel()
+        pricingActorJob?.cancel()
     }
 
-    private sealed interface EmulatorActorMessage {
-        data class ExternalQuote(val update: QuoteUpdate) : EmulatorActorMessage
-        data object MarketTick : EmulatorActorMessage
-        data object OrderProgress : EmulatorActorMessage
-        data class PlaceTouchTurnBracket(val plan: daytrader.domain.TouchTurnOrderPlan) : EmulatorActorMessage
-        data class CancelOpenOrders(val symbol: String) : EmulatorActorMessage
-        data class ClosePosition(val symbol: String) : EmulatorActorMessage
-        data class FlattenSymbol(val symbol: String) : EmulatorActorMessage
+    private sealed interface EmulatorControlMessage {
+        data class PlaceTouchTurnBracket(val plan: daytrader.domain.TouchTurnOrderPlan) : EmulatorControlMessage
+        data class CancelOpenOrders(val symbol: String) : EmulatorControlMessage
+        data class ClosePosition(val symbol: String) : EmulatorControlMessage
+        data class FlattenSymbol(val symbol: String) : EmulatorControlMessage
+    }
+
+    companion object {
+        private const val QUOTE_FLUSH_INTERVAL_MS = 50L
+        private const val ORDER_SELECT_TIMEOUT_MS = 5L
     }
 }

@@ -25,6 +25,30 @@ class TouchTurnStateSyncLogTest {
     }
 
     @Test
+    fun findMismatches_ordersPlacedWithoutBrokerOpenOrders() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            ordersPlacedForSession = true
+        )
+        val mismatches = TouchTurnStateSyncLog.findMismatches(
+            engine = engineSnapshot(
+                sessionStatus = TouchTurnCandleStatus.READY,
+                decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+                ordersPlacedForSession = true,
+                hasOpenOrders = false
+            ),
+            ui = uiSnapshot(phaseIndex = 5),
+            session = session
+        )
+        assertTrue(
+            mismatches.any { it.contains("hasOpenOrders=false") },
+            "mismatches=$mismatches"
+        )
+    }
+
+    @Test
     fun findMismatches_loadingStatus_wrongPhase() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-22",
@@ -87,7 +111,10 @@ class TouchTurnStateSyncLogTest {
             session = session
         )
         assertEquals(
-            listOf("engine waiting for entry but ui Position step=CURRENT"),
+            listOf(
+                "engine ordersPlacedForSession=true but broker hasOpenOrders=false (see bracket_submit_requested / bracket_acknowledged / emulator bracket_placed)",
+                "engine waiting for entry but ui Position step=CURRENT"
+            ),
             mismatches
         )
     }

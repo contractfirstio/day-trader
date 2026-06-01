@@ -175,6 +175,107 @@ internal object EmulatorLog {
         )
     }
 
+    fun bracketQueueReceived(symbol: String, pendingQuoteSymbols: Int) {
+        event(
+            type = "bracket_queue_received",
+            symbol = symbol,
+            details = mapOf("pendingQuoteSymbols" to pendingQuoteSymbols.toString())
+        )
+    }
+
+    fun bracketPlaceStarted(symbol: String) {
+        event(type = "bracket_place_started", symbol = symbol)
+    }
+
+    fun bracketPlaceFinished(
+        symbol: String,
+        durationMs: Long,
+        success: Boolean,
+        errorType: String? = null,
+        errorMessage: String? = null
+    ) {
+        event(
+            type = "bracket_place_finished",
+            symbol = symbol,
+            details = buildMap {
+                put("durationMs", durationMs.toString())
+                put("success", success.toString())
+                errorType?.let { put("errorType", it) }
+                errorMessage?.let { put("errorMessage", it) }
+            }
+        )
+    }
+
+    fun liveQuotesSubscribeFailed(symbol: String, error: Throwable) {
+        event(
+            type = "live_quotes_subscribe_failed",
+            symbol = symbol,
+            details = mapOf(
+                "errorType" to error::class.simpleName.orEmpty(),
+                "errorMessage" to (error.message ?: error.toString())
+            )
+        )
+    }
+
+    fun bracketPublishTailFailed(symbol: String, error: Throwable) {
+        event(
+            type = "bracket_publish_tail_failed",
+            symbol = symbol,
+            details = mapOf(
+                "errorType" to error::class.simpleName.orEmpty(),
+                "errorMessage" to (error.message ?: error.toString())
+            )
+        )
+    }
+
+    fun controlMessageFailed(action: String, symbol: String, error: Throwable) {
+        event(
+            type = "control_message_failed",
+            symbol = symbol,
+            details = mapOf(
+                "action" to action,
+                "errorType" to error::class.simpleName.orEmpty(),
+                "errorMessage" to (error.message ?: error.toString())
+            )
+        )
+    }
+
+    fun bracketAckEmitted(
+        symbol: String,
+        orderIds: List<Int>,
+        success: Boolean,
+        openOrderCount: Int,
+        error: String? = null
+    ) {
+        event(
+            type = "bracket_ack_emitted",
+            symbol = symbol,
+            details = buildMap {
+                put("success", success.toString())
+                put("orderIds", orderIds.joinToString(","))
+                put("openOrderCount", openOrderCount.toString())
+                error?.let { put("error", it) }
+            }
+        )
+    }
+
+    fun openOrdersPublished(orderCount: Int, symbolSummary: String) {
+        event(
+            type = "open_orders_published",
+            details = mapOf(
+                "orderCount" to orderCount.toString(),
+                "symbols" to symbolSummary
+            )
+        )
+    }
+
+    fun quoteFlushBatch(flushedSymbolCount: Int) {
+        event(
+            type = "quote_flush_batch",
+            details = mapOf("flushedSymbolCount" to flushedSymbolCount.toString())
+        )
+    }
+
     fun historicalFetchFailed(kind: String, symbol: String, message: String) {
         event(
             type = "historical_fetch_failed",

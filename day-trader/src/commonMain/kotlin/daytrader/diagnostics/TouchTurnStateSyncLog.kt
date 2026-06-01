@@ -178,6 +178,10 @@ object TouchTurnStateSyncLog {
             }
         }
 
+        if (engine.ordersPlacedForSession && !engine.hasOpenOrders && !engine.hasOpenPosition && !engine.closingPhase) {
+            mismatches += "engine ordersPlacedForSession=true but broker hasOpenOrders=false (see bracket_submit_requested / bracket_acknowledged / emulator bracket_placed)"
+        }
+
         if (engine.ordersPlacedForSession && !engine.hasOpenPosition && !engine.closingPhase) {
             val ordersState = ui.stepStates.getOrNull(5)
             val positionState = ui.stepStates.getOrNull(6)

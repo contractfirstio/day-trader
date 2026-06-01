@@ -89,7 +89,7 @@ object TouchTurnOrderLifecycleResolver {
             showLiveOrderChart = showLiveOrdersPanel,
             statusMessage = when (phase) {
                 TouchTurnOrderLifecyclePhase.SUBMITTED_PENDING_BROKER_VISIBILITY ->
-                    "Orders submitted for this session; awaiting broker open-order visibility or fill."
+                    "Bracket queued with broker; awaiting acknowledgment and open-order visibility."
                 else -> null
             }
         )

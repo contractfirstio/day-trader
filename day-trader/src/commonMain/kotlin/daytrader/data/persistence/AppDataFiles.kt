@@ -22,8 +22,18 @@ object AppDataFiles {
     const val EMULATOR_ENGINE_LOG = "engine.jsonl"
     const val EMULATOR_PRICES_LOG = "prices.jsonl"
 
+    /**
+     * Execution gateway events (open-order snapshots, bracket acks) — correlates with session logs via epochMs.
+     * macOS: `~/Library/Application Support/Day Trader/{broker-scope}/execution/gateway.jsonl`
+     */
+    const val EXECUTION_DIR = "execution"
+    const val EXECUTION_GATEWAY_LOG = "gateway.jsonl"
+
     fun emulatorEngineLogFileName(): String =
         "$EMULATOR_DIR/$EMULATOR_ENGINE_LOG"
+
+    fun executionGatewayLogFileName(): String =
+        "$EXECUTION_DIR/$EXECUTION_GATEWAY_LOG"
 
     fun emulatorPricesLogFileName(): String =
         "$EMULATOR_DIR/$EMULATOR_PRICES_LOG"

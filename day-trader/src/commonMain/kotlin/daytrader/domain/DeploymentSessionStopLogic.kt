@@ -71,7 +71,7 @@ object DeploymentSessionStopLogic {
             ?: instance.lastAutoStartSessionDate
 
     /**
-     * Strategy-specific deadline stop (e.g. Touch Turn 90m after open). Returns null when the
+     * Strategy-specific deadline stop (e.g. Touch Turn 2h after open). Returns null when the
      * strategy has no open-deadline rule.
      */
     fun evaluateDeadlineForInstance(

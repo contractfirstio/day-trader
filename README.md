@@ -106,6 +106,17 @@ Effective default path pattern for session trace logs:
 | Windows | `%APPDATA%\Day Trader\runs\run-YYYYMMDD-HHMMSS-PID\<broker>\session-traces\...` |
 | Linux   | `~/.local/share/day-trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
 
+**Touch Turn diagnosis** (correlate by `epochMs` + symbol):
+
+| Log | Path (under `{broker-scope}/`) | Purpose |
+|-----|--------------------------------|---------|
+| Session application | `sessions/{deploymentId}/{sessionId}/application.jsonl` | Lifecycle, `bracket_submit_requested`, `bracket_acknowledged`, `broker_open_orders`, `touch_turn_state_sync` |
+| Session prices | `sessions/.../prices.jsonl` | IB quotes |
+| Emulator engine | `emulator/engine.jsonl` | `bracket_placed`, `bracket_queue_received`, `bracket_ack_emitted`, `open_orders_published` |
+| Execution gateway | `execution/gateway.jsonl` | Global `open_orders_snapshot`, `touch_turn_bracket_placed` |
+
+Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`.
+
 | Broker               | Subdirectory            | Example (macOS)                                                                      |
 |----------------------|-------------------------|--------------------------------------------------------------------------------------|
 | Interactive Brokers  | `interactive-brokers/`  | `~/Library/Application Support/Day Trader/interactive-brokers/deployments.json`      |

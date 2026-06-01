@@ -13,6 +13,8 @@ import daytrader.domain.sessionRealizedPnL
 import daytrader.diagnostics.LogTimestamps
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.LiveQuote
+import daytrader.gateway.TouchTurnBracketAck
+import daytrader.gateway.WorkingOrder
 import daytrader.platform.AppFileSystem
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -233,6 +235,101 @@ object SessionTrace {
             sessionId = sessionId,
             symbol = symbol,
             details = mapOf("name" to name, "at" to at)
+        )
+    }
+
+    /** Engine queued [placeTouchTurnBracket] — session not committed until [bracketAcknowledged]. */
+    fun bracketSubmitRequested(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        orderCount: Int,
+        entryPrice: Double?,
+        currencyCode: String,
+        pendingBracketCount: Int
+    ) {
+        log(
+            type = "bracket_submit_requested",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("orderCount", orderCount.toString())
+                entryPrice?.let { put("entryPrice", it.toString()) }
+                put("currencyCode", currencyCode)
+                put("pendingBracketCount", pendingBracketCount.toString())
+            }
+        )
+    }
+
+    fun bracketAcknowledged(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        ack: TouchTurnBracketAck,
+        ackLatencyMs: Long,
+        openOrdersForSymbol: Int,
+        openOrdersTotal: Int,
+        openOrderSummary: String
+    ) {
+        log(
+            type = "bracket_acknowledged",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("success", ack.result.isSuccess.toString())
+                ack.result.exceptionOrNull()?.message?.let { put("error", it) }
+                put("ackLatencyMs", ackLatencyMs.toString())
+                put("ackOrderIds", ack.orderIds.joinToString(","))
+                put("openOrdersForSymbol", openOrdersForSymbol.toString())
+                put("openOrdersTotal", openOrdersTotal.toString())
+                put("openOrderSummary", openOrderSummary)
+            }
+        )
+    }
+
+    fun bracketAckOrphan(
+        symbol: String,
+        ack: TouchTurnBracketAck,
+        pendingBracketCount: Int
+    ) {
+        log(
+            type = "bracket_ack_orphan",
+            symbol = symbol,
+            details = buildMap {
+                put("success", ack.result.isSuccess.toString())
+                ack.result.exceptionOrNull()?.message?.let { put("error", it) }
+                put("ackOrderIds", ack.orderIds.joinToString(","))
+                put("pendingBracketCount", pendingBracketCount.toString())
+            }
+        )
+    }
+
+    fun brokerOpenOrders(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        ordersForSymbol: List<WorkingOrder>,
+        ordersTotal: Int,
+        trigger: String
+    ) {
+        log(
+            type = "broker_open_orders",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("trigger", trigger)
+                put("countForSymbol", ordersForSymbol.size.toString())
+                put("countTotal", ordersTotal.toString())
+                put(
+                    "orders",
+                    ordersForSymbol.joinToString(";") { o ->
+                        "${o.orderId}:${o.status}:${o.orderType}@${o.limitPrice ?: o.stopPrice}"
+                    }.ifEmpty { "none" }
+                )
+            }
         )
     }
 

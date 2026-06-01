@@ -11,6 +11,8 @@ import daytrader.gateway.BrokerFill
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
 import daytrader.gateway.LiveQuote
+import daytrader.gateway.OpenOrderBook
+import daytrader.gateway.TouchTurnBracketAck
 import kotlinx.coroutines.delay
 import kotlin.random.Random
 
@@ -31,6 +33,8 @@ class BrokerEmulatorEngine(
     private val syntheticQuotes = SyntheticQuoteSimulator(config, quoteBook, random)
     private var positions = mutableListOf<EmulatorPosition>()
     private var orders = mutableMapOf<Int, EmulatorOrder>()
+    private val openOrderBook = OpenOrderBook()
+    private var lastPublishedOpenOrdersFingerprint = ""
     private var nextOrderId = 1_000
     private var connected = false
     private var ticksRunning = false
@@ -58,7 +62,7 @@ class BrokerEmulatorEngine(
         EmulatorLog.connectionState("connected", config.pricingSource.name)
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Connected))
         publishPositions()
-        publishOrders()
+        finishEmulatedOpenOrdersLoad()
         publishQuotes()
         startMarketSimulation()
         startOrderSimulation()
@@ -71,6 +75,8 @@ class BrokerEmulatorEngine(
         EmulatorLog.connectionState("disconnected", config.pricingSource.name)
         positions.clear()
         orders.clear()
+        openOrderBook.clear()
+        lastPublishedOpenOrdersFingerprint = ""
         bracketManagedOrderIds.clear()
         bracketPriceWalks.clear()
         dynamicInstruments.clear()
@@ -155,8 +161,17 @@ class BrokerEmulatorEngine(
     }
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
+        val symbolForAck = SymbolMarkets.normalizeSymbol(plan.symbol)
         if (!connected) {
             EmulatorLog.bracketRejected(plan.symbol, "not_connected")
+            val failure = TouchTurnBracketAck(
+                symbol = symbolForAck,
+                orderIds = emptyList(),
+                result = Result.failure(IllegalStateException("not_connected")),
+                plan = plan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(failure))
+            EmulatorLog.bracketAckEmitted(symbolForAck, emptyList(), success = false, openOrderCount = 0, error = "not_connected")
             return
         }
         val adjustedPlan = EmulatorBracketPlanAdjuster.widenExits(
@@ -164,25 +179,40 @@ class BrokerEmulatorEngine(
             spreadWidenFactor = config.bracketExitSpreadWidenFactor
         )
         val symbol = SymbolMarkets.normalizeSymbol(adjustedPlan.symbol)
-        val entryLeg = adjustedPlan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return
+        val entryLeg = adjustedPlan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: run {
+            val failure = TouchTurnBracketAck(
+                symbol = symbolForAck,
+                orderIds = emptyList(),
+                result = Result.failure(IllegalArgumentException("missing_entry_leg")),
+                plan = plan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(failure))
+            EmulatorLog.bracketAckEmitted(symbolForAck, emptyList(), success = false, openOrderCount = 0, error = "missing_entry_leg")
+            return
+        }
         val entryPrice = entryLeg.price
 
         orders.entries.removeIf { (_, order) ->
             SymbolMarkets.symbolsMatch(order.symbol, symbol) && !order.isTerminal()
         }
+        openOrderBook.snapshot()
+            .filter { SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+            .forEach { openOrderBook.removeOrder(it.orderId) }
         bracketManagedOrderIds.removeIf { id -> orders[id]?.let { SymbolMarkets.symbolsMatch(it.symbol, symbol) } == true }
 
         ensureInstrument(symbol, adjustedPlan.currencyCode, entryPrice)
 
         val entryId = allocateOrderId()
         bracketManagedOrderIds.add(entryId)
-        orders[entryId] = plannedToEmulatorOrder(
-            orderId = entryId,
-            planned = entryLeg,
-            symbol = symbol,
-            currency = adjustedPlan.currencyCode,
-            parentId = 0,
-            status = "Submitted"
+        onEmulatedOpenOrder(
+            plannedToEmulatorOrder(
+                orderId = entryId,
+                planned = entryLeg,
+                symbol = symbol,
+                currency = adjustedPlan.currencyCode,
+                parentId = 0,
+                status = "Submitted"
+            )
         )
 
         val childIds = mutableListOf<Int>()
@@ -190,15 +220,18 @@ class BrokerEmulatorEngine(
             val childId = allocateOrderId()
             childIds.add(childId)
             bracketManagedOrderIds.add(childId)
-            orders[childId] = plannedToEmulatorOrder(
-                orderId = childId,
-                planned = leg,
-                symbol = symbol,
-                currency = adjustedPlan.currencyCode,
-                parentId = entryId,
-                status = "PreSubmitted"
+            onEmulatedOpenOrder(
+                plannedToEmulatorOrder(
+                    orderId = childId,
+                    planned = leg,
+                    symbol = symbol,
+                    currency = adjustedPlan.currencyCode,
+                    parentId = entryId,
+                    status = "PreSubmitted"
+                )
             )
         }
+        val allOrderIds = listOf(entryId) + childIds
 
         if (config.pricingSource.isSynthetic) {
             val legPrices = adjustedPlan.orders.map { it.price }
@@ -255,7 +288,7 @@ class BrokerEmulatorEngine(
             }
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
-                orderIds = listOf(entryId) + childIds,
+                orderIds = allOrderIds,
                 entryPrice = entryPrice,
                 initialMark = initialMark,
                 walkFloor = floor,
@@ -265,7 +298,7 @@ class BrokerEmulatorEngine(
         } else {
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
-                orderIds = listOf(entryId) + childIds,
+                orderIds = allOrderIds,
                 entryPrice = entryPrice,
                 initialMark = entryPrice,
                 walkFloor = entryPrice,
@@ -274,8 +307,77 @@ class BrokerEmulatorEngine(
             )
             onSymbolNeedsLiveQuotes(symbol)
         }
-        publishPositions()
-        publishOrders()
+        emitTouchTurnBracketAck(
+            symbol = symbol,
+            symbolForAck = symbolForAck,
+            allOrderIds = allOrderIds,
+            adjustedPlan = adjustedPlan
+        )
+    }
+
+    private fun emitTouchTurnBracketAck(
+        symbol: String,
+        symbolForAck: String,
+        allOrderIds: List<Int>,
+        adjustedPlan: TouchTurnOrderPlan
+    ) {
+        val tailResult = runCatching {
+            publishPositions()
+            finishEmulatedOpenOrdersLoad()
+            val snapshot = openOrderBook.snapshot()
+            val ack = TouchTurnBracketAck(
+                symbol = symbol,
+                orderIds = allOrderIds,
+                result = Result.success(Unit),
+                plan = adjustedPlan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(ack))
+            EmulatorLog.bracketAckEmitted(
+                symbol = symbol,
+                orderIds = allOrderIds,
+                success = true,
+                openOrderCount = snapshot.size
+            )
+        }
+        if (tailResult.isSuccess) return
+
+        val error = tailResult.exceptionOrNull() ?: return
+        EmulatorLog.bracketPublishTailFailed(symbol, error)
+        if (allOrderIds.isEmpty()) {
+            val failure = TouchTurnBracketAck(
+                symbol = symbolForAck,
+                orderIds = emptyList(),
+                result = Result.failure(error),
+                plan = adjustedPlan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(failure))
+            EmulatorLog.bracketAckEmitted(
+                symbol = symbol,
+                orderIds = emptyList(),
+                success = false,
+                openOrderCount = 0,
+                error = error.message
+            )
+            return
+        }
+        runCatching {
+            val snapshot = openOrderBook.snapshot()
+            val ack = TouchTurnBracketAck(
+                symbol = symbol,
+                orderIds = allOrderIds,
+                result = Result.success(Unit),
+                plan = adjustedPlan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(ack))
+            EmulatorLog.bracketAckEmitted(
+                symbol = symbol,
+                orderIds = allOrderIds,
+                success = true,
+                openOrderCount = snapshot.size
+            )
+        }.onFailure { recoveryError ->
+            EmulatorLog.bracketPublishTailFailed(symbol, recoveryError)
+        }
     }
 
     /**
@@ -661,12 +763,44 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.QuotesSnapshot(snapshot))
     }
 
-    private fun publishOrders() {
-        val snapshot = orders.values
+    /** Mirrors IB [openOrder] — one working order reported, then a snapshot publish. */
+    private fun onEmulatedOpenOrder(order: EmulatorOrder) {
+        orders[order.orderId] = order
+        openOrderBook.applyOpenOrder(order.toWorkingOrder())
+        publishOrders()
+    }
+
+    /** Mirrors IB [openOrderEnd] — final snapshot after a batch of open-order callbacks. */
+    private fun finishEmulatedOpenOrdersLoad() {
+        orders.values
             .filter { !it.isTerminal() }
-            .sortedBy { it.orderId }
-            .map { it.toWorkingOrder() }
+            .forEach { openOrderBook.applyOpenOrder(it.toWorkingOrder()) }
+        publishOrders()
+    }
+
+    private fun syncOrderToOpenBook(orderId: Int) {
+        val order = orders[orderId] ?: run {
+            openOrderBook.removeOrder(orderId)
+            return
+        }
+        if (order.isTerminal() || order.remaining <= 0) {
+            openOrderBook.removeOrder(orderId)
+        } else {
+            openOrderBook.applyOpenOrder(order.toWorkingOrder())
+        }
+    }
+
+    private fun publishOrders() {
+        val snapshot = openOrderBook.snapshot()
+        val fingerprint = snapshot.joinToString("|") { "${it.orderId}:${it.status}:${it.remaining}" }
         emit(GatewayEvent.OpenOrdersSnapshot(snapshot))
+        if (fingerprint != lastPublishedOpenOrdersFingerprint) {
+            lastPublishedOpenOrdersFingerprint = fingerprint
+            val symbolSummary = snapshot.groupBy { it.symbol }.entries.joinToString(";") { (sym, orders) ->
+                "$sym=${orders.size}"
+            }
+            EmulatorLog.openOrdersPublished(snapshot.size, symbolSummary.ifEmpty { "none" })
+        }
     }
 
     private fun updateOrder(order: EmulatorOrder) {
@@ -684,6 +818,7 @@ class BrokerEmulatorEngine(
             }
             else -> orders[order.orderId] = order
         }
+        syncOrderToOpenBook(order.orderId)
     }
 
     private fun applyFill(order: EmulatorOrder, fillQty: Int) {

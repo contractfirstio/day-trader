@@ -9,6 +9,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
+import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnRunContext
@@ -175,7 +176,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val barTime = "20260522  09:30:00"
         val zone = "America/New_York"
         val open = TouchTurnLogic.marketOpenEpochMillis("2026-05-22", zone, barTime)!!
-        val now = open + 90 * 60_000 + 1
+        val now = open + 120 * 60_000 + 1
         val session = readySession(
             candle = bar(barTime),
             rangeThreshold = 0.01,
@@ -371,7 +372,9 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val zone = "Europe/London"
         val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
         val atLiquidity = barEnd + 4
-        val now = barEnd + 90_000
+        // Past confirmation deadline; keep within 2h-after-open auto-stop for graph timing.
+        val pastConfirmationDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
+        val graphNow = barEnd + 90_000
         val bar = OhlcBar(open = 105.0, high = 110.0, low = 100.0, close = 104.0, time = barTime)
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-29",
@@ -388,13 +391,13 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val withOrders = withLiquidity.withOrdersPlacedForSession(null)
         val liveSession = withOrders.touchTurnSession!!
         assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, liveSession.decisionOutcome)
-        assertEquals(TouchTurnCloseConfirmation.EXPIRED, liveSession.closeConfirmation(now))
+        assertEquals(TouchTurnCloseConfirmation.EXPIRED, liveSession.closeConfirmation(pastConfirmationDeadline))
 
         val graph = TouchTurnStatusBreadcrumbMapper.graph(
             instance = withOrders,
             hasOpenPosition = false,
             hasOpenOrders = true,
-            nowEpochMillis = now
+            nowEpochMillis = graphNow
         )
         assertTrue(TouchTurnPipelineNodeId.NoTrade !in graph.activePath)
         assertTrue(
@@ -409,7 +412,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
             instance = withOrders,
             hasOpenPosition = false,
             hasOpenOrders = true,
-            nowEpochMillis = now
+            nowEpochMillis = graphNow
         )
         assertEquals(TouchTurnBreadcrumbStepState.COMPLETED, steps[4].state)
         assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[5].state)
@@ -421,7 +424,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
     fun graph_confirmationExpired_activePathUsesNoTradeNotOrders() {
         val barTime = "20260522  09:30:00"
         val barEnd = barEnd(barTime)
-        val now = barEnd + 90_000
+        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         val bar = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime)
         val base = deployment(
             readySession(candle = bar, rangeThreshold = 0.01, now = barEnd + 1)
@@ -487,7 +490,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
     fun graph_confirmationExpired_afterSessionStop_activePathUsesNoTradeNotOrders() {
         val barTime = "20260522  09:30:00"
         val barEnd = barEnd(barTime)
-        val now = barEnd + 90_000
+        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         val bar = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime)
         val afterEval = deployment(
             readySession(candle = bar, rangeThreshold = 0.01, now = barEnd + 1)

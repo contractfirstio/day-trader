@@ -41,7 +41,7 @@ class TouchTurnOrderLifecycleResolverTest {
         assertTrue(lifecycle.showLiveOrdersPanel)
         assertTrue(lifecycle.showLiveOrderChart)
         assertFalse(lifecycle.showOrdersPreview)
-        assertTrue(lifecycle.statusMessage!!.contains("submitted"))
+        assertTrue(lifecycle.statusMessage!!.contains("broker"))
     }
 
     @Test

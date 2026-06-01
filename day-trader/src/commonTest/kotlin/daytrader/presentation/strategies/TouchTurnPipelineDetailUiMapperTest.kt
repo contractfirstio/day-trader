@@ -10,6 +10,7 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
@@ -64,7 +65,7 @@ class TouchTurnPipelineDetailUiMapperTest {
         val barTime = "20260529  08:00:00"
         val zone = "Europe/London"
         val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
-        val now = barEnd + 90_000
+        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         val base = StrategyDeployment(
             id = "tt-detail",
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
