@@ -5,7 +5,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
-import daytrader.domain.ActiveExecution
+import daytrader.domain.sessionRealizedPnL
 import daytrader.gateway.BrokerFill
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -54,8 +54,7 @@ class SessionTradeMatcherTest {
         )
         val trades = SessionTradeMatcher.captureForSessionStop(
             instance = instance,
-            fills = fills,
-            stoppedAt = "2026-05-25T10:20:00"
+            fills = fills
         )
         assertEquals(1, trades.size)
         assertEquals("e1", trades.first().execId)
@@ -74,26 +73,89 @@ class SessionTradeMatcherTest {
         assertTrue(
             SessionTradeMatcher.captureForSessionStop(
                 instance = instance,
-                fills = listOf(fill(symbol = "AAPL", time = "2026-05-25T10:00:00", execId = "e1")),
-                stoppedAt = "2026-05-25T10:30:00"
+                fills = listOf(fill(symbol = "AAPL", time = "2026-05-25T10:00:00", execId = "e1"))
             ).isEmpty()
         )
     }
+
+    @Test
+    fun captureForSessionStop_includesExitFillWhenStopTimestampIsAfterTpFill() {
+        val instance = touchTurnInstance(
+            startedAt = "2026-06-01T21:38:56.98318"
+        )
+        val fills = listOf(
+            fill(
+                symbol = "INTC",
+                time = "2026-06-01T21:45:03.364472",
+                execId = "emu-1021-2",
+                parentOrderId = 0,
+                side = "SELL",
+                price = 110.77
+            ),
+            fill(
+                symbol = "INTC",
+                time = "2026-06-01T21:51:48.38268",
+                execId = "emu-1022-8",
+                parentOrderId = 1021,
+                side = "BUY",
+                price = 108.02608,
+                realized = 24.695280000000025
+            )
+        )
+        val trades = SessionTradeMatcher.captureForSessionStop(instance = instance, fills = fills)
+        assertEquals(2, trades.size)
+        assertEquals(24.695280000000025, trades.sessionRealizedPnL())
+    }
+
+    @Test
+    fun fillsForSession_parsesFractionalIsoTimestamps() {
+        val matched = SessionTradeMatcher.fillsForSession(
+            symbol = "INTC",
+            startedAt = "2026-06-01T21:38:56.98318",
+            stoppedAt = "2026-06-01T21:51:48.388703",
+            fills = listOf(
+                fill(symbol = "INTC", time = "2026-06-01T21:51:48.38268", execId = "exit")
+            )
+        )
+        assertEquals(listOf("exit"), matched.map { it.execId })
+    }
+
+    private fun touchTurnInstance(startedAt: String) = StrategyDeployment(
+        id = "i1",
+        strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+        status = DeploymentStatus.RUNNING,
+        symbol = "INTC",
+        maxDollars = 1000,
+        sessionHistory = listOf(
+            StrategySession(
+                id = "r1",
+                date = "2026-06-01",
+                startedAt = startedAt,
+                pnl = 0.0,
+                trades = 0,
+                maxAtRisk = 1000,
+                status = SessionStatus.IN_PROGRESS
+            )
+        )
+    )
 
     private fun fill(
         symbol: String,
         time: String,
         execId: String,
-        realized: Double? = null
+        realized: Double? = null,
+        parentOrderId: Int = 0,
+        side: String = "BOT",
+        price: Double = 100.0
     ) = BrokerFill(
         execId = execId,
         orderId = 1,
         permId = 99L,
-        parentOrderId = 0,
+        parentOrderId = parentOrderId,
         symbol = symbol,
-        side = "BOT",
+        side = side,
         quantity = 10,
-        price = 100.0,
+        price = price,
         time = time,
         realizedPnL = realized
     )
