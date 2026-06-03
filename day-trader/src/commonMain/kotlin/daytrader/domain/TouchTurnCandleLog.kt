@@ -77,10 +77,23 @@ object TouchTurnCandleLog {
         symbol: String,
         session: TouchTurnSessionContext
     ) {
-        val barTime = session.candle?.time ?: return
+        val barTime = session.resolvedOpeningBarTime() ?: return
         line(
             "candle closed instance=$instanceId symbol=$symbol barTime=$barTime " +
-                "zone=${session.marketZoneId} status=${session.candleCloseStatus()}"
+                "zone=${session.marketZoneId} status=${session.candleCloseStatus()} " +
+                "hasClosedBarOhlc=${session.candle != null}"
+        )
+    }
+
+    fun closedBarLoaded(
+        instanceId: String,
+        symbol: String,
+        barTime: String?,
+        candle: OhlcBar
+    ) {
+        line(
+            "closed bar loaded instance=$instanceId symbol=$symbol barTime=${barTime ?: "null"} " +
+                "O=${candle.open} H=${candle.high} L=${candle.low} C=${candle.close}"
         )
     }
 

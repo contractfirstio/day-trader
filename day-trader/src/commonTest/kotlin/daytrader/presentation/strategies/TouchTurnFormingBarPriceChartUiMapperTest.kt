@@ -25,14 +25,8 @@ class TouchTurnFormingBarPriceChartUiMapperTest {
     private fun formingSession() = TouchTurnSessionContext(
         sessionDate = "2030-12-01",
         status = TouchTurnCandleStatus.READY,
-        candle = OhlcBar(
-            open = 100.0,
-            high = 101.0,
-            low = 99.0,
-            close = 100.5,
-            // Far-future bar open so wall-clock tests stay in FORMING.
-            time = "20301201  09:30:00"
-        ),
+        openingBarTime = "20301201  09:30:00",
+        candle = null,
         marketZoneId = "America/New_York"
     )
 
@@ -61,11 +55,11 @@ class TouchTurnFormingBarPriceChartUiMapperTest {
     }
 
     @Test
-    fun build_nullWhenCandleUnavailable() {
+    fun build_nullWhenOpeningBarTimeUnavailable() {
         assertNull(
             TouchTurnFormingBarPriceChartUiMapper.build(
                 deployment = deployment(),
-                session = formingSession().copy(candle = null),
+                session = formingSession().copy(openingBarTime = null),
                 priceHistory = listOf(100.0),
                 currentPrice = 100.0
             )

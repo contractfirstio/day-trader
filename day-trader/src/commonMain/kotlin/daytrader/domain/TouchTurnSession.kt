@@ -123,6 +123,11 @@ data class TouchTurnMilestoneTimestamps(
 data class TouchTurnSessionContext(
     val sessionDate: String,
     val status: TouchTurnCandleStatus,
+    /**
+     * IB opening 15m bar open time (e.g. `20260603  09:30:00`) for close timing while [candle] is null.
+     * Set at data-ready; [candle] OHLC is filled only after the bar has closed and history is refetched.
+     */
+    val openingBarTime: String? = null,
     val candle: OhlcBar? = null,
     val setup: TouchTurnBracketSetup? = null,
     val errorMessage: String? = null,
@@ -159,12 +164,20 @@ data class TouchTurnSessionContext(
     @Deprecated("Use liquidityThresholdFromAtr", ReplaceWith("liquidityThresholdFromAtr"))
     val liquidityThresholdFromAdr: Double?
         get() = liquidityThresholdFromAtr
+    fun resolvedOpeningBarTime(): String? = candle?.time ?: openingBarTime
+
     fun candleCloseStatus(nowEpochMillis: Long = System.currentTimeMillis()): FirstCandleCloseStatus =
-        TouchTurnLogic.firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis, sessionDate)
+        TouchTurnLogic.firstCandleCloseStatus(
+            resolvedOpeningBarTime(),
+            marketZoneId,
+            nowEpochMillis,
+            sessionDate
+        )
 
     fun liquidityEvaluation(nowEpochMillis: Long = System.currentTimeMillis()): LiquidityCandleEvaluation =
         TouchTurnLogic.liquidityCandleEvaluation(
             candle,
+            resolvedOpeningBarTime(),
             marketZoneId,
             rangeThreshold,
             nowEpochMillis,
@@ -174,7 +187,7 @@ data class TouchTurnSessionContext(
     fun firstCandleColor(): FirstCandleColor? = candle?.let { TouchTurnLogic.firstCandleColor(it) }
 
     fun entryWindowStatus(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnEntryWindowStatus =
-        TouchTurnLogic.entryWindowStatus(candle, marketZoneId, nowEpochMillis)
+        TouchTurnLogic.entryWindowStatus(resolvedOpeningBarTime(), marketZoneId, nowEpochMillis)
 
     fun closeConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation =
         TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis, sessionDate)
@@ -291,16 +304,23 @@ object TouchTurnLogic {
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionDateIso: String? = null
+    ): FirstCandleCloseStatus =
+        firstCandleCloseStatus(candle?.time, marketZoneId, nowEpochMillis, sessionDateIso)
+
+    fun firstCandleCloseStatus(
+        barTime: String?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): FirstCandleCloseStatus {
-        val time = candle?.time
         val scheduledBarEndMillis = sessionDateIso?.let { date ->
             marketOpenEpochMillis(date, marketZoneId)?.plus(BAR_DURATION_MS)
         }
         if (scheduledBarEndMillis != null && nowEpochMillis >= scheduledBarEndMillis) {
             return FirstCandleCloseStatus.CLOSED
         }
-        if (time == null) return FirstCandleCloseStatus.UNKNOWN
-        val barEndMillis = barEndEpochMillis(time, marketZoneId) ?: return FirstCandleCloseStatus.UNKNOWN
+        if (barTime == null) return FirstCandleCloseStatus.UNKNOWN
+        val barEndMillis = barEndEpochMillis(barTime, marketZoneId) ?: return FirstCandleCloseStatus.UNKNOWN
         return if (nowEpochMillis >= barEndMillis) {
             FirstCandleCloseStatus.CLOSED
         } else {
@@ -318,11 +338,11 @@ object TouchTurnLogic {
         barEndEpochMillis(barTime, marketZoneId)?.plus(TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS)
 
     fun entryWindowStatus(
-        candle: OhlcBar?,
+        barTime: String?,
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnEntryWindowStatus {
-        val time = candle?.time ?: return TouchTurnEntryWindowStatus.UNKNOWN
+        val time = barTime ?: return TouchTurnEntryWindowStatus.UNKNOWN
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return TouchTurnEntryWindowStatus.UNKNOWN
         if (nowEpochMillis < barEnd) return TouchTurnEntryWindowStatus.AWAITING_BAR_CLOSE
         val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId) ?: return TouchTurnEntryWindowStatus.UNKNOWN
@@ -334,11 +354,11 @@ object TouchTurnLogic {
     }
 
     fun entryWindowRemainingMillis(
-        candle: OhlcBar?,
+        barTime: String?,
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): Long? {
-        val time = candle?.time ?: return null
+        val time = barTime ?: return null
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return null
         if (nowEpochMillis < barEnd) return null
         val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId) ?: return null
@@ -399,13 +419,37 @@ object TouchTurnLogic {
     }
 
     /**
-     * Green liquidity bar (short): close below entry confirms the turn.
-     * Red liquidity bar (long): close above entry confirms the turn.
+     * Green liquidity bar (short): close sufficiently below entry confirms the turn.
+     * Red liquidity bar (long): close sufficiently above entry confirms the turn.
+     * Minimum separation is [TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE] × bar range.
      */
-    fun closeConfirmsTurn(setup: TouchTurnBracketSetup, close: Double): Boolean = when (setup.candleColor) {
-        FirstCandleColor.GREEN -> close < setup.entry
-        FirstCandleColor.RED -> close > setup.entry
-        FirstCandleColor.DOJI -> false
+    fun closeConfirmationMinDistanceFromEntry(setup: TouchTurnBracketSetup): Double =
+        setup.range * TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE
+
+    /** Price level close must stay on the confirming side of (15% range buffer from entry). */
+    fun closeConfirmationBufferPrice(setup: TouchTurnBracketSetup): Double? {
+        if (!setup.isActionable) return null
+        val minDistance = closeConfirmationMinDistanceFromEntry(setup)
+        return when (setup.candleColor) {
+            FirstCandleColor.GREEN -> setup.entry - minDistance
+            FirstCandleColor.RED -> setup.entry + minDistance
+            FirstCandleColor.DOJI -> null
+        }
+    }
+
+    fun closeConfirmsTurn(setup: TouchTurnBracketSetup, close: Double): Boolean {
+        val minDistance = closeConfirmationMinDistanceFromEntry(setup)
+        return when (setup.candleColor) {
+            FirstCandleColor.GREEN -> {
+                val belowEntry = setup.entry - close
+                belowEntry > 0.0 && belowEntry >= minDistance
+            }
+            FirstCandleColor.RED -> {
+                val aboveEntry = close - setup.entry
+                aboveEntry > 0.0 && aboveEntry >= minDistance
+            }
+            FirstCandleColor.DOJI -> false
+        }
     }
 
     fun closePositionRatio(bar: OhlcBar): Double? {
@@ -706,12 +750,29 @@ object TouchTurnLogic {
         rangeThreshold: Double,
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionDateIso: String? = null
+    ): LiquidityCandleEvaluation =
+        liquidityCandleEvaluation(
+            candle,
+            candle?.time,
+            marketZoneId,
+            rangeThreshold,
+            nowEpochMillis,
+            sessionDateIso
+        )
+
+    fun liquidityCandleEvaluation(
+        candle: OhlcBar?,
+        barTime: String?,
+        marketZoneId: String,
+        rangeThreshold: Double,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): LiquidityCandleEvaluation {
-        return when (firstCandleCloseStatus(candle, marketZoneId, nowEpochMillis, sessionDateIso)) {
+        return when (firstCandleCloseStatus(barTime, marketZoneId, nowEpochMillis, sessionDateIso)) {
             FirstCandleCloseStatus.FORMING -> LiquidityCandleEvaluation.AWAITING_CLOSE
             FirstCandleCloseStatus.UNKNOWN -> LiquidityCandleEvaluation.UNKNOWN
             FirstCandleCloseStatus.CLOSED -> {
-                val bar = candle ?: return LiquidityCandleEvaluation.UNKNOWN
+                val bar = candle ?: return LiquidityCandleEvaluation.AWAITING_CLOSE
                 if (isLiquidityCandle(bar, rangeThreshold)) {
                     LiquidityCandleEvaluation.LIQUIDITY
                 } else {
@@ -995,6 +1056,12 @@ object TouchTurnDefaults {
     const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 60_000L
     @Deprecated("Use CLOSE_CONFIRMATION_AFTER_CLOSE_MS", ReplaceWith("CLOSE_CONFIRMATION_AFTER_CLOSE_MS"))
     const val ENTRY_WINDOW_AFTER_CLOSE_MS = CLOSE_CONFIRMATION_AFTER_CLOSE_MS
+    /**
+     * Green liquidity bar (short): close below entry by at least this fraction of bar range.
+     * Red liquidity bar (long): close above entry by the same margin — keeps entry resting so the
+     * post-placement volume buffer can observe before a fill.
+     */
+    const val CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE = 0.15
     /** For short setups (green liquidity candle), require close in the lower X of range. */
     const val CLOSE_POSITION_SHORT_MAX = 0.35
     /** For long setups (red liquidity candle), require close in the upper X of range. */
@@ -1035,7 +1102,10 @@ fun StrategyDeployment.withTouchTurnCandle(
     )
 }
 
-/** Stores fetched first 15-minute candle only (no bracket setup until the bar closes). */
+/**
+ * Stores ADR/volume context after the initial history fetch. Opening-bar OHLC is **not** stored here;
+ * [withClosedFirstFifteenMinuteCandle] applies the completed bar once wall-clock passes bar end.
+ */
 fun StrategyDeployment.withFirstFifteenMinuteCandle(
     sessionDate: String,
     candle: OhlcBar,
@@ -1053,7 +1123,8 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
             status = TouchTurnCandleStatus.READY,
-            candle = candle,
+            openingBarTime = candle.time,
+            candle = null,
             currencyCode = currencyCode,
             marketZoneId = marketZoneId,
             adr14 = adr14 ?: atr14,
@@ -1064,6 +1135,18 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
                 startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
                 dataReadyAt = at
             )
+        )
+    )
+}
+
+/** Applies the completed first 15m bar OHLC from a post-close historical refetch. */
+fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): StrategyDeployment {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    return copy(
+        touchTurnSession = session.copy(
+            candle = candle,
+            openingBarTime = session.openingBarTime ?: candle.time
         )
     )
 }

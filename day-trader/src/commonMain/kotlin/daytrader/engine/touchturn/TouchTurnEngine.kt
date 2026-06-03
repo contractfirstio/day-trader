@@ -28,6 +28,7 @@ import daytrader.domain.TouchTurnDecisionLog
 import daytrader.domain.inProgressSession
 import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.onSessionStarted
+import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
@@ -89,6 +90,7 @@ class TouchTurnEngine(
 
     private val stuckFormingLogged = mutableSetOf<String>()
     private val liquidityJobs = mutableMapOf<String, Job>()
+    private val closedBarRefetchJobs = mutableMapOf<String, Job>()
     private val loadJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
@@ -377,6 +379,7 @@ class TouchTurnEngine(
             session = instance.touchTurnSession
         )
         liquidityJobs.remove(command.instanceId)?.cancel()
+        closedBarRefetchJobs.remove(command.instanceId)?.cancel()
         loadJobs.remove(command.instanceId)?.cancel()
         bufferMonitor.stop(command.instanceId)
         val gateway = executionGateway ?: sessionGateway
@@ -573,7 +576,7 @@ class TouchTurnEngine(
                     symbol = symbol,
                     event = "data_ready",
                     adr14 = loadedSession.atr14,
-                    barTime = loadedSession.candle?.time
+                    barTime = loadedSession.openingBarTime ?: loadedSession.candle?.time
                 )
                 TouchTurnCandleLog.candleLoaded(
                     instanceId = instanceId,
@@ -631,6 +634,68 @@ class TouchTurnEngine(
             return
         }
         TouchTurnCandleLog.candleClosed(instanceId, instance.symbol, session)
+        if (session.candle == null) {
+            scheduleClosedBarRefetch(instanceId)
+            return
+        }
+        evaluateLiquidityAfterClosedBar(instanceId)
+    }
+
+    private fun scheduleClosedBarRefetch(instanceId: String) {
+        if (closedBarRefetchJobs[instanceId]?.isActive == true) return
+        closedBarRefetchJobs[instanceId] = scope.launch {
+            val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
+            if (instance.status != DeploymentStatus.RUNNING) return@launch
+            val session = instance.touchTurnSession ?: return@launch
+            if (session.candle != null) {
+                closedBarRefetchJobs.remove(instanceId)
+                dispatch(TouchTurnCommand.PollLiquidity(instanceId))
+                return@launch
+            }
+            val symbol = instance.symbol
+            val instrument = DeploymentMarket.effectiveInstrument(instance)
+            marketData.ensureStreaming(symbol, instrument)
+            val refetchResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
+            var refetchFailed = false
+            repository.update(instanceId) { current ->
+                refetchResult.fold(
+                    onSuccess = { context ->
+                        TouchTurnCandleLog.closedBarLoaded(
+                            instanceId = instanceId,
+                            symbol = symbol,
+                            barTime = context.firstCandle.time,
+                            candle = context.firstCandle
+                        )
+                        current.withClosedFirstFifteenMinuteCandle(context.firstCandle)
+                    },
+                    onFailure = { error ->
+                        refetchFailed = true
+                        current.withTouchTurnCandleFailed(
+                            session.sessionDate,
+                            error.message ?: "Failed to load closed 15-minute bar"
+                        )
+                    }
+                )
+            }
+            closedBarRefetchJobs.remove(instanceId)
+            if (refetchFailed) {
+                notifyNoTradeDecisionIfNeeded(instanceId)
+                liquidityJobs.remove(instanceId)?.cancel()
+                return@launch
+            }
+            dispatch(TouchTurnCommand.PollLiquidity(instanceId))
+        }
+    }
+
+    private fun evaluateLiquidityAfterClosedBar(instanceId: String) {
+        val instance = repository.deployments.value.find { it.id == instanceId } ?: return
+        if (instance.status != DeploymentStatus.RUNNING) return
+        val session = instance.touchTurnSession ?: return
+        if (session.setup != null) return
+        val candle = session.candle ?: run {
+            scheduleClosedBarRefetch(instanceId)
+            return
+        }
         val evaluatedAt = System.currentTimeMillis()
         val enforceCloseConfirmation = brokerKind.usesLiveIbMarketData ||
             emulatorRequireCloseConfirmation()
@@ -739,6 +804,7 @@ class TouchTurnEngine(
         notifyNoTradeDecisionIfNeeded(instanceId)
         TouchTurnDecisionLog.watchPollExit(instanceId, after.symbol, "liquidity_poll_complete")
         liquidityJobs.remove(instanceId)?.cancel()
+        closedBarRefetchJobs.remove(instanceId)?.cancel()
     }
 
     private fun logLiquidityPollOutcome(

@@ -1176,6 +1176,38 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 fontSize = 12.sp,
                 color = LossRed
             )
+            session.status == TouchTurnCandleStatus.READY && session.candle == null -> {
+                var tick by remember { mutableIntStateOf(0) }
+                LaunchedEffect(session.openingBarTime, session.marketZoneId) {
+                    while (true) {
+                        delay(1_000)
+                        tick++
+                    }
+                }
+                val closeStatus = remember(session, tick) { session.candleCloseStatus() }
+                val currency = session.currencyCode
+                val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
+                val statusMessage = when (closeStatus) {
+                    FirstCandleCloseStatus.FORMING ->
+                        "15-minute bar still forming — OHLC available after bar close."
+                    FirstCandleCloseStatus.CLOSED ->
+                        "Bar closed — loading final 15-minute OHLC from IB…"
+                    else -> "Opening bar timing unknown."
+                }
+                Text(statusMessage, fontSize = 12.sp, color = TextSecondary)
+                session.openingBarTime?.let { time ->
+                    Text(time, fontSize = 10.sp, color = TextSecondary, maxLines = 1)
+                }
+                session.adr14?.let { adr ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TouchTurnMetric("ADR (14d)", fmt(adr), Modifier.weight(1f), compact = true)
+                        TouchTurnMetric("25% thresh.", fmt(session.rangeThreshold), Modifier.weight(1f), compact = true)
+                    }
+                }
+            }
             session.candle != null -> {
                 var tick by remember { mutableIntStateOf(0) }
                 LaunchedEffect(session.candle.time, session.marketZoneId) {
@@ -1491,20 +1523,22 @@ internal fun TouchTurnOrderPreviewChart(
         label = "touchTurnExecutedOrderThrobStroke"
     )
     val entryColor = Color(0xFF42A5F5)
+    val closeBufferColor = Color(0xFFFFB74D)
     val bodyColor = when (setup.candleColor) {
         FirstCandleColor.GREEN -> CandleGreen
         FirstCandleColor.RED -> CandleRed
         FirstCandleColor.DOJI -> TextSecondary
     }
-    val prices = listOf(
-        candle.high,
-        candle.low,
-        candle.open,
-        candle.close,
-        setup.entry,
-        setup.stopLoss,
-        setup.takeProfit
-    )
+    val prices = buildList {
+        add(candle.high)
+        add(candle.low)
+        add(candle.open)
+        add(candle.close)
+        add(setup.entry)
+        add(setup.stopLoss)
+        add(setup.takeProfit)
+        TouchTurnLogic.closeConfirmationBufferPrice(setup)?.let { add(it) }
+    }
     val pad = candle.range * 0.15
     val priceTop = prices.max() + pad
     val priceBottom = prices.min() - pad
@@ -1512,31 +1546,48 @@ internal fun TouchTurnOrderPreviewChart(
     fun yFraction(price: Double): Float =
         ((priceTop - price) / span).toFloat().coerceIn(0f, 1f)
 
-    val levels = listOf(
-        TouchTurnPriceLevel(candle.high, "High", TextSecondary.copy(alpha = 0.55f), 1f),
-        TouchTurnPriceLevel(candle.low, "Low", TextSecondary.copy(alpha = 0.55f), 1f),
-        TouchTurnPriceLevel(
-            setup.entry,
-            "Entry (${TouchTurnLogic.tradeSideLabel(setup.side)})",
-            entryColor,
-            2.5f,
-            TouchTurnOrderLevelKind.ENTRY
-        ),
-        TouchTurnPriceLevel(
-            setup.takeProfit,
-            "Take profit (${TouchTurnLogic.takeProfitFibLabel(setup.candleColor)})",
-            GainGreen,
-            2.5f,
-            TouchTurnOrderLevelKind.TAKE_PROFIT
-        ),
-        TouchTurnPriceLevel(
-            setup.stopLoss,
-            "Stop loss",
-            LossRed,
-            2.5f,
-            TouchTurnOrderLevelKind.STOP_LOSS
+    val levels = buildList {
+        add(TouchTurnPriceLevel(candle.high, "High", TextSecondary.copy(alpha = 0.55f), 1f))
+        add(TouchTurnPriceLevel(candle.low, "Low", TextSecondary.copy(alpha = 0.55f), 1f))
+        add(
+            TouchTurnPriceLevel(
+                setup.entry,
+                "Entry (${TouchTurnLogic.tradeSideLabel(setup.side)})",
+                entryColor,
+                2.5f,
+                TouchTurnOrderLevelKind.ENTRY
+            )
         )
-    )
+        TouchTurnLogic.closeConfirmationBufferPrice(setup)?.let { bufferPrice ->
+            add(
+                TouchTurnPriceLevel(
+                    bufferPrice,
+                    "Close buffer (15%)",
+                    closeBufferColor,
+                    2f,
+                    TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER
+                )
+            )
+        }
+        add(
+            TouchTurnPriceLevel(
+                setup.takeProfit,
+                "Take profit (${TouchTurnLogic.takeProfitFibLabel(setup.candleColor)})",
+                GainGreen,
+                2.5f,
+                TouchTurnOrderLevelKind.TAKE_PROFIT
+            )
+        )
+        add(
+            TouchTurnPriceLevel(
+                setup.stopLoss,
+                "Stop loss",
+                LossRed,
+                2.5f,
+                TouchTurnOrderLevelKind.STOP_LOSS
+            )
+        )
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -1668,6 +1719,7 @@ internal fun TouchTurnOrderPreviewChart(
         ) {
             TouchTurnLegendDot("Bar", bodyColor)
             TouchTurnLegendDot("Entry", entryColor)
+            TouchTurnLegendDot("Close buffer", closeBufferColor)
             TouchTurnLegendDot("TP", GainGreen)
             TouchTurnLegendDot("SL", LossRed)
             val sideLabel = if (setup.side == TouchTurnTradeSide.SHORT) "Short" else "Long"

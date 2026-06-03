@@ -23,6 +23,7 @@ data class DeploymentRecord(
 data class TouchTurnSessionRecord(
     val sessionDate: String,
     val status: String,
+    val openingBarTime: String? = null,
     val candle: OhlcBarRecord? = null,
     val setup: TouchTurnBracketSetupRecord? = null,
     val errorMessage: String? = null,

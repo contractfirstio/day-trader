@@ -10,7 +10,8 @@ import daytrader.domain.TouchTurnSessionContext
 object TouchTurnFormingBarPriceChartUiMapper {
     fun shouldRecordPrices(session: TouchTurnSessionContext): Boolean =
         session.status == TouchTurnCandleStatus.READY &&
-            session.candle != null &&
+            session.openingBarTime != null &&
+            session.candle == null &&
             session.candleCloseStatus() == FirstCandleCloseStatus.FORMING
 
     fun build(

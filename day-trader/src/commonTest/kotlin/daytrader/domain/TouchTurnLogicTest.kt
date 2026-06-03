@@ -194,6 +194,20 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun liquidityAwaitingClose_whenBarClosedButOhlcNotLoadedYet() {
+        val barTime = "20250522  09:30:00"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, "Asia/Hong_Kong")!!
+        val eval = TouchTurnLogic.liquidityCandleEvaluation(
+            candle = null,
+            barTime = barTime,
+            marketZoneId = "Asia/Hong_Kong",
+            rangeThreshold = 2.0,
+            nowEpochMillis = barEnd
+        )
+        assertEquals(LiquidityCandleEvaluation.AWAITING_CLOSE, eval)
+    }
+
+    @Test
     fun liquidityAwaitingClose_whileBarForming() {
         val bar = OhlcBar(
             open = 400.0,
@@ -294,6 +308,27 @@ class TouchTurnLogicTest {
         assertEquals(400.0, plan.orders[0].price, 0.001)
         assertEquals("SELL", plan.orders[1].action)
         assertEquals("STP", plan.orders[2].orderType)
+    }
+
+    @Test
+    fun withFirstFifteenMinuteCandle_doesNotStoreOpeningBarOhlc() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 401.0, time = "20250522  09:30:00")
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 5000
+        ).beginTouchTurnSession("2025-05-22")
+            .withFirstFifteenMinuteCandle(
+                sessionDate = "2025-05-22",
+                candle = bar,
+                atr14 = 10.0,
+                volumeSma20 = 1_000_000.0,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        val session = deployment.touchTurnSession!!
+        assertEquals(bar.time, session.openingBarTime)
+        assertEquals(null, session.candle)
+        assertEquals(null, session.setup)
     }
 
     @Test
@@ -481,6 +516,55 @@ class TouchTurnLogicTest {
             TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
         )
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+    }
+
+    @Test
+    fun closeConfirmationBufferPrice_isBelowEntryForShortAndAboveForLong() {
+        val greenBar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 405.0)
+        val greenSetup = TouchTurnLogic.computeBracketSetup(greenBar, rangeThreshold = 5.0)
+        assertEquals(408.5, TouchTurnLogic.closeConfirmationBufferPrice(greenSetup))
+
+        val redBar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 405.0)
+        val redSetup = TouchTurnLogic.computeBracketSetup(redBar, rangeThreshold = 5.0)
+        assertEquals(401.5, TouchTurnLogic.closeConfirmationBufferPrice(redSetup))
+    }
+
+    @Test
+    fun closeConfirmation_failsWhenGreenCloseTooCloseToEntry() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 410.0,
+            low = 400.0,
+            close = 409.5,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val minDistance = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup)
+        assertEquals(1.5, minDistance, absoluteTolerance = 1e-9)
+        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        assertEquals(
+            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
+        )
+    }
+
+    @Test
+    fun closeConfirmation_failsWhenRedCloseTooCloseToEntry() {
+        val bar = OhlcBar(
+            open = 410.0,
+            high = 410.0,
+            low = 400.0,
+            close = 400.5,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        assertEquals(
+            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
+        )
     }
 
     @Test
