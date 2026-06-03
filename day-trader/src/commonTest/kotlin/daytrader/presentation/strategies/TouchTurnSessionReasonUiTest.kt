@@ -47,6 +47,52 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
+    fun liveStatus_entryFilledWhileClosing_doesNotSayClosedWithoutFill() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-03",
+            status = TouchTurnCandleStatus.READY,
+            ordersPlacedForSession = true,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            milestones = TouchTurnMilestoneTimestamps(
+                ordersPlacedAt = "2026-06-03T09:45:03",
+                positionOpenedAt = "2026-06-03T09:46:00",
+                closingSessionAt = "2026-06-03T09:47:00"
+            )
+        )
+        val ui = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            closing = true,
+            nowEpochMillis = System.currentTimeMillis(),
+            deploymentRunning = true
+        )
+        assertNotNull(ui)
+        assertContains(ui!!.headline, "Entry filled")
+    }
+
+    @Test
+    fun liveStatus_openDeadlineWhileRunning_usesStoppingCopy() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-03",
+            status = TouchTurnCandleStatus.READY,
+            ordersPlacedForSession = true,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            milestones = TouchTurnMilestoneTimestamps(ordersPlacedAt = "2026-06-03T09:45:03")
+        )
+        val ui = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            closing = true,
+            nowEpochMillis = System.currentTimeMillis(),
+            deploymentRunning = true
+        )
+        assertNotNull(ui)
+        assertContains(ui!!.headline, "open deadline")
+    }
+
+    @Test
     fun liveStatus_orphanBrokerOrders_warnsWhenNotPlacedForSession() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-06-03",

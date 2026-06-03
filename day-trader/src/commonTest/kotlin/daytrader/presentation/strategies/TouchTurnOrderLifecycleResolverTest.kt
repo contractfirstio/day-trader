@@ -102,6 +102,26 @@ class TouchTurnOrderLifecycleResolverTest {
     }
 
     @Test
+    fun closed_afterEntryFillWhenFlatAndNoWorkingOrders() {
+        val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
+            session = session(ordersPlaced = true).copy(
+                milestones = TouchTurnMilestoneTimestamps(
+                    ordersPlacedAt = "2026-06-01T10:00:00",
+                    positionOpenedAt = "2026-06-01T10:01:00"
+                )
+            ),
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            inActiveTrade = false,
+            sessionEnded = false,
+            hasSessionTrades = false
+        )
+        assertEquals(TouchTurnOrderLifecyclePhase.CLOSED, lifecycle.phase)
+        assertFalse(lifecycle.showLiveOrdersPanel)
+        assertNull(lifecycle.statusMessage)
+    }
+
+    @Test
     fun closedNoFill_afterStopWithoutBrokerActivity() {
         val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
             session = session(ordersPlaced = true),

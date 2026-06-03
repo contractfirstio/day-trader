@@ -37,9 +37,10 @@ object TouchTurnOrderLifecycleResolver {
         val ordersCommitted = session?.ordersPlacedForSession == true
         val positionOpened = session?.milestones?.positionOpenedAt != null
 
+        val entryFilled = positionOpened || hasOpenPosition
         if (sessionEnded) {
             return when {
-                hasSessionTrades || positionOpened || hasOpenPosition ->
+                hasSessionTrades || entryFilled ->
                     closed(showOrdersPreview = true)
                 ordersCommitted ->
                     TouchTurnOrderLifecycleUi(
@@ -59,10 +60,15 @@ object TouchTurnOrderLifecycleResolver {
         val phase = when {
             inActiveTrade || hasOpenPosition -> TouchTurnOrderLifecyclePhase.IN_POSITION
             hasOpenOrders && ordersCommitted -> TouchTurnOrderLifecyclePhase.AWAITING_ENTRY
+            ordersCommitted && entryFilled -> TouchTurnOrderLifecyclePhase.CLOSED
             ordersCommitted -> TouchTurnOrderLifecyclePhase.SUBMITTED_PENDING_BROKER_VISIBILITY
             else -> TouchTurnOrderLifecyclePhase.NOT_PLACED
         }
-        return livePhase(phase, session)
+        return if (phase == TouchTurnOrderLifecyclePhase.CLOSED) {
+            closed(showOrdersPreview = false)
+        } else {
+            livePhase(phase, session)
+        }
     }
 
     private fun notPlaced(

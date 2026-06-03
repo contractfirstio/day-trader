@@ -6,6 +6,7 @@ import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.SessionTrade
 import daytrader.domain.SessionStatus
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
@@ -395,7 +396,8 @@ object TouchTurnStatusBreadcrumbMapper {
             nowEpochMillis = nowEpochMillis,
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
-            closing = closing
+            closing = closing,
+            deploymentRunning = instance.status == DeploymentStatus.RUNNING
         )
         logPipelineGraph(
             instanceId = instance.id,
@@ -499,7 +501,8 @@ object TouchTurnStatusBreadcrumbMapper {
         nowEpochMillis: Long = System.currentTimeMillis(),
         hasOpenPosition: Boolean = false,
         hasOpenOrders: Boolean = false,
-        closing: Boolean = false
+        closing: Boolean = false,
+        deploymentRunning: Boolean = false
     ): TouchTurnPipelineGraph {
         val noTradeState = noTradeNodeState(steps, session, nowEpochMillis)
         val activePath = activePathFor(steps, noTradeState, session, nowEpochMillis)
@@ -511,7 +514,8 @@ object TouchTurnStatusBreadcrumbMapper {
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
             closing = closing,
-            nowEpochMillis = nowEpochMillis
+            nowEpochMillis = nowEpochMillis,
+            deploymentRunning = deploymentRunning
         )
         return TouchTurnPipelineGraph(
             nodes = nodes,

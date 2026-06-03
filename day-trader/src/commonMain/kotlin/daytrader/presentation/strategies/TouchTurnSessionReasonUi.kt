@@ -149,12 +149,16 @@ object TouchTurnSessionReasonUi {
         )
     }
 
+    fun bracketEntryFilled(session: TouchTurnSessionContext?, hasOpenPosition: Boolean): Boolean =
+        hasOpenPosition || session?.milestones?.positionOpenedAt != null
+
     fun liveStatus(
         session: TouchTurnSessionContext?,
         hasOpenPosition: Boolean,
         hasOpenOrders: Boolean,
         closing: Boolean,
-        nowEpochMillis: Long
+        nowEpochMillis: Long,
+        deploymentRunning: Boolean = false
     ): TouchTurnSessionStatusUi? {
         if (session == null) return null
 
@@ -194,11 +198,27 @@ object TouchTurnSessionReasonUi {
         }
 
         if (session.ordersPlacedForSession || session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
+            val entryFilled = bracketEntryFilled(session, hasOpenPosition)
             return when {
+                hasOpenPosition -> TouchTurnSessionStatusUi(
+                    headline = "In position — TP / SL working",
+                    detail = "Manage the trade on the chart or via broker orders. Session auto-stops when flat after a completed cycle.",
+                    severity = TouchTurnReasonSeverity.Info
+                )
                 hasOpenOrders -> TouchTurnSessionStatusUi(
                     headline = "Waiting for entry fill",
                     detail = "Bracket is at the broker. Entry, stop, and take-profit remain working until price touches entry or orders are cancelled.",
                     severity = TouchTurnReasonSeverity.Info
+                )
+                entryFilled -> TouchTurnSessionStatusUi(
+                    headline = "Entry filled — completing trade cycle",
+                    detail = "Entry fill was recorded. The session stops once the round trip is flat and working orders are cleared.",
+                    severity = TouchTurnReasonSeverity.Info
+                )
+                closing && deploymentRunning -> TouchTurnSessionStatusUi(
+                    headline = "Stopping session — open deadline",
+                    detail = "The open deadline was reached. Working bracket orders are being cancelled.",
+                    severity = TouchTurnReasonSeverity.Warning
                 )
                 closing -> TouchTurnSessionStatusUi(
                     headline = "Bracket closed without fill",
