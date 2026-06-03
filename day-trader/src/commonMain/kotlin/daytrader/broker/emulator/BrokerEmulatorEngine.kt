@@ -331,6 +331,17 @@ class BrokerEmulatorEngine(
                 entryScenario = entryScenario
             )
         } else {
+            val legPrices = adjustedPlan.orders.map { it.price }
+            val range = (legPrices.max() - legPrices.min()).coerceAtLeast(0.01)
+            val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
+            bracketEntryPending[symbol] = BracketEntryPending(
+                entryOrderId = entryId,
+                entryPrice = entryPrice,
+                openingBarClose = entryPrice,
+                isBuyEntry = isBuyEntry,
+                scenario = TouchTurnEntryScenario.APPROACH_AND_FILL,
+                range = range
+            )
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
                 orderIds = allOrderIds,
@@ -721,10 +732,45 @@ class BrokerEmulatorEngine(
         return parent.status == "Filled"
     }
 
+    private fun entryTouchBuffer(range: Double): Double =
+        (range * 0.05).coerceAtLeast(0.05)
+
+    private fun recordEntryApproachSide(symbol: String, quote: EmulatorMarketQuote) {
+        val pending = bracketEntryPending[symbol] ?: return
+        val buffer = entryTouchBuffer(pending.range)
+        when {
+            pending.isBuyEntry && quote.ask > pending.entryPrice + buffer ->
+                pending.sawApproachSide = true
+            !pending.isBuyEntry && quote.bid < pending.entryPrice - buffer ->
+                pending.sawApproachSide = true
+        }
+    }
+
+    private fun touchTurnEntryLimitMayFill(order: EmulatorOrder, quote: EmulatorMarketQuote): Boolean {
+        if (order.parentId != 0 || !bracketManagedOrderIds.contains(order.orderId)) {
+            return true
+        }
+        if (!config.pricingSource.isExternal) {
+            return true
+        }
+        val norm = SymbolMarkets.normalizeSymbol(order.symbol)
+        val pending = bracketEntryPending[norm] ?: return true
+        recordEntryApproachSide(norm, quote)
+        val limit = order.limitPrice ?: return false
+        val limitCrossed = when (order.action.uppercase()) {
+            "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
+            "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)
+            else -> false
+        }
+        if (!limitCrossed) return false
+        return pending.sawApproachSide
+    }
+
     private fun maybeFillLimitOrder(order: EmulatorOrder) {
         if (!quoteBook.canTriggerFills(order.symbol)) return
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return
         val limit = order.limitPrice ?: return
+        if (!touchTurnEntryLimitMayFill(order, quote)) return
         val shouldFill = when (order.action.uppercase()) {
             "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
             "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)

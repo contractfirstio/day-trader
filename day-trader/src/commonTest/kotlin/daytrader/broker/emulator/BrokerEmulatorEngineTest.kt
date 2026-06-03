@@ -132,6 +132,37 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
+    fun liveIbMode_doesNotInstantFillMarketableBuyFarBelowEntry() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 0.9,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.LONG,
+            entry = 84.8,
+            stopLoss = 84.628,
+            takeProfit = 85.1438
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("3690", setup, maxDollars = 500, currencyCode = "HKD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        engine.ingestLiveQuote(
+            "3690",
+            LiveQuote(symbol = "3690", bid = 83.3, ask = 83.4, last = 83.35),
+            priorClose = null
+        )
+        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
+    }
+
+    @Test
     fun liveIbMode_ignoresLastOnlyUntilBidAndAskArrive() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(

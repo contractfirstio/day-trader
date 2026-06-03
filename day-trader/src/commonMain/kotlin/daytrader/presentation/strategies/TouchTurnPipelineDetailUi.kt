@@ -181,15 +181,7 @@ object TouchTurnPipelineDetailUiMapper {
     private fun resolvedCloseConfirmation(
         session: TouchTurnSessionContext,
         nowEpochMillis: Long
-    ): TouchTurnCloseConfirmation {
-        if (session.ordersPlacedForSession ||
-            session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED ||
-            session.milestones.closeConfirmedAt != null
-        ) {
-            return TouchTurnCloseConfirmation.PASSED
-        }
-        return session.closeConfirmation(nowEpochMillis)
-    }
+    ): TouchTurnCloseConfirmation = session.pipelineCloseConfirmation(nowEpochMillis)
 
     private fun formatCountdown(remainingMs: Long): String {
         val totalSec = remainingMs / 1000

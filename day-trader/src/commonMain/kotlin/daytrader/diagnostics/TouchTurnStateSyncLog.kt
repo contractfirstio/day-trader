@@ -81,7 +81,7 @@ object TouchTurnStateSyncLog {
             ordersPlacedForSession = session?.ordersPlacedForSession == true,
             candleCloseStatus = session?.candleCloseStatus(nowEpochMillis),
             liquidityEvaluation = session?.liquidityEvaluation(nowEpochMillis),
-            closeConfirmation = closeConfirmation ?: session?.closeConfirmation(nowEpochMillis),
+            closeConfirmation = closeConfirmation ?: session?.pipelineCloseConfirmation(nowEpochMillis),
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
             closingPhase = closingPhase,
@@ -208,6 +208,9 @@ object TouchTurnStateSyncLog {
 
         if (ui.usesNoTradePipeline && outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
             mismatches += "ui usesNoTradePipeline=true but engine decisionOutcome=TRADE_BRACKET_SUBMITTED"
+        }
+        if (engine.entryOrdersPermitted == true && ui.usesNoTradePipeline) {
+            mismatches += "engine entryOrdersPermitted=true but ui usesNoTradePipeline=true"
         }
         if (!ui.usesNoTradePipeline && outcome in noTradeOutcomes && ui.phaseTerminal) {
             mismatches += "engine decisionOutcome=$outcome but ui usesNoTradePipeline=false at terminal phase"

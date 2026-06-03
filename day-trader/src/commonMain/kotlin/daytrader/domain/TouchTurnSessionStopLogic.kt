@@ -11,7 +11,7 @@ object TouchTurnSessionStopLogic {
     fun sessionOpenEpochMillis(instance: StrategyDeployment, sessionDateIso: String): Long? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         val zoneId = instance.touchTurnSession?.marketZoneId ?: DeploymentMarket.effectiveZoneId(instance)
-        val barTime = instance.touchTurnSession?.candle?.time
+        val barTime = instance.touchTurnSession?.resolvedOpeningBarTime()
         return TouchTurnLogic.marketOpenEpochMillis(sessionDateIso, zoneId, barTime)
     }
 

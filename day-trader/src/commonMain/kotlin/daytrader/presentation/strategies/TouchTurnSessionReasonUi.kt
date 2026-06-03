@@ -210,20 +210,6 @@ object TouchTurnSessionReasonUi {
             LiquidityCandleEvaluation.LIQUIDITY -> Unit
         }
 
-        when (session.closeConfirmation(nowEpochMillis)) {
-            TouchTurnCloseConfirmation.FAILED ->
-                return forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED, session)
-            TouchTurnCloseConfirmation.EXPIRED ->
-                return forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED, session)
-            TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
-            TouchTurnCloseConfirmation.UNKNOWN -> return TouchTurnSessionStatusUi(
-                headline = "Close confirmation pending",
-                detail = "Checking whether the bar close confirms the touch-and-turn entry (1 minute after bar close).",
-                severity = TouchTurnReasonSeverity.Info
-            )
-            TouchTurnCloseConfirmation.PASSED -> Unit
-        }
-
         if (session.entryOrdersPermitted == false) {
             return TouchTurnSessionStatusUi(
                 headline = "Entry not permitted",
@@ -238,6 +224,20 @@ object TouchTurnSessionReasonUi {
                 detail = "Liquidity and close confirmation passed; submitting entry, stop, and take-profit to the broker.",
                 severity = TouchTurnReasonSeverity.Info
             )
+        }
+
+        when (session.pipelineCloseConfirmation(nowEpochMillis)) {
+            TouchTurnCloseConfirmation.FAILED ->
+                return forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED, session)
+            TouchTurnCloseConfirmation.EXPIRED ->
+                return forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED, session)
+            TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
+            TouchTurnCloseConfirmation.UNKNOWN -> return TouchTurnSessionStatusUi(
+                headline = "Close confirmation pending",
+                detail = "Checking whether the bar close confirms the touch-and-turn entry (1 minute after bar close).",
+                severity = TouchTurnReasonSeverity.Info
+            )
+            TouchTurnCloseConfirmation.PASSED -> Unit
         }
 
         return null

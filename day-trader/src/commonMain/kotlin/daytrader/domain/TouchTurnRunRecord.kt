@@ -112,12 +112,30 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
     if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
     if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
-    when (session.closeConfirmation(evalInstant)) {
-        TouchTurnCloseConfirmation.FAILED ->
-            return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-        TouchTurnCloseConfirmation.EXPIRED ->
-            return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
-        else -> Unit
+    when (session.entryOrdersPermitted) {
+        true ->
+            return if (session.ordersPlacedForSession) {
+                TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+            } else {
+                TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            }
+        false -> {
+            session.decisionOutcome?.let { return it }
+            when (session.pipelineCloseConfirmation(evalInstant)) {
+                TouchTurnCloseConfirmation.FAILED ->
+                    return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+                TouchTurnCloseConfirmation.EXPIRED ->
+                    return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+                else -> return TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            }
+        }
+        null -> when (session.pipelineCloseConfirmation(evalInstant)) {
+            TouchTurnCloseConfirmation.FAILED ->
+                return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+            TouchTurnCloseConfirmation.EXPIRED ->
+                return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+            else -> Unit
+        }
     }
     return TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
 }

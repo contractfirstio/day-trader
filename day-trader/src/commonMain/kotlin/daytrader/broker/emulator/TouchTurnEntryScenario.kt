@@ -22,5 +22,10 @@ internal class BracketEntryPending(
     val isBuyEntry: Boolean,
     val scenario: TouchTurnEntryScenario,
     val range: Double,
-    var ticksElapsed: Int = 0
+    var ticksElapsed: Int = 0,
+    /**
+     * Live-exchange mode: true after bid/ask showed price on the approach side of entry
+     * (above a long limit / below a short limit) so resting limits are not marketable fills.
+     */
+    var sawApproachSide: Boolean = false
 )

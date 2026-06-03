@@ -242,26 +242,22 @@ object TouchTurnStatusBreadcrumbMapper {
             LiquidityCandleEvaluation.LIQUIDITY -> Unit
         }
 
-        val closeConfirmation = session.closeConfirmation(nowEpochMillis)
+        if (session.entryOrdersPermitted != null) {
+            return when (session.entryOrdersPermitted) {
+                true -> Phase(index = IDX_ORDERS)
+                false -> Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
+            }
+        }
+
+        val closeConfirmation = session.pipelineCloseConfirmation(nowEpochMillis)
         when (closeConfirmation) {
             TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
             TouchTurnCloseConfirmation.UNKNOWN -> return Phase(index = IDX_CONFIRM)
             TouchTurnCloseConfirmation.FAILED,
             TouchTurnCloseConfirmation.EXPIRED ->
                 return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
-            TouchTurnCloseConfirmation.PASSED -> Unit
+            TouchTurnCloseConfirmation.PASSED -> return Phase(index = IDX_ORDERS)
         }
-
-        val entryPermitted = session.entryOrdersPermitted
-        if (entryPermitted == false) {
-            return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
-        }
-
-        if (entryPermitted == true) {
-            return Phase(index = IDX_ORDERS)
-        }
-
-        return Phase(index = IDX_LIQUIDITY)
     }
 
     /** Most recent closed session with a persisted pipeline log (Live tab after stop). */
@@ -955,7 +951,12 @@ object TouchTurnStatusBreadcrumbMapper {
         if (session == null) return false
         if (tradeOrdersCommitted(session)) return false
         if (session.decisionOutcome in noTradeAfterConfirmationOutcomes) return true
-        return session.closeConfirmation(nowEpochMillis) in setOf(
+        when (session.entryOrdersPermitted) {
+            true -> return false
+            false -> return true
+            null -> Unit
+        }
+        return session.pipelineCloseConfirmation(nowEpochMillis) in setOf(
             TouchTurnCloseConfirmation.FAILED,
             TouchTurnCloseConfirmation.EXPIRED
         )
@@ -1015,7 +1016,7 @@ object TouchTurnStatusBreadcrumbMapper {
             phaseSkippedFrom = phase.skippedFromIndex,
             phaseTerminal = phase.terminal,
             usesNoTradePipeline = usesNoTradePipeline(session, steps, nowEpochMillis),
-            closeConfirmation = session?.closeConfirmation(nowEpochMillis),
+            closeConfirmation = session?.pipelineCloseConfirmation(nowEpochMillis),
             nowEpochMillis = nowEpochMillis,
             source = source
         )
@@ -1033,7 +1034,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 phaseSkippedFrom = phase.skippedFromIndex,
                 phaseTerminal = phase.terminal,
                 usesNoTradePipeline = usesNoTradePipeline(session, steps, nowEpochMillis),
-                closeConfirmation = session?.closeConfirmation(nowEpochMillis),
+                closeConfirmation = session?.pipelineCloseConfirmation(nowEpochMillis),
                 nowEpochMillis = nowEpochMillis,
                 trigger = syncTrigger,
                 triggerDetails = syncTriggerDetails

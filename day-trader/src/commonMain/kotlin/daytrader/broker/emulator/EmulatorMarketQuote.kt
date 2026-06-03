@@ -93,6 +93,16 @@ internal object EmulatorMarketQuoteBook {
     /** Sell limit: hit the bid — fill when bid is at or above the limit. */
     fun sellLimitFillable(bid: Double, limit: Double): Boolean = bid >= limit
 
+    /**
+     * Touch Turn entry: buy limit is not marketable when ask has blown through the level
+     * (same 5% of bracket range buffer as strategy gates, minimum tick).
+     */
+    fun buyEntryTouchable(ask: Double, limit: Double, touchBuffer: Double): Boolean =
+        ask >= limit - touchBuffer
+
+    fun sellEntryTouchable(bid: Double, limit: Double, touchBuffer: Double): Boolean =
+        bid <= limit + touchBuffer
+
     /** Sell stop (e.g. long protection): triggered when bid trades at or through the stop. */
     fun sellStopTriggered(bid: Double, stop: Double): Boolean = bid <= stop
 

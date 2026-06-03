@@ -192,6 +192,32 @@ data class TouchTurnSessionContext(
     fun closeConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation =
         TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis, sessionDate)
 
+    /**
+     * Close confirmation for pipeline / UI — mirrors engine gates after liquidity evaluation.
+     * Strict [closeConfirmation] may still fail (e.g. turn-zone rules) while [entryOrdersPermitted]
+     * is true on the emulator happy path; the UI follows [entryOrdersPermitted] and [decisionOutcome].
+     */
+    fun pipelineCloseConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation {
+        if (ordersPlacedForSession ||
+            decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED ||
+            milestones.closeConfirmedAt != null
+        ) {
+            return TouchTurnCloseConfirmation.PASSED
+        }
+        when (entryOrdersPermitted) {
+            true -> return TouchTurnCloseConfirmation.PASSED
+            false -> return when (decisionOutcome) {
+                TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED ->
+                    TouchTurnCloseConfirmation.FAILED
+                TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
+                    TouchTurnCloseConfirmation.EXPIRED
+                else -> closeConfirmation(nowEpochMillis)
+            }
+            null -> return closeConfirmation(nowEpochMillis)
+        }
+    }
+
     /** Live panel: elapsed since the most recent 09:30 RTH open in [marketZoneId] (wall clock). */
     fun millisSinceLastMarketOpen(
         marketZoneId: String,
@@ -316,6 +342,22 @@ object TouchTurnLogic {
         val scheduledBarEndMillis = sessionDateIso?.let { date ->
             marketOpenEpochMillis(date, marketZoneId)?.plus(BAR_DURATION_MS)
         }
+        if (barTime != null) {
+            val barStartMillis = barStartEpochMillis(barTime, marketZoneId)
+            val barEndMillis = barEndEpochMillis(barTime, marketZoneId)
+            if (barStartMillis != null && barEndMillis != null) {
+                return when {
+                    nowEpochMillis < barStartMillis &&
+                        scheduledBarEndMillis != null &&
+                        nowEpochMillis >= scheduledBarEndMillis ->
+                        FirstCandleCloseStatus.CLOSED
+                    nowEpochMillis < barEndMillis ->
+                        FirstCandleCloseStatus.FORMING
+                    else ->
+                        FirstCandleCloseStatus.CLOSED
+                }
+            }
+        }
         if (scheduledBarEndMillis != null && nowEpochMillis >= scheduledBarEndMillis) {
             return FirstCandleCloseStatus.CLOSED
         }
@@ -390,7 +432,7 @@ object TouchTurnLogic {
         if (!closeConfirmationWithinDeadline(bar, marketZoneId, nowEpochMillis)) {
             return TouchTurnCloseConfirmation.EXPIRED
         }
-        val passes = closeConfirmsTurn(bracket, bar.close)
+        val passes = closeConfirmsTurn(bracket, bar)
         return if (passes) TouchTurnCloseConfirmation.PASSED else TouchTurnCloseConfirmation.FAILED
     }
 
@@ -437,7 +479,7 @@ object TouchTurnLogic {
         }
     }
 
-    fun closeConfirmsTurn(setup: TouchTurnBracketSetup, close: Double): Boolean {
+    fun closeSeparatesFromEntry(setup: TouchTurnBracketSetup, close: Double): Boolean {
         val minDistance = closeConfirmationMinDistanceFromEntry(setup)
         return when (setup.candleColor) {
             FirstCandleColor.GREEN -> {
@@ -451,6 +493,28 @@ object TouchTurnLogic {
             FirstCandleColor.DOJI -> false
         }
     }
+
+    /**
+     * Close must sit in the turn zone of the 15m range: lower third for shorts (green),
+     * upper third for longs (red).
+     */
+    fun closePositionInTurnZone(setup: TouchTurnBracketSetup, bar: OhlcBar, price: Double): Boolean {
+        val ratio = closePositionRatioForPrice(bar, price) ?: return false
+        return when (setup.candleColor) {
+            FirstCandleColor.GREEN -> ratio <= TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX
+            FirstCandleColor.RED -> ratio >= TouchTurnDefaults.CLOSE_POSITION_LONG_MIN
+            FirstCandleColor.DOJI -> false
+        }
+    }
+
+    fun closePositionRatioForPrice(bar: OhlcBar, price: Double): Double? {
+        val range = bar.range
+        if (range <= 0.0) return null
+        return ((price - bar.low) / range).coerceIn(0.0, 1.0)
+    }
+
+    fun closeConfirmsTurn(setup: TouchTurnBracketSetup, bar: OhlcBar): Boolean =
+        closeSeparatesFromEntry(setup, bar.close) && closePositionInTurnZone(setup, bar, bar.close)
 
     fun entryTouchBuffer(setup: TouchTurnBracketSetup): Double =
         (setup.range * TouchTurnDefaults.ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE).coerceAtLeast(
@@ -469,20 +533,16 @@ object TouchTurnLogic {
         }
     }
 
-    /** Same separation rule as [closeConfirmsTurn] but applied to a live mid at decision time. */
-    fun liveCloseConfirmsTurn(setup: TouchTurnBracketSetup, liveMid: Double): Boolean =
-        closeConfirmsTurn(setup, liveMid)
+    /** Bar separation + turn-zone rules applied to a live price on the closed 15m bar range. */
+    fun liveCloseConfirmsTurn(setup: TouchTurnBracketSetup, bar: OhlcBar, livePrice: Double): Boolean =
+        closeSeparatesFromEntry(setup, livePrice) && closePositionInTurnZone(setup, bar, livePrice)
 
     fun resolveLiveMid(bid: Double?, ask: Double?, last: Double?): Double? {
         if (bid != null && ask != null && bid > 0.0 && ask > 0.0) return (bid + ask) / 2.0
         return last?.takeIf { it > 0.0 }
     }
 
-    fun closePositionRatio(bar: OhlcBar): Double? {
-        val range = bar.range
-        if (range <= 0.0) return null
-        return ((bar.close - bar.low) / range).coerceIn(0.0, 1.0)
-    }
+    fun closePositionRatio(bar: OhlcBar): Double? = closePositionRatioForPrice(bar, bar.close)
 
     fun entryWindowExpiredAlert(
         candle: OhlcBar?,
@@ -1208,7 +1268,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val barCloseOk = !enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED
     val liveQuoteOk = !requireLivePriceChecks || (liveBid != null && liveAsk != null)
     val liveCloseOk = !requireLivePriceChecks ||
-        (liveClosePrice != null && TouchTurnLogic.liveCloseConfirmsTurn(setup, liveClosePrice))
+        (liveClosePrice != null && TouchTurnLogic.liveCloseConfirmsTurn(setup, candle, liveClosePrice))
     val liveEntryOk = !requireLivePriceChecks ||
         (liveBid != null && liveAsk != null && TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
     val closeGatePassed = barCloseOk && liveCloseOk

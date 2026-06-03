@@ -502,7 +502,7 @@ fun TouchTurnPipelineSectionOrdersPreview(
     }
     val closeStatus = remember(session, tick) { session.candleCloseStatus() }
     val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
-    val closeConfirmation = remember(session, tick) { session.closeConfirmation() }
+    val closeConfirmation = remember(session, tick) { session.pipelineCloseConfirmation() }
     val currency = session.currencyCode
     val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
 

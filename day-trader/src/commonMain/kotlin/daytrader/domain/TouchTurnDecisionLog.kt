@@ -84,7 +84,9 @@ object TouchTurnDecisionLog {
         val withinDeadline = candle?.let {
             TouchTurnLogic.closeConfirmationWithinDeadline(it, session.marketZoneId, nowEpochMillis)
         }
-        val confirmsTurn = setup?.let { TouchTurnLogic.closeConfirmsTurn(it, candle?.close ?: 0.0) }
+        val confirmsTurn = setup?.let { s ->
+            candle?.let { TouchTurnLogic.closeConfirmsTurn(s, it) }
+        }
         val millisAfterBarEnd = barEnd?.let { (nowEpochMillis - it).coerceAtLeast(0) }
         line(
             "close confirmation context=$context instance=$instanceId symbol=$symbol " +
@@ -275,12 +277,19 @@ object TouchTurnDecisionLog {
     private fun closeConfirmationRule(setup: TouchTurnBracketSetup, close: Double): String {
         val minDistance = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup)
         val bufferPct = (TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE * 100).toInt()
+        val zoneRule = when (setup.candleColor) {
+            FirstCandleColor.GREEN ->
+                "close in lower ≤${(TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX * 100).toInt()}% of bar range"
+            FirstCandleColor.RED ->
+                "close in upper ≥${(TouchTurnDefaults.CLOSE_POSITION_LONG_MIN * 100).toInt()}% of bar range"
+            FirstCandleColor.DOJI -> "DOJI not actionable"
+        }
         return when (setup.candleColor) {
             FirstCandleColor.RED ->
-                "(rule: RED requires close > entry by ≥${bufferPct}% of range (≥$minDistance); " +
+                "(rule: RED requires close > entry by ≥${bufferPct}% of range (≥$minDistance), $zoneRule; " +
                     "close=$close, entry=${setup.entry})"
             FirstCandleColor.GREEN ->
-                "(rule: GREEN requires close < entry by ≥${bufferPct}% of range (≥$minDistance); " +
+                "(rule: GREEN requires close < entry by ≥${bufferPct}% of range (≥$minDistance), $zoneRule; " +
                     "close=$close, entry=${setup.entry})"
             FirstCandleColor.DOJI -> "(rule: DOJI not actionable)"
         }
