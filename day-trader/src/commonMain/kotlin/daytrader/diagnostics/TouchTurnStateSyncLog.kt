@@ -286,6 +286,9 @@ object TouchTurnStateSyncLog {
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )

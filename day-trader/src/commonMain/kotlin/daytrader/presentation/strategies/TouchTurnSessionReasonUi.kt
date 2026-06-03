@@ -57,6 +57,21 @@ object TouchTurnSessionReasonUi {
             detail = "After the bar closed, price did not confirm the touch-and-turn entry within the allowed close-position band.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED -> TouchTurnSessionStatusUi(
+            headline = "No trade — live price did not confirm turn",
+            detail = "The completed bar passed close confirmation, but the current live price is no longer on the confirming side of the entry level.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE -> TouchTurnSessionStatusUi(
+            headline = "No trade — entry not touchable",
+            detail = "Live price has already moved through the entry level; a resting limit would fill immediately above or below the market.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> TouchTurnSessionStatusUi(
+            headline = "No trade — live quote unavailable",
+            detail = "Live bid/ask were required to validate entry and close confirmation but were not available from the broker feed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> TouchTurnSessionStatusUi(
             headline = "No trade — confirmation window expired",
             detail = "Close confirmation must pass within one minute after the opening 15-minute bar closes. The window expired before orders could be sent.",

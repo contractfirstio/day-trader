@@ -17,7 +17,13 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_NOT_LIQUIDITY,
     NO_TRADE_DOJI,
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+    /** Live tape no longer on the confirming side of entry at decision time (hybrid / live data). */
+    NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
+    /** Resting entry would be marketable — live price already through the touch level. */
+    NO_TRADE_ENTRY_NOT_TOUCHABLE,
+    /** Bid/ask unavailable when live price gates are required. */
+    NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
     NO_TRADE_ORDER_REJECTED,
     /** Opening 15m volume exceeded exhaustion threshold (high-conviction breakout). */
     NO_TRADE_VOLUME_EXHAUSTION,

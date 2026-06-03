@@ -452,6 +452,32 @@ object TouchTurnLogic {
         }
     }
 
+    fun entryTouchBuffer(setup: TouchTurnBracketSetup): Double =
+        (setup.range * TouchTurnDefaults.ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE).coerceAtLeast(
+            TouchTurnDefaults.MIN_STOP_DISTANCE
+        )
+
+    /**
+     * True when a resting limit at [setup.entry] can still represent a touch fill (live price has not
+     * already blown through the level beyond [entryTouchBuffer]).
+     */
+    fun liveEntryTouchable(setup: TouchTurnBracketSetup, bid: Double, ask: Double): Boolean {
+        val buffer = entryTouchBuffer(setup)
+        return when (setup.side) {
+            TouchTurnTradeSide.LONG -> ask >= setup.entry - buffer
+            TouchTurnTradeSide.SHORT -> bid <= setup.entry + buffer
+        }
+    }
+
+    /** Same separation rule as [closeConfirmsTurn] but applied to a live mid at decision time. */
+    fun liveCloseConfirmsTurn(setup: TouchTurnBracketSetup, liveMid: Double): Boolean =
+        closeConfirmsTurn(setup, liveMid)
+
+    fun resolveLiveMid(bid: Double?, ask: Double?, last: Double?): Double? {
+        if (bid != null && ask != null && bid > 0.0 && ask > 0.0) return (bid + ask) / 2.0
+        return last?.takeIf { it > 0.0 }
+    }
+
     fun closePositionRatio(bar: OhlcBar): Double? {
         val range = bar.range
         if (range <= 0.0) return null
@@ -1062,6 +1088,8 @@ object TouchTurnDefaults {
      * post-placement volume buffer can observe before a fill.
      */
     const val CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE = 0.15
+    /** Long: skip entry when ask is more than this fraction of bar range below entry (and vice versa for short). */
+    const val ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE = 0.05
     /** For short setups (green liquidity candle), require close in the lower X of range. */
     const val CLOSE_POSITION_SHORT_MAX = 0.35
     /** For long setups (red liquidity candle), require close in the upper X of range. */
@@ -1154,7 +1182,11 @@ fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): Stra
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
 fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     enforceCloseConfirmation: Boolean = true,
-    nowEpochMillis: Long = System.currentTimeMillis()
+    nowEpochMillis: Long = System.currentTimeMillis(),
+    liveBid: Double? = null,
+    liveAsk: Double? = null,
+    liveLast: Double? = null,
+    requireLivePriceChecks: Boolean = false
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val session = touchTurnSession ?: return this
@@ -1171,10 +1203,21 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     )
     val volumeSma = session.volumeSma20 ?: 0.0
     val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma)
+    val liveMid = TouchTurnLogic.resolveLiveMid(liveBid, liveAsk, liveLast)
+    val liveClosePrice = liveLast?.takeIf { it > 0.0 } ?: liveMid
+    val barCloseOk = !enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED
+    val liveQuoteOk = !requireLivePriceChecks || (liveBid != null && liveAsk != null)
+    val liveCloseOk = !requireLivePriceChecks ||
+        (liveClosePrice != null && TouchTurnLogic.liveCloseConfirmsTurn(setup, liveClosePrice))
+    val liveEntryOk = !requireLivePriceChecks ||
+        (liveBid != null && liveAsk != null && TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
+    val closeGatePassed = barCloseOk && liveCloseOk
     val entryOrdersPermitted = setup.isLiquidityCandle &&
         setup.isActionable &&
         !volumeExhausted &&
-        (!enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED)
+        closeGatePassed &&
+        liveQuoteOk &&
+        liveEntryOk
     val decisionOutcome = when {
         volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
         !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
@@ -1183,6 +1226,12 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
         enforceCloseConfirmation && closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+        requireLivePriceChecks && !liveQuoteOk ->
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
+        requireLivePriceChecks && liveClosePrice != null && !liveCloseOk ->
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED
+        requireLivePriceChecks && liveBid != null && liveAsk != null && !liveEntryOk ->
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE
         else -> null
     }
     val at = currentSessionTimestampIso()
@@ -1191,7 +1240,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
             barClosedAt = m.barClosedAt ?: at,
             liquidityEvaluatedAt = at,
             closeConfirmedAt = m.closeConfirmedAt
-                ?: if (closeConfirmation == TouchTurnCloseConfirmation.PASSED) at else null
+                ?: if (closeGatePassed) at else null
         )
     }
     val updatedSession = session.copy(
@@ -1379,6 +1428,9 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> false
             else -> hadLiquidityCandle == true && setup?.isActionable == true

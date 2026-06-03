@@ -311,6 +311,91 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun liveEntryTouchable_long_falseWhenAskBelowEntryBuffer() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 83.4, time = "20260603  09:30:00")
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
+        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, bid = 83.35, ask = 83.4))
+    }
+
+    @Test
+    fun liveCloseConfirmsTurn_long_falseWhenLiveMidBelowEntryBand() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20260603  09:30:00")
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
+        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar.close))
+        assertFalse(TouchTurnLogic.liveCloseConfirmsTurn(setup, liveMid = 83.4))
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_liveGatesBlock3690StyleGap() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20250522  09:30:00")
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "3690",
+            maxDollars = 10_000
+        ).copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2025-05-22",
+                status = TouchTurnCandleStatus.READY,
+                openingBarTime = bar.time,
+                candle = bar,
+                adr14 = 0.56,
+                rangeThreshold = 0.1,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val evaluated = instance.withLiquidityEvaluatedIfClosed(
+            enforceCloseConfirmation = true,
+            nowEpochMillis = barEnd + 10_000,
+            liveBid = 83.35,
+            liveAsk = 83.4,
+            liveLast = 83.4,
+            requireLivePriceChecks = true
+        )
+        assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            evaluated.touchTurnSession?.decisionOutcome
+        )
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_entryNotTouchableWhenBarClosePassesButAskThroughEntry() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20250522  09:30:00")
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "3690",
+            maxDollars = 10_000
+        ).copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2025-05-22",
+                status = TouchTurnCandleStatus.READY,
+                candle = bar,
+                adr14 = 0.56,
+                rangeThreshold = 0.1,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val liveMid = 85.0
+        assertTrue(TouchTurnLogic.liveCloseConfirmsTurn(setup, liveMid))
+        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, bid = 84.65, ask = 84.70))
+        val evaluated = instance.withLiquidityEvaluatedIfClosed(
+            enforceCloseConfirmation = true,
+            nowEpochMillis = barEnd + 10_000,
+            liveBid = 84.65,
+            liveAsk = 84.70,
+            liveLast = liveMid,
+            requireLivePriceChecks = true
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+            evaluated.touchTurnSession?.decisionOutcome
+        )
+    }
+
+    @Test
     fun withFirstFifteenMinuteCandle_doesNotStoreOpeningBarOhlc() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 401.0, time = "20250522  09:30:00")
         val deployment = defaultStrategyDeployment(

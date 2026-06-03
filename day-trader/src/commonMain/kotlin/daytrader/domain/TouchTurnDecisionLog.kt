@@ -258,6 +258,12 @@ object TouchTurnDecisionLog {
                 )
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
                 detail("  HINT: close did not confirm the turn vs entry (see closeConfirmation rule above)")
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED ->
+                detail("  HINT: completed bar passed but live mid is no longer on the confirming side of entry")
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE ->
+                detail("  HINT: live bid/ask already through entry — resting limit would fill as marketable")
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE ->
+                detail("  HINT: live bid/ask required for hybrid mode but missing from quote feed")
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ->
                 detail("  HINT: bar range must exceed 25% of 14-day ADR")
             TouchTurnSessionOutcome.NO_TRADE_DOJI ->
@@ -266,14 +272,19 @@ object TouchTurnDecisionLog {
         }
     }
 
-    private fun closeConfirmationRule(setup: TouchTurnBracketSetup, close: Double): String =
-        when (setup.candleColor) {
+    private fun closeConfirmationRule(setup: TouchTurnBracketSetup, close: Double): String {
+        val minDistance = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup)
+        val bufferPct = (TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE * 100).toInt()
+        return when (setup.candleColor) {
             FirstCandleColor.RED ->
-                "(rule: RED requires close > entry; close=$close, entry=${setup.entry})"
+                "(rule: RED requires close > entry by ≥${bufferPct}% of range (≥$minDistance); " +
+                    "close=$close, entry=${setup.entry})"
             FirstCandleColor.GREEN ->
-                "(rule: GREEN requires close < entry; close=$close, entry=${setup.entry})"
+                "(rule: GREEN requires close < entry by ≥${bufferPct}% of range (≥$minDistance); " +
+                    "close=$close, entry=${setup.entry})"
             FirstCandleColor.DOJI -> "(rule: DOJI not actionable)"
         }
+    }
 
     private fun fmt(price: Double, currency: String): String = Formatters.moneyPlain(price, currency)
 

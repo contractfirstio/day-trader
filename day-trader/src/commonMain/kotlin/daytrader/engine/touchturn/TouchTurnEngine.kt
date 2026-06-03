@@ -699,6 +699,8 @@ class TouchTurnEngine(
         val evaluatedAt = System.currentTimeMillis()
         val enforceCloseConfirmation = brokerKind.usesLiveIbMarketData ||
             emulatorRequireCloseConfirmation()
+        val requireLivePriceChecks = brokerKind.usesLiveIbMarketData
+        val liveQuote = if (requireLivePriceChecks) quoteForSymbol(instance.symbol) else null
         val executionGw = executionGateway ?: sessionGateway
         TouchTurnDecisionLog.bootstrapCandleClosed(
             instanceId = instanceId,
@@ -713,7 +715,11 @@ class TouchTurnEngine(
         repository.update(instanceId) { current ->
             val updated = current.withLiquidityEvaluatedIfClosed(
                 enforceCloseConfirmation = enforceCloseConfirmation,
-                nowEpochMillis = evaluatedAt
+                nowEpochMillis = evaluatedAt,
+                liveBid = liveQuote?.bid,
+                liveAsk = liveQuote?.ask,
+                liveLast = liveQuote?.last,
+                requireLivePriceChecks = requireLivePriceChecks
             )
             val updatedSession = updated.touchTurnSession ?: return@update updated
             when (updatedSession.decisionOutcome) {
@@ -721,21 +727,11 @@ class TouchTurnEngine(
                 TouchTurnSessionOutcome.NO_TRADE_DOJI,
                 TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
                 TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+                TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
                 TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> return@update updated
                 else -> Unit
-            }
-            if (enforceCloseConfirmation) {
-                when (updatedSession.closeConfirmation(evaluatedAt)) {
-                    TouchTurnCloseConfirmation.EXPIRED ->
-                        return@update updated.withTouchTurnDecisionOutcome(
-                            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
-                        )
-                    TouchTurnCloseConfirmation.FAILED ->
-                        return@update updated.withTouchTurnDecisionOutcome(
-                            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-                        )
-                    else -> Unit
-                }
             }
             val setup = updatedSession.setup
             if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return@update updated
@@ -824,6 +820,9 @@ class TouchTurnEngine(
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
                 TouchTurnDecisionLog.bootstrapBranch(
