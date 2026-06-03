@@ -400,8 +400,7 @@ fun TouchTurnPipelineSectionBar(
     formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     modifier: Modifier = Modifier
 ) {
-    val candle = session?.candle
-    if (session == null || candle == null) {
+    if (session == null || session.resolvedOpeningBarTime() == null) {
         Text(
             "Opening bar not available yet.",
             fontSize = 12.sp,
@@ -410,8 +409,9 @@ fun TouchTurnPipelineSectionBar(
         )
         return
     }
+    val candle = session.candle
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(candle.time, session.marketZoneId) {
+    LaunchedEffect(session.resolvedOpeningBarTime(), session.marketZoneId) {
         while (true) {
             delay(1_000)
             tick++
@@ -424,16 +424,27 @@ fun TouchTurnPipelineSectionBar(
         Text("Opening bar not available yet.", fontSize = 12.sp, color = TextSecondary)
         return
     }
+    val showLiveChart = detail.closeStatus == FirstCandleCloseStatus.FORMING ||
+        detail.closeStatus == FirstCandleCloseStatus.CLOSED
     Column(
         modifier = modifier.testTag("TouchTurnPipelineSectionBar"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        TouchTurnOpeningBarDetailCard(
-            detail = detail,
-            candle = candle,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (detail.closeStatus == FirstCandleCloseStatus.FORMING) {
+        if (candle != null) {
+            TouchTurnOpeningBarDetailCard(
+                detail = detail,
+                candle = candle,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            TouchTurnOpeningBarStatusRow(detail = detail)
+            Text(
+                "Loading final bar OHLC from broker after close…",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+        }
+        if (showLiveChart) {
             TouchTurnPipelineLiveOrderChart(
                 chart = formingBarPriceChart,
                 modifier = Modifier.testTag("TouchTurnFormingBarPriceChart")
@@ -739,9 +750,8 @@ private fun formatConfirmationCountdown(remainingMillis: Long): String {
 }
 
 @Composable
-private fun TouchTurnOpeningBarDetailCard(
+private fun TouchTurnOpeningBarStatusRow(
     detail: OpeningBarDetailUi,
-    candle: daytrader.domain.OhlcBar,
     modifier: Modifier = Modifier
 ) {
     val closeColor = when (detail.closeStatus) {
@@ -749,6 +759,35 @@ private fun TouchTurnOpeningBarDetailCard(
         FirstCandleCloseStatus.FORMING -> Color(0xFFFFB74D)
         FirstCandleCloseStatus.UNKNOWN -> TextSecondary
     }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        detail.barTime?.let { time ->
+            Text(time, fontSize = 10.sp, color = TextSecondary, maxLines = 1)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                detail.closeStatusLabel,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = closeColor,
+                modifier = Modifier.testTag("TouchTurnCandleCloseStatus")
+            )
+            detail.timeUntilCloseLabel?.let { countdown ->
+                Text(countdown, fontSize = 9.sp, color = Color(0xFFFFB74D))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnOpeningBarDetailCard(
+    detail: OpeningBarDetailUi,
+    candle: daytrader.domain.OhlcBar,
+    modifier: Modifier = Modifier
+) {
     val bodyColor = when {
         detail.bodyChange > 0 -> GainGreen
         detail.bodyChange < 0 -> LossRed
@@ -759,27 +798,7 @@ private fun TouchTurnOpeningBarDetailCard(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            detail.barTime?.let { time ->
-                Text(time, fontSize = 10.sp, color = TextSecondary, maxLines = 1)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    detail.closeStatusLabel,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = closeColor,
-                    modifier = Modifier.testTag("TouchTurnCandleCloseStatus")
-                )
-                detail.timeUntilCloseLabel?.let { countdown ->
-                    Text(countdown, fontSize = 9.sp, color = Color(0xFFFFB74D))
-                }
-            }
-        }
+        TouchTurnOpeningBarStatusRow(detail = detail)
 
         Row(
             modifier = Modifier

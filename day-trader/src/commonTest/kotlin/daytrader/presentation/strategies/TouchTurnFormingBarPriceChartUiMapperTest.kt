@@ -5,6 +5,7 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,13 +28,19 @@ class TouchTurnFormingBarPriceChartUiMapperTest {
         status = TouchTurnCandleStatus.READY,
         openingBarTime = "20301201  09:30:00",
         candle = null,
-        marketZoneId = "America/New_York"
+        marketZoneId = "America/New_York",
+        milestones = TouchTurnMilestoneTimestamps(dataReadyAt = "2030-12-01T09:30:05")
     )
 
     @Test
-    fun shouldRecordPrices_onlyWhileBarIsForming() {
+    fun shouldRecordPrices_untilOrdersPlaced() {
         val session = formingSession()
         assertTrue(TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session))
+        assertFalse(
+            TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(
+                session.copy(ordersPlacedForSession = true)
+            )
+        )
         assertFalse(
             TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(
                 session.copy(status = TouchTurnCandleStatus.LOADING)

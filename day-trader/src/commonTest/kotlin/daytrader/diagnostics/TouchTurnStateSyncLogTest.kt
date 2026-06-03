@@ -49,6 +49,33 @@ class TouchTurnStateSyncLogTest {
     }
 
     @Test
+    fun findMismatches_uiAheadOfLiquidityMilestone() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            entryOrdersPermitted = null
+        )
+        val mismatches = TouchTurnStateSyncLog.findMismatches(
+            engine = engineSnapshot(sessionStatus = TouchTurnCandleStatus.READY),
+            ui = uiSnapshot(
+                phaseIndex = 4,
+                activePath = listOf(
+                    TouchTurnPipelineNodeId.Start,
+                    TouchTurnPipelineNodeId.Data,
+                    TouchTurnPipelineNodeId.Bar,
+                    TouchTurnPipelineNodeId.Liquidity,
+                    TouchTurnPipelineNodeId.Confirmation
+                )
+            ),
+            session = session
+        )
+        assertTrue(
+            mismatches.any { it.contains("liquidityEvaluatedAt=null") },
+            "mismatches=$mismatches"
+        )
+    }
+
+    @Test
     fun findMismatches_loadingStatus_wrongPhase() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-22",

@@ -31,12 +31,23 @@ object TouchTurnSessionReasonUi {
         outcome: TouchTurnSessionOutcome,
         session: TouchTurnSessionContext? = null
     ): TouchTurnSessionStatusUi = when (outcome) {
-        TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED -> TouchTurnSessionStatusUi(
-            headline = "No trade — market data failed",
-            detail = session?.errorMessage?.takeIf { it.isNotBlank() }
-                ?: "Could not load opening 15-minute bar and ATR(14) from the broker. Check connectivity and symbol history, then start a new session.",
-            severity = TouchTurnReasonSeverity.Error
-        )
+        TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED -> {
+            val liquidityRefetch = session?.failedDuringLiquidityRefetch() == true
+            TouchTurnSessionStatusUi(
+                headline = if (liquidityRefetch) {
+                    "No trade — closed bar data unavailable"
+                } else {
+                    "No trade — market data failed"
+                },
+                detail = session?.errorMessage?.takeIf { it.isNotBlank() }
+                    ?: if (liquidityRefetch) {
+                        "The opening bar closed but final 15-minute OHLC could not be loaded from the broker after refetch. Check connectivity and symbol history, then start a new session."
+                    } else {
+                        "Could not load opening 15-minute bar and ATR(14) from the broker. Check connectivity and symbol history, then start a new session."
+                    },
+                severity = TouchTurnReasonSeverity.Error
+            )
+        }
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> TouchTurnSessionStatusUi(
             headline = "No trade — bar not liquid",
             detail = "Opening 15-minute range did not exceed 25% of 14-day ADR. Bracket orders were not placed.",
@@ -169,6 +180,14 @@ object TouchTurnSessionReasonUi {
             )
         }
 
+        if (hasOpenOrders && !session.ordersPlacedForSession) {
+            return TouchTurnSessionStatusUi(
+                headline = "Broker orders on symbol — not from this session",
+                detail = "Open orders at the broker are not tied to this session's bracket. Cancel stale orders in TWS or use a clean paper account before trading.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
+
         if (session.ordersPlacedForSession || session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
             return when {
                 hasOpenOrders -> TouchTurnSessionStatusUi(
@@ -189,25 +208,30 @@ object TouchTurnSessionReasonUi {
             }
         }
 
-        val closeStatus = session.candleCloseStatus(nowEpochMillis)
-        if (closeStatus != FirstCandleCloseStatus.CLOSED) {
+        val milestones = session.milestones
+        if (milestones.barClosedAt == null) {
             return TouchTurnSessionStatusUi(
                 headline = "Waiting for opening bar to close",
                 detail = "Liquidity and close confirmation run after the first 15-minute RTH candle completes.",
                 severity = TouchTurnReasonSeverity.Info
             )
         }
-
-        when (session.liquidityEvaluation(nowEpochMillis)) {
-            LiquidityCandleEvaluation.NOT_LIQUIDITY ->
-                return forDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY, session)
-            LiquidityCandleEvaluation.UNKNOWN,
-            LiquidityCandleEvaluation.AWAITING_CLOSE -> return TouchTurnSessionStatusUi(
+        if (milestones.liquidityEvaluatedAt == null) {
+            return TouchTurnSessionStatusUi(
                 headline = "Evaluating liquidity…",
-                detail = "Comparing opening bar range to 25% of 14-day ADR.",
+                detail = if (session.candle == null) {
+                    "Loading final bar OHLC, then comparing range to 25% of 14-day ATR."
+                } else {
+                    "Comparing opening bar range to 25% of 14-day ATR."
+                },
                 severity = TouchTurnReasonSeverity.Info
             )
-            LiquidityCandleEvaluation.LIQUIDITY -> Unit
+        }
+
+        session.decisionOutcome?.let { outcome ->
+            if (outcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
+                return forDecisionOutcome(outcome, session)
+            }
         }
 
         if (session.entryOrdersPermitted == false) {

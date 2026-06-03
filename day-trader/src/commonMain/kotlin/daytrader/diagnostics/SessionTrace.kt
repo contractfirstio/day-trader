@@ -199,6 +199,38 @@ object SessionTrace {
         )
     }
 
+    /** Post-close OHLC refetch after [TouchTurnSessionContext.openingBarTime] (application.jsonl). */
+    fun closedBarRefetch(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        event: String,
+        openingBarTime: String? = null,
+        attempt: Int? = null,
+        maxAttempts: Int? = null,
+        waitMs: Long? = null,
+        refetchedBarTime: String? = null,
+        validation: String? = null,
+        reason: String? = null
+    ) {
+        log(
+            type = "closed_bar_refetch",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("event", event)
+                openingBarTime?.let { put("openingBarTime", it) }
+                attempt?.let { put("attempt", it.toString()) }
+                maxAttempts?.let { put("maxAttempts", it.toString()) }
+                waitMs?.let { put("waitMs", it.toString()) }
+                refetchedBarTime?.let { put("refetchedBarTime", it) }
+                validation?.let { put("validation", it) }
+                reason?.let { put("reason", it) }
+            }
+        )
+    }
+
     fun autoStopCheck(
         deploymentId: String,
         symbol: String,

@@ -261,7 +261,9 @@ object TouchTurnDecisionLog {
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
                 detail("  HINT: close did not confirm the turn vs entry (see closeConfirmation rule above)")
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED ->
-                detail("  HINT: completed bar passed but live mid is no longer on the confirming side of entry")
+                detail(
+                    "  HINT: completed bar passed but live bid/ask mid is no longer on the confirming side of entry"
+                )
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE ->
                 detail("  HINT: live bid/ask already through entry — resting limit would fill as marketable")
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE ->

@@ -8,6 +8,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.onSessionStarted
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -124,7 +125,8 @@ class TouchTurnPipelineUiMapperTest {
                 candle = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime),
                 marketZoneId = "America/New_York",
                 rangeThreshold = 0.01,
-                adr14 = 0.04
+                adr14 = 0.04,
+                milestones = TouchTurnMilestoneTimestamps(dataReadyAt = "2026-05-22T09:30:12")
             )
         )
         val graph = TouchTurnPipelineUiMapper.graphForDeployment(

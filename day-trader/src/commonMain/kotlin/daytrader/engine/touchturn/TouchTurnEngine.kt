@@ -30,6 +30,7 @@ import daytrader.domain.inProgressSession
 import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.onSessionStarted
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
+import daytrader.domain.withOpeningBarClosedMilestone
 import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
@@ -71,6 +72,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 
 class TouchTurnEngine(
     private val marketData: MarketDataProvider,
@@ -591,11 +593,19 @@ class TouchTurnEngine(
         }
     }
 
+    private fun liquidityPollIntervalMs(): Long =
+        if (brokerKind == BrokerKind.EMULATOR) {
+            TouchTurnEngineConfig.LIQUIDITY_POLL_EMULATOR_MS
+        } else {
+            TouchTurnEngineConfig.LIQUIDITY_POLL_MS
+        }
+
     private fun watchLiquidity(instanceId: String, sessionDate: String) {
         liquidityJobs[instanceId]?.cancel()
         liquidityJobs[instanceId] = scope.launch {
+            dispatch(TouchTurnCommand.PollLiquidity(instanceId))
             while (isActive) {
-                delay(TouchTurnEngineConfig.LIQUIDITY_POLL_MS)
+                delay(liquidityPollIntervalMs())
                 dispatch(TouchTurnCommand.PollLiquidity(instanceId))
                 val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
                 if (instance.touchTurnSession?.setup != null) return@launch
@@ -635,8 +645,21 @@ class TouchTurnEngine(
             return
         }
         TouchTurnCandleLog.candleClosed(instanceId, instance.symbol, session)
-        if (session.candle == null) {
+        val barClosedJustSet = session.milestones.barClosedAt == null
+        repository.update(instanceId) { current ->
+            current.withOpeningBarClosedMilestone()
+        }
+        val afterBarClosed = repository.deployments.value.find { it.id == instanceId } ?: return
+        val sessionAfterBarClosed = afterBarClosed.touchTurnSession ?: return
+        if (sessionAfterBarClosed.candle == null) {
             scheduleClosedBarRefetch(instanceId)
+            return
+        }
+        if (barClosedJustSet && sessionAfterBarClosed.milestones.liquidityEvaluatedAt == null) {
+            scope.launch {
+                yield()
+                evaluateLiquidityAfterClosedBar(instanceId)
+            }
             return
         }
         evaluateLiquidityAfterClosedBar(instanceId)
@@ -654,13 +677,23 @@ class TouchTurnEngine(
                 return@launch
             }
             val symbol = instance.symbol
+            val sessionId = instance.inProgressSession()?.id
             val instrument = DeploymentMarket.effectiveInstrument(instance)
             val zoneId = session.marketZoneId
             val openingBarTime = session.resolvedOpeningBarTime()
             val sessionDate = session.sessionDate
+            SessionTrace.closedBarRefetch(
+                deploymentId = instanceId,
+                sessionId = sessionId,
+                symbol = symbol,
+                event = "started",
+                openingBarTime = openingBarTime,
+                maxAttempts = TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS
+            )
             marketData.ensureStreaming(symbol, instrument)
             awaitClosedBarRefetchSettle(
                 instanceId = instanceId,
+                sessionId = sessionId,
                 symbol = symbol,
                 openingBarTime = openingBarTime,
                 marketZoneId = zoneId
@@ -672,12 +705,20 @@ class TouchTurnEngine(
                 val refetchResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
                 if (refetchResult.isFailure) {
                     refetchFailed = true
+                    val message = refetchResult.exceptionOrNull()?.message
+                        ?: "Failed to load closed 15-minute bar"
+                    SessionTrace.closedBarRefetch(
+                        deploymentId = instanceId,
+                        sessionId = sessionId,
+                        symbol = symbol,
+                        event = "failed",
+                        openingBarTime = openingBarTime,
+                        attempt = attempt,
+                        maxAttempts = TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS,
+                        reason = message
+                    )
                     repository.update(instanceId) { current ->
-                        current.withTouchTurnCandleFailed(
-                            sessionDate,
-                            refetchResult.exceptionOrNull()?.message
-                                ?: "Failed to load closed 15-minute bar"
-                        )
+                        current.withTouchTurnCandleFailed(sessionDate, message)
                     }
                     break
                 }
@@ -692,6 +733,16 @@ class TouchTurnEngine(
                 )
                 when (validation) {
                     ClosedFirstCandleRefetchValidation.READY -> {
+                        SessionTrace.closedBarRefetch(
+                            deploymentId = instanceId,
+                            sessionId = sessionId,
+                            symbol = symbol,
+                            event = "loaded",
+                            openingBarTime = openingBarTime,
+                            attempt = attempt,
+                            refetchedBarTime = context.firstCandle.time,
+                            validation = validation.name
+                        )
                         repository.update(instanceId) { current ->
                             TouchTurnCandleLog.closedBarLoaded(
                                 instanceId = instanceId,
@@ -704,19 +755,42 @@ class TouchTurnEngine(
                         break
                     }
                     ClosedFirstCandleRefetchValidation.NOT_YET_FINAL -> {
+                        val retryReason = reason ?: "not yet final"
                         TouchTurnCandleLog.closedBarRefetchRetry(
                             instanceId = instanceId,
                             symbol = symbol,
                             attempt = attempt,
-                            reason = reason ?: "not yet final"
+                            reason = retryReason
+                        )
+                        SessionTrace.closedBarRefetch(
+                            deploymentId = instanceId,
+                            sessionId = sessionId,
+                            symbol = symbol,
+                            event = "retry",
+                            openingBarTime = openingBarTime,
+                            attempt = attempt,
+                            maxAttempts = TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS,
+                            refetchedBarTime = context.firstCandle.time,
+                            validation = validation.name,
+                            reason = retryReason
                         )
                         if (attempt >= TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS) {
                             refetchFailed = true
+                            val failMessage =
+                                "Closed 15-minute bar not final after $attempt refetches: $retryReason"
+                            SessionTrace.closedBarRefetch(
+                                deploymentId = instanceId,
+                                sessionId = sessionId,
+                                symbol = symbol,
+                                event = "failed",
+                                openingBarTime = openingBarTime,
+                                attempt = attempt,
+                                maxAttempts = TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS,
+                                validation = validation.name,
+                                reason = failMessage
+                            )
                             repository.update(instanceId) { current ->
-                                current.withTouchTurnCandleFailed(
-                                    sessionDate,
-                                    "Closed 15-minute bar not final after $attempt refetches: ${reason ?: "unknown"}"
-                                )
+                                current.withTouchTurnCandleFailed(sessionDate, failMessage)
                             }
                         } else {
                             delay(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
@@ -724,11 +798,19 @@ class TouchTurnEngine(
                     }
                     ClosedFirstCandleRefetchValidation.REJECTED -> {
                         refetchFailed = true
+                        val rejectMessage = reason ?: "Closed 15-minute bar rejected"
+                        SessionTrace.closedBarRefetch(
+                            deploymentId = instanceId,
+                            sessionId = sessionId,
+                            symbol = symbol,
+                            event = "failed",
+                            openingBarTime = openingBarTime,
+                            attempt = attempt,
+                            validation = validation.name,
+                            reason = rejectMessage
+                        )
                         repository.update(instanceId) { current ->
-                            current.withTouchTurnCandleFailed(
-                                sessionDate,
-                                reason ?: "Closed 15-minute bar rejected"
-                            )
+                            current.withTouchTurnCandleFailed(sessionDate, rejectMessage)
                         }
                         break
                     }
@@ -752,6 +834,7 @@ class TouchTurnEngine(
 
     private suspend fun awaitClosedBarRefetchSettle(
         instanceId: String,
+        sessionId: String?,
         symbol: String,
         openingBarTime: String?,
         marketZoneId: String
@@ -765,6 +848,14 @@ class TouchTurnEngine(
         TouchTurnCandleLog.closedBarRefetchWaiting(
             instanceId = instanceId,
             symbol = symbol,
+            openingBarTime = openingBarTime,
+            waitMs = waitMs
+        )
+        SessionTrace.closedBarRefetch(
+            deploymentId = instanceId,
+            sessionId = sessionId,
+            symbol = symbol,
+            event = "settle_wait",
             openingBarTime = openingBarTime,
             waitMs = waitMs
         )
@@ -793,11 +884,8 @@ class TouchTurnEngine(
             enforceCloseConfirmation = enforceCloseConfirmation,
             nowEpochMillis = evaluatedAt
         )
-        var ordersPlaced = false
-        var bracketSubmitRequested = false
-        var submittedPlan: daytrader.domain.TouchTurnOrderPlan? = null
         repository.update(instanceId) { current ->
-            val updated = current.withLiquidityEvaluatedIfClosed(
+            current.withLiquidityEvaluatedIfClosed(
                 enforceCloseConfirmation = enforceCloseConfirmation,
                 nowEpochMillis = evaluatedAt,
                 liveBid = liveQuote?.bid,
@@ -805,86 +893,130 @@ class TouchTurnEngine(
                 liveLast = liveQuote?.last,
                 requireLivePriceChecks = requireLivePriceChecks
             )
-            val updatedSession = updated.touchTurnSession ?: return@update updated
-            when (updatedSession.decisionOutcome) {
-                TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
-                TouchTurnSessionOutcome.NO_TRADE_DOJI,
-                TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
-                TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
-                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
-                TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
-                TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
-                TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> return@update updated
-                else -> Unit
-            }
-            val setup = updatedSession.setup
-            if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return@update updated
-            if (updatedSession.entryOrdersPermitted != true) return@update updated
-            val deploymentInstrument = DeploymentMarket.effectiveInstrument(updated)
-            val plan = TouchTurnOrderPlanner.buildOrderPlan(
-                symbol = updated.symbol,
-                setup = setup,
-                maxDollars = updated.maxDollars,
-                currencyCode = updatedSession.currencyCode,
-                instrument = deploymentInstrument
-            )
-            if (plan != null && executionGw != null) {
-                submittedPlan = plan
-                pendingBracketPlacements[updated.id] = PendingBracketPlacement(
-                    plan = plan,
-                    sessionId = updated.inProgressSession()?.id,
-                    evaluatedAt = evaluatedAt,
-                    enforceCloseConfirmation = enforceCloseConfirmation
-                )
-                bracketSubmitRequested = TouchTurnOrderLog.logAfterLiquidityEvaluation(
-                    instanceId = updated.id,
-                    symbol = updated.symbol,
-                    sessionDate = updatedSession.sessionDate,
-                    maxDollars = updated.maxDollars,
-                    currencyCode = updatedSession.currencyCode,
-                    instrument = deploymentInstrument,
-                    setup = setup,
-                    openingBarClose = updatedSession.candle?.close,
-                    brokerGateway = executionGw
-                )
-                if (bracketSubmitRequested) {
-                    SessionTrace.bracketSubmitRequested(
-                        deploymentId = updated.id,
-                        sessionId = updated.inProgressSession()?.id,
-                        symbol = updated.symbol,
-                        orderCount = plan.orders.size,
-                        entryPrice = setup.entry,
-                        currencyCode = updatedSession.currencyCode,
-                        pendingBracketCount = pendingBracketPlacements.size
-                    )
-                } else {
-                    pendingBracketPlacements.remove(updated.id)
-                }
-            }
-            when {
-                bracketSubmitRequested -> updated
-                setup.isActionable ->
-                    updated.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
-                else -> updated
-            }
         }
-        val after = repository.deployments.value.find { it.id == instanceId } ?: return
-        val afterSession = after.touchTurnSession ?: return
-        val afterSessionId = after.inProgressSession()?.id
-        if (!bracketSubmitRequested) {
-            logLiquidityPollOutcome(
-                instance = after,
-                sessionId = afterSessionId,
-                ordersPlaced = ordersPlaced,
-                submittedPlan = submittedPlan,
+        val afterEval = repository.deployments.value.find { it.id == instanceId } ?: return
+        val afterSession = afterEval.touchTurnSession ?: return
+        if (afterSession.decisionOutcome in liquidityEvalNoBracketOutcomes) {
+            finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
+            return
+        }
+        val setup = afterSession.setup
+        if (setup == null || !setup.isLiquidityCandle || !setup.isActionable ||
+            afterSession.entryOrdersPermitted != true
+        ) {
+            finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
+            return
+        }
+        scope.launch {
+            yield()
+            val bracketSubmitRequested = requestBracketAfterLiquidityEvaluation(
+                instanceId = instanceId,
+                evaluatedAt = evaluatedAt,
                 enforceCloseConfirmation = enforceCloseConfirmation,
-                evaluatedAt = evaluatedAt
+                executionGw = executionGw
             )
+            val after = repository.deployments.value.find { it.id == instanceId } ?: return@launch
+            if (!bracketSubmitRequested) {
+                logLiquidityPollOutcome(
+                    instance = after,
+                    sessionId = after.inProgressSession()?.id,
+                    ordersPlaced = false,
+                    submittedPlan = null,
+                    enforceCloseConfirmation = enforceCloseConfirmation,
+                    evaluatedAt = evaluatedAt
+                )
+            }
+            finishLiquidityPoll(instanceId, after, evaluatedAt, enforceCloseConfirmation)
         }
+    }
+
+    private val liquidityEvalNoBracketOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+        TouchTurnSessionOutcome.NO_TRADE_DOJI,
+        TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+        TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+    )
+
+    private fun finishLiquidityPoll(
+        instanceId: String,
+        instance: StrategyDeployment,
+        evaluatedAt: Long,
+        enforceCloseConfirmation: Boolean
+    ) {
         notifyNoTradeDecisionIfNeeded(instanceId)
-        TouchTurnDecisionLog.watchPollExit(instanceId, after.symbol, "liquidity_poll_complete")
+        TouchTurnDecisionLog.watchPollExit(instanceId, instance.symbol, "liquidity_poll_complete")
         liquidityJobs.remove(instanceId)?.cancel()
         closedBarRefetchJobs.remove(instanceId)?.cancel()
+    }
+
+    private fun requestBracketAfterLiquidityEvaluation(
+        instanceId: String,
+        evaluatedAt: Long,
+        enforceCloseConfirmation: Boolean,
+        executionGw: BrokerGateway?
+    ): Boolean {
+        val instance = repository.deployments.value.find { it.id == instanceId } ?: return false
+        val session = instance.touchTurnSession ?: return false
+        val setup = session.setup ?: return false
+        if (!setup.isLiquidityCandle || !setup.isActionable || session.entryOrdersPermitted != true) {
+            return false
+        }
+        val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = instance.symbol,
+            setup = setup,
+            maxDollars = instance.maxDollars,
+            currencyCode = session.currencyCode,
+            instrument = deploymentInstrument
+        ) ?: return false
+        if (executionGw == null) {
+            repository.update(instanceId) { current ->
+                if (setup.isActionable) {
+                    current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+                } else {
+                    current
+                }
+            }
+            return false
+        }
+        pendingBracketPlacements[instance.id] = PendingBracketPlacement(
+            plan = plan,
+            sessionId = instance.inProgressSession()?.id,
+            evaluatedAt = evaluatedAt,
+            enforceCloseConfirmation = enforceCloseConfirmation
+        )
+        val bracketSubmitRequested = TouchTurnOrderLog.logAfterLiquidityEvaluation(
+            instanceId = instance.id,
+            symbol = instance.symbol,
+            sessionDate = session.sessionDate,
+            maxDollars = instance.maxDollars,
+            currencyCode = session.currencyCode,
+            instrument = deploymentInstrument,
+            setup = setup,
+            openingBarClose = session.candle?.close,
+            brokerGateway = executionGw
+        )
+        if (bracketSubmitRequested) {
+            SessionTrace.bracketSubmitRequested(
+                deploymentId = instance.id,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                orderCount = plan.orders.size,
+                entryPrice = setup.entry,
+                currencyCode = session.currencyCode,
+                pendingBracketCount = pendingBracketPlacements.size
+            )
+        } else {
+            pendingBracketPlacements.remove(instance.id)
+            repository.update(instanceId) { current ->
+                current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+            }
+        }
+        return bracketSubmitRequested
     }
 
     private fun logLiquidityPollOutcome(

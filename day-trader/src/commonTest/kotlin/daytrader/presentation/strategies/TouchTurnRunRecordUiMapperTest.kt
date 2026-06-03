@@ -52,7 +52,7 @@ class TouchTurnRunRecordUiMapperTest {
             )
         )
 
-        assertEquals("Bracket · Trade closed", ui.teaser)
+        assertEquals("Bracket orders submitted · Session stopped — trade cycle complete", ui.teaser)
         assertTrue(ui.body.contains("Auto"))
         assertTrue(ui.body.contains("Emu"))
         assertTrue(ui.body.contains("ADR"))

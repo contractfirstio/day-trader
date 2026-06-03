@@ -168,6 +168,13 @@ data class TouchTurnSessionContext(
     val executedBracketLegs: List<TouchTurnOrderRole> = emptyList()
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
+
+    /** Bar-close milestone was set but closed-bar OHLC refetch never succeeded. */
+    fun failedDuringLiquidityRefetch(): Boolean =
+        status == TouchTurnCandleStatus.FAILED &&
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED &&
+            milestones.barClosedAt != null &&
+            milestones.liquidityEvaluatedAt == null
     val liquidityThresholdFromAtr: Double?
         get() = atr14?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it) }
 
@@ -361,6 +368,21 @@ object TouchTurnLogic {
      * Validates OHLC from [fetchTouchTurnSignalContext] after the opening bar has closed.
      * Prevents liquidity evaluation on IB's still-forming or mismatched 15m snapshot.
      */
+    /**
+     * True when two IB bar open timestamps refer to the same 15-minute period (end times within [maxEndSkewMs]).
+     * Handles broker/emulator open-time drift (e.g. 14:08:29 vs 14:08:57) without accepting a later bar slot.
+     */
+    fun openingBarPeriodEndsEqual(
+        barTimeA: String,
+        barTimeB: String,
+        marketZoneId: String,
+        maxEndSkewMs: Long = 90_000L
+    ): Boolean {
+        val endA = barEndEpochMillis(barTimeA, marketZoneId) ?: return false
+        val endB = barEndEpochMillis(barTimeB, marketZoneId) ?: return false
+        return kotlin.math.abs(endA - endB) <= maxEndSkewMs
+    }
+
     fun validateClosedFirstCandleRefetch(
         candle: OhlcBar,
         openingBarTime: String?,
@@ -374,6 +396,31 @@ object TouchTurnLogic {
         if (candle.high <= 0.0 || candle.low <= 0.0 || candle.high < candle.low) {
             return ClosedFirstCandleRefetchValidation.REJECTED to "invalid OHLC (high=${candle.high}, low=${candle.low})"
         }
+        val anchor = openingBarTime?.trim()?.takeIf { it.isNotEmpty() }
+        if (anchor != null) {
+            val anchorEnd = barEndEpochMillis(anchor, marketZoneId)
+                ?: return ClosedFirstCandleRefetchValidation.REJECTED to "unparseable opening anchor $anchor"
+            if (nowEpochMillis < anchorEnd + settleMs) {
+                val waitMs = anchorEnd + settleMs - nowEpochMillis
+                return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
+                    "opening anchor settle not reached (wait ${waitMs}ms)"
+            }
+            if (firstCandleCloseStatus(anchor, marketZoneId, nowEpochMillis, sessionDateIso) !=
+                FirstCandleCloseStatus.CLOSED
+            ) {
+                return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
+                    "opening anchor bar still forming by wall clock"
+            }
+            when {
+                normalizedBarTimesEqual(anchor, barTime, marketZoneId) ->
+                    return ClosedFirstCandleRefetchValidation.READY to null
+                openingBarPeriodEndsEqual(anchor, barTime, marketZoneId) ->
+                    return ClosedFirstCandleRefetchValidation.READY to null
+                else ->
+                    return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
+                        "refetched bar time $barTime != opening anchor $anchor"
+            }
+        }
         val barEnd = barEndEpochMillis(barTime, marketZoneId)
             ?: return ClosedFirstCandleRefetchValidation.REJECTED to "unparseable bar time $barTime"
         if (nowEpochMillis < barEnd + settleMs) {
@@ -385,11 +432,6 @@ object TouchTurnLogic {
             FirstCandleCloseStatus.CLOSED
         ) {
             return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to "first candle still forming by wall clock"
-        }
-        val anchor = openingBarTime?.trim()?.takeIf { it.isNotEmpty() }
-        if (anchor != null && !normalizedBarTimesEqual(anchor, barTime, marketZoneId)) {
-            return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
-                "refetched bar time $barTime != opening anchor $anchor"
         }
         return ClosedFirstCandleRefetchValidation.READY to null
     }
@@ -610,6 +652,10 @@ object TouchTurnLogic {
     fun liveCloseConfirmsTurn(setup: TouchTurnBracketSetup, bar: OhlcBar, livePrice: Double): Boolean =
         closeSeparatesFromEntry(setup, livePrice) && closePositionInTurnZone(setup, bar, livePrice)
 
+    /**
+     * Single live price for close-confirmation gates: bid/ask mid when the spread is present,
+     * otherwise [last]. Entry touch still uses bid/ask directly so limits are not marketable.
+     */
     fun resolveLiveMid(bid: Double?, ask: Double?, last: Double?): Double? {
         if (bid != null && ask != null && bid > 0.0 && ask > 0.0) return (bid + ask) / 2.0
         return last?.takeIf { it > 0.0 }
@@ -1302,6 +1348,19 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
     )
 }
 
+/** Engine event: first 15m RTH bar has closed (OHLC refetch / liquidity eval may still be in progress). */
+fun StrategyDeployment.withOpeningBarClosedMilestone(): StrategyDeployment {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
+    val session = touchTurnSession ?: return this
+    if (session.milestones.barClosedAt != null) return this
+    val at = currentSessionTimestampIso()
+    return copy(
+        touchTurnSession = session.copy(
+            milestones = session.milestones.copy(barClosedAt = at)
+        )
+    )
+}
+
 /** Applies the completed first 15m bar OHLC from a post-close historical refetch. */
 fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
@@ -1338,12 +1397,11 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     )
     val volumeSma = session.volumeSma20 ?: 0.0
     val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma)
-    val liveMid = TouchTurnLogic.resolveLiveMid(liveBid, liveAsk, liveLast)
-    val liveClosePrice = liveLast?.takeIf { it > 0.0 } ?: liveMid
+    val liveGatePrice = TouchTurnLogic.resolveLiveMid(liveBid, liveAsk, liveLast)
     val barCloseOk = !enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED
     val liveQuoteOk = !requireLivePriceChecks || (liveBid != null && liveAsk != null)
     val liveCloseOk = !requireLivePriceChecks ||
-        (liveClosePrice != null && TouchTurnLogic.liveCloseConfirmsTurn(setup, candle, liveClosePrice))
+        (liveGatePrice != null && TouchTurnLogic.liveCloseConfirmsTurn(setup, candle, liveGatePrice))
     val liveEntryOk = !requireLivePriceChecks ||
         (liveBid != null && liveAsk != null && TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
     val closeGatePassed = barCloseOk && liveCloseOk
@@ -1363,7 +1421,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
         requireLivePriceChecks && !liveQuoteOk ->
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
-        requireLivePriceChecks && liveClosePrice != null && !liveCloseOk ->
+        requireLivePriceChecks && liveGatePrice != null && !liveCloseOk ->
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED
         requireLivePriceChecks && liveBid != null && liveAsk != null && !liveEntryOk ->
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE
@@ -1372,6 +1430,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val at = currentSessionTimestampIso()
     val milestones = session.milestones.let { m ->
         m.copy(
+            dataReadyAt = m.dataReadyAt ?: m.startingSessionAt,
             barClosedAt = m.barClosedAt ?: at,
             liquidityEvaluatedAt = at,
             closeConfirmedAt = m.closeConfirmedAt
@@ -1463,20 +1522,30 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
     message: String
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
-    val prior = touchTurnSession?.milestones
+    val prior = touchTurnSession
     val at = currentSessionTimestampIso()
-    return copy(
-        touchTurnSession = TouchTurnSessionContext(
-            sessionDate = sessionDate,
-            status = TouchTurnCandleStatus.FAILED,
-            errorMessage = message,
-            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
-            milestones = TouchTurnMilestoneTimestamps(
-                startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
-                dataFailedAt = at
-            )
-        )
+    val milestones = (prior?.milestones ?: TouchTurnMilestoneTimestamps()).copy(
+        startingSessionAt = prior?.milestones?.startingSessionAt
+            ?: inProgressSession()?.startedAt
+            ?: at,
+        dataReadyAt = prior?.milestones?.dataReadyAt,
+        barClosedAt = prior?.milestones?.barClosedAt,
+        dataFailedAt = at
     )
+    val failedSession = prior?.copy(
+        sessionDate = sessionDate,
+        status = TouchTurnCandleStatus.FAILED,
+        errorMessage = message,
+        decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+        milestones = milestones
+    ) ?: TouchTurnSessionContext(
+        sessionDate = sessionDate,
+        status = TouchTurnCandleStatus.FAILED,
+        errorMessage = message,
+        decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+        milestones = milestones
+    )
+    return copy(touchTurnSession = failedSession)
 }
 
 /**

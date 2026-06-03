@@ -97,6 +97,7 @@ object TouchTurnStateSyncLog {
             caption = graph.caption
         )
         val mismatches = findMismatches(engine, ui, session)
+        val milestoneDetails = milestoneDetails(session)
         val fingerprint = fingerprint(engine, ui)
         if (trigger == "ui_graph_refresh" && mismatches.isEmpty() &&
             lastFingerprintByDeployment[instance.id] == fingerprint
@@ -119,6 +120,7 @@ object TouchTurnStateSyncLog {
                 }
                 putAll(triggerDetails)
                 putAll(engineDetails(engine))
+                putAll(milestoneDetails)
                 putAll(uiDetails(ui))
                 put("sessionTradeCount", sessionTrades.size.toString())
             }
@@ -220,6 +222,36 @@ object TouchTurnStateSyncLog {
             mismatches += "engine closingPhase=true but Close not on ui activePath"
         }
 
+        val milestones = session.milestones
+        if (milestones.barClosedAt == null && ui.phaseIndex > 2) {
+            mismatches += "ui phaseIndex=${ui.phaseIndex} but engine barClosedAt=null"
+        }
+        if (milestones.liquidityEvaluatedAt == null && ui.phaseIndex > 3) {
+            mismatches += "ui phaseIndex=${ui.phaseIndex} but engine liquidityEvaluatedAt=null"
+        }
+        if (!engine.ordersPlacedForSession && ui.phaseIndex > 4 &&
+            engine.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+        ) {
+            mismatches += "ui phaseIndex=${ui.phaseIndex} but engine ordersPlacedForSession=false"
+        }
+        if (!engine.closingPhase && milestones.liquidityEvaluatedAt == null &&
+            ui.phaseIndex > 3 &&
+            TouchTurnPipelineNodeId.Confirmation in ui.activePath
+        ) {
+            mismatches += "ui Confirmation on path but engine liquidityEvaluatedAt=null"
+        }
+        if (session.failedDuringLiquidityRefetch() &&
+            ui.phaseIndex < 3 &&
+            engine.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
+        ) {
+            mismatches += "engine liquidity refetch failed but ui phaseIndex=${ui.phaseIndex} (expected Liquidity=3)"
+        }
+        if (session.failedDuringLiquidityRefetch() &&
+            milestones.barClosedAt == null
+        ) {
+            mismatches += "engine liquidity refetch failed but engine barClosedAt was cleared"
+        }
+
         if (engine.closingPhase &&
             engine.ordersPlacedForSession &&
             !engine.hasOpenPosition &&
@@ -259,6 +291,15 @@ object TouchTurnStateSyncLog {
             ui.usesNoTradePipeline.toString(),
             ui.caption
         ).joinToString("|")
+
+    private fun milestoneDetails(session: TouchTurnSessionContext?): Map<String, String> {
+        val m = session?.milestones ?: return emptyMap()
+        return mapOf(
+            "engine.milestones.barClosed" to (m.barClosedAt != null).toString(),
+            "engine.milestones.liquidityEvaluated" to (m.liquidityEvaluatedAt != null).toString(),
+            "engine.milestones.ordersPlaced" to (m.ordersPlacedAt != null).toString()
+        )
+    }
 
     private fun engineDetails(engine: EngineSnapshot): Map<String, String> = mapOf(
         "engine.sessionStatus" to (engine.sessionStatus?.name ?: "null"),

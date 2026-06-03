@@ -1810,10 +1810,20 @@ private fun TouchTurnLivePipelineDetailHost(
                     session = analysisSession,
                     formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart
                 )
-            TouchTurnPipelineNodeId.Liquidity ->
+            TouchTurnPipelineNodeId.Liquidity -> {
+                if (!sessionEnded && touchTurnFormingBarPriceChart != null) {
+                    TouchTurnPipelineLiveOrderChart(chart = touchTurnFormingBarPriceChart)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 TouchTurnPipelineSectionLiquidity(session = analysisSession)
-            TouchTurnPipelineNodeId.Confirmation ->
+            }
+            TouchTurnPipelineNodeId.Confirmation -> {
+                if (!sessionEnded && touchTurnFormingBarPriceChart != null) {
+                    TouchTurnPipelineLiveOrderChart(chart = touchTurnFormingBarPriceChart)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 TouchTurnPipelineSectionConfirmation(session = analysisSession)
+            }
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
