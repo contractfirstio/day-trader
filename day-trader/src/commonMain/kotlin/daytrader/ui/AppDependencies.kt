@@ -70,8 +70,17 @@ fun rememberAppDependencies(
         }
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
             val executionGateway = brokerGateway ?: session
+            val marketDataGateway = if (
+                touchTurnSessionGateway != null &&
+                brokerGateway != null &&
+                touchTurnSessionGateway !== brokerGateway
+            ) {
+                touchTurnSessionGateway
+            } else {
+                executionGateway
+            }
             val marketData = BrokerGatewayMarketDataProvider(
-                gateway = executionGateway,
+                gateway = marketDataGateway,
                 ensureLiveMarketData = ensureLiveMarketData,
                 releaseLiveMarketData = releaseLiveMarketData
             )

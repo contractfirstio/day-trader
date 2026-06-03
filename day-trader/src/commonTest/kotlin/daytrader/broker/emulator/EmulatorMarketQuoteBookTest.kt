@@ -51,4 +51,12 @@ class EmulatorMarketQuoteBookTest {
         assertEquals(100.4, merged.ask)
         assertEquals(99.5, merged.last)
     }
+
+    @Test
+    fun fromLiveQuote_carriesTickVolumeFromIbFeed() {
+        val book = EmulatorMarketQuote.fromLiveQuote(
+            LiveQuote(symbol = "AAPL", bid = 100.0, ask = 100.4, last = 100.2, tickVolume = 750.0)
+        )!!
+        assertEquals(750.0, book.toLiveQuote("AAPL").tickVolume)
+    }
 }

@@ -711,7 +711,8 @@ private fun TouchTurnCloseConfirmationCard(
                 color = Color.White
             )
             Text(
-                "Rule: green bar requires close below entry; red bar requires close above entry. " +
+                "Rule: green bar requires close at least 15% of bar range below entry; " +
+                    "red bar requires close at least 15% of range above entry. " +
                     "Both checks must pass within 1 minute of bar close.",
                 fontSize = 10.sp,
                 color = TextSecondary

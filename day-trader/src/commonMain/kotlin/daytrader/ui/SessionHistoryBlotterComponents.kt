@@ -386,7 +386,8 @@ private fun SessionHistoryExpandedSections(
                                 TouchTurnPipelineSectionNoTrade(session = null, graph = graph)
                             TouchTurnPipelineNodeId.Confirmation ->
                                 Text(
-                                    "Close confirmation: green bar needs close below entry; red bar needs close above entry.",
+                                    "Close confirmation: green bar needs close ≥15% of range below entry; " +
+                                        "red bar needs close ≥15% of range above entry.",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )

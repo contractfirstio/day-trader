@@ -40,6 +40,7 @@ import daytrader.ui.theme.TextSecondary
 import kotlin.math.max
 
 private val EntryLevelColor = Color(0xFF42A5F5)
+private val CloseConfirmationBufferColor = Color(0xFFFFB74D)
 
 @Composable
 fun TouchTurnLiveOrderPriceChart(
@@ -231,6 +232,9 @@ fun TouchTurnLiveOrderPriceChart(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 LiveOrderChartLegendDot("Entry", EntryLevelColor)
+                if (chart.levels.any { it.kind == TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER }) {
+                    LiveOrderChartLegendDot("Close buffer", CloseConfirmationBufferColor)
+                }
                 LiveOrderChartLegendDot("TP", GainGreen)
                 LiveOrderChartLegendDot("SL", LossRed)
                 Text(
@@ -294,5 +298,6 @@ private fun levelColor(kind: TouchTurnOrderLevelKind): Color = when (kind) {
     TouchTurnOrderLevelKind.ENTRY -> EntryLevelColor
     TouchTurnOrderLevelKind.TAKE_PROFIT -> GainGreen
     TouchTurnOrderLevelKind.STOP_LOSS -> LossRed
+    TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER -> CloseConfirmationBufferColor
     TouchTurnOrderLevelKind.OTHER -> TextSecondary
 }

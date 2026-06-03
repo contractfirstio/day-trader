@@ -24,6 +24,8 @@ import com.ib.client.protobuf.PortfolioValueProto
 import com.ib.client.protobuf.PositionEndProto
 import com.ib.client.protobuf.PositionProto
 import com.ib.client.protobuf.TickPriceProto
+import com.ib.client.protobuf.TickSizeProto
+import com.ib.client.protobuf.TickStringProto
 import daytrader.domain.InstrumentMarketResolver
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnCandleLog
@@ -118,6 +120,8 @@ class DesktopIbGatewayConnection(
     private val bidPrices = ConcurrentHashMap<String, Double>()
     private val askPrices = ConcurrentHashMap<String, Double>()
     private val lastTradePrices = ConcurrentHashMap<String, Double>()
+    private val pendingVolumeDeltaByKey = ConcurrentHashMap<String, Double>()
+    private val cumulativeVolumeByKey = ConcurrentHashMap<String, Double>()
     private val quotesBySymbol = ConcurrentHashMap<String, LiveQuote>()
     private var quotesPublishJob: Job? = null
 
@@ -161,6 +165,7 @@ class DesktopIbGatewayConnection(
     private val nextOneShotGatewayRequestId = AtomicLong(9_000_000_000L)
     private val oneShotFirstCandle = ConcurrentHashMap<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val oneShotAdr = ConcurrentHashMap<Long, CompletableDeferred<Result<Double>>>()
+    private val oneShotSignalContext = ConcurrentHashMap<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
 
     private var publishDebounceJob: Job? = null
     private var historicalFallbackJob: Job? = null
@@ -686,6 +691,40 @@ class DesktopIbGatewayConnection(
         finishPositionsLoad()
     }
 
+    override fun tickSize(tickerId: Int, field: Int, size: Decimal) {
+        try {
+            applyTickSize(tickerId, field, size)
+        } catch (e: Exception) {
+            logCallbackFailure("tickSize", e)
+        }
+    }
+
+    override fun tickSizeProtoBuf(tickSize: TickSizeProto.TickSize) {
+        try {
+            if (!tickSize.hasReqId() || !tickSize.hasTickType() || !tickSize.hasSize()) return
+            applyTickSize(tickSize.reqId, tickSize.tickType, Decimal.parse(tickSize.size))
+        } catch (e: Exception) {
+            logCallbackFailure("tickSizeProtoBuf", e)
+        }
+    }
+
+    override fun tickString(tickerId: Int, tickType: Int, value: String) {
+        try {
+            applyTickString(tickerId, tickType, value)
+        } catch (e: Exception) {
+            logCallbackFailure("tickString", e)
+        }
+    }
+
+    override fun tickStringProtoBuf(tickString: TickStringProto.TickString) {
+        try {
+            if (!tickString.hasReqId() || !tickString.hasTickType() || !tickString.hasValue()) return
+            applyTickString(tickString.reqId, tickString.tickType, tickString.value)
+        } catch (e: Exception) {
+            logCallbackFailure("tickStringProtoBuf", e)
+        }
+    }
+
     override fun tickPrice(tickerId: Int, field: Int, price: Double, attribs: TickAttrib?) {
         try {
             applyTickPrice(tickerId, field, price)
@@ -1001,7 +1040,7 @@ class DesktopIbGatewayConnection(
         IbGatewayLog.debug(
             "reqMktData start reqId=$reqId key=$logicalKey canonical=$canonical mode=${connectionMode.name}"
         )
-        client.reqMktData(reqId, contract, "", false, false, null)
+        client.reqMktData(reqId, contract, MARKET_DATA_GENERIC_TICKS, false, false, null)
     }
 
     private fun attachLogicalMarketDataKey(logicalKey: String, reqId: Int, normSymbol: String?) {
@@ -1019,6 +1058,8 @@ class DesktopIbGatewayConnection(
         bidPrices.remove(logicalKey)
         askPrices.remove(logicalKey)
         lastTradePrices.remove(logicalKey)
+        pendingVolumeDeltaByKey.remove(logicalKey)
+        cumulativeVolumeByKey.remove(logicalKey)
         val remaining = logicalKeysFor(reqId)
         remaining.remove(logicalKey)
         if (remaining.isNotEmpty()) return
@@ -1055,6 +1096,54 @@ class DesktopIbGatewayConnection(
         if (price <= 0.0) return
         val keys = mktDataReqIdToLogicalKeys[tickerId] ?: return
         keys.forEach { key -> applyTickPriceForKey(key, field, price) }
+    }
+
+    private fun applyTickSize(tickerId: Int, field: Int, size: Decimal) {
+        if (!Decimal.isValid(size)) return
+        val keys = mktDataReqIdToLogicalKeys[tickerId] ?: return
+        keys.forEach { key -> applyTickSizeForKey(key, field, size) }
+    }
+
+    private fun applyTickSizeForKey(key: String, field: Int, size: Decimal) {
+        val sizeVal = size.value().toDouble()
+        when (field) {
+            TickType.LAST_SIZE.index(),
+            TickType.DELAYED_LAST_SIZE.index() -> {
+                if (sizeVal > 0.0) recordVolumeDelta(key, sizeVal)
+            }
+            TickType.VOLUME.index(),
+            TickType.DELAYED_VOLUME.index() -> {
+                val previous = cumulativeVolumeByKey.put(key, sizeVal)
+                if (previous != null && sizeVal > previous) {
+                    recordVolumeDelta(key, sizeVal - previous)
+                }
+            }
+        }
+    }
+
+    private fun applyTickString(tickerId: Int, tickType: Int, value: String) {
+        if (tickType != TickType.RT_VOLUME.index()) return
+        val tradeSize = IbRtVolumeParser.tradeSizeFromRtVolume(value) ?: return
+        val keys = mktDataReqIdToLogicalKeys[tickerId] ?: return
+        keys.forEach { key -> recordVolumeDelta(key, tradeSize) }
+    }
+
+    private fun recordVolumeDelta(key: String, delta: Double) {
+        if (delta <= 0.0) return
+        pendingVolumeDeltaByKey.merge(key, delta, Double::plus)
+        resolveSymbolForMarketDataKey(key)?.let { symbol -> updateQuoteFor(symbol, key) }
+    }
+
+    private fun buildLiveQuote(symbol: String, key: String): LiveQuote {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val tickVolume = pendingVolumeDeltaByKey.remove(key)?.takeIf { it > 0.0 }
+        return LiveQuote(
+            symbol = norm,
+            bid = bidPrices[key],
+            ask = askPrices[key],
+            last = lastTradePrices[key] ?: marketPrices[key],
+            tickVolume = tickVolume
+        )
     }
 
     private fun applyTickPriceForKey(key: String, field: Int, price: Double) {
@@ -1118,17 +1207,11 @@ class DesktopIbGatewayConnection(
     }
 
     private fun updateQuoteFor(symbol: String, key: String) {
-        val norm = SymbolMarkets.normalizeSymbol(symbol)
-        val quote = LiveQuote(
-            symbol = norm,
-            bid = bidPrices[key],
-            ask = askPrices[key],
-            last = lastTradePrices[key] ?: marketPrices[key]
-        )
-        quotesBySymbol[norm] = quote
+        val quote = buildLiveQuote(symbol, key)
+        quotesBySymbol[quote.symbol] = quote
         val bus = quoteBus
         when {
-            bus != null && marketDataOnly -> publishQuoteToBusIfPresent(norm, quote, priorCloses[key], bus)
+            bus != null && marketDataOnly -> publishQuoteToBusIfPresent(quote.symbol, quote, priorCloses[key], bus)
             bus == null || !marketDataOnly -> scheduleQuotePublish()
         }
     }
@@ -1139,7 +1222,7 @@ class DesktopIbGatewayConnection(
         priorClose: Double?,
         bus: daytrader.marketdata.MarketQuoteBus
     ) {
-        if (quote.bid == null && quote.ask == null && quote.last == null) return
+        if (quote.bid == null && quote.ask == null && quote.last == null && quote.tickVolume == null) return
         bus.publish(norm, quote, priorClose, daytrader.marketdata.QuoteSource.EXTERNAL)
     }
 
@@ -1157,13 +1240,7 @@ class DesktopIbGatewayConnection(
         val bid = bidPrices[key] ?: return
         val ask = askPrices[key] ?: return
         if (bid <= 0.0 || ask <= 0.0) return
-        val norm = SymbolMarkets.normalizeSymbol(symbol)
-        val quote = LiveQuote(
-            symbol = norm,
-            bid = bid,
-            ask = ask,
-            last = lastTradePrices[key] ?: marketPrices[key]
-        )
+        val quote = buildLiveQuote(symbol, key)
         val priorClose = priorCloses[key]
         onLiveQuote?.invoke(symbol, quote, priorClose)
     }
@@ -1399,6 +1476,8 @@ class DesktopIbGatewayConnection(
         bidPrices.clear()
         askPrices.clear()
         lastTradePrices.clear()
+        pendingVolumeDeltaByKey.clear()
+        cumulativeVolumeByKey.clear()
         streamSymbolByMktDataKey.clear()
     }
 
@@ -1515,28 +1594,64 @@ class DesktopIbGatewayConnection(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<TouchTurnSignalContext> {
-        val candleDeferred = CompletableDeferred<Result<OhlcBar>>()
-        val adrDeferred = CompletableDeferred<Result<Double>>()
-        val candleSubId = nextOneShotGatewayRequestId.getAndIncrement()
-        val adrSubId = nextOneShotGatewayRequestId.getAndIncrement()
-        oneShotFirstCandle[candleSubId] = candleDeferred
-        oneShotAdr[adrSubId] = adrDeferred
-        requestFirstFifteenMinuteCandle(candleSubId, symbol, instrument)
-        val candle = withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { candleDeferred.await() }
-        if (candle.isFailure) return Result.failure(candle.exceptionOrNull()!!)
-        requestFourteenDayAdr(adrSubId, symbol, instrument)
-        val adr = withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { adrDeferred.await() }
-        if (adr.isFailure) return Result.failure(adr.exceptionOrNull()!!)
-        val bar = candle.getOrThrow()
-        val atrProxy = adr.getOrThrow()
-        val estimatedVolume = bar.volume.takeIf { it > 0.0 } ?: atrProxy * 10_000.0
-        return Result.success(
-            TouchTurnSignalContext(
-                firstCandle = bar,
-                atr14 = atrProxy,
-                volumeSma20 = estimatedVolume * 0.85
+        if (!client.isConnected) {
+            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+        }
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            return Result.failure(IllegalArgumentException("Symbol is blank"))
+        }
+        val deferred = CompletableDeferred<Result<TouchTurnSignalContext>>()
+        val gatewayRequestId = nextOneShotGatewayRequestId.getAndIncrement()
+        oneShotSignalContext[gatewayRequestId] = deferred
+        val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
+        val marketZoneId = SymbolMarkets.marketZoneIdForSession(trimmed, instrument)
+        touchTurnGatewayRequestId[reqId] = gatewayRequestId
+        touchTurnHistoricalSymbol[reqId] = trimmed
+        touchTurnHistoricalMarketZoneId[reqId] = marketZoneId
+        val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
+        scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
+            cancelTouchTurnHistorical(reqId)
+            failTouchTurnHistorical(
+                reqId,
+                "Touch Turn 15-minute history request timed out after ${TOUCH_TURN_HISTORICAL_TIMEOUT_MS / 1000}s"
             )
-        )
+        }
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                clearHistoricalRequestTimeout(reqId)
+                failTouchTurnHistorical(reqId, "Disconnected before Touch Turn 15-minute history request")
+                return@enqueue
+            }
+            client.reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                TOUCH_TURN_HISTORICAL_DURATION,
+                TOUCH_TURN_HISTORICAL_BAR_SIZE,
+                HISTORICAL_WHAT_TO_SHOW,
+                1,
+                1,
+                true,
+                null
+            )
+        }
+        return withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+    }
+
+    private fun deliverSignalContextReady(gatewayRequestId: Long, result: Result<TouchTurnSignalContext>) {
+        oneShotSignalContext.remove(gatewayRequestId)?.complete(result)
+            ?: emit(GatewayEvent.TouchTurnSignalContextReady(gatewayRequestId, result))
+    }
+
+    private fun deliverTouchTurnHistoricalFailure(gatewayRequestId: Long, message: String) {
+        val error = IllegalStateException(message)
+        val signalDeferred = oneShotSignalContext.remove(gatewayRequestId)
+        if (signalDeferred != null) {
+            signalDeferred.complete(Result.failure(error))
+            return
+        }
+        deliverFirstCandleReady(gatewayRequestId, Result.failure(error))
     }
 
     private fun cancelWorkingOrder(orderId: Int) {
@@ -1557,10 +1672,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            deliverFirstCandleReady(
-                gatewayRequestId,
-                Result.failure(IllegalStateException("Historical request cancelled"))
-            )
+            deliverTouchTurnHistoricalFailure(gatewayRequestId, "Historical request cancelled")
         }
         paced {
             if (client.isConnected) {
@@ -1575,10 +1687,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
-            deliverFirstCandleReady(
-                gatewayRequestId,
-                Result.failure(IllegalStateException(message))
-            )
+            deliverTouchTurnHistoricalFailure(gatewayRequestId, message)
         }
     }
 
@@ -1607,11 +1716,16 @@ class DesktopIbGatewayConnection(
         )
         if (first == null) {
             val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
-            deliverFirstCandleReady(
+            deliverTouchTurnHistoricalFailure(
                 gatewayRequestId,
-                Result.failure(
-                    IllegalStateException("No 15-minute bars returned for $market session ($sessionDay)")
-                )
+                "No 15-minute bars returned for $market session ($sessionDay)"
+            )
+            return
+        }
+        if (oneShotSignalContext.containsKey(gatewayRequestId)) {
+            deliverSignalContextReady(
+                gatewayRequestId,
+                TouchTurnLogic.deriveTouchTurnSignalContext(ohlcBars, marketZoneId, sessionDay)
             )
             return
         }
@@ -2479,9 +2593,11 @@ class DesktopIbGatewayConnection(
         const val INSTRUMENT_RESOLVE_TIMEOUT_MS = 12_000L
         const val HISTORICAL_REQ_ID_START = 30_000
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
-        const val TOUCH_TURN_HISTORICAL_DURATION = "1 D"
+        const val TOUCH_TURN_HISTORICAL_DURATION = "10 D"
         const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
         const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
+        /** RT Volume generic tick for live trade-size updates (volume buffer). */
+        const val MARKET_DATA_GENERIC_TICKS = "233"
         const val ADR_HISTORICAL_REQ_ID_START = 55_000
         const val ADR_HISTORICAL_DURATION = "20 D"
         const val ADR_HISTORICAL_BAR_SIZE = "1 day"
@@ -2540,10 +2656,15 @@ class DesktopIbGatewayConnection(
     }
 }
 
-private fun Bar.toTouchTurnOhlcBar(marketZoneId: String): OhlcBar = OhlcBar(
-    open = open(),
-    high = high(),
-    low = low(),
-    close = close(),
-    time = TouchTurnLogic.normalizeIbBarTimeToMarketZone(time(), marketZoneId)
-)
+private fun Bar.toTouchTurnOhlcBar(marketZoneId: String): OhlcBar {
+    val barVolume = volume()
+    val volume = if (Decimal.isValid(barVolume)) barVolume.value().toDouble() else 0.0
+    return OhlcBar(
+        open = open(),
+        high = high(),
+        low = low(),
+        close = close(),
+        time = TouchTurnLogic.normalizeIbBarTimeToMarketZone(time(), marketZoneId),
+        volume = volume
+    )
+}

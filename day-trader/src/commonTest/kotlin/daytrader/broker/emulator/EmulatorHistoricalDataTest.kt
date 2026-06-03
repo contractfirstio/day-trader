@@ -184,6 +184,27 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun touchTurnSignalContext_usSymbol_usesMarketZoneSessionDayNotJvmLocal() {
+        // UTC 2026-06-02 22:57 = NY 2026-06-02 18:57, but UTC+8 local calendar is already 2026-06-03.
+        val now = 1_780_441_021_834L
+        val instrument = EmulatorSeedCatalog.instruments()["SPY"]!!
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val result = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = "SPY",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val barDay = TouchTurnLogic.barDayKey(result.getOrThrow().firstCandle.time)
+        assertEquals("20260602", barDay)
+        assertEquals(
+            "20260602",
+            TouchTurnLogic.sessionDayYyyyMmDd(instrument.marketZoneId, now)
+        )
+    }
+
+    @Test
     fun touchTurnSignalContext_acceleratedCandle_hasAtrAndVolumeSma() {
         val instrument = EmulatorSeedCatalog.instruments()["700"]
             ?: EmulatorSeedCatalog.instruments().values.first()

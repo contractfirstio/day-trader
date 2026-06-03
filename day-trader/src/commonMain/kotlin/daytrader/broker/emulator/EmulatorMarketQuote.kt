@@ -71,7 +71,14 @@ internal data class EmulatorMarketQuote(
                 ?: existing?.last
                 ?: (bid + ask) / 2.0
             val halfSpread = max((ask - bid) / 2.0, last * 1e-6)
-            return EmulatorMarketQuote(last = last, bid = bid, ask = ask, halfSpread = halfSpread)
+            val tickVolume = incoming.tickVolume?.takeIf { it > 0.0 } ?: 0.0
+            return EmulatorMarketQuote(
+                last = last,
+                bid = bid,
+                ask = ask,
+                halfSpread = halfSpread,
+                lastTickVolume = tickVolume
+            )
         }
     }
 }

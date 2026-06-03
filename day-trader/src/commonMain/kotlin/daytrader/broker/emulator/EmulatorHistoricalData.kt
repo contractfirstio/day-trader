@@ -5,7 +5,6 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSignalContext
-import daytrader.platform.currentSessionDateIso
 import kotlin.math.abs
 import kotlin.math.sin
 
@@ -24,7 +23,8 @@ internal object EmulatorHistoricalData {
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionCandleFetchIndex: Int = 0
     ): Result<OhlcBar> {
-        val sessionYmd = sessionDayYyyyMmDd()
+        val marketZoneId = instrument.marketZoneId
+        val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
         val profile = symbolProfile(
             symbol = symbol,
             sessionYmd = sessionYmd,
@@ -39,7 +39,7 @@ internal object EmulatorHistoricalData {
         val high = maxOf(open, close) + range * 0.15
         val low = minOf(open, close) - range * 0.10
         val barTime = resolveFirstCandleBarTime(
-            marketZoneId = instrument.marketZoneId,
+            marketZoneId = marketZoneId,
             secondsUntilClose = config.firstCandleSecondsUntilClose,
             nowEpochMillis = nowEpochMillis
         )
@@ -63,8 +63,8 @@ internal object EmulatorHistoricalData {
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionCandleFetchIndex: Int = 0
     ): Result<TouchTurnSignalContext> {
-        val sessionYmd = sessionDayYyyyMmDd()
         val marketZoneId = instrument.marketZoneId
+        val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
         val history = fifteenMinuteBarHistory(
             symbol = symbol,
             instrument = instrument,
@@ -116,8 +116,12 @@ internal object EmulatorHistoricalData {
         return prior + opening
     }
 
-    fun fourteenDayAdr(symbol: String, instrument: EmulatorInstrument): Result<Double> {
-        val sessionYmd = sessionDayYyyyMmDd()
+    fun fourteenDayAdr(
+        symbol: String,
+        instrument: EmulatorInstrument,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): Result<Double> {
+        val sessionYmd = sessionDayYyyyMmDd(instrument.marketZoneId, nowEpochMillis)
         val dailyBars = buildDailyBars(symbol, instrument, sessionYmd)
         return TouchTurnLogic.computeAdr14(dailyBars, excludeSessionDayYyyyMmdd = sessionYmd)
     }
@@ -137,7 +141,7 @@ internal object EmulatorHistoricalData {
             val barOpen = barEnd - TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
             return TouchTurnLogic.formatIbBarOpenTime(barOpen, marketZoneId)
         }
-        val sessionYmd = sessionDayYyyyMmDd()
+        val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
         return barTimeForSession(sessionYmd, marketZoneId)
     }
 
@@ -162,10 +166,8 @@ internal object EmulatorHistoricalData {
         return days
     }
 
-    private fun sessionDayYyyyMmDd(): String {
-        val iso = currentSessionDateIso()
-        return iso.replace("-", "")
-    }
+    private fun sessionDayYyyyMmDd(marketZoneId: String, nowEpochMillis: Long): String =
+        TouchTurnLogic.sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
 
     private fun barTimeForSession(ymd: String, marketZoneId: String): String {
         val session = RthMarketSessions.forZoneId(marketZoneId)

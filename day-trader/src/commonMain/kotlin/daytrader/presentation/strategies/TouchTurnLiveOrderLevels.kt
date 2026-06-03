@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.TouchTurnBracketSetup
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.gateway.WorkingOrder
 import kotlin.math.abs
@@ -10,6 +11,8 @@ enum class TouchTurnOrderLevelKind {
     ENTRY,
     TAKE_PROFIT,
     STOP_LOSS,
+    /** Min/max close for confirmation — 15% of bar range from entry. */
+    CLOSE_CONFIRMATION_BUFFER,
     OTHER
 }
 
@@ -20,6 +23,25 @@ data class TouchTurnOrderLevelUi(
 )
 
 object TouchTurnLiveOrderLevels {
+    fun chartLevels(
+        openOrders: List<WorkingOrder>,
+        plannedBracket: TouchTurnPlannedBracket?,
+        bracketSetup: TouchTurnBracketSetup?
+    ): List<TouchTurnOrderLevelUi> {
+        val levels = fromWorkingOrders(openOrders, plannedBracket, bracketSetup).toMutableList()
+        confirmationBufferLevel(bracketSetup)?.let { levels += it }
+        return levels
+    }
+
+    fun confirmationBufferLevel(setup: TouchTurnBracketSetup?): TouchTurnOrderLevelUi? {
+        val price = setup?.let { TouchTurnLogic.closeConfirmationBufferPrice(it) } ?: return null
+        return TouchTurnOrderLevelUi(
+            price = price,
+            label = "Close buffer",
+            kind = TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER
+        )
+    }
+
     fun fromWorkingOrders(
         openOrders: List<WorkingOrder>,
         plannedBracket: TouchTurnPlannedBracket?,
@@ -71,6 +93,7 @@ object TouchTurnLiveOrderLevels {
         TouchTurnOrderLevelKind.ENTRY -> "Entry"
         TouchTurnOrderLevelKind.TAKE_PROFIT -> "Take profit"
         TouchTurnOrderLevelKind.STOP_LOSS -> "Stop loss"
+        TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER -> "Close buffer"
         TouchTurnOrderLevelKind.OTHER -> "${order.action} ${order.orderType}"
     }
 

@@ -33,7 +33,7 @@ object TouchTurnLiveOrderChartUiMapper {
         bracketSetup: TouchTurnBracketSetup?,
         statusHint: String? = null
     ): TouchTurnLiveOrderChartUiState? {
-        val levels = TouchTurnLiveOrderLevels.fromWorkingOrders(
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
             openOrders = openOrders,
             plannedBracket = plannedBracket,
             bracketSetup = bracketSetup
