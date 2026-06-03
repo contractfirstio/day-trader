@@ -38,6 +38,16 @@ enum class TouchTurnEntryWindowStatus {
 
 /** Close-location and timing gate after liquidity check (same 15m candle, no second candle wait). */
 @Serializable
+/** Result of validating a post-close historical refetch before liquidity evaluation. */
+enum class ClosedFirstCandleRefetchValidation {
+    /** Bar is final, matches the opening bar anchor, and safe to persist. */
+    READY,
+    /** IB may still be updating the bar — retry refetch after a short delay. */
+    NOT_YET_FINAL,
+    /** Unrecoverable (invalid OHLC, wrong bar, etc.). */
+    REJECTED
+}
+
 enum class TouchTurnCloseConfirmation {
     AWAITING_LIQUIDITY,
     PASSED,
@@ -320,6 +330,69 @@ object TouchTurnLogic {
     }
 
     fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
+
+    fun normalizedBarTimesEqual(
+        expected: String?,
+        actual: String?,
+        marketZoneId: String
+    ): Boolean {
+        if (expected == null || actual == null) return true
+        val normExpected = normalizeIbBarTimeToMarketZone(expected, marketZoneId)
+        val normActual = normalizeIbBarTimeToMarketZone(actual, marketZoneId)
+        return normExpected == normActual
+    }
+
+    /**
+     * Milliseconds until the opening 15m bar is considered settled enough for a post-close IB refetch.
+     * Returns 0 when [openingBarTime] is unknown or the settle window has already elapsed.
+     */
+    fun millisUntilClosedBarRefetchReady(
+        openingBarTime: String?,
+        marketZoneId: String,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        settleMs: Long = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
+    ): Long {
+        val barTime = openingBarTime?.trim()?.takeIf { it.isNotEmpty() } ?: return 0L
+        val barEnd = barEndEpochMillis(barTime, marketZoneId) ?: return 0L
+        return (barEnd + settleMs - nowEpochMillis).coerceAtLeast(0)
+    }
+
+    /**
+     * Validates OHLC from [fetchTouchTurnSignalContext] after the opening bar has closed.
+     * Prevents liquidity evaluation on IB's still-forming or mismatched 15m snapshot.
+     */
+    fun validateClosedFirstCandleRefetch(
+        candle: OhlcBar,
+        openingBarTime: String?,
+        marketZoneId: String,
+        sessionDateIso: String,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        settleMs: Long = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
+    ): Pair<ClosedFirstCandleRefetchValidation, String?> {
+        val barTime = candle.time?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return ClosedFirstCandleRefetchValidation.REJECTED to "missing bar time"
+        if (candle.high <= 0.0 || candle.low <= 0.0 || candle.high < candle.low) {
+            return ClosedFirstCandleRefetchValidation.REJECTED to "invalid OHLC (high=${candle.high}, low=${candle.low})"
+        }
+        val barEnd = barEndEpochMillis(barTime, marketZoneId)
+            ?: return ClosedFirstCandleRefetchValidation.REJECTED to "unparseable bar time $barTime"
+        if (nowEpochMillis < barEnd + settleMs) {
+            val waitMs = barEnd + settleMs - nowEpochMillis
+            return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
+                "bar end + ${settleMs}ms settle not reached (wait ${waitMs}ms)"
+        }
+        if (firstCandleCloseStatus(barTime, marketZoneId, nowEpochMillis, sessionDateIso) !=
+            FirstCandleCloseStatus.CLOSED
+        ) {
+            return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to "first candle still forming by wall clock"
+        }
+        val anchor = openingBarTime?.trim()?.takeIf { it.isNotEmpty() }
+        if (anchor != null && !normalizedBarTimesEqual(anchor, barTime, marketZoneId)) {
+            return ClosedFirstCandleRefetchValidation.NOT_YET_FINAL to
+                "refetched bar time $barTime != opening anchor $anchor"
+        }
+        return ClosedFirstCandleRefetchValidation.READY to null
+    }
 
     /**
      * IB historical bar `time` is the bar **open** (e.g. `20250522  09:30:00` for 09:30–09:45).
@@ -1140,6 +1213,8 @@ object TouchTurnDefaults {
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
     /** Max time after 15m bar close to pass close confirmation and place entry orders. */
     const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 60_000L
+    /** Wait after 15m bar end before trusting IB historical refetch (bar-not-final race). */
+    const val CLOSED_BAR_REFETCH_SETTLE_MS = 3_000L
     @Deprecated("Use CLOSE_CONFIRMATION_AFTER_CLOSE_MS", ReplaceWith("CLOSE_CONFIRMATION_AFTER_CLOSE_MS"))
     const val ENTRY_WINDOW_AFTER_CLOSE_MS = CLOSE_CONFIRMATION_AFTER_CLOSE_MS
     /**

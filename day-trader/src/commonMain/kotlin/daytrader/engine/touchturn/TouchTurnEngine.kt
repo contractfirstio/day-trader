@@ -12,6 +12,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.DeploymentSessionStopLogic
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.ClosedFirstCandleRefetchValidation
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.StrategyDeployment
@@ -654,28 +655,84 @@ class TouchTurnEngine(
             }
             val symbol = instance.symbol
             val instrument = DeploymentMarket.effectiveInstrument(instance)
+            val zoneId = session.marketZoneId
+            val openingBarTime = session.resolvedOpeningBarTime()
+            val sessionDate = session.sessionDate
             marketData.ensureStreaming(symbol, instrument)
-            val refetchResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
+            awaitClosedBarRefetchSettle(
+                instanceId = instanceId,
+                symbol = symbol,
+                openingBarTime = openingBarTime,
+                marketZoneId = zoneId
+            )
             var refetchFailed = false
-            repository.update(instanceId) { current ->
-                refetchResult.fold(
-                    onSuccess = { context ->
-                        TouchTurnCandleLog.closedBarLoaded(
-                            instanceId = instanceId,
-                            symbol = symbol,
-                            barTime = context.firstCandle.time,
-                            candle = context.firstCandle
-                        )
-                        current.withClosedFirstFifteenMinuteCandle(context.firstCandle)
-                    },
-                    onFailure = { error ->
-                        refetchFailed = true
+            var attempt = 0
+            while (isActive && attempt < TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS) {
+                attempt++
+                val refetchResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
+                if (refetchResult.isFailure) {
+                    refetchFailed = true
+                    repository.update(instanceId) { current ->
                         current.withTouchTurnCandleFailed(
-                            session.sessionDate,
-                            error.message ?: "Failed to load closed 15-minute bar"
+                            sessionDate,
+                            refetchResult.exceptionOrNull()?.message
+                                ?: "Failed to load closed 15-minute bar"
                         )
                     }
+                    break
+                }
+                val context = refetchResult.getOrThrow()
+                val now = nowEpochMillis()
+                val (validation, reason) = TouchTurnLogic.validateClosedFirstCandleRefetch(
+                    candle = context.firstCandle,
+                    openingBarTime = openingBarTime,
+                    marketZoneId = zoneId,
+                    sessionDateIso = sessionDate,
+                    nowEpochMillis = now
                 )
+                when (validation) {
+                    ClosedFirstCandleRefetchValidation.READY -> {
+                        repository.update(instanceId) { current ->
+                            TouchTurnCandleLog.closedBarLoaded(
+                                instanceId = instanceId,
+                                symbol = symbol,
+                                barTime = context.firstCandle.time,
+                                candle = context.firstCandle
+                            )
+                            current.withClosedFirstFifteenMinuteCandle(context.firstCandle)
+                        }
+                        break
+                    }
+                    ClosedFirstCandleRefetchValidation.NOT_YET_FINAL -> {
+                        TouchTurnCandleLog.closedBarRefetchRetry(
+                            instanceId = instanceId,
+                            symbol = symbol,
+                            attempt = attempt,
+                            reason = reason ?: "not yet final"
+                        )
+                        if (attempt >= TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS) {
+                            refetchFailed = true
+                            repository.update(instanceId) { current ->
+                                current.withTouchTurnCandleFailed(
+                                    sessionDate,
+                                    "Closed 15-minute bar not final after $attempt refetches: ${reason ?: "unknown"}"
+                                )
+                            }
+                        } else {
+                            delay(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
+                        }
+                    }
+                    ClosedFirstCandleRefetchValidation.REJECTED -> {
+                        refetchFailed = true
+                        repository.update(instanceId) { current ->
+                            current.withTouchTurnCandleFailed(
+                                sessionDate,
+                                reason ?: "Closed 15-minute bar rejected"
+                            )
+                        }
+                        break
+                    }
+                }
             }
             closedBarRefetchJobs.remove(instanceId)
             if (refetchFailed) {
@@ -683,8 +740,35 @@ class TouchTurnEngine(
                 liquidityJobs.remove(instanceId)?.cancel()
                 return@launch
             }
+            val after = repository.deployments.value.find { it.id == instanceId }
+            if (after?.touchTurnSession?.candle == null) {
+                notifyNoTradeDecisionIfNeeded(instanceId)
+                liquidityJobs.remove(instanceId)?.cancel()
+                return@launch
+            }
             dispatch(TouchTurnCommand.PollLiquidity(instanceId))
         }
+    }
+
+    private suspend fun awaitClosedBarRefetchSettle(
+        instanceId: String,
+        symbol: String,
+        openingBarTime: String?,
+        marketZoneId: String
+    ) {
+        val waitMs = TouchTurnLogic.millisUntilClosedBarRefetchReady(
+            openingBarTime = openingBarTime,
+            marketZoneId = marketZoneId,
+            nowEpochMillis = nowEpochMillis()
+        )
+        if (waitMs <= 0L) return
+        TouchTurnCandleLog.closedBarRefetchWaiting(
+            instanceId = instanceId,
+            symbol = symbol,
+            openingBarTime = openingBarTime,
+            waitMs = waitMs
+        )
+        delay(waitMs)
     }
 
     private fun evaluateLiquidityAfterClosedBar(instanceId: String) {

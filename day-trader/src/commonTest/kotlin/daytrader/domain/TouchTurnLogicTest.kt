@@ -194,6 +194,71 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun validateClosedFirstCandleRefetch_notYetFinalBeforeSettleWindow() {
+        val barTime = "20250522  09:30:00"
+        val zone = "Asia/Hong_Kong"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        val candle = OhlcBar(open = 400.0, high = 401.0, low = 399.0, close = 400.5, time = barTime)
+        val (status, _) = TouchTurnLogic.validateClosedFirstCandleRefetch(
+            candle = candle,
+            openingBarTime = barTime,
+            marketZoneId = zone,
+            sessionDateIso = "2025-05-22",
+            nowEpochMillis = barEnd + 1_000
+        )
+        assertEquals(ClosedFirstCandleRefetchValidation.NOT_YET_FINAL, status)
+    }
+
+    @Test
+    fun validateClosedFirstCandleRefetch_readyAfterSettleAndBarEnd() {
+        val barTime = "20250522  09:30:00"
+        val zone = "Asia/Hong_Kong"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        val candle = OhlcBar(open = 400.0, high = 401.0, low = 399.0, close = 400.5, time = barTime)
+        val now = barEnd + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + 1
+        val (status, reason) = TouchTurnLogic.validateClosedFirstCandleRefetch(
+            candle = candle,
+            openingBarTime = barTime,
+            marketZoneId = zone,
+            sessionDateIso = "2025-05-22",
+            nowEpochMillis = now
+        )
+        assertEquals(ClosedFirstCandleRefetchValidation.READY, status)
+        assertNull(reason)
+    }
+
+    @Test
+    fun validateClosedFirstCandleRefetch_notYetFinalWhenRefetchedBarTimeDiffersFromAnchor() {
+        val anchor = "20250522  09:30:00"
+        val refetched = "20250522  09:45:00"
+        val zone = "Asia/Hong_Kong"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(refetched, zone)!!
+        val candle = OhlcBar(open = 400.0, high = 401.0, low = 399.0, close = 400.5, time = refetched)
+        val (status, reason) = TouchTurnLogic.validateClosedFirstCandleRefetch(
+            candle = candle,
+            openingBarTime = anchor,
+            marketZoneId = zone,
+            sessionDateIso = "2025-05-22",
+            nowEpochMillis = barEnd + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
+        )
+        assertEquals(ClosedFirstCandleRefetchValidation.NOT_YET_FINAL, status)
+        assertTrue(reason?.contains("!=") == true)
+    }
+
+    @Test
+    fun millisUntilClosedBarRefetchReady_zeroAfterSettleElapsed() {
+        val barTime = "20250522  09:30:00"
+        val zone = "Asia/Hong_Kong"
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
+        val wait = TouchTurnLogic.millisUntilClosedBarRefetchReady(
+            openingBarTime = barTime,
+            marketZoneId = zone,
+            nowEpochMillis = barEnd + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
+        )
+        assertEquals(0L, wait)
+    }
+
+    @Test
     fun firstCandleCloseStatus_acceleratedBarFormingEvenWhenPastScheduledRthEnd() {
         val sessionDate = "2026-06-03"
         val zone = "Asia/Hong_Kong"

@@ -97,6 +97,30 @@ object TouchTurnCandleLog {
         )
     }
 
+    fun closedBarRefetchWaiting(
+        instanceId: String,
+        symbol: String,
+        openingBarTime: String?,
+        waitMs: Long
+    ) {
+        line(
+            "closed bar refetch waiting instance=$instanceId symbol=$symbol " +
+                "openingBarTime=${openingBarTime ?: "null"} waitMs=$waitMs"
+        )
+    }
+
+    fun closedBarRefetchRetry(
+        instanceId: String,
+        symbol: String,
+        attempt: Int,
+        reason: String
+    ) {
+        line(
+            "closed bar refetch retry instance=$instanceId symbol=$symbol " +
+                "attempt=$attempt reason=$reason"
+        )
+    }
+
     private fun emitSnapshot(
         deploymentMarketZoneId: String,
         session: TouchTurnSessionContext,
