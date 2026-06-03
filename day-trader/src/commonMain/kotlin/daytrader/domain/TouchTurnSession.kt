@@ -225,7 +225,8 @@ data class TouchTurnSessionContext(
             true -> return TouchTurnCloseConfirmation.PASSED
             false -> return when (decisionOutcome) {
                 TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
-                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED ->
+                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE ->
                     TouchTurnCloseConfirmation.FAILED
                 TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
                     TouchTurnCloseConfirmation.EXPIRED
@@ -659,6 +660,17 @@ object TouchTurnLogic {
     fun resolveLiveMid(bid: Double?, ask: Double?, last: Double?): Double? {
         if (bid != null && ask != null && bid > 0.0 && ask > 0.0) return (bid + ask) / 2.0
         return last?.takeIf { it > 0.0 }
+    }
+
+    /**
+     * True when [liveMid] is within [TouchTurnDefaults.BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE] of the
+     * completed bar's close — rejects trading a turn when the live tape has already gapped from the bar.
+     */
+    fun barCloseAgreesWithLiveMid(bar: OhlcBar, liveMid: Double): Boolean {
+        val range = bar.range
+        if (range <= 0.0) return false
+        val maxGap = range * TouchTurnDefaults.BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE
+        return kotlin.math.abs(bar.close - liveMid) <= maxGap
     }
 
     fun closePositionRatio(bar: OhlcBar): Double? = closePositionRatioForPrice(bar, bar.close)
@@ -1271,6 +1283,8 @@ object TouchTurnDefaults {
     const val CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE = 0.15
     /** Long: skip entry when ask is more than this fraction of bar range below entry (and vice versa for short). */
     const val ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE = 0.05
+    /** Max |bar.close − liveMid| as a fraction of bar range before hybrid mode rejects the setup. */
+    const val BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE = 0.25
     /** For short setups (green liquidity candle), require close in the lower X of range. */
     const val CLOSE_POSITION_SHORT_MAX = 0.35
     /** For long setups (red liquidity candle), require close in the upper X of range. */
@@ -1421,6 +1435,9 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
         requireLivePriceChecks && !liveQuoteOk ->
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
+        requireLivePriceChecks && liveGatePrice != null &&
+            !TouchTurnLogic.barCloseAgreesWithLiveMid(candle, liveGatePrice) ->
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE
         requireLivePriceChecks && liveGatePrice != null && !liveCloseOk ->
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED
         requireLivePriceChecks && liveBid != null && liveAsk != null && !liveEntryOk ->
@@ -1633,6 +1650,7 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,

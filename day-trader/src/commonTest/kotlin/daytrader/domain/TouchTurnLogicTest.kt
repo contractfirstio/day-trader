@@ -422,6 +422,52 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun barCloseAgreesWithLiveMid_rejects3690StyleGap() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20250522  09:30:00")
+        val liveMid = TouchTurnLogic.resolveLiveMid(83.35, 83.4, 85.55)!!
+        assertFalse(TouchTurnLogic.barCloseAgreesWithLiveMid(bar, liveMid))
+    }
+
+    @Test
+    fun barCloseAgreesWithLiveMid_passesWhenCloseNearLiveMid() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20250522  09:30:00")
+        assertTrue(TouchTurnLogic.barCloseAgreesWithLiveMid(bar, 85.05))
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_barLiveDivergence_blocks3690StyleSession() {
+        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "3690",
+            maxDollars = 10_000
+        ).copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2025-05-22",
+                status = TouchTurnCandleStatus.READY,
+                openingBarTime = bar.time,
+                candle = bar,
+                adr14 = 0.56,
+                rangeThreshold = 0.1,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val evaluated = instance.withLiquidityEvaluatedIfClosed(
+            enforceCloseConfirmation = true,
+            nowEpochMillis = barEnd + 10_000,
+            liveBid = 83.35,
+            liveAsk = 83.4,
+            liveLast = 85.55,
+            requireLivePriceChecks = true
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
+            evaluated.touchTurnSession?.decisionOutcome
+        )
+    }
+
+    @Test
     fun liveCloseConfirmsTurn_long_falseWhenLiveMidBelowEntryBand() {
         val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20260603  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
@@ -492,7 +538,7 @@ class TouchTurnLogicTest {
         )
         assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
         assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
             evaluated.touchTurnSession?.decisionOutcome
         )
     }
@@ -526,7 +572,7 @@ class TouchTurnLogicTest {
         )
         assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
         assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
             evaluated.touchTurnSession?.decisionOutcome
         )
     }
@@ -551,17 +597,22 @@ class TouchTurnLogicTest {
             )
         )
         assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, bid = 84.65, ask = 84.70))
+        val liveAsk = 84.74
+        val liveBid = 85.55 * 2.0 - liveAsk
+        val liveMid = TouchTurnLogic.resolveLiveMid(liveBid, liveAsk, 85.55)!!
+        assertTrue(TouchTurnLogic.barCloseAgreesWithLiveMid(bar, liveMid))
+        assertTrue(TouchTurnLogic.liveCloseConfirmsTurn(setup, bar, liveMid))
+        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
         val evaluated = instance.withLiquidityEvaluatedIfClosed(
             enforceCloseConfirmation = true,
             nowEpochMillis = barEnd + 10_000,
-            liveBid = 84.65,
-            liveAsk = 84.70,
+            liveBid = liveBid,
+            liveAsk = liveAsk,
             liveLast = 85.55,
             requireLivePriceChecks = true
         )
         assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
             evaluated.touchTurnSession?.decisionOutcome
         )
     }

@@ -19,6 +19,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
     /** Live tape no longer on the confirming side of entry at decision time (hybrid / live data). */
     NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+    /** Completed bar close and live bid/ask mid disagree beyond tolerance (hybrid / live data). */
+    NO_TRADE_BAR_LIVE_DIVERGENCE,
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
     /** Resting entry would be marketable — live price already through the touch level. */
     NO_TRADE_ENTRY_NOT_TOUCHABLE,

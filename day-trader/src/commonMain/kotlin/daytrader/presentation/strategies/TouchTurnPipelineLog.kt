@@ -111,6 +111,7 @@ object TouchTurnPipelineLog {
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,

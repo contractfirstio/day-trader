@@ -73,6 +73,11 @@ object TouchTurnSessionReasonUi {
             detail = "The completed bar passed close confirmation, but the current live price is no longer on the confirming side of the entry level.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE -> TouchTurnSessionStatusUi(
+            headline = "No trade — bar and live price disagree",
+            detail = "The completed 15-minute bar close and the live bid/ask mid differ by more than 25% of the bar range. The tape has already moved away from the candle the strategy used.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE -> TouchTurnSessionStatusUi(
             headline = "No trade — entry not touchable",
             detail = "Live price has already moved through the entry level; a resting limit would fill immediately above or below the market.",
