@@ -229,10 +229,13 @@ object TouchTurnStateSyncLog {
         if (milestones.liquidityEvaluatedAt == null && ui.phaseIndex > 3) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine liquidityEvaluatedAt=null"
         }
-        if (!engine.ordersPlacedForSession && ui.phaseIndex > 4 &&
+        if (!engine.ordersPlacedForSession && ui.phaseIndex in 5..6 &&
             engine.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
         ) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine ordersPlacedForSession=false"
+        }
+        if (engine.closingPhase && ui.phaseTerminal && ui.phaseIndex != 7) {
+            mismatches += "engine closingPhase=true but ui phaseIndex=${ui.phaseIndex} (expected Closing session=7)"
         }
         if (!engine.closingPhase && milestones.liquidityEvaluatedAt == null &&
             ui.phaseIndex > 3 &&
