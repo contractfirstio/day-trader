@@ -46,6 +46,7 @@ import daytrader.data.withDemoLiveExecutionOnStart
 import daytrader.domain.withStopPrice
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.diagnostics.SessionTrace
+import daytrader.diagnostics.SessionHistoricalLog
 import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
@@ -586,6 +587,13 @@ class TouchTurnEngine(
                     barTime = loadedSession.openingBarTime ?: loadedSession.candle?.time
                 )
                 signalResult.getOrNull()?.let { context ->
+                    SessionHistoricalLog.recordSignalContext(
+                        deploymentId = instanceId,
+                        sessionId = sessionId,
+                        symbol = symbol,
+                        context = context,
+                        isClosedBarRefetch = false
+                    )
                     TouchTurnVolumeCheck.build(
                         phase = TouchTurnVolumeCheckPhase.SIGNAL_CONTEXT,
                         candleVolume = context.firstCandle.volume,
@@ -754,6 +762,15 @@ class TouchTurnEngine(
                     marketZoneId = zoneId,
                     sessionDateIso = sessionDate,
                     nowEpochMillis = now
+                )
+                SessionHistoricalLog.recordSignalContext(
+                    deploymentId = instanceId,
+                    sessionId = sessionId,
+                    symbol = symbol,
+                    context = context,
+                    isClosedBarRefetch = true,
+                    attempt = attempt,
+                    validation = validation.name
                 )
                 when (validation) {
                     ClosedFirstCandleRefetchValidation.READY -> {

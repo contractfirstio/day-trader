@@ -31,6 +31,8 @@ import kotlinx.serialization.serializer
  * Paired per session under `sessions/{deploymentId}/{sessionId}/`:
  * - [AppDataFiles.SESSION_APPLICATION_LOG] — lifecycle, decisions, and engine/UI sync (`touch_turn_state_sync`)
  * - [AppDataFiles.SESSION_PRICES_LOG] — live IB quote updates (see [SessionPriceLog])
+ * - [AppDataFiles.SESSION_HISTORICAL_LOG] — Touch Turn bootstrap/refetch payloads (see [SessionHistoricalLog])
+ * - [AppDataFiles.SESSION_MANIFEST] — session metadata for replay (see [SessionManifestWriter])
  *
  * Each JSONL line includes `at` (ISO local with millis) and `epochMs` for cross-file correlation.
  */
@@ -66,6 +68,7 @@ object SessionTrace {
 
     fun sessionStarted(deployment: StrategyDeployment, session: StrategySession) {
         flushPendingIntoSession(deployment.id, session.id)
+        val stamp = LogTimestamps.now()
         log(
             type = "session_started",
             deploymentId = deployment.id,
@@ -79,6 +82,7 @@ object SessionTrace {
                 "startedBy" to (session.touchTurnStartedBy?.name ?: "unknown")
             )
         )
+        SessionManifestWriter.sessionStarted(deployment, session, stamp.epochMs)
     }
 
     fun sessionClosed(
@@ -93,6 +97,7 @@ object SessionTrace {
     ) {
         val deduped = rawTrades.dedupeByExecId()
         val fillPnl = deduped.sessionRealizedPnL()
+        val stamp = LogTimestamps.now()
         log(
             type = "session_closed",
             deploymentId = deployment.id,
@@ -129,6 +134,7 @@ object SessionTrace {
                 }
             }
         )
+        SessionManifestWriter.sessionClosed(deployment, session, runRecord, stamp.epochMs)
     }
 
     fun fillRecorded(

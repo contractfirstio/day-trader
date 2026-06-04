@@ -12,6 +12,8 @@ object AppDataFiles {
     const val SESSIONS_DIR = "sessions"
     const val SESSION_APPLICATION_LOG = "application.jsonl"
     const val SESSION_PRICES_LOG = "prices.jsonl"
+    const val SESSION_HISTORICAL_LOG = "historical.jsonl"
+    const val SESSION_MANIFEST = "manifest.json"
     const val SESSION_PENDING_LOG = "_pending.jsonl"
     const val SESSION_ORPHAN_LOG = "orphan.jsonl"
 
@@ -52,6 +54,14 @@ object AppDataFiles {
     /** High-volume quote updates for one session. */
     fun sessionPriceLogFileName(deploymentId: String, sessionId: String): String =
         "${sessionDirectory(deploymentId, sessionId)}/$SESSION_PRICES_LOG"
+
+    /** Touch Turn bootstrap and closed-bar refetch payloads for session replay. */
+    fun sessionHistoricalLogFileName(deploymentId: String, sessionId: String): String =
+        "${sessionDirectory(deploymentId, sessionId)}/$SESSION_HISTORICAL_LOG"
+
+    /** Session metadata and timeline anchors for replay. */
+    fun sessionManifestFileName(deploymentId: String, sessionId: String): String =
+        "${sessionDirectory(deploymentId, sessionId)}/$SESSION_MANIFEST"
 
     /** Pre-session events before [sessionId] exists; flushed into application log on session start. */
     fun sessionPendingLogFileName(deploymentId: String): String =

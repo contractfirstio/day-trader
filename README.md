@@ -88,7 +88,7 @@ On first launch, deployments are loaded from disk or seeded from `mockStrategyDe
 
 Persistence is scoped by broker so IB and emulator state never share the same JSON files. After you choose a broker on the startup screen, data is written under a broker-specific subdirectory.
 
-Deployments and UI state stay in the broker-scoped directory so they persist across launches. Only session trace logs are isolated per app launch under `runs/` (UTC timestamp + process id).
+Deployments and UI state stay in the broker-scoped directory so they persist across launches. Only raw IB tick disk logs (`ib-prices/`) are isolated per app launch under `runs/` (UTC timestamp + process id).
 
 Default base locations (set `DAY_TRADER_DATA_DIR` to override with a fixed path):
 
@@ -98,24 +98,37 @@ Default base locations (set `DAY_TRADER_DATA_DIR` to override with a fixed path)
 | Windows | `%APPDATA%\Day Trader\`                     |
 | Linux   | `~/.local/share/day-trader/`                |
 
-Effective default path pattern for session trace logs:
+Effective default path pattern for session logs (under `{broker-scope}/`):
 
 | OS      | Pattern |
 |---------|---------|
-| macOS   | `~/Library/Application Support/Day Trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
-| Windows | `%APPDATA%\Day Trader\runs\run-YYYYMMDD-HHMMSS-PID\<broker>\session-traces\...` |
-| Linux   | `~/.local/share/day-trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
+| macOS   | `~/Library/Application Support/Day Trader/{broker}/sessions/{deploymentId}/{sessionId}/` |
+| Windows | `%APPDATA%\Day Trader\{broker}\sessions\{deploymentId}\{sessionId}\` |
+| Linux   | `~/.local/share/day-trader/{broker}/sessions/{deploymentId}/{sessionId}/` |
+
+Raw IB tick capture (optional, for high-fidelity replay) lives under `runs/run-YYYYMMDD-HHMMSS-PID/{broker}/ib-prices/` when `DAY_TRADER_IB_PRICE_DISK_LOGS=true`.
 
 **Touch Turn diagnosis** (correlate by `epochMs` + symbol):
 
 | Log | Path (under `{broker-scope}/`) | Purpose |
 |-----|--------------------------------|---------|
 | Session application | `sessions/{deploymentId}/{sessionId}/application.jsonl` | Lifecycle, `bracket_submit_requested`, `bracket_acknowledged`, `broker_open_orders`, `touch_turn_state_sync` |
-| Session prices | `sessions/.../prices.jsonl` | IB quotes |
+| Session prices | `sessions/.../prices.jsonl` | IB quotes (bid/ask/last, tick volume) |
+| Session historical | `sessions/.../historical.jsonl` | Touch Turn bootstrap + closed-bar refetch payloads |
+| Session manifest | `sessions/.../manifest.json` | Session metadata and milestone timeline for replay |
 | Emulator engine | `emulator/engine.jsonl` | `bracket_placed`, `bracket_queue_received`, `bracket_ack_emitted`, `open_orders_published` |
 | Execution gateway | `execution/gateway.jsonl` | Global `open_orders_snapshot`, `touch_turn_bracket_placed` |
+| IB raw ticks | `runs/.../ib-prices/{SYMBOL}.jsonl` | Per-field IB ticks when disk logging enabled |
 
-Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`.
+Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`, `DAY_TRADER_SESSION_HISTORICAL_LOGS=false`, `DAY_TRADER_SESSION_MANIFEST=false`.
+
+**Hybrid session capture for replay** (recommended when running paper-live):
+
+```bash
+export DAY_TRADER_BROKER=hybrid
+export DAY_TRADER_IB_PRICE_DISK_LOGS=true
+./gradlew :day-trader:run
+```
 
 | Broker               | Subdirectory            | Example (macOS)                                                                      |
 |----------------------|-------------------------|--------------------------------------------------------------------------------------|

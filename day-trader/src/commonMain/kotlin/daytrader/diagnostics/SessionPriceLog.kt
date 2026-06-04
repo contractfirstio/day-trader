@@ -86,6 +86,8 @@ object SessionPriceLog {
                     bid = quote.bid,
                     ask = quote.ask,
                     last = quote.last,
+                    tickVolume = quote.tickVolume,
+                    quoteEpochMillis = quote.quoteEpochMillis,
                     kind = "quote_snapshot"
                 )
             )
@@ -96,10 +98,11 @@ object SessionPriceLog {
     }
 
     internal fun quoteHasData(quote: LiveQuote): Boolean =
-        quote.bid != null || quote.ask != null || quote.last != null
+        quote.bid != null || quote.ask != null || quote.last != null ||
+            quote.tickVolume != null
 
     internal fun quotesEqual(a: LiveQuote, b: LiveQuote): Boolean =
-        a.bid == b.bid && a.ask == b.ask && a.last == b.last
+        a.bid == b.bid && a.ask == b.ask && a.last == b.last && a.tickVolume == b.tickVolume
 
     private fun appendLine(target: SessionPriceTarget, line: String) {
         val path = AppDataFiles.sessionPriceLogFileName(target.deploymentId, target.sessionId)
@@ -116,5 +119,7 @@ internal data class SessionPriceLine(
     val bid: Double? = null,
     val ask: Double? = null,
     val last: Double? = null,
+    val tickVolume: Double? = null,
+    val quoteEpochMillis: Long? = null,
     val kind: String = "quote_snapshot"
 )

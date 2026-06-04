@@ -23,6 +23,14 @@ class AppDataFilesTest {
             "sessions/inst-abc/session-def/prices.jsonl",
             AppDataFiles.sessionPriceLogFileName("inst-abc", "session-def")
         )
+        assertEquals(
+            "sessions/inst-abc/session-def/historical.jsonl",
+            AppDataFiles.sessionHistoricalLogFileName("inst-abc", "session-def")
+        )
+        assertEquals(
+            "sessions/inst-abc/session-def/manifest.json",
+            AppDataFiles.sessionManifestFileName("inst-abc", "session-def")
+        )
     }
 
     @Test

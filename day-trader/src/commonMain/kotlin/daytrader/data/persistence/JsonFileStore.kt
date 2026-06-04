@@ -46,6 +46,14 @@ object JsonFileStore {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }
 
+    fun appendSessionHistoricalLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun writeSessionFile(relativePath: String, content: String) {
+        AppFileSystem.writeTextAtomic(relativePath, content)
+    }
+
     fun appendIbPriceTickLine(relativePath: String, line: String) {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }
