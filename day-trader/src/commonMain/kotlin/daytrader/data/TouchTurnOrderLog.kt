@@ -30,7 +30,7 @@ object TouchTurnOrderLog {
         openingBarClose: Double? = null,
         brokerGateway: BrokerGateway? = null
     ): Boolean {
-        if (setup == null || !setup.isLiquidityCandle || !setup.isActionable) return false
+        if (setup == null || !setup.isActionable) return false
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
             symbol = symbol,
             setup = setup,

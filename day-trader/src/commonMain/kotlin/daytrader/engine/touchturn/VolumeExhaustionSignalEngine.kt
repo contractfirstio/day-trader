@@ -25,17 +25,17 @@ object VolumeExhaustionSignalEngine {
         val setup = session.setup ?: return null
         val volumeSma = session.volumeSma20 ?: 0.0
         val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma)
-        val liquidityPassed = setup.isLiquidityCandle
-        val abortReason = when {
-            volumeExhausted -> "volume_exhaustion"
-            !liquidityPassed -> "not_liquidity"
-            !setup.isActionable -> "doji"
+        val blockOutcome = TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted)
+        val abortReason = when (blockOutcome) {
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "volume_exhaustion"
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "not_liquidity"
+            TouchTurnSessionOutcome.NO_TRADE_DOJI -> "doji"
             else -> null
         }
         return PrePlacementEvaluation(
             setup = setup,
             volumeExhausted = volumeExhausted,
-            liquidityPassed = liquidityPassed,
+            liquidityPassed = setup.isLiquidityCandle,
             abortReason = abortReason
         )
     }

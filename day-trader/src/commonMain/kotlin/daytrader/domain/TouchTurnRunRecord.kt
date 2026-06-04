@@ -118,8 +118,7 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     val setup = session.setup ?: return TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
     val liquidityEvaluatedAt = session.milestones.liquidityEvaluatedAt?.let(::parseIsoToEpochMillis)
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
-    if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-    if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
+    TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted = false)?.let { return it }
     when (session.entryOrdersPermitted) {
         true ->
             return if (session.ordersPlacedForSession) {

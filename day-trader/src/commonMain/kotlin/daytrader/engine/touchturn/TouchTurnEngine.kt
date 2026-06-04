@@ -1121,9 +1121,7 @@ class TouchTurnEngine(
             return
         }
         val setup = afterSession.setup
-        if (setup == null || !setup.isLiquidityCandle || !setup.isActionable ||
-            afterSession.entryOrdersPermitted != true
-        ) {
+        if (setup == null || !setup.isActionable || afterSession.entryOrdersPermitted != true) {
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return
         }
@@ -1183,7 +1181,7 @@ class TouchTurnEngine(
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return false
         val session = instance.touchTurnSession ?: return false
         val setup = session.setup ?: return false
-        if (!setup.isLiquidityCandle || !setup.isActionable || session.entryOrdersPermitted != true) {
+        if (!setup.isActionable || session.entryOrdersPermitted != true) {
             return false
         }
         val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
@@ -1317,10 +1315,14 @@ class TouchTurnEngine(
         when {
             setup == null ->
                 TouchTurnDecisionLog.ordersSkipped(instance.id, instance.symbol, "setup_null", session, evaluatedAt)
-            !setup.isLiquidityCandle ->
-                TouchTurnDecisionLog.ordersSkipped(instance.id, instance.symbol, "not_liquidity_candle", session, evaluatedAt)
             !setup.isActionable ->
-                TouchTurnDecisionLog.ordersSkipped(instance.id, instance.symbol, "not_actionable", session, evaluatedAt)
+                TouchTurnDecisionLog.ordersSkipped(
+                    instance.id,
+                    instance.symbol,
+                    if (!setup.isLiquidityCandle) "not_liquidity_candle" else "not_actionable",
+                    session,
+                    evaluatedAt
+                )
             session.entryOrdersPermitted != true ->
                 TouchTurnDecisionLog.ordersSkipped(
                     instance.id,
