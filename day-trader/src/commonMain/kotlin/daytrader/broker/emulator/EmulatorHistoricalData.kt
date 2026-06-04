@@ -67,15 +67,28 @@ internal object EmulatorHistoricalData {
     ): Result<TouchTurnSignalContext> {
         val marketZoneId = instrument.marketZoneId
         val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
+        val opening = firstFifteenMinuteCandle(
+            symbol = symbol,
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = nowEpochMillis,
+            sessionCandleFetchIndex = sessionCandleFetchIndex
+        ).getOrElse { return Result.failure(it) }
         val history = fifteenMinuteBarHistory(
             symbol = symbol,
             instrument = instrument,
             config = config,
             nowEpochMillis = nowEpochMillis,
             sessionCandleFetchIndex = sessionCandleFetchIndex,
-            sessionYmd = sessionYmd
+            sessionYmd = sessionYmd,
+            opening = opening
         )
-        return TouchTurnLogic.deriveTouchTurnSignalContext(history, marketZoneId, sessionYmd)
+        return TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = history,
+            marketZoneId = marketZoneId,
+            sessionDayYyyyMmdd = sessionYmd,
+            explicitFirstCandle = opening
+        )
     }
 
     private fun fifteenMinuteBarHistory(
@@ -84,15 +97,9 @@ internal object EmulatorHistoricalData {
         config: BrokerEmulatorConfig,
         nowEpochMillis: Long,
         sessionCandleFetchIndex: Int,
-        sessionYmd: String
+        sessionYmd: String,
+        opening: OhlcBar
     ): List<OhlcBar> {
-        val opening = firstFifteenMinuteCandle(
-            symbol = symbol,
-            instrument = instrument,
-            config = config,
-            nowEpochMillis = nowEpochMillis,
-            sessionCandleFetchIndex = sessionCandleFetchIndex
-        ).getOrNull() ?: return emptyList()
         val marketZoneId = instrument.marketZoneId
         val todayOpenMillis = opening.time?.let {
             TouchTurnLogic.barStartEpochMillis(it, marketZoneId)

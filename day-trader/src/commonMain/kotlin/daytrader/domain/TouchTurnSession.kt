@@ -1218,9 +1218,11 @@ object TouchTurnLogic {
         bars: List<OhlcBar>,
         marketZoneId: String,
         sessionDayYyyyMmdd: String,
-        allowMissingTodayOpeningBar: Boolean = false
+        allowMissingTodayOpeningBar: Boolean = false,
+        explicitFirstCandle: OhlcBar? = null
     ): Result<TouchTurnSignalContext> {
-        val first = selectFirstFifteenMinuteBar(bars, marketZoneId, sessionDayYyyyMmdd)
+        val first = explicitFirstCandle
+            ?: selectFirstFifteenMinuteBar(bars, marketZoneId, sessionDayYyyyMmdd)
         if (first == null && !allowMissingTodayOpeningBar) {
             val label = RthMarketSessions.forZoneId(marketZoneId).label
             return Result.failure(

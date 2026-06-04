@@ -205,6 +205,28 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun touchTurnSignalContext_acceleratedCandle_usesOpeningBarNotIntradaySlot() {
+        val instrument = EmulatorSeedCatalog.instruments()["700"]!!
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val now = 1_780_561_451_379L
+        val ctx = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = "700",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        ).getOrThrow()
+        val zone = instrument.marketZoneId
+        assertEquals(
+            FirstCandleCloseStatus.FORMING,
+            TouchTurnLogic.firstCandleCloseStatus(ctx.firstCandle, zone, now)
+        )
+        assertTrue(
+            !TouchTurnLogic.isVolumeExhaustion(ctx.firstCandle.volume, ctx.volumeSma20),
+            "opening volume=${ctx.firstCandle.volume} sma=${ctx.volumeSma20}"
+        )
+    }
+
+    @Test
     fun touchTurnSignalContext_acceleratedCandle_hasAtrAndVolumeSma() {
         val instrument = EmulatorSeedCatalog.instruments()["700"]
             ?: EmulatorSeedCatalog.instruments().values.first()

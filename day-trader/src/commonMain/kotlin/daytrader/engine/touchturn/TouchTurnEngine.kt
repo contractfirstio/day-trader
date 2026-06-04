@@ -601,12 +601,13 @@ class TouchTurnEngine(
             val sessionId = instance.inProgressSession()?.id
             val currency = DeploymentMarket.effectiveCurrencyCode(instance)
             val prepared = instance.touchTurnPrepare
-            val reusePrepare = TouchTurnSessionPrepare.canReuseBootstrapOnStart(
-                prepare = prepared,
-                deployment = instance,
-                sessionDateIso = sessionDate,
-                nowEpochMillis = nowEpochMillis()
-            )
+            val reusePrepare = brokerKind != BrokerKind.EMULATOR &&
+                TouchTurnSessionPrepare.canReuseBootstrapOnStart(
+                    prepare = prepared,
+                    deployment = instance,
+                    sessionDateIso = sessionDate,
+                    nowEpochMillis = nowEpochMillis()
+                )
             val signalResult: Result<TouchTurnSignalContext> = if (reusePrepare && prepared != null) {
                 marketData.ensureStreaming(symbol, instrument)
                 val ctx = prepared.signalContext
