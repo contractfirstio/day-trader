@@ -1,5 +1,6 @@
 package daytrader.domain
 
+import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -973,5 +974,42 @@ class TouchTurnLogicTest {
             TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
         )
         assertFalse(TouchTurnLogic.closeConfirmationWithinDeadline(bar, "Asia/Hong_Kong", now))
+    }
+
+    @Test
+    fun priorSessionOpeningFifteenMinuteBars_oneBarPerPriorRthDay() {
+        val zone = "America/New_York"
+        val session = "20260522"
+        var day = LocalDate.of(2026, 5, 21)
+        val bars = buildList {
+            repeat(3) {
+                val ymd = "%04d%02d%02d".format(day.year, day.monthValue, day.dayOfMonth)
+                add(
+                    OhlcBar(
+                        open = 1.0,
+                        high = 2.0,
+                        low = 0.5,
+                        close = 1.5,
+                        time = "$ymd  09:30:00",
+                        volume = 1_000.0
+                    )
+                )
+                add(
+                    OhlcBar(
+                        open = 1.0,
+                        high = 2.0,
+                        low = 0.5,
+                        close = 1.5,
+                        time = "$ymd  10:00:00",
+                        volume = 100.0
+                    )
+                )
+                day = TouchTurnLogic.previousRthTradingDay(day.minusDays(1))
+            }
+        }
+        val openings = TouchTurnLogic.priorSessionOpeningFifteenMinuteBars(bars, zone, session)
+        assertEquals(3, openings.size)
+        assertTrue(openings.all { it.time?.contains("09:30:00") == true })
+        assertEquals(listOf(1_000.0, 1_000.0, 1_000.0), openings.map { it.volume })
     }
 }

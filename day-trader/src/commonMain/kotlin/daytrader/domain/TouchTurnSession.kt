@@ -150,7 +150,7 @@ data class TouchTurnSessionContext(
     val adr14: Double? = null,
     /** 14-period ATR on 15-minute bars used for liquidity range threshold. */
     val atr14: Double? = null,
-    /** 20-period SMA of 15-minute volume (bars prior to the opening bar). */
+    /** 20-period SMA of prior session-opening 15m bar volume (apples-to-apples vs today's open). */
     val volumeSma20: Double? = null,
     /** Liquidity threshold = [atr14] × [TouchTurnDefaults.ATR_LIQUIDITY_RATIO] (25%). */
     val rangeThreshold: Double = 0.0,
@@ -1090,11 +1090,31 @@ object TouchTurnLogic {
         val withVolume = bars.filter { it.volume > 0.0 }
         if (withVolume.size < period) {
             return Result.failure(
-                IllegalStateException("Need $period 15m bars with volume for SMA, got ${withVolume.size}")
+                IllegalStateException(
+                    "Need $period session-opening 15m bars with volume for SMA, got ${withVolume.size}"
+                )
             )
         }
         return Result.success(withVolume.takeLast(period).map { it.volume }.average())
     }
+
+    /**
+     * One 15m bar per prior RTH session (scheduled open when present), sorted oldest-first.
+     * Excludes [sessionDayYyyyMmdd].
+     */
+    fun priorSessionOpeningFifteenMinuteBars(
+        bars: List<OhlcBar>,
+        marketZoneId: String,
+        sessionDayYyyyMmdd: String
+    ): List<OhlcBar> =
+        bars
+            .mapNotNull { bar -> barDayKey(bar.time)?.let { day -> day to bar } }
+            .filter { (day, _) -> day < sessionDayYyyyMmdd }
+            .groupBy({ it.first }, { it.second })
+            .mapNotNull { (day, dayBars) ->
+                selectFirstFifteenMinuteBar(dayBars, marketZoneId, day)
+            }
+            .sortedBy { barTimeSortKey(it.time) }
 
     /** High-conviction breakout: opening bar volume above [ratio] × volume SMA. */
     fun isVolumeExhaustion(
@@ -1121,7 +1141,8 @@ object TouchTurnLogic {
             .filter { barTimeSortKey(it.time) < firstKey }
             .sortedBy { barTimeSortKey(it.time) }
         val atrResult = computeAtr14(prior)
-        val volumeResult = computeVolumeSma20(prior)
+        val priorOpenings = priorSessionOpeningFifteenMinuteBars(bars, marketZoneId, sessionDayYyyyMmdd)
+        val volumeResult = computeVolumeSma20(priorOpenings)
         if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
         if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
         return Result.success(
@@ -1260,7 +1281,7 @@ object TouchTurnDefaults {
     const val ATR_LIQUIDITY_RATIO = 0.25
     @Deprecated("Use ATR_LIQUIDITY_RATIO", ReplaceWith("ATR_LIQUIDITY_RATIO"))
     const val ADR_LIQUIDITY_RATIO = ATR_LIQUIDITY_RATIO
-    /** Opening-bar volume above this multiple of 20-period volume SMA aborts entry. */
+    /** Opening-bar volume above this multiple of the 20 prior session-open volume SMA aborts entry. */
     const val VOLUME_EXHAUSTION_RATIO = 1.5
     /** Post-entry observation window before resting bracket is left working unchecked. */
     const val VOLUME_BUFFER_OBSERVATION_MS = 60_000L

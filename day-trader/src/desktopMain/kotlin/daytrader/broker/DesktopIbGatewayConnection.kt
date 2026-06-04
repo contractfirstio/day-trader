@@ -2593,7 +2593,8 @@ class DesktopIbGatewayConnection(
         const val INSTRUMENT_RESOLVE_TIMEOUT_MS = 12_000L
         const val HISTORICAL_REQ_ID_START = 30_000
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
-        const val TOUCH_TURN_HISTORICAL_DURATION = "10 D"
+        /** ~20+ RTH sessions of 15m bars for opening-bar volume SMA(20). */
+        const val TOUCH_TURN_HISTORICAL_DURATION = "1 M"
         const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
         const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
         /** RT Volume generic tick for live trade-size updates (volume buffer). */

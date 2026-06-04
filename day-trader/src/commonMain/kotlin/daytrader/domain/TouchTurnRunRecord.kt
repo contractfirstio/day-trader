@@ -68,7 +68,7 @@ data class TouchTurnRunMarketInputs(
     val adr14: Double? = null,
     /** 14-period ATR on prior 15m bars (liquidity range threshold input). */
     val atr14: Double? = null,
-    /** 20-period SMA of 15m volume on bars prior to the opening bar. */
+    /** 20-period SMA of prior session-opening 15m bar volume. */
     val volumeSma20: Double? = null,
     /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
     val volumeCheck: TouchTurnVolumeCheck? = null,

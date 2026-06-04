@@ -3,8 +3,10 @@ package daytrader.broker.emulator
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.OhlcBar
 import daytrader.domain.RthMarketSessions
+import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSignalContext
+import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.sin
 
@@ -91,30 +93,100 @@ internal object EmulatorHistoricalData {
             nowEpochMillis = nowEpochMillis,
             sessionCandleFetchIndex = sessionCandleFetchIndex
         ).getOrNull() ?: return emptyList()
+        val marketZoneId = instrument.marketZoneId
+        val todayOpenMillis = opening.time?.let {
+            TouchTurnLogic.barStartEpochMillis(it, marketZoneId)
+        } ?: nowEpochMillis
         val profile = symbolProfile(symbol, sessionYmd)
         val ref = instrument.referencePrice
-        val priorCount = 35
-        val prior = (priorCount downTo 1).map { offset ->
-            val range = ref * profile.intradayRangePct * (0.7 + 0.1 * sin(offset.toDouble()))
-            val mid = ref + range * sin(offset * 0.3)
-            val open = mid - range * 0.3
-            val close = mid + range * 0.25
-            val high = maxOf(open, close) + range * 0.2
-            val low = minOf(open, close) - range * 0.15
-            val barOpenMillis = (opening.time?.let {
-                TouchTurnLogic.barStartEpochMillis(it, instrument.marketZoneId)
-            } ?: nowEpochMillis) - offset * TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
-            OhlcBar(
-                open = open,
-                high = high,
-                low = low,
-                close = close,
-                time = TouchTurnLogic.formatIbBarOpenTime(barOpenMillis, instrument.marketZoneId),
-                volume = ref * 40_000.0 * (0.8 + 0.05 * offset)
+        val sessionDate = localDateFromYyyyMmDd(sessionYmd)
+        var cursor = TouchTurnLogic.previousRthTradingDay(sessionDate)
+        val priorOpenings = mutableListOf<OhlcBar>()
+        var guard = 0
+        while (priorOpenings.size < TouchTurnDefaults.VOLUME_SMA_PERIODS && guard < 45) {
+            guard++
+            val bar = syntheticSessionOpeningBar(
+                sessionYmd = yyyyMmDd(cursor),
+                marketZoneId = marketZoneId,
+                ref = ref,
+                profile = profile,
+                dayOffset = priorOpenings.size
+            )
+            val dayKey = TouchTurnLogic.barDayKey(bar.time)
+            if (dayKey != null && dayKey < sessionYmd) {
+                priorOpenings.add(0, bar)
+            }
+            cursor = TouchTurnLogic.previousRthTradingDay(cursor.minusDays(1))
+        }
+        val atrBars = ((TouchTurnDefaults.ATR_LOOKBACK_PERIODS + 1) downTo 1).map { offset ->
+            val barOpenMillis = todayOpenMillis - offset * TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS
+            syntheticIntradayBar(
+                barOpenMillis = barOpenMillis,
+                marketZoneId = marketZoneId,
+                ref = ref,
+                profile = profile,
+                slotOffset = offset
             )
         }
-        return prior + opening
+        return (priorOpenings + atrBars + opening).sortedBy { TouchTurnLogic.barTimeSortKey(it.time) }
     }
+
+    private fun syntheticSessionOpeningBar(
+        sessionYmd: String,
+        marketZoneId: String,
+        ref: Double,
+        profile: SymbolProfile,
+        dayOffset: Int
+    ): OhlcBar {
+        val session = RthMarketSessions.forZoneId(marketZoneId)
+        val barTime = "%s  %02d:%02d:00".format(sessionYmd, session.openHour, session.openMinute)
+        val range = ref * profile.intradayRangePct
+        val open = ref - range * profile.openBias
+        val close = open + range * profile.closeBias * 0.4
+        val high = maxOf(open, close) + range * 0.12
+        val low = minOf(open, close) - range * 0.08
+        return OhlcBar(
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            time = barTime,
+            volume = ref * 50_000.0 * profile.intradayRangePct * (0.85 + 0.02 * dayOffset)
+        )
+    }
+
+    private fun syntheticIntradayBar(
+        barOpenMillis: Long,
+        marketZoneId: String,
+        ref: Double,
+        profile: SymbolProfile,
+        slotOffset: Int
+    ): OhlcBar {
+        val range = ref * profile.intradayRangePct * (0.7 + 0.1 * sin(slotOffset.toDouble()))
+        val mid = ref + range * sin(slotOffset * 0.3)
+        val open = mid - range * 0.3
+        val close = mid + range * 0.25
+        val high = maxOf(open, close) + range * 0.2
+        val low = minOf(open, close) - range * 0.15
+        return OhlcBar(
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            time = TouchTurnLogic.formatIbBarOpenTime(barOpenMillis, marketZoneId),
+            volume = ref * 8_000.0 * (0.8 + 0.05 * slotOffset)
+        )
+    }
+
+    private fun localDateFromYyyyMmDd(ymd: String): LocalDate =
+        LocalDate.of(
+            ymd.substring(0, 4).toInt(),
+            ymd.substring(4, 6).toInt(),
+            ymd.substring(6, 8).toInt()
+        )
+
+    private fun yyyyMmDd(date: LocalDate): String =
+        "%04d%02d%02d".format(date.year, date.monthValue, date.dayOfMonth)
 
     fun fourteenDayAdr(
         symbol: String,
