@@ -110,7 +110,9 @@ fun PriceFeedTesterDialog(
     var listingCandidates by remember { mutableStateOf<List<ResolvedInstrument>>(emptyList()) }
     var selectedListing by remember { mutableStateOf<ResolvedInstrument?>(null) }
     var marketDataType by remember {
-        mutableStateOf(getStreamingMarketDataType?.invoke() ?: IbStreamingMarketDataType.DELAYED_FROZEN)
+        mutableStateOf(
+            getStreamingMarketDataType?.invoke() ?: IbStreamingMarketDataType.DEFAULT
+        )
     }
     var isRunning by remember { mutableStateOf(false) }
     var activeSymbol by remember { mutableStateOf<String?>(null) }

@@ -9,7 +9,7 @@ enum class IbStreamingMarketDataType(
     LIVE(
         ibCode = 1,
         label = "Live",
-        description = "Real-time bid/ask/last (requires IB market data subscription)."
+        description = "Real-time bid/ask/last (app default; requires IB market data subscription)."
     ),
     DELAYED(
         ibCode = 3,
@@ -19,11 +19,13 @@ enum class IbStreamingMarketDataType(
     DELAYED_FROZEN(
         ibCode = 4,
         label = "Delayed frozen",
-        description = "Delayed during the session; last quote frozen after the close (app default)."
+        description = "Delayed during the session; last quote frozen after the close."
     );
 
     companion object {
+        val DEFAULT = LIVE
+
         fun fromIbCode(code: Int): IbStreamingMarketDataType =
-            entries.firstOrNull { it.ibCode == code } ?: DELAYED_FROZEN
+            entries.firstOrNull { it.ibCode == code } ?: DEFAULT
     }
 }

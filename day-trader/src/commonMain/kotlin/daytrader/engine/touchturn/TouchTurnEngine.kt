@@ -941,6 +941,45 @@ class TouchTurnEngine(
             emulatorRequireCloseConfirmation()
         val requireLivePriceChecks = brokerKind.usesLiveIbMarketData
         val liveQuote = if (requireLivePriceChecks) quoteForSymbol(instance.symbol) else null
+        val entryWindowStatus = TouchTurnLogic.entryWindowStatus(
+            barTime = session.resolvedOpeningBarTime(),
+            marketZoneId = session.marketZoneId,
+            nowEpochMillis = evaluatedAt
+        )
+        if (TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
+                requireLivePriceChecks = requireLivePriceChecks,
+                liveBid = liveQuote?.bid,
+                liveAsk = liveQuote?.ask,
+                entryWindowStatus = entryWindowStatus
+            )
+        ) {
+            marketData.ensureStreaming(
+                instance.symbol,
+                DeploymentMarket.effectiveInstrument(instance)
+            )
+            TouchTurnDecisionLog.deferLiquidityForLiveQuotes(
+                instanceId = instanceId,
+                symbol = instance.symbol,
+                sessionDate = session.sessionDate,
+                entryWindowRemainingMs = TouchTurnLogic.entryWindowRemainingMillis(
+                    barTime = session.resolvedOpeningBarTime(),
+                    marketZoneId = session.marketZoneId,
+                    nowEpochMillis = evaluatedAt
+                ),
+                nowEpochMillis = evaluatedAt
+            )
+            SessionTrace.log(
+                type = "liquidity_eval_deferred",
+                deploymentId = instanceId,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                details = mapOf(
+                    "reason" to "live_bid_ask_missing",
+                    "entryWindowStatus" to entryWindowStatus.name
+                )
+            )
+            return
+        }
         val executionGw = executionGateway ?: sessionGateway
         TouchTurnDecisionLog.bootstrapCandleClosed(
             instanceId = instanceId,

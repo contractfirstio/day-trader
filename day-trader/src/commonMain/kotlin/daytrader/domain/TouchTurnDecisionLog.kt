@@ -12,6 +12,23 @@ object TouchTurnDecisionLog {
         get() = System.getenv("DAY_TRADER_TOUCH_TURN_CANDLE_LOGS")
             ?.equals("false", ignoreCase = true) != true
 
+    fun deferLiquidityForLiveQuotes(
+        instanceId: String,
+        symbol: String,
+        sessionDate: String,
+        entryWindowRemainingMs: Long?,
+        nowEpochMillis: Long
+    ) {
+        if (!enabled) return
+        line(
+            "liquidity eval deferred instance=$instanceId symbol=$symbol session=$sessionDate " +
+                "reason=live_bid_ask_missing entryWindowRemaining=${
+                    entryWindowRemainingMs?.let { TouchTurnCandleLogDuration.format(it) } ?: "n/a"
+                }"
+        )
+        detail("  will retry on liquidity poll until entry window closes or quotes arrive")
+    }
+
     fun liquidityEvaluated(
         instanceId: String,
         symbol: String,
@@ -272,7 +289,9 @@ object TouchTurnDecisionLog {
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE ->
                 detail("  HINT: live bid/ask already through entry — resting limit would fill as marketable")
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE ->
-                detail("  HINT: live bid/ask required for hybrid mode but missing from quote feed")
+                detail(
+                    "  HINT: live bid/ask required for hybrid mode but still missing when entry window closed"
+                )
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ->
                 detail("  HINT: bar range must exceed 25% of 14-day ADR")
             TouchTurnSessionOutcome.NO_TRADE_DOJI ->

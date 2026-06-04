@@ -337,6 +337,44 @@ object TouchTurnLogic {
         return normalized.maxByOrNull { barTimeSortKey(it.time) }
     }
 
+    /**
+     * Prior-session opening bar for volume SMA. Uses [selectFirstFifteenMinuteBar]; when IB returns
+     * zero volume on the scheduled open slot, falls back to the same-day 15m bar with volume
+     * nearest the RTH open.
+     */
+    fun resolveSessionOpeningFifteenMinuteBar(
+        bars: List<OhlcBar>,
+        marketZoneId: String,
+        sessionDayYyyyMmdd: String
+    ): OhlcBar? {
+        val primary = selectFirstFifteenMinuteBar(bars, marketZoneId, sessionDayYyyyMmdd) ?: return null
+        if (primary.volume > 0.0) return primary
+        val normalized = bars
+            .filter { it.high > 0.0 && it.low > 0.0 && it.high >= it.low }
+            .map { bar -> bar.copy(time = normalizeIbBarTimeToMarketZone(bar.time, marketZoneId)) }
+            .filter { barDayKey(it.time) == sessionDayYyyyMmdd }
+        val withVolume = normalized.filter { it.volume > 0.0 }
+        if (withVolume.isEmpty()) return primary
+        val sessionDateIso = sessionDayYyyyMmdd.let { ymd ->
+            runCatching {
+                val y = ymd.substring(0, 4).toInt()
+                val m = ymd.substring(4, 6).toInt()
+                val d = ymd.substring(6, 8).toInt()
+                "%04d-%02d-%02d".format(y, m, d)
+            }.getOrNull()
+        }
+        val expectedOpenMillis = sessionDateIso?.let {
+            marketOpenEpochMillis(it, marketZoneId, firstCandleBarTime = null)
+        }
+        if (expectedOpenMillis == null) {
+            return withVolume.minByOrNull { barTimeSortKey(it.time) } ?: primary
+        }
+        return withVolume.minByOrNull { bar ->
+            val start = bar.time?.let { barStartEpochMillis(it, marketZoneId) } ?: Long.MAX_VALUE
+            kotlin.math.abs(start - expectedOpenMillis)
+        } ?: primary
+    }
+
     fun barTimeSortKey(time: String?): String = time?.trim().orEmpty()
 
     fun normalizedBarTimesEqual(
@@ -529,6 +567,20 @@ object TouchTurnLogic {
         TouchTurnEntryWindowStatus.EXPIRED -> "Entry window closed — deadline passed"
         TouchTurnEntryWindowStatus.UNKNOWN -> "Entry window unknown"
     }
+
+    /**
+     * Hybrid/live-IB liquidity eval needs streaming bid/ask. Defer until quotes arrive or the
+     * post-close entry window expires (avoids one-shot [NO_TRADE_LIVE_QUOTE_UNAVAILABLE] right after refetch).
+     */
+    fun deferLiquidityEvaluationForLiveQuotes(
+        requireLivePriceChecks: Boolean,
+        liveBid: Double?,
+        liveAsk: Double?,
+        entryWindowStatus: TouchTurnEntryWindowStatus
+    ): Boolean =
+        requireLivePriceChecks &&
+            (liveBid == null || liveAsk == null) &&
+            entryWindowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW
 
     fun closeConfirmation(
         candle: OhlcBar?,
@@ -1091,7 +1143,9 @@ object TouchTurnLogic {
         if (withVolume.size < period) {
             return Result.failure(
                 IllegalStateException(
-                    "Need $period session-opening 15m bars with volume for SMA, got ${withVolume.size}"
+                    "Need $period session-opening 15m bars with volume for SMA, got ${withVolume.size} " +
+                        "usable (${bars.size} session days in history — request at least " +
+                        "${TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION} of 15m bars)"
                 )
             )
         }
@@ -1112,7 +1166,7 @@ object TouchTurnLogic {
             .filter { (day, _) -> day < sessionDayYyyyMmdd }
             .groupBy({ it.first }, { it.second })
             .mapNotNull { (day, dayBars) ->
-                selectFirstFifteenMinuteBar(dayBars, marketZoneId, day)
+                resolveSessionOpeningFifteenMinuteBar(dayBars, marketZoneId, day)
             }
             .sortedBy { barTimeSortKey(it.time) }
 
@@ -1277,6 +1331,11 @@ object TouchTurnDefaults {
     const val ADR_LOOKBACK_DAYS = 14
     const val ATR_LOOKBACK_PERIODS = 14
     const val VOLUME_SMA_PERIODS = 20
+    /**
+     * IB [reqHistoricalData] duration for Touch Turn 15m history. Needs ~20 prior RTH session
+     * opening bars plus today's bar and an ATR window (~35+ trading days); 1 M is often too short.
+     */
+    const val TOUCH_TURN_15M_HISTORY_DURATION = "2 M"
     /** Liquidity when first 15m range is at least this fraction of 14-period ATR. */
     const val ATR_LIQUIDITY_RATIO = 0.25
     @Deprecated("Use ATR_LIQUIDITY_RATIO", ReplaceWith("ATR_LIQUIDITY_RATIO"))

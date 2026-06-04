@@ -29,6 +29,7 @@ import com.ib.client.protobuf.TickStringProto
 import daytrader.domain.InstrumentMarketResolver
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnCandleLog
+import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
@@ -86,7 +87,7 @@ class DesktopIbGatewayConnection(
     private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
 
     @Volatile
-    private var streamingMarketDataType: IbStreamingMarketDataType = IbStreamingMarketDataType.DELAYED_FROZEN
+    private var streamingMarketDataType: IbStreamingMarketDataType = IbStreamingMarketDataType.DEFAULT
 
     private var commandLoopJob: Job? = null
 
@@ -579,7 +580,6 @@ class DesktopIbGatewayConnection(
         emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
         paced {
-            // Default delayed-frozen keeps quotes after the close; tester can switch to live/delayed.
             client.reqMarketDataType(streamingMarketDataType.ibCode)
         }
         if (marketDataOnly) {
@@ -2628,8 +2628,8 @@ class DesktopIbGatewayConnection(
         const val INSTRUMENT_RESOLVE_TIMEOUT_MS = 12_000L
         const val HISTORICAL_REQ_ID_START = 30_000
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
-        /** ~20+ RTH sessions of 15m bars for opening-bar volume SMA(20). */
-        const val TOUCH_TURN_HISTORICAL_DURATION = "1 M"
+        /** See [TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION]. */
+        val TOUCH_TURN_HISTORICAL_DURATION: String = TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION
         const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
         const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
         /** RT Volume generic tick for live trade-size updates (volume buffer). */
