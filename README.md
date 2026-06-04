@@ -122,6 +122,8 @@ Raw IB tick capture (optional, for high-fidelity replay) lives under `runs/run-Y
 
 Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`, `DAY_TRADER_SESSION_HISTORICAL_LOGS=false`, `DAY_TRADER_SESSION_MANIFEST=false`.
 
+**Session replay (dev):** load a captured session folder with `SessionBundleDirectoryReader.loadFromDirectory("/path/to/sessions/{deploymentId}/{sessionId}")` or parse in tests via `SessionBundleLoader.load(SessionBundleContents(...))`. Optional high-fidelity quotes: pass the path to `runs/.../ib-prices/{SYMBOL}.jsonl` as the second argument.
+
 **Hybrid session capture for replay** (recommended when running paper-live):
 
 ```bash
