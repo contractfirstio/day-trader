@@ -112,7 +112,7 @@ fun main() {
                             onBrowseFolder = { DesktopFolderPicker.pickDirectory("Select captured session folder") },
                             onContinue = { entry ->
                                 val bundle = SessionBundleDirectoryReader
-                                    .loadFromDirectory(entry.directoryPath)
+                                    .loadReplayableFromDirectory(entry.directoryPath)
                                     .getOrElse { error(it.message ?: "Failed to load session bundle") }
                                 AppFileSystem.configureDataScope(BrokerKind.REPLAY)
                                 val runtime = BrokerRuntime.createReplay(bundle)

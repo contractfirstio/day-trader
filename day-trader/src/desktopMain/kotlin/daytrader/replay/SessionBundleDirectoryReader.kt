@@ -41,6 +41,16 @@ object SessionBundleDirectoryReader {
         return SessionBundleLoader.load(contents)
     }
 
+    /** Loads a bundle and rejects sessions captured during a prior replay run. */
+    fun loadReplayableFromDirectory(
+        sessionDirectoryPath: String,
+        ibPriceTicksJsonlPath: String? = null
+    ): Result<SessionBundle> =
+        loadFromDirectory(sessionDirectoryPath, ibPriceTicksJsonlPath).mapCatching { bundle ->
+            ReplaySourceValidation.requireReplayable(bundle)
+            bundle
+        }
+
     private fun readFileIfExists(path: Path): String? {
         if (!Files.exists(path)) return null
         return Files.readString(path)

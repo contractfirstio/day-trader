@@ -34,6 +34,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.replay.SessionBundleDirectoryReader
+import daytrader.replay.SessionReplayCatalog
 import daytrader.replay.SessionReplayEntry
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -102,12 +104,29 @@ fun SessionReplayPickerScreen(
                         onClick = {
                             browseError = null
                             val path = onBrowseFolder() ?: return@OutlinedButton
-                            val entry = daytrader.replay.SessionReplayCatalog.entryFromDirectory(path)
-                            if (entry == null) {
-                                browseError = "Selected folder is missing application.jsonl or manifest.json"
-                            } else {
-                                selected = entry
-                            }
+                            SessionBundleDirectoryReader.loadReplayableFromDirectory(path)
+                                .fold(
+                                    onSuccess = { bundle ->
+                                        selected = SessionReplayCatalog.entryFromDirectory(path)
+                                            ?: SessionReplayEntry(
+                                                directoryPath = path,
+                                                brokerScope = "custom",
+                                                deploymentId = bundle.deploymentId,
+                                                sessionId = bundle.sessionId,
+                                                symbol = bundle.symbol,
+                                                sessionDate = bundle.sessionDate,
+                                                label = buildString {
+                                                    append(bundle.symbol)
+                                                    bundle.sessionDate?.let { append(" · ").append(it) }
+                                                    append(" (custom)")
+                                                }
+                                            )
+                                    },
+                                    onFailure = { error ->
+                                        browseError = error.message
+                                            ?: "Selected folder is not a replayable session capture"
+                                    }
+                                )
                         },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)

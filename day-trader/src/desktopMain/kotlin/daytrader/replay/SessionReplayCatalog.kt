@@ -20,13 +20,12 @@ data class SessionReplayEntry(
 
 /**
  * Discovers captured session folders under the Day Trader app data directory.
+ * Excludes `emulator/` and `replay/` — only hybrid and IB captures are listed.
  */
 object SessionReplayCatalog {
     private val brokerScopes = listOf(
-        BrokerKind.EMULATOR.dataDirectorySegment,
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA.dataDirectorySegment,
-        BrokerKind.INTERACTIVE_BROKERS.dataDirectorySegment,
-        BrokerKind.REPLAY.dataDirectorySegment
+        BrokerKind.INTERACTIVE_BROKERS.dataDirectorySegment
     )
 
     fun discover(baseDataDirectory: String): List<SessionReplayEntry> =
@@ -63,6 +62,7 @@ object SessionReplayCatalog {
         val bundle = runCatching {
             SessionBundleDirectoryReader.loadFromDirectory(sessionDir.toString()).getOrThrow()
         }.getOrNull()
+        if (bundle != null && !ReplaySourceValidation.isSupportedReplayCapture(bundle.brokerKind)) return null
         val symbol = bundle?.symbol
         val sessionDate = bundle?.sessionDate
         val label = buildString {
