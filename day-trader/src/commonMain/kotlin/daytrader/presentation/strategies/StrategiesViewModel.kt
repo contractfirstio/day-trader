@@ -35,6 +35,7 @@ import daytrader.domain.inProgressSession
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
+import daytrader.domain.clearTouchTurnPrepareIfInstrumentChanged
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.MarketSource
@@ -99,6 +100,7 @@ class StrategiesViewModel(
     private var selectedMarketZoneId: String? = null
     private var selectedSessionHistoryId: String? = null
     private var pipelineRefreshTick: Int = 0
+    private val prepareInProgressIds = mutableSetOf<String>()
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
 
     private fun touchTurnPriceHistoryFor(symbol: String): LivePriceTickHistory =
@@ -366,6 +368,23 @@ class StrategiesViewModel(
                     deploymentId = event.instanceId,
                     details = mapOf("message" to event.message)
                 )
+            }
+            is TouchTurnEvent.PrepareStarted -> {
+                prepareInProgressIds.add(event.instanceId)
+                UiActionLog.log(
+                    action = "engine_prepare_started",
+                    deploymentId = event.instanceId
+                )
+                emitUiState()
+            }
+            is TouchTurnEvent.PrepareFinished -> {
+                prepareInProgressIds.remove(event.instanceId)
+                UiActionLog.log(
+                    action = "engine_prepare_finished",
+                    deploymentId = event.instanceId,
+                    details = mapOf("overallStatus" to event.overallStatus.name)
+                )
+                emitUiState()
             }
         }
     }
@@ -637,7 +656,26 @@ class StrategiesViewModel(
     }
 
     fun onUpdateDeployment(id: String, transform: (StrategyDeployment) -> StrategyDeployment) {
-        repository.update(id, transform)
+        val before = repository.deployments.value.find { it.id == id }
+        val previousInstrumentKey = before?.let {
+            DeploymentMarket.effectiveInstrument(it).dedupeKey()
+        }
+        repository.update(id) { current ->
+            transform(current).clearTouchTurnPrepareIfInstrumentChanged(previousInstrumentKey)
+        }
+    }
+
+    fun onPrepareSession(id: String) {
+        val existing = repository.deployments.value.find { it.id == id } ?: return
+        if (existing.status == DeploymentStatus.RUNNING) return
+        if (existing.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
+        if (!useTouchTurnEngine || touchTurnEngine == null) return
+        UiActionLog.forDeployment(
+            deployment = existing,
+            action = "prepare_session",
+            details = mapOf("sessionDate" to DeploymentMarket.sessionDateIso(existing))
+        )
+        touchTurnEngine.dispatch(TouchTurnCommand.PrepareSession(instanceId = id))
     }
 
     fun onAdjustStop(instanceId: String, stopText: String) {
@@ -823,6 +861,12 @@ class StrategiesViewModel(
         val touchTurnOrderLifecycle = selected?.let { instance ->
             touchTurnOrderLifecycleFor(instance, showLastSessionRecap)
         }
+        val touchTurnPrepare = selected?.let { instance ->
+            TouchTurnPrepareUiMapper.forDeployment(
+                instance = instance,
+                prepareInProgress = prepareInProgressIds.contains(instance.id)
+            )
+        }
 
         _uiState.update {
             StrategiesUiState(
@@ -887,6 +931,7 @@ class StrategiesViewModel(
                 } == true,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 touchTurnOrderLifecycle = touchTurnOrderLifecycle,
+                touchTurnPrepare = touchTurnPrepare,
             )
         }
     }

@@ -1188,4 +1188,65 @@ class TouchTurnLogicTest {
             result.exceptionOrNull()?.message
         )
     }
+
+    @Test
+    fun deriveTouchTurnSignalContext_preOpen_succeedsWithoutTodayOpeningBar() {
+        val zone = "Europe/London"
+        val session = "20260604"
+        var day = LocalDate.of(2026, 6, 3)
+        val priorOpenings = buildList {
+            repeat(20) {
+                val ymd = "%04d%02d%02d".format(day.year, day.monthValue, day.dayOfMonth)
+                add(
+                    OhlcBar(
+                        open = 100.0,
+                        high = 101.0,
+                        low = 99.0,
+                        close = 100.5,
+                        time = "$ymd  08:00:00",
+                        volume = 10_000.0
+                    )
+                )
+                day = TouchTurnLogic.previousRthTradingDay(day.minusDays(1))
+            }
+        }
+        val atrBars = (1..TouchTurnDefaults.ATR_LOOKBACK_PERIODS).map { slot ->
+            OhlcBar(
+                open = 100.0,
+                high = 100.2,
+                low = 99.8,
+                close = 100.1,
+                time = "20260603  %02d:%02d:00".format(8 + (slot * 15) / 60, (slot * 15) % 60),
+                volume = 500.0
+            )
+        }
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = priorOpenings + atrBars,
+            marketZoneId = zone,
+            sessionDayYyyyMmdd = session,
+            allowMissingTodayOpeningBar = true
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val ctx = result.getOrThrow()
+        assertTrue(ctx.todayOpeningBarPending)
+        assertTrue(ctx.hasBootstrapMetrics())
+        assertTrue(ctx.firstCandle.time?.contains("08:00:00") == true)
+    }
+
+    @Test
+    fun deriveTouchTurnSignalContext_withoutTodayBar_failsWithMarketLabel() {
+        val zone = "Europe/London"
+        val session = "20260604"
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = emptyList(),
+            marketZoneId = zone,
+            sessionDayYyyyMmdd = session,
+            allowMissingTodayOpeningBar = false
+        )
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()?.message?.contains("UK (LSE)") == true,
+            result.exceptionOrNull()?.message
+        )
+    }
 }

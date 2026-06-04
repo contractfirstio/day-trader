@@ -103,7 +103,8 @@ class FakeBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         isClosedBarRefetch: Boolean,
-        marketZoneId: String?
+        marketZoneId: String?,
+        allowMissingTodayOpeningBar: Boolean
     ): Result<TouchTurnSignalContext> = signalContextFetchResult
 
     override fun cancelOrder(orderId: Int) = Unit

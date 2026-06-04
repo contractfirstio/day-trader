@@ -45,4 +45,7 @@ sealed interface TouchTurnCommand {
     data class RetryBootstrap(val instanceId: String, val sessionDate: String) : TouchTurnCommand
 
     data class LoadFirstCandle(val instanceId: String, val sessionDate: String) : TouchTurnCommand
+
+    /** Pre-flight checks + bootstrap cache without starting a RUNNING session. */
+    data class PrepareSession(val instanceId: String) : TouchTurnCommand
 }

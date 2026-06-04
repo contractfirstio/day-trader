@@ -22,5 +22,10 @@ data class StrategyDeployment(
     val sessionHistory: List<StrategySession> = emptyList(),
     val live: ActiveExecution = ActiveExecution(),
     /** First 15-minute RTH candle + derived bracket levels for the active session (Touch Turn only). */
-    val touchTurnSession: TouchTurnSessionContext? = null
+    val touchTurnSession: TouchTurnSessionContext? = null,
+    /**
+     * Pre-flight bootstrap + checks for today's session (Touch Turn only). Not a running session;
+     * consumed by Start when [TouchTurnSessionPrepare.isValidForStart].
+     */
+    val touchTurnPrepare: TouchTurnSessionPrepare? = null
 )

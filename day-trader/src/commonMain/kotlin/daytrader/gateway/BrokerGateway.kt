@@ -53,7 +53,8 @@ interface BrokerGateway {
         symbol: String,
         instrument: InstrumentIdentity? = null,
         isClosedBarRefetch: Boolean = false,
-        marketZoneId: String? = null
+        marketZoneId: String? = null,
+        allowMissingTodayOpeningBar: Boolean = false
     ): Result<TouchTurnSignalContext> {
         val zoneId = SymbolMarkets.marketZoneIdForSession(symbol, instrument, marketZoneId)
         val candleResult = fetchFirstFifteenMinuteCandle(symbol, instrument)

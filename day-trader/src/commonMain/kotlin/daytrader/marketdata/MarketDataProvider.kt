@@ -18,6 +18,7 @@ interface MarketDataProvider {
         instrument: InstrumentIdentity? = null,
         isClosedBarRefetch: Boolean = false,
         marketZoneId: String? = null,
+        allowMissingTodayOpeningBar: Boolean = false
     ): Result<TouchTurnSignalContext>
 
     /** Live incremental volume for post-entry buffer monitoring. */

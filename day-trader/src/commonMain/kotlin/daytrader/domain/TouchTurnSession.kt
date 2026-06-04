@@ -1210,30 +1210,73 @@ object TouchTurnLogic {
         volumeSma20 * TouchTurnDefaults.VOLUME_EXHAUSTION_RATIO
 
     /**
-     * Derives signal inputs from a 15-minute history that includes today's opening bar.
+     * Derives signal inputs from 15-minute history.
+     * When [allowMissingTodayOpeningBar] is true (pre-open Prepare), ATR and volume SMA are computed
+     * from prior sessions; today's opening bar is a placeholder until RTH open.
      */
     fun deriveTouchTurnSignalContext(
         bars: List<OhlcBar>,
         marketZoneId: String,
-        sessionDayYyyyMmdd: String
+        sessionDayYyyyMmdd: String,
+        allowMissingTodayOpeningBar: Boolean = false
     ): Result<TouchTurnSignalContext> {
         val first = selectFirstFifteenMinuteBar(bars, marketZoneId, sessionDayYyyyMmdd)
-            ?: return Result.failure(IllegalStateException("No opening 15m bar for session $sessionDayYyyyMmdd"))
-        val firstKey = barTimeSortKey(first.time)
-        val prior = bars
-            .filter { barTimeSortKey(it.time) < firstKey }
-            .sortedBy { barTimeSortKey(it.time) }
-        val atrResult = computeAtr14(prior)
+        if (first == null && !allowMissingTodayOpeningBar) {
+            val label = RthMarketSessions.forZoneId(marketZoneId).label
+            return Result.failure(
+                IllegalStateException(
+                    "No opening 15m bar for $label session ($sessionDayYyyyMmdd)"
+                )
+            )
+        }
+        val priorForAtr = if (first != null) {
+            val firstKey = barTimeSortKey(first.time)
+            bars
+                .filter { barTimeSortKey(it.time) < firstKey }
+                .sortedBy { barTimeSortKey(it.time) }
+        } else {
+            bars
+                .filter { bar ->
+                    val day = barDayKey(bar.time) ?: return@filter false
+                    day < sessionDayYyyyMmdd
+                }
+                .sortedBy { barTimeSortKey(it.time) }
+        }
+        val atrResult = computeAtr14(priorForAtr)
         val priorOpenings = priorSessionOpeningFifteenMinuteBars(bars, marketZoneId, sessionDayYyyyMmdd)
         val volumeResult = computeVolumeSma20(priorOpenings)
         if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
         if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
+        val firstCandle = first ?: placeholderOpeningBar(sessionDayYyyyMmdd, marketZoneId)
         return Result.success(
             TouchTurnSignalContext(
-                firstCandle = first,
+                firstCandle = firstCandle,
                 atr14 = atrResult.getOrThrow(),
-                volumeSma20 = volumeResult.getOrThrow()
+                volumeSma20 = volumeResult.getOrThrow(),
+                todayOpeningBarPending = first == null
             )
+        )
+    }
+
+    /** Placeholder until IB has today's RTH opening 15m bar (pre-open Prepare). */
+    fun placeholderOpeningBar(sessionDayYyyyMmdd: String, marketZoneId: String): OhlcBar {
+        val sessionDateIso = runCatching {
+            val y = sessionDayYyyyMmdd.substring(0, 4).toInt()
+            val m = sessionDayYyyyMmdd.substring(4, 6).toInt()
+            val d = sessionDayYyyyMmdd.substring(6, 8).toInt()
+            "%04d-%02d-%02d".format(y, m, d)
+        }.getOrNull()
+        val time = sessionDateIso?.let { iso ->
+            marketOpenEpochMillis(iso, marketZoneId, firstCandleBarTime = null)
+                ?.let { formatIbBarOpenTime(it, marketZoneId) }
+        }
+        return OhlcBar(
+            open = 0.0,
+            high = 0.0,
+            low = 0.0,
+            close = 0.0,
+            time = time,
+            volume = 0.0
         )
     }
 

@@ -34,6 +34,10 @@ import daytrader.domain.onSessionStarted
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withOpeningBarClosedMilestone
 import daytrader.domain.withFirstFifteenMinuteCandle
+import daytrader.domain.withTouchTurnPrepare
+import daytrader.domain.TouchTurnSessionPrepare
+import daytrader.domain.TouchTurnPrepareOverallStatus
+import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
@@ -59,6 +63,7 @@ import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.execution.ExecutionManager
 import daytrader.marketdata.MarketDataProvider
+import daytrader.engine.touchturn.TouchTurnPrepareRunner
 import daytrader.engine.touchturn.VolumeExhaustionBufferMonitor
 import daytrader.engine.touchturn.VolumeExhaustionSignalEngine
 import java.util.concurrent.ConcurrentHashMap
@@ -99,6 +104,7 @@ class TouchTurnEngine(
     private val liquidityJobs = mutableMapOf<String, Job>()
     private val closedBarRefetchJobs = mutableMapOf<String, Job>()
     private val loadJobs = mutableMapOf<String, Job>()
+    private val prepareJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
     private val bufferMonitor = VolumeExhaustionBufferMonitor(
@@ -324,6 +330,7 @@ class TouchTurnEngine(
             TouchTurnCommand.EvaluateAutoStart -> handleEvaluateAutoStart()
             is TouchTurnCommand.RetryBootstrap -> handleLoadFirstCandle(command.instanceId, command.sessionDate)
             is TouchTurnCommand.LoadFirstCandle -> handleLoadFirstCandle(command.instanceId, command.sessionDate)
+            is TouchTurnCommand.PrepareSession -> handlePrepareSession(command.instanceId)
         }
     }
 
@@ -394,6 +401,7 @@ class TouchTurnEngine(
         liquidityJobs.remove(command.instanceId)?.cancel()
         closedBarRefetchJobs.remove(command.instanceId)?.cancel()
         loadJobs.remove(command.instanceId)?.cancel()
+        prepareJobs.remove(command.instanceId)?.cancel()
         bufferMonitor.stop(command.instanceId)
         val gateway = executionGateway ?: sessionGateway
         val fillsForStop = command.brokerFillsAtDecision ?: brokerFills.value
@@ -533,6 +541,55 @@ class TouchTurnEngine(
             }
     }
 
+    private fun handlePrepareSession(instanceId: String) {
+        prepareJobs[instanceId]?.cancel()
+        prepareJobs[instanceId] = scope.launch {
+            val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
+            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
+            if (instance.status == DeploymentStatus.RUNNING) return@launch
+            emit(TouchTurnEvent.PrepareStarted(instanceId))
+            val sessionDate = DeploymentMarket.sessionDateIso(instance)
+            val quotes = (sessionGateway ?: executionGateway)?.quotes?.value.orEmpty()
+            val gateway = sessionGateway ?: executionGateway
+            val prepare = TouchTurnPrepareRunner.run(
+                deployment = instance,
+                sessionDateIso = sessionDate,
+                marketData = marketData,
+                quotes = quotes,
+                brokerPositions = brokerPositions.value,
+                marketGateway = gateway,
+                brokerKind = brokerKind,
+                nowEpochMillis = nowEpochMillis()
+            )
+            repository.update(instanceId) { it.withTouchTurnPrepare(prepare) }
+            repository.flushPersistence()
+            SessionTrace.log(
+                type = "session_prepare",
+                deploymentId = instanceId,
+                symbol = instance.symbol,
+                details = mapOf(
+                    "overallStatus" to prepare.overallStatus,
+                    "sessionDate" to sessionDate,
+                    "checkCount" to prepare.checks.size.toString()
+                )
+            )
+            if (prepare.overall() != TouchTurnPrepareOverallStatus.FAIL) {
+                val ctx = prepare.signalContext
+                SessionTrace.touchTurnData(
+                    deploymentId = instanceId,
+                    sessionId = null,
+                    symbol = instance.symbol,
+                    event = "prepare_bootstrap",
+                    atr14 = ctx.atr14,
+                    volumeSma20 = ctx.volumeSma20,
+                    barTime = ctx.firstCandle.time
+                )
+            }
+            emit(TouchTurnEvent.PrepareFinished(instanceId, prepare.overall()))
+            prepareJobs.remove(instanceId)
+        }
+    }
+
     private fun handleLoadFirstCandle(instanceId: String, sessionDate: String) {
         loadJobs[instanceId]?.cancel()
         loadJobs[instanceId] = scope.launch {
@@ -541,36 +598,71 @@ class TouchTurnEngine(
             val symbol = instance.symbol
             val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val instrument = DeploymentMarket.effectiveInstrument(instance)
-            marketData.ensureStreaming(symbol, instrument)
             val sessionId = instance.inProgressSession()?.id
-            val signalResult = marketData.fetchTouchTurnSignalContext(
-                symbol = symbol,
-                instrument = instrument,
-                isClosedBarRefetch = false,
-                marketZoneId = zoneId
-            )
             val currency = DeploymentMarket.effectiveCurrencyCode(instance)
-            repository.update(instanceId) { current ->
-                signalResult.fold(
-                    onSuccess = { context ->
-                        VolumeExhaustionSignalEngine.logSignalContext(instanceId, symbol, context)
-                        current.withFirstFifteenMinuteCandle(
-                            sessionDate = sessionDate,
-                            candle = context.firstCandle,
-                            atr14 = context.atr14,
-                            volumeSma20 = context.volumeSma20,
-                            adr14 = context.atr14,
-                            currencyCode = currency,
-                            marketZoneId = zoneId
-                        )
-                    },
-                    onFailure = { error ->
-                        current.withTouchTurnCandleFailed(
-                            sessionDate,
-                            error.message ?: "Failed to load Touch Turn signal context"
-                        )
-                    }
+            val prepared = instance.touchTurnPrepare
+            val reusePrepare = TouchTurnSessionPrepare.canReuseBootstrapOnStart(
+                prepare = prepared,
+                deployment = instance,
+                sessionDateIso = sessionDate,
+                nowEpochMillis = nowEpochMillis()
+            )
+            val signalResult: Result<TouchTurnSignalContext> = if (reusePrepare && prepared != null) {
+                marketData.ensureStreaming(symbol, instrument)
+                val ctx = prepared.signalContext
+                repository.update(instanceId) { current ->
+                    VolumeExhaustionSignalEngine.logSignalContext(instanceId, symbol, ctx)
+                    current.withFirstFifteenMinuteCandle(
+                        sessionDate = sessionDate,
+                        candle = ctx.firstCandle,
+                        atr14 = ctx.atr14,
+                        volumeSma20 = ctx.volumeSma20,
+                        adr14 = ctx.atr14,
+                        currencyCode = currency,
+                        marketZoneId = zoneId
+                    )
+                }
+                SessionTrace.touchTurnData(
+                    deploymentId = instanceId,
+                    sessionId = sessionId,
+                    symbol = symbol,
+                    event = "prepare_reused_bootstrap",
+                    atr14 = prepared.signalContext.atr14,
+                    volumeSma20 = prepared.signalContext.volumeSma20,
+                    barTime = prepared.signalContext.firstCandle.time
                 )
+                Result.success(prepared.signalContext)
+            } else {
+                marketData.ensureStreaming(symbol, instrument)
+                val fetched = marketData.fetchTouchTurnSignalContext(
+                    symbol = symbol,
+                    instrument = instrument,
+                    isClosedBarRefetch = false,
+                    marketZoneId = zoneId
+                )
+                repository.update(instanceId) { current ->
+                    fetched.fold(
+                        onSuccess = { context ->
+                            VolumeExhaustionSignalEngine.logSignalContext(instanceId, symbol, context)
+                            current.withFirstFifteenMinuteCandle(
+                                sessionDate = sessionDate,
+                                candle = context.firstCandle,
+                                atr14 = context.atr14,
+                                volumeSma20 = context.volumeSma20,
+                                adr14 = context.atr14,
+                                currencyCode = currency,
+                                marketZoneId = zoneId
+                            )
+                        },
+                        onFailure = { error ->
+                            current.withTouchTurnCandleFailed(
+                                sessionDate,
+                                error.message ?: "Failed to load Touch Turn signal context"
+                            )
+                        }
+                    )
+                }
+                fetched
             }
             if (signalResult.isFailure) {
                 val message = signalResult.exceptionOrNull()?.message

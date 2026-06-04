@@ -28,7 +28,8 @@ object DeploymentPersistence {
             lastAutoStartSessionDate = record.configuration.lastAutoStartSessionDate,
             live = toLiveDomain(record.live),
             sessionHistory = record.sessionHistory.map { toSessionHistoryDomain(record.id, it) },
-            touchTurnSession = TouchTurnPersistence.toDomain(record.touchTurnSession)
+            touchTurnSession = TouchTurnPersistence.toDomain(record.touchTurnSession),
+            touchTurnPrepare = TouchTurnPreparePersistence.toDomain(record.touchTurnPrepare)
         )
 
     fun toRecord(instance: StrategyDeployment): DeploymentRecord =
@@ -51,7 +52,8 @@ object DeploymentPersistence {
             sessionHistory = SessionPersistenceSlimmer
                 .prepareDeploymentSessionsForPersist(instance.sessionHistory)
                 .map(::toSessionHistoryRecord),
-            touchTurnSession = TouchTurnPersistence.toRecord(instance.touchTurnSession)
+            touchTurnSession = TouchTurnPersistence.toRecord(instance.touchTurnSession),
+            touchTurnPrepare = TouchTurnPreparePersistence.toRecord(instance.touchTurnPrepare)
         )
 
     private fun toSessionHistoryDomain(instanceId: String, record: SessionHistoryRecord): StrategySession =

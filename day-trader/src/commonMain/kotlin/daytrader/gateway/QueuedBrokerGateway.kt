@@ -108,7 +108,8 @@ class QueuedBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         isClosedBarRefetch: Boolean,
-        marketZoneId: String?
+        marketZoneId: String?,
+        allowMissingTodayOpeningBar: Boolean
     ): Result<TouchTurnSignalContext> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<TouchTurnSignalContext>>()
@@ -119,7 +120,8 @@ class QueuedBrokerGateway(
                 symbol = symbol,
                 instrument = instrument,
                 isClosedBarRefetch = isClosedBarRefetch,
-                marketZoneId = marketZoneId
+                marketZoneId = marketZoneId,
+                allowMissingTodayOpeningBar = allowMissingTodayOpeningBar
             )
         )
         return try {

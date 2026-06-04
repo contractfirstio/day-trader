@@ -73,4 +73,6 @@ data class StrategiesUiState(
     val touchTurnPipelineGraph: TouchTurnPipelineGraph? = null,
     /** Broker-agnostic Touch Turn order lifecycle for the selected live/recap run. */
     val touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi? = null,
+    /** Pre-flight checklist for stopped Touch Turn deployments (Prepare before Start). */
+    val touchTurnPrepare: TouchTurnPrepareUiState? = null,
 )

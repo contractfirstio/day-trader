@@ -147,6 +147,7 @@ class DesktopIbGatewayConnection(
     private val touchTurnHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val touchTurnHistoricalSymbol = ConcurrentHashMap<Int, String>()
     private val touchTurnHistoricalMarketZoneId = ConcurrentHashMap<Int, String>()
+    private val touchTurnHistoricalAllowMissingToday = ConcurrentHashMap<Int, Boolean>()
     private val touchTurnGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val adrHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
@@ -218,7 +219,8 @@ class DesktopIbGatewayConnection(
                                     fetchTouchTurnSignalContextComposite(
                                         command.symbol,
                                         command.instrument,
-                                        command.marketZoneId
+                                        command.marketZoneId,
+                                        command.allowMissingTodayOpeningBar
                                     )
                                 )
                             )
@@ -1557,6 +1559,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
         touchTurnHistoricalMarketZoneId.clear()
+        touchTurnHistoricalAllowMissingToday.clear()
         touchTurnGatewayRequestId.clear()
         cancelAllAdrHistoricalPaced()
     }
@@ -1632,7 +1635,8 @@ class DesktopIbGatewayConnection(
     private suspend fun fetchTouchTurnSignalContextComposite(
         symbol: String,
         instrument: InstrumentIdentity?,
-        deploymentMarketZoneId: String? = null
+        deploymentMarketZoneId: String? = null,
+        allowMissingTodayOpeningBar: Boolean = false
     ): Result<TouchTurnSignalContext> {
         if (!client.isConnected) {
             return Result.failure(IllegalStateException("Not connected to IB Gateway"))
@@ -1653,6 +1657,9 @@ class DesktopIbGatewayConnection(
         touchTurnGatewayRequestId[reqId] = gatewayRequestId
         touchTurnHistoricalSymbol[reqId] = trimmed
         touchTurnHistoricalMarketZoneId[reqId] = marketZoneId
+        if (allowMissingTodayOpeningBar) {
+            touchTurnHistoricalAllowMissingToday[reqId] = true
+        }
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
             cancelTouchTurnHistorical(reqId)
@@ -1715,6 +1722,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
+        touchTurnHistoricalAllowMissingToday.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverTouchTurnHistoricalFailure(gatewayRequestId, "Historical request cancelled")
         }
@@ -1730,6 +1738,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalBars.remove(reqId)
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
+        touchTurnHistoricalAllowMissingToday.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverTouchTurnHistoricalFailure(gatewayRequestId, message)
         }
@@ -1741,6 +1750,7 @@ class DesktopIbGatewayConnection(
         val symbol = touchTurnHistoricalSymbol.remove(reqId)
         val marketZoneId = touchTurnHistoricalMarketZoneId.remove(reqId)
             ?: SymbolMarkets.marketZoneIdForSession(symbol.orEmpty(), instrument = null)
+        val allowMissingToday = touchTurnHistoricalAllowMissingToday.remove(reqId) == true
         val bars = touchTurnHistoricalBars.remove(reqId).orEmpty()
         val sessionDay = sessionDayYyyyMmDd(marketZoneId)
         val ohlcBars = bars.map { it.toTouchTurnOhlcBar(marketZoneId) }
@@ -1758,18 +1768,23 @@ class DesktopIbGatewayConnection(
             totalBars = bars.size,
             sessionDayBars = ohlcBars.count { TouchTurnLogic.barDayKey(it.time) == sessionDay }
         )
-        if (first == null) {
-            val market = if (symbol != null && SymbolMarkets.isHongKong(symbol)) "SEHK" else "US"
-            deliverTouchTurnHistoricalFailure(
-                gatewayRequestId,
-                "No 15-minute bars returned for $market session ($sessionDay)"
-            )
-            return
-        }
         if (oneShotSignalContext.containsKey(gatewayRequestId)) {
             deliverSignalContextReady(
                 gatewayRequestId,
-                TouchTurnLogic.deriveTouchTurnSignalContext(ohlcBars, marketZoneId, sessionDay)
+                TouchTurnLogic.deriveTouchTurnSignalContext(
+                    ohlcBars,
+                    marketZoneId,
+                    sessionDay,
+                    allowMissingTodayOpeningBar = allowMissingToday
+                )
+            )
+            return
+        }
+        if (first == null) {
+            val sessionLabel = daytrader.domain.RthMarketSessions.forZoneId(marketZoneId).label
+            deliverTouchTurnHistoricalFailure(
+                gatewayRequestId,
+                "No 15-minute bars returned for $sessionLabel session ($sessionDay)"
             )
             return
         }
@@ -1795,6 +1810,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalBars.clear()
         touchTurnHistoricalSymbol.clear()
         touchTurnHistoricalMarketZoneId.clear()
+        touchTurnHistoricalAllowMissingToday.clear()
         touchTurnGatewayRequestId.clear()
         adrHistoricalBars.clear()
         adrHistoricalSymbol.clear()

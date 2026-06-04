@@ -16,7 +16,31 @@ data class DeploymentRecord(
     val configuration: ConfigurationRecord,
     val live: LiveRecord,
     val sessionHistory: List<SessionHistoryRecord> = emptyList(),
-    val touchTurnSession: TouchTurnSessionRecord? = null
+    val touchTurnSession: TouchTurnSessionRecord? = null,
+    val touchTurnPrepare: TouchTurnSessionPrepareRecord? = null
+)
+
+@Serializable
+data class TouchTurnSessionPrepareRecord(
+    val sessionDateIso: String,
+    val preparedAtEpochMillis: Long,
+    val instrumentKey: String,
+    val marketZoneId: String,
+    val currencyCode: String,
+    val atr14: Double,
+    val volumeSma20: Double,
+    val todayOpeningBarPending: Boolean = false,
+    val firstCandle: OhlcBarRecord? = null,
+    val checks: List<TouchTurnPrepareCheckRecord> = emptyList(),
+    val overallStatus: String = "FAIL"
+)
+
+@Serializable
+data class TouchTurnPrepareCheckRecord(
+    val id: String,
+    val status: String,
+    val label: String,
+    val detail: String? = null
 )
 
 @Serializable
