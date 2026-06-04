@@ -24,6 +24,9 @@ data class BrokerRuntime(
     val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
     val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
+    /** IB streaming quote mode (live / delayed / delayed-frozen); null when not on an IB connection. */
+    val getStreamingMarketDataType: (() -> IbStreamingMarketDataType)? = null,
+    val setStreamingMarketDataType: ((IbStreamingMarketDataType) -> Unit)? = null,
     val quoteBus: MarketQuoteBus? = null,
     val replayBundle: SessionBundle? = null,
     val replayHybridRuntime: ReplayHybridRuntime? = null,
@@ -109,10 +112,13 @@ data class BrokerRuntime(
                 brokerId = brokerId,
                 scope = scope
             )
+            val ibConnection = adapter as? DesktopIbGatewayConnection
             return BrokerRuntime(
                 kind = kind,
                 gateway = gateway,
                 quoteBus = quoteBus,
+                getStreamingMarketDataType = ibConnection?.let { ib -> { ib.currentStreamingMarketDataType() } },
+                setStreamingMarketDataType = ibConnection?.let { ib -> { type -> ib.setStreamingMarketDataType(type) } },
                 adapters = listOf(adapter),
                 queueSets = listOf(queues)
             )
@@ -164,6 +170,8 @@ data class BrokerRuntime(
                 releaseLiveMarketData = { symbol, instrument ->
                     ibAdapter.releaseStreamingMarketData(symbol, instrument)
                 },
+                getStreamingMarketDataType = { ibAdapter.currentStreamingMarketDataType() },
+                setStreamingMarketDataType = { type -> ibAdapter.setStreamingMarketDataType(type) },
                 quoteBus = quoteBus,
                 adapters = listOf(emulatorAdapter, ibAdapter),
                 queueSets = listOf(execQueues, mdQueues),

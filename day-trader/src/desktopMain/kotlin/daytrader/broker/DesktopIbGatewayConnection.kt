@@ -41,6 +41,7 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.GatewayEvent
+import daytrader.gateway.IbStreamingMarketDataType
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.QueuedBrokerGateway
 import daytrader.gateway.WorkingOrder
@@ -83,6 +84,9 @@ class DesktopIbGatewayConnection(
 
     @Volatile
     private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
+
+    @Volatile
+    private var streamingMarketDataType: IbStreamingMarketDataType = IbStreamingMarketDataType.DELAYED_FROZEN
 
     private var commandLoopJob: Job? = null
 
@@ -575,9 +579,8 @@ class DesktopIbGatewayConnection(
         emitConnectionState(GatewayConnectionState.Connected)
         IbGatewayLog.nextValidId(orderId)
         paced {
-            // Delayed-frozen keeps bid/ask/last after the close; live-only often streams nothing
-            // outside RTH (hybrid paper still needs marks for charts and fill simulation).
-            client.reqMarketDataType(MARKET_DATA_TYPE_DELAYED_FROZEN)
+            // Default delayed-frozen keeps quotes after the close; tester can switch to live/delayed.
+            client.reqMarketDataType(streamingMarketDataType.ibCode)
         }
         if (marketDataOnly) {
             resubscribeAllStreamingSymbols()
@@ -1259,6 +1262,38 @@ class DesktopIbGatewayConnection(
 
     /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
     private val streamInstrumentByKey = ConcurrentHashMap<String, daytrader.domain.InstrumentIdentity?>()
+
+    fun currentStreamingMarketDataType(): IbStreamingMarketDataType = streamingMarketDataType
+
+    fun setStreamingMarketDataType(type: IbStreamingMarketDataType) {
+        streamingMarketDataType = type
+        if (!client.isConnected) return
+        requestPacer.enqueue {
+            if (!client.isConnected) return@enqueue
+            client.reqMarketDataType(type.ibCode)
+            IbGatewayLog.debug("reqMarketDataType ${type.name} code=${type.ibCode}")
+            refreshActiveStreamingSubscriptions()
+        }
+    }
+
+    private fun refreshActiveStreamingSubscriptions() {
+        val activeRefKeys = streamSubscriptionRefCount.entries
+            .filter { it.value > 0 }
+            .map { it.key }
+        activeRefKeys.forEach { refKey ->
+            val instrument = streamInstrumentByKey[refKey]
+            val symbol = refKey.substringBefore('|')
+            val key = streamingOnlyKey(symbol, instrument)
+            if (keyToMktDataReqId.containsKey(key)) {
+                releaseMarketDataLogicalKey(key)
+            }
+        }
+        activeRefKeys.forEach { refKey ->
+            val instrument = streamInstrumentByKey[refKey]
+            val symbol = refKey.substringBefore('|')
+            subscribeStreamingMarketData(symbol, instrument)
+        }
+    }
 
     fun ensureStreamingMarketData(
         symbol: String,

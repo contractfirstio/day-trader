@@ -134,6 +134,9 @@ fun main() {
                                 ?: current.runtime.gateway,
                             ensureLiveMarketData = current.runtime.ensureLiveMarketData,
                             releaseLiveMarketData = current.runtime.releaseLiveMarketData,
+                            quoteBus = current.runtime.quoteBus,
+                            getStreamingMarketDataType = current.runtime.getStreamingMarketDataType,
+                            setStreamingMarketDataType = current.runtime.setStreamingMarketDataType,
                             replayHybridRuntime = current.runtime.replayHybridRuntime,
                             replayBundle = current.runtime.replayBundle,
                             onRegisterApplicationQuit = { applicationQuit = it }

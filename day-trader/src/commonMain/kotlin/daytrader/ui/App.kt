@@ -14,10 +14,13 @@ import androidx.compose.ui.unit.dp
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
+import daytrader.gateway.IbStreamingMarketDataType
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
+import daytrader.marketdata.MarketQuoteBus
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.SessionBundle
+import daytrader.ui.tools.PriceFeedTesterDialog
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -31,6 +34,9 @@ fun App(
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    quoteBus: MarketQuoteBus? = null,
+    getStreamingMarketDataType: (() -> IbStreamingMarketDataType)? = null,
+    setStreamingMarketDataType: ((IbStreamingMarketDataType) -> Unit)? = null,
     replayHybridRuntime: ReplayHybridRuntime? = null,
     replayBundle: SessionBundle? = null,
     onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null
@@ -46,6 +52,7 @@ fun App(
         replayBundle = replayBundle
     )
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
+    var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
 
@@ -75,8 +82,26 @@ fun App(
                         null
                     },
                     selectedMarketZoneId = selectedMarketZoneId,
-                    onMarketClick = dependencies.marketFilter::toggle
+                    onMarketClick = dependencies.marketFilter::toggle,
+                    onOpenPriceFeedTester = { showPriceFeedTester = true }
                 )
+                if (showPriceFeedTester) {
+                    PriceFeedTesterDialog(
+                        brokerKind = brokerKind,
+                        brokerGateway = brokerGateway,
+                        marketDataGateway = if (touchTurnSessionGateway !== brokerGateway) {
+                            touchTurnSessionGateway
+                        } else {
+                            null
+                        },
+                        quoteBus = quoteBus,
+                        ensureLiveMarketData = ensureLiveMarketData,
+                        releaseLiveMarketData = releaseLiveMarketData,
+                        getStreamingMarketDataType = getStreamingMarketDataType,
+                        setStreamingMarketDataType = setStreamingMarketDataType,
+                        onDismiss = { showPriceFeedTester = false }
+                    )
+                }
                 val replayController = dependencies.replayController
                 val replaySessionBundle = dependencies.replayBundle
                 if (replayController != null && replaySessionBundle != null) {
