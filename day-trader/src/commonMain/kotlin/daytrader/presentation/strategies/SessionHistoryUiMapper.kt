@@ -105,6 +105,13 @@ object SessionHistoryUiMapper {
         } else {
             null
         }
+        val marketInputs = runRecord?.marketInputs
+        val openingBar = if (isSelected) marketInputs?.openingBar else null
+        val rangeThreshold = if (isSelected) {
+            marketInputs?.atr14?.let { it * instance.touchTurnRules.atrLiquidityRatio }
+        } else {
+            null
+        }
         return StrategySessionRowUi(
             id = run.id,
             deploymentId = instance.id,
@@ -126,7 +133,10 @@ object SessionHistoryUiMapper {
             isInProgress = inProgress,
             canDelete = !inProgress,
             pipelineGraph = pipelineGraph,
-            touchTurnRunDetail = touchTurnRunDetail
+            touchTurnRunDetail = touchTurnRunDetail,
+            touchTurnOpeningBar = openingBar,
+            touchTurnOpeningBarCurrency = marketInputs?.currencyCode,
+            touchTurnRangeThreshold = rangeThreshold
         )
     }
 

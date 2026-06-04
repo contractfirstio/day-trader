@@ -217,8 +217,16 @@ fun TouchTurnPipelineSectionClose(
 fun TouchTurnPipelineSectionData(
     session: TouchTurnSessionContext?,
     symbol: String,
+    formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     modifier: Modifier = Modifier
 ) {
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(session?.resolvedOpeningBarTime(), session?.marketZoneId) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionData"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -254,6 +262,12 @@ fun TouchTurnPipelineSectionData(
                 val capture = remember(session) {
                     TouchTurnPipelineDetailUiMapper.sessionDataCapture(session)
                 }
+                val barDetail = remember(session, tick) {
+                    TouchTurnPipelineDetailUiMapper.openingBarDetail(session)
+                }
+                val candleColor = barDetail?.candleColor
+                    ?: session.firstCandleColor()
+                    ?: session.candle?.let { TouchTurnLogic.firstCandleColor(it) }
                 Text(
                     "Session data captured from broker.",
                     fontSize = 12.sp,
@@ -261,6 +275,28 @@ fun TouchTurnPipelineSectionData(
                     color = GainGreen,
                     modifier = Modifier.testTag("TouchTurnDataCaptureReady")
                 )
+                session.candle?.let { candle ->
+                    if (candleColor != null) {
+                        TouchTurnOpeningBarChart(
+                            candle = candle,
+                            candleColor = candleColor,
+                            currencyCode = session.currencyCode,
+                            closeStatus = barDetail?.closeStatus ?: session.candleCloseStatus(),
+                            rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
+                            livePriceHistory = formingBarPriceChart?.priceHistory.orEmpty(),
+                            currentPrice = formingBarPriceChart?.currentPrice,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                } ?: formingBarPriceChart?.let { chart ->
+                    TouchTurnPipelineLiveOrderChart(
+                        chart = chart,
+                        modifier = Modifier.testTag("TouchTurnDataLiveBarChart")
+                    )
+                }
+                barDetail?.let { detail ->
+                    TouchTurnOpeningBarStatusRow(detail = detail)
+                }
                 TouchTurnDataCaptureCard(capture = capture)
             }
         }

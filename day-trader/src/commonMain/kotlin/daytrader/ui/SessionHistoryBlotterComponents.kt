@@ -40,7 +40,10 @@ import daytrader.presentation.strategies.SessionHistoryUiState
 import daytrader.presentation.strategies.SessionHistorySortColumn
 import daytrader.presentation.strategies.SessionTradeDetailUiState
 import daytrader.presentation.strategies.StrategySessionRowUi
+import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.TouchTurnLogic
 import daytrader.presentation.strategies.TouchTurnPipelineNodeId
+import daytrader.ui.TouchTurnOpeningBarChart
 import daytrader.presentation.strategies.TouchTurnRunRecordUi
 import daytrader.presentation.strategies.detailTitle
 import daytrader.presentation.strategies.isSelectable
@@ -382,6 +385,25 @@ private fun SessionHistoryExpandedSections(
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )
+                            TouchTurnPipelineNodeId.Data -> {
+                                val bar = row.touchTurnOpeningBar
+                                val currency = row.touchTurnOpeningBarCurrency ?: "USD"
+                                if (bar != null) {
+                                    TouchTurnOpeningBarChart(
+                                        candle = bar,
+                                        candleColor = TouchTurnLogic.firstCandleColor(bar),
+                                        currencyCode = currency,
+                                        closeStatus = FirstCandleCloseStatus.CLOSED,
+                                        rangeThreshold = row.touchTurnRangeThreshold
+                                    )
+                                } else {
+                                    Text(
+                                        "Opening bar data not recorded for this session.",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary
+                                    )
+                                }
+                            }
                             TouchTurnPipelineNodeId.Rules ->
                                 Text(
                                     "Entry rules: liquidity bar, volume, bar-close turn confirmation, " +

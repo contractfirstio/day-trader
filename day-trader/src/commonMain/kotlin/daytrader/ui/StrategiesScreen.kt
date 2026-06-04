@@ -1957,16 +1957,12 @@ private fun TouchTurnLivePipelineDetailHost(
                     graph = pipelineGraph,
                     lastClosedRun = lastClosedRun
                 )
-            TouchTurnPipelineNodeId.Data -> {
-                TouchTurnPipelineSectionData(session = analysisSession, symbol = instance.symbol)
-                if (!sessionEnded && analysisSession?.candle != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TouchTurnPipelineSectionBar(
-                        session = analysisSession,
-                        formingBarPriceChart = touchTurnFormingBarPriceChart
-                    )
-                }
-            }
+            TouchTurnPipelineNodeId.Data ->
+                TouchTurnPipelineSectionData(
+                    session = analysisSession,
+                    symbol = instance.symbol,
+                    formingBarPriceChart = touchTurnFormingBarPriceChart
+                )
             TouchTurnPipelineNodeId.Rules ->
                 TouchTurnPipelineSectionRules(
                     session = analysisSession,
