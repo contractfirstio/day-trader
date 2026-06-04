@@ -137,6 +137,7 @@ object TouchTurnRunRecordUiMapper {
 
     private fun brokerShort(context: TouchTurnRunContext): String = when (context.brokerKind) {
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper·IB"
+        BrokerKind.REPLAY -> "Replay"
         BrokerKind.EMULATOR -> "Emu"
         BrokerKind.INTERACTIVE_BROKERS -> "IB"
         null -> brokerShort(context.brokerId)

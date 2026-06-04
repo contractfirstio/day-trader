@@ -16,6 +16,8 @@ import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
+import daytrader.replay.ReplayHybridRuntime
+import daytrader.replay.SessionBundle
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -29,6 +31,8 @@ fun App(
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    replayHybridRuntime: ReplayHybridRuntime? = null,
+    replayBundle: SessionBundle? = null,
     onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
@@ -37,7 +41,9 @@ fun App(
         touchTurnSessionGateway = touchTurnSessionGateway,
         brokerKind = brokerKind,
         ensureLiveMarketData = ensureLiveMarketData,
-        releaseLiveMarketData = releaseLiveMarketData
+        releaseLiveMarketData = releaseLiveMarketData,
+        replayHybridRuntime = replayHybridRuntime,
+        replayBundle = replayBundle
     )
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
@@ -71,6 +77,14 @@ fun App(
                     selectedMarketZoneId = selectedMarketZoneId,
                     onMarketClick = dependencies.marketFilter::toggle
                 )
+                val replayController = dependencies.replayController
+                val replaySessionBundle = dependencies.replayBundle
+                if (replayController != null && replaySessionBundle != null) {
+                    ReplayControlBar(
+                        bundle = replaySessionBundle,
+                        controller = replayController
+                    )
+                }
                 Row(modifier = Modifier.fillMaxSize()) {
                     NavigationRail(
                         containerColor = SurfaceDark,

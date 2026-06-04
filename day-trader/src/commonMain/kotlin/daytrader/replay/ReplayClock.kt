@@ -15,6 +15,10 @@ class ReplayClock(initialEpochMs: Long) {
 
     fun now(): Long = nowMs
 
+    fun reset(epochMs: Long) {
+        nowMs = epochMs
+    }
+
     fun advanceBy(deltaMs: Long) {
         if (deltaMs > 0) nowMs += deltaMs
     }

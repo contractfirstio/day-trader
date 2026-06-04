@@ -51,6 +51,7 @@ fun BrokerSelectionScreen(
         BrokerKind.INTERACTIVE_BROKERS -> "Start with Interactive Brokers"
         BrokerKind.EMULATOR -> "Start with Broker Emulator"
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Start Paper Trading (Live IB Data)"
+        BrokerKind.REPLAY -> "Start Session Replay"
     }
 
     Surface(modifier = modifier.fillMaxSize(), color = DarkBackground) {
@@ -103,6 +104,13 @@ fun BrokerSelectionScreen(
                         description = "Live 14-day ADR, opening 15-minute bar, and streaming marks from IB Gateway or TWS. Orders and positions stay simulated in the emulator so no real capital is at risk.",
                         selected = selected == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
                         onClick = { onSelect(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA) }
+                    )
+                    BrokerOptionCard(
+                        title = "Session Replay",
+                        subtitle = "Offline captured session",
+                        description = "Re-run a previously captured Touch Turn session using recorded IB market data and emulator execution. No Gateway connection required.",
+                        selected = selected == BrokerKind.REPLAY,
+                        onClick = { onSelect(BrokerKind.REPLAY) }
                     )
                 }
             }

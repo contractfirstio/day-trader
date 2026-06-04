@@ -125,6 +125,8 @@ Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EM
 
 **Session replay (dev):** load a captured session with `SessionBundleDirectoryReader.loadFromDirectory(...)`, or run Tier A regression with `ReplaySessionRunner(bundle, repository, scope).run()` against a parsed `SessionBundle`. Optional high-fidelity quotes: pass the path to `runs/.../ib-prices/{SYMBOL}.jsonl` when loading the bundle.
 
+**Desktop session replay:** choose **Session Replay** on startup, pick a captured session folder (or browse manually), then press **Run Replay** in the control bar. Set `DAY_TRADER_BROKER=replay` to pre-select replay mode. Replay writes under `{broker-scope}/replay/`.
+
 **Hybrid session capture for replay** (recommended when running paper-live):
 
 ```bash

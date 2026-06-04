@@ -629,7 +629,7 @@ class TouchTurnEngine(
     }
 
     private fun liquidityPollIntervalMs(): Long =
-        if (brokerKind == BrokerKind.EMULATOR) {
+        if (brokerKind == BrokerKind.EMULATOR || brokerKind == BrokerKind.REPLAY) {
             TouchTurnEngineConfig.LIQUIDITY_POLL_EMULATOR_MS
         } else {
             TouchTurnEngineConfig.LIQUIDITY_POLL_MS

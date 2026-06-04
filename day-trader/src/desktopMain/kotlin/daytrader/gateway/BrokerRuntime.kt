@@ -7,6 +7,9 @@ import daytrader.broker.emulator.EmulatorBrokerAdapter
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.marketdata.MarketQuoteBusUiRelay
 import daytrader.platform.CrashLogging
+import daytrader.replay.ReplayClock
+import daytrader.replay.ReplayHybridRuntime
+import daytrader.replay.SessionBundle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
@@ -15,13 +18,15 @@ import kotlinx.coroutines.SupervisorJob
 data class BrokerRuntime(
     val kind: BrokerKind,
     val gateway: QueuedBrokerGateway,
-    /** IB gateway for Touch Turn ADR / first candle when [kind] is [BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA]. */
-    val marketDataGateway: QueuedBrokerGateway? = null,
+    /** IB or replay market-data gateway for Touch Turn ADR / first candle / quotes. */
+    val marketDataGateway: BrokerGateway? = null,
     /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
     val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
     val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     val quoteBus: MarketQuoteBus? = null,
+    val replayBundle: SessionBundle? = null,
+    val replayHybridRuntime: ReplayHybridRuntime? = null,
     private val adapters: List<BrokerAdapter> = emptyList(),
     private val queueSets: List<BlockingGatewayQueues> = emptyList(),
     private val quoteUiRelay: MarketQuoteBusUiRelay? = null
@@ -37,6 +42,7 @@ data class BrokerRuntime(
         quoteUiRelay?.stop()
         queueSets.forEach { it.outbound.offer(GatewayCommand.Shutdown) }
         adapters.forEach { it.shutdown() }
+        replayHybridRuntime?.shutdown()
     }
 
     companion object {
@@ -50,7 +56,32 @@ data class BrokerRuntime(
             )
         ): BrokerRuntime = when (kind) {
             BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> createHybrid(scope)
+            BrokerKind.REPLAY -> error("use createReplay(bundle, scope)")
             else -> createSingle(kind, scope)
+        }
+
+        fun createReplay(
+            bundle: SessionBundle,
+            scope: CoroutineScope = CoroutineScope(
+                SupervisorJob() +
+                    Dispatchers.Default +
+                    CoroutineName("BrokerRuntime[REPLAY]") +
+                    CrashLogging.coroutineExceptionHandler("BrokerRuntime[REPLAY]")
+            )
+        ): BrokerRuntime {
+            val clock = ReplayClock(bundle.timeline.sessionStartedEpochMs)
+            val hybrid = ReplayHybridRuntime(bundle, clock, scope)
+            hybrid.start()
+            return BrokerRuntime(
+                kind = BrokerKind.REPLAY,
+                gateway = hybrid.executionGateway,
+                marketDataGateway = hybrid.marketDataGateway,
+                ensureLiveMarketData = { _, _ -> hybrid.quoteFeeder.publishUpTo(clock.now()) },
+                releaseLiveMarketData = { _, _ -> },
+                quoteBus = hybrid.quoteBus,
+                replayHybridRuntime = hybrid,
+                replayBundle = bundle
+            )
         }
 
         private fun createSingle(
@@ -70,6 +101,7 @@ data class BrokerRuntime(
                     scope = scope
                 )
                 BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> error("use createHybrid")
+                BrokerKind.REPLAY -> error("use createReplay")
             }
             val gateway = QueuedBrokerGateway(
                 sendCommand = { queues.outbound.offer(it) },

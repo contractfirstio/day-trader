@@ -46,7 +46,9 @@ fun ConnectionStatusBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BrokerModeBadge(brokerId = brokerGateway.brokerId, brokerKind = brokerKind)
-            if (brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA && marketDataGateway != null) {
+            if ((brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA || brokerKind == BrokerKind.REPLAY) &&
+                marketDataGateway != null
+            ) {
                 HybridConnectionStatus(
                     executionState = executionState,
                     marketDataState = marketDataState ?: GatewayConnectionState.Disconnected
@@ -157,6 +159,7 @@ private fun brokerStatusLabel(state: GatewayConnectionState, brokerKind: BrokerK
         BrokerKind.INTERACTIVE_BROKERS -> "Interactive Brokers"
         BrokerKind.EMULATOR -> "Broker Emulator"
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper Trading (Live IB Data)"
+        BrokerKind.REPLAY -> "Session Replay (Captured Data)"
     }
     return when (state) {
         GatewayConnectionState.Disconnected -> "Not Connected to $brokerName"
