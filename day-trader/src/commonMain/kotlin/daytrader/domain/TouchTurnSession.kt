@@ -805,14 +805,23 @@ object TouchTurnLogic {
     }
 
     /** First blocking bar/volume outcome, or null when the opening bar qualifies for entry. */
+    fun setupActionableForEntry(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): Boolean = setup.isActionable || !rules.enables.notDoji
+
     fun barSetupBlockOutcome(
         setup: TouchTurnBracketSetup,
-        volumeExhausted: Boolean
-    ): TouchTurnSessionOutcome? = when {
-        volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
-        !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-        !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
-        else -> null
+        volumeExhausted: Boolean,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? {
+        val enables = rules.enables
+        return when {
+            enables.volumeExhaustion && volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
+            enables.liquidityRange && !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+            enables.notDoji && !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
+            else -> null
+        }
     }
 
     data class EntryGateResult(
@@ -840,7 +849,9 @@ object TouchTurnLogic {
         requireLivePriceChecks: Boolean,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): EntryGateResult {
-        val volumeExhausted = isVolumeExhaustion(candle.volume, volumeSma20, rules)
+        val enables = rules.enables
+        val volumeExhausted = enables.volumeExhaustion &&
+            isVolumeExhaustion(candle.volume, volumeSma20, rules)
         val closeConfirmation = closeConfirmation(
             candle,
             setup,
@@ -849,7 +860,7 @@ object TouchTurnLogic {
             sessionDateIso,
             rules
         )
-        barSetupBlockOutcome(setup, volumeExhausted)?.let { outcome ->
+        barSetupBlockOutcome(setup, volumeExhausted, rules)?.let { outcome ->
             return EntryGateResult(
                 entryOrdersPermitted = false,
                 decisionOutcome = outcome,
@@ -858,32 +869,37 @@ object TouchTurnLogic {
             )
         }
 
-        val barCloseOk = !enforceCloseConfirmation || closeConfirmation == TouchTurnCloseConfirmation.PASSED
+        val barCloseOk = !enables.barCloseTurn || !enforceCloseConfirmation ||
+            closeConfirmation == TouchTurnCloseConfirmation.PASSED
         val liveGatePrice = resolveLiveMid(liveBid, liveAsk, liveLast)
-        val liveQuoteOk = !requireLivePriceChecks || (liveBid != null && liveAsk != null)
-        val liveCloseOk = !requireLivePriceChecks ||
+        val liveQuoteOk = !enables.liveQuoteRequired || !requireLivePriceChecks ||
+            (liveBid != null && liveAsk != null)
+        val liveCloseOk = !enables.liveTurnConfirmation || !requireLivePriceChecks ||
             (liveGatePrice != null && confirmsTurnAtPrice(setup, candle, liveGatePrice, rules))
-        val liveEntryOk = !requireLivePriceChecks ||
+        val liveEntryOk = !enables.liveEntryTouchable || !requireLivePriceChecks ||
             (liveBid != null && liveAsk != null && liveEntryTouchable(setup, liveBid, liveAsk, rules))
         val closeGatePassed = barCloseOk && liveCloseOk
-        val entryOrdersPermitted = setup.isActionable &&
+        val entryOrdersPermitted = setupActionableForEntry(setup, rules) &&
             !volumeExhausted &&
             closeGatePassed &&
             liveQuoteOk &&
             liveEntryOk
         val decisionOutcome = when {
-            enforceCloseConfirmation && closeConfirmation == TouchTurnCloseConfirmation.EXPIRED ->
+            enables.entryWindow && enforceCloseConfirmation &&
+                closeConfirmation == TouchTurnCloseConfirmation.EXPIRED ->
                 TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
-            enforceCloseConfirmation && closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
+            enables.barCloseTurn && enforceCloseConfirmation &&
+                closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
                 TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-            requireLivePriceChecks && !liveQuoteOk ->
+            enables.liveQuoteRequired && requireLivePriceChecks && !liveQuoteOk ->
                 TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
-            requireLivePriceChecks && liveGatePrice != null &&
+            enables.liveBarAgreement && requireLivePriceChecks && liveGatePrice != null &&
                 !barCloseAgreesWithLiveMid(candle, liveGatePrice, rules) ->
                 TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE
-            requireLivePriceChecks && liveGatePrice != null && !liveCloseOk ->
+            enables.liveTurnConfirmation && requireLivePriceChecks && liveGatePrice != null && !liveCloseOk ->
                 TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED
-            requireLivePriceChecks && liveBid != null && liveAsk != null && !liveEntryOk ->
+            enables.liveEntryTouchable && requireLivePriceChecks && liveBid != null && liveAsk != null &&
+                !liveEntryOk ->
                 TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE
             else -> null
         }

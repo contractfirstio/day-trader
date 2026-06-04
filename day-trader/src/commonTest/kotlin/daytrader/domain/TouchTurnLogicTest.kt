@@ -882,6 +882,57 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun barSetupBlockOutcome_skipsDisabledRules() {
+        val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange = false,
+                volumeExhaustion = false,
+                notDoji = false
+            )
+        )
+        assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted = true, rules))
+    }
+
+    @Test
+    fun evaluateEntryGate_allowsWhenVolumeExhaustionDisabled() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 410.0,
+            low = 399.0,
+            close = 409.0,
+            volume = 50_000.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                volumeExhaustion = false,
+                barCloseTurn = false
+            )
+        )
+        assertTrue(TouchTurnLogic.isVolumeExhaustion(bar.volume, 100.0, rules))
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
+        val result = TouchTurnLogic.evaluateEntryGate(
+            setup = setup,
+            candle = bar,
+            volumeSma20 = 100.0,
+            marketZoneId = "America/New_York",
+            nowEpochMillis = barEnd + 1_000,
+            sessionDateIso = "2025-05-22",
+            enforceCloseConfirmation = true,
+            liveBid = null,
+            liveAsk = null,
+            liveLast = null,
+            requireLivePriceChecks = false,
+            rules = rules
+        )
+        assertTrue(result.entryOrdersPermitted)
+        assertNull(result.decisionOutcome)
+    }
+
+    @Test
     fun liquidityCandle_whenRangeExceedsThreshold_andGreen() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 399.0, close = 409.0)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)

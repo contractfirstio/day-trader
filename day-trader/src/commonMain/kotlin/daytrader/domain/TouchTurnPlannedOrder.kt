@@ -56,9 +56,10 @@ object TouchTurnOrderPlanner {
         maxDollars: Int,
         currencyCode: String = "USD",
         instrument: InstrumentIdentity? = null,
-        openingBarClose: Double? = null
+        openingBarClose: Double? = null,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnOrderPlan? {
-        if (!setup.isActionable) return null
+        if (!TouchTurnLogic.setupActionableForEntry(setup, rules)) return null
         val quantity = suggestedQuantity(maxDollars, setup.entry)
         val exitAction = when (setup.side) {
             TouchTurnTradeSide.SHORT -> "BUY"

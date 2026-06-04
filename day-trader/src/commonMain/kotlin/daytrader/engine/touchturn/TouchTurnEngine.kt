@@ -1132,7 +1132,10 @@ class TouchTurnEngine(
             return
         }
         val setup = afterSession.setup
-        if (setup == null || !setup.isActionable || afterSession.entryOrdersPermitted != true) {
+        val rules = afterSession.rules
+        if (setup == null || !TouchTurnLogic.setupActionableForEntry(setup, rules) ||
+            afterSession.entryOrdersPermitted != true
+        ) {
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return
         }
@@ -1192,7 +1195,8 @@ class TouchTurnEngine(
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return false
         val session = instance.touchTurnSession ?: return false
         val setup = session.setup ?: return false
-        if (!setup.isActionable || session.entryOrdersPermitted != true) {
+        val rules = session.rules
+        if (!TouchTurnLogic.setupActionableForEntry(setup, rules) || session.entryOrdersPermitted != true) {
             return false
         }
         val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
@@ -1201,11 +1205,12 @@ class TouchTurnEngine(
             setup = setup,
             maxDollars = instance.maxDollars,
             currencyCode = session.currencyCode,
-            instrument = deploymentInstrument
+            instrument = deploymentInstrument,
+            rules = rules
         ) ?: return false
         if (executionGw == null) {
             repository.update(instanceId) { current ->
-                if (setup.isActionable) {
+                if (TouchTurnLogic.setupActionableForEntry(setup, rules)) {
                     current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
                 } else {
                     current
@@ -1323,10 +1328,11 @@ class TouchTurnEngine(
             return
         }
         val setup = session.setup
+        val rules = session.rules
         when {
             setup == null ->
                 TouchTurnDecisionLog.ordersSkipped(instance.id, instance.symbol, "setup_null", session, evaluatedAt)
-            !setup.isActionable ->
+            !TouchTurnLogic.setupActionableForEntry(setup, rules) ->
                 TouchTurnDecisionLog.ordersSkipped(
                     instance.id,
                     instance.symbol,
@@ -1342,7 +1348,7 @@ class TouchTurnEngine(
                     session,
                     evaluatedAt
                 )
-            session.decisionOutcome == null && setup.isActionable ->
+            session.decisionOutcome == null && TouchTurnLogic.setupActionableForEntry(setup, rules) ->
                 TouchTurnDecisionLog.ordersSkipped(instance.id, instance.symbol, "plan_not_submitted", session, evaluatedAt)
         }
     }

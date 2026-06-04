@@ -32,7 +32,7 @@ class VolumeExhaustionBufferMonitor(
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ) {
         stop(instanceId)
-        if (entryOrderId == null || volumeThreshold <= 0.0) return
+        if (!rules.enables.postEntryVolumeBuffer || entryOrderId == null || volumeThreshold <= 0.0) return
         VolumeExhaustionLog.bufferActive(instanceId, symbol, entryOrderId, volumeThreshold)
         activeJobs[instanceId] = scope.launch {
             var accumulated = 0.0

@@ -24,8 +24,10 @@ object VolumeExhaustionSignalEngine {
         val candle = session.candle ?: return null
         val setup = session.setup ?: return null
         val volumeSma = session.volumeSma20 ?: 0.0
-        val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma, session.rules)
-        val blockOutcome = TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted)
+        val rules = session.rules
+        val volumeExhausted = rules.enables.volumeExhaustion &&
+            TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma, rules)
+        val blockOutcome = TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted, rules)
         val abortReason = when (blockOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "volume_exhaustion"
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "not_liquidity"

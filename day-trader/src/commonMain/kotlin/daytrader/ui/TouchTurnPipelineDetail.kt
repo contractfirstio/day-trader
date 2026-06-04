@@ -728,10 +728,11 @@ private fun RulesEvaluationCard(evaluation: RulesEvaluationUi) {
 
 @Composable
 private fun RuleCheckRow(check: RuleCheckUi) {
-    val (icon, color) = when (check.passed) {
-        true -> "✓" to GainGreen
-        false -> "✗" to LossRed
-        null -> "…" to TextSecondary
+    val (icon, color) = when {
+        !check.enabled -> "—" to TextSecondary
+        check.passed == true -> "✓" to GainGreen
+        check.passed == false -> "✗" to LossRed
+        else -> "…" to TextSecondary
     }
     Column(
         modifier = Modifier.fillMaxWidth(),

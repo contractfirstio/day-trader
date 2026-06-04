@@ -2,6 +2,32 @@ package daytrader.domain
 
 import kotlinx.serialization.Serializable
 
+/** Per-deployment enable flags for Touch Turn entry-gate rules (all enabled by default). */
+@Serializable
+data class TouchTurnRuleEnables(
+    val liquidityRange: Boolean = true,
+    val notDoji: Boolean = true,
+    val volumeExhaustion: Boolean = true,
+    val barCloseTurn: Boolean = true,
+    val entryWindow: Boolean = true,
+    val liveQuoteRequired: Boolean = true,
+    val liveBarAgreement: Boolean = true,
+    val liveTurnConfirmation: Boolean = true,
+    val liveEntryTouchable: Boolean = true,
+    val postEntryVolumeBuffer: Boolean = true
+) {
+    companion object {
+        val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
+    }
+}
+
+@Serializable
+data class TouchTurnRuleToggleDefinition(
+    val key: String,
+    val label: String,
+    val description: String
+)
+
 /** Per-deployment Touch Turn rule thresholds (defaults match [TouchTurnDefaults]). */
 @Serializable
 data class TouchTurnRuleConfig(
@@ -36,10 +62,66 @@ data class TouchTurnRuleConfig(
     /** Wait after bar end before trusting a closed-bar historical refetch. */
     val closedBarRefetchSettleMs: Long = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS,
     /** Post-entry window: cancel entry if live volume exceeds exhaustion threshold before this elapses. */
-    val volumeBufferObservationMs: Long = TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS
+    val volumeBufferObservationMs: Long = TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS,
+    /** Which entry-gate rules are enforced for this deployment. */
+    val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleConfig = TouchTurnRuleConfig()
+
+        val toggleDefinitions: List<TouchTurnRuleToggleDefinition> = listOf(
+            TouchTurnRuleToggleDefinition(
+                key = "liquidityRange",
+                label = "Liquidity range",
+                description = "Opening 15m bar range must meet the ATR liquidity threshold."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "notDoji",
+                label = "Not a doji",
+                description = "Bar must be actionable (not a flat doji)."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "volumeExhaustion",
+                label = "Volume exhaustion",
+                description = "Block entry when opening-bar volume exceeds the exhaustion multiple of SMA20."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "barCloseTurn",
+                label = "Bar close turn",
+                description = "15m bar close must confirm the turn zone before entry."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "entryWindow",
+                label = "Entry window",
+                description = "Turn confirmation and bracket placement must complete within the post-close window."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liveQuoteRequired",
+                label = "Live quote required",
+                description = "IB-live mode: bid and ask must be available before placing entry."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liveBarAgreement",
+                label = "Bar / live agreement",
+                description = "IB-live mode: live mid must agree with the completed bar close within tolerance."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liveTurnConfirmation",
+                label = "Live turn confirmation",
+                description = "IB-live mode: live mid must confirm the turn zone on the tape."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liveEntryTouchable",
+                label = "Live entry touchable",
+                description = "IB-live mode: live price must still be touchable at the entry limit."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "postEntryVolumeBuffer",
+                label = "Post-entry volume buffer",
+                description = "After entry is working, cancel if live volume exceeds exhaustion threshold " +
+                    "during the observation window."
+            )
+        )
 
         val fieldDefinitions: List<TouchTurnRuleFieldDefinition> = listOf(
             TouchTurnRuleFieldDefinition(
@@ -208,6 +290,37 @@ data class TouchTurnRuleConfig(
                 }
                 null -> null
             }
+        }
+
+        fun isToggleEnabled(config: TouchTurnRuleConfig, key: String): Boolean = when (key) {
+            "liquidityRange" -> config.enables.liquidityRange
+            "notDoji" -> config.enables.notDoji
+            "volumeExhaustion" -> config.enables.volumeExhaustion
+            "barCloseTurn" -> config.enables.barCloseTurn
+            "entryWindow" -> config.enables.entryWindow
+            "liveQuoteRequired" -> config.enables.liveQuoteRequired
+            "liveBarAgreement" -> config.enables.liveBarAgreement
+            "liveTurnConfirmation" -> config.enables.liveTurnConfirmation
+            "liveEntryTouchable" -> config.enables.liveEntryTouchable
+            "postEntryVolumeBuffer" -> config.enables.postEntryVolumeBuffer
+            else -> true
+        }
+
+        fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig {
+            val enables = when (key) {
+                "liquidityRange" -> config.enables.copy(liquidityRange = enabled)
+                "notDoji" -> config.enables.copy(notDoji = enabled)
+                "volumeExhaustion" -> config.enables.copy(volumeExhaustion = enabled)
+                "barCloseTurn" -> config.enables.copy(barCloseTurn = enabled)
+                "entryWindow" -> config.enables.copy(entryWindow = enabled)
+                "liveQuoteRequired" -> config.enables.copy(liveQuoteRequired = enabled)
+                "liveBarAgreement" -> config.enables.copy(liveBarAgreement = enabled)
+                "liveTurnConfirmation" -> config.enables.copy(liveTurnConfirmation = enabled)
+                "liveEntryTouchable" -> config.enables.copy(liveEntryTouchable = enabled)
+                "postEntryVolumeBuffer" -> config.enables.copy(postEntryVolumeBuffer = enabled)
+                else -> config.enables
+            }
+            return config.copy(enables = enables)
         }
     }
 }
