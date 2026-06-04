@@ -1,6 +1,6 @@
 package daytrader.engine.touchturn
 
-import daytrader.domain.TouchTurnDefaults
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.execution.ExecutionManager
 import daytrader.marketdata.MarketDataProvider
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +28,8 @@ class VolumeExhaustionBufferMonitor(
         instanceId: String,
         symbol: String,
         entryOrderId: Int?,
-        volumeThreshold: Double
+        volumeThreshold: Double,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ) {
         stop(instanceId)
         if (entryOrderId == null || volumeThreshold <= 0.0) return
@@ -45,7 +46,7 @@ class VolumeExhaustionBufferMonitor(
                     }
                 }
                 .launchIn(this)
-            val deadline = nowEpochMillis() + TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS
+            val deadline = nowEpochMillis() + rules.volumeBufferObservationMs
             while (isActive && nowEpochMillis() < deadline) {
                 delayMillis(POLL_INTERVAL_MS)
             }

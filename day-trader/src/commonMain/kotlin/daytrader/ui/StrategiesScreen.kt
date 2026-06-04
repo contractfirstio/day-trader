@@ -1113,6 +1113,27 @@ private fun ConfigurationTab(
             }
         )
         if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+            var showTouchTurnRules by remember(instance.id, instance.touchTurnRules) {
+                mutableStateOf(false)
+            }
+            OutlinedButton(
+                onClick = { showTouchTurnRules = true },
+                enabled = canEdit,
+                modifier = Modifier.testTag("TouchTurnRulesConfigButton")
+            ) {
+                Text("Touch Turn rules…", color = if (canEdit) Color.White else TextSecondary)
+            }
+            if (showTouchTurnRules) {
+                TouchTurnRulesConfigDialog(
+                    initialRules = instance.touchTurnRules,
+                    enabled = canEdit,
+                    onDismiss = { showTouchTurnRules = false },
+                    onSave = { rules ->
+                        onUpdate { it.copy(touchTurnRules = rules) }
+                        showTouchTurnRules = false
+                    }
+                )
+            }
             touchTurnPrepare?.let { prepare ->
                 TouchTurnPrepareChecklist(prepare = prepare)
             }

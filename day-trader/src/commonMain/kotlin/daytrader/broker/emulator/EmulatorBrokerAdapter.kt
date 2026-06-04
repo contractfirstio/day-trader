@@ -100,7 +100,8 @@ class EmulatorBrokerAdapter(
                                 engine.fetchTouchTurnSignalContext(
                                     requestId = command.requestId,
                                     symbol = command.symbol,
-                                    isClosedBarRefetch = command.isClosedBarRefetch
+                                    isClosedBarRefetch = command.isClosedBarRefetch,
+                                    rules = command.rules
                                 )
                             }
                         }

@@ -2,6 +2,7 @@ package daytrader.marketdata
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.LiveQuote
@@ -27,14 +28,16 @@ class BrokerGatewayMarketDataProvider(
         instrument: InstrumentIdentity?,
         isClosedBarRefetch: Boolean,
         marketZoneId: String?,
-        allowMissingTodayOpeningBar: Boolean
+        allowMissingTodayOpeningBar: Boolean,
+        rules: TouchTurnRuleConfig
     ): Result<TouchTurnSignalContext> =
         gateway.fetchTouchTurnSignalContext(
             symbol,
             instrument,
             isClosedBarRefetch,
             marketZoneId,
-            allowMissingTodayOpeningBar
+            allowMissingTodayOpeningBar,
+            rules
         )
 
     override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> {

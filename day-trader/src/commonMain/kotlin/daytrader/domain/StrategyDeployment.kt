@@ -27,5 +27,7 @@ data class StrategyDeployment(
      * Pre-flight bootstrap + checks for today's session (Touch Turn only). Not a running session;
      * consumed by Start when [TouchTurnSessionPrepare.isValidForStart].
      */
-    val touchTurnPrepare: TouchTurnSessionPrepare? = null
+    val touchTurnPrepare: TouchTurnSessionPrepare? = null,
+    /** Touch Turn entry-gate thresholds; [TouchTurnRuleConfig.DEFAULT] when unset in legacy records. */
+    val touchTurnRules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
 )

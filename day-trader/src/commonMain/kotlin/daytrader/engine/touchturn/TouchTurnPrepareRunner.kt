@@ -12,6 +12,7 @@ import daytrader.domain.TouchTurnPrepareCheckId
 import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnPrepareStatus
 import daytrader.domain.TouchTurnSessionPrepare
+import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
@@ -45,7 +46,8 @@ internal object TouchTurnPrepareRunner {
             instrument = instrument,
             isClosedBarRefetch = false,
             marketZoneId = zoneId,
-            allowMissingTodayOpeningBar = true
+            allowMissingTodayOpeningBar = true,
+            rules = deployment.effectiveTouchTurnRules()
         )
         checks += historicalBootstrapCheck(signalResult)
         val context = signalResult.getOrNull()

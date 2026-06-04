@@ -38,6 +38,7 @@ import daytrader.domain.withTouchTurnPrepare
 import daytrader.domain.TouchTurnSessionPrepare
 import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnSignalContext
+import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
@@ -281,14 +282,16 @@ class TouchTurnEngine(
                     leg.role == TouchTurnOrderRole.ENTRY && order.limitPrice == leg.price
                 }
             }?.orderId
+        val rules = instance.effectiveTouchTurnRules()
         val volumeThreshold = instance.touchTurnSession?.volumeSma20?.let {
-            VolumeExhaustionSignalEngine.bufferVolumeThreshold(it)
+            VolumeExhaustionSignalEngine.bufferVolumeThreshold(it, rules)
         } ?: 0.0
         bufferMonitor.start(
             instanceId = instanceId,
             symbol = plan.symbol,
             entryOrderId = entryOrderId,
-            volumeThreshold = volumeThreshold
+            volumeThreshold = volumeThreshold,
+            rules = rules
         )
         logLiquidityPollOutcome(
             instance = instance,
@@ -639,7 +642,8 @@ class TouchTurnEngine(
                     symbol = symbol,
                     instrument = instrument,
                     isClosedBarRefetch = false,
-                    marketZoneId = zoneId
+                    marketZoneId = zoneId,
+                    rules = instance.effectiveTouchTurnRules()
                 )
                 repository.update(instanceId) { current ->
                     fetched.fold(
@@ -829,7 +833,8 @@ class TouchTurnEngine(
                 sessionId = sessionId,
                 symbol = symbol,
                 openingBarTime = openingBarTime,
-                marketZoneId = zoneId
+                marketZoneId = zoneId,
+                rules = session.rules
             )
             var refetchFailed = false
             var attempt = 0
@@ -839,7 +844,8 @@ class TouchTurnEngine(
                     symbol = symbol,
                     instrument = instrument,
                     isClosedBarRefetch = true,
-                    marketZoneId = zoneId
+                    marketZoneId = zoneId,
+                    rules = session.rules
                 )
                 if (refetchResult.isFailure) {
                     refetchFailed = true
@@ -867,7 +873,8 @@ class TouchTurnEngine(
                     openingBarTime = openingBarTime,
                     marketZoneId = zoneId,
                     sessionDateIso = sessionDate,
-                    nowEpochMillis = now
+                    nowEpochMillis = now,
+                    settleMs = session.rules.closedBarRefetchSettleMs
                 )
                 SessionHistoricalLog.recordSignalContext(
                     deploymentId = instanceId,
@@ -1001,12 +1008,14 @@ class TouchTurnEngine(
         sessionId: String?,
         symbol: String,
         openingBarTime: String?,
-        marketZoneId: String
+        marketZoneId: String,
+        rules: daytrader.domain.TouchTurnRuleConfig
     ) {
         val waitMs = TouchTurnLogic.millisUntilClosedBarRefetchReady(
             openingBarTime = openingBarTime,
             marketZoneId = marketZoneId,
-            nowEpochMillis = nowEpochMillis()
+            nowEpochMillis = nowEpochMillis(),
+            settleMs = rules.closedBarRefetchSettleMs
         )
         if (waitMs <= 0L) return
         TouchTurnCandleLog.closedBarRefetchWaiting(
@@ -1043,7 +1052,8 @@ class TouchTurnEngine(
         val entryWindowStatus = TouchTurnLogic.entryWindowStatus(
             barTime = session.resolvedOpeningBarTime(),
             marketZoneId = session.marketZoneId,
-            nowEpochMillis = evaluatedAt
+            nowEpochMillis = evaluatedAt,
+            rules = session.rules
         )
         if (TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
                 requireLivePriceChecks = requireLivePriceChecks,
@@ -1063,7 +1073,8 @@ class TouchTurnEngine(
                 entryWindowRemainingMs = TouchTurnLogic.entryWindowRemainingMillis(
                     barTime = session.resolvedOpeningBarTime(),
                     marketZoneId = session.marketZoneId,
-                    nowEpochMillis = evaluatedAt
+                    nowEpochMillis = evaluatedAt,
+                    rules = session.rules
                 ),
                 nowEpochMillis = evaluatedAt
             )

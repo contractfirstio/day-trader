@@ -126,7 +126,11 @@ class TouchTurnLogicTest {
     @Test
     fun longStopRespectsMinimumDistance_onRedCandle() {
         val bar = OhlcBar(open = 10.02, high = 10.02, low = 10.0, close = 10.0)
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0, minStopDistance = 0.05)
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 1.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(minStopDistance = 0.05)
+        )
         assertEquals(TouchTurnTradeSide.LONG, setup.side)
         assertEquals(10.0, setup.entry, 0.001)
         assertEquals(10.0 - 0.05, setup.stopLoss, 0.001)

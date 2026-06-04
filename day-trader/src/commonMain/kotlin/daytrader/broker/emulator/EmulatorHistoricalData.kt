@@ -5,6 +5,7 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import java.time.LocalDate
 import kotlin.math.abs
@@ -63,7 +64,8 @@ internal object EmulatorHistoricalData {
         instrument: EmulatorInstrument,
         config: BrokerEmulatorConfig,
         nowEpochMillis: Long = System.currentTimeMillis(),
-        sessionCandleFetchIndex: Int = 0
+        sessionCandleFetchIndex: Int = 0,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext> {
         val marketZoneId = instrument.marketZoneId
         val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
@@ -87,7 +89,8 @@ internal object EmulatorHistoricalData {
             bars = history,
             marketZoneId = marketZoneId,
             sessionDayYyyyMmdd = sessionYmd,
-            explicitFirstCandle = opening
+            explicitFirstCandle = opening,
+            rules = rules
         )
     }
 

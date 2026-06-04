@@ -159,7 +159,8 @@ class BrokerEmulatorEngine(
     suspend fun fetchTouchTurnSignalContext(
         requestId: Long,
         symbol: String,
-        isClosedBarRefetch: Boolean = false
+        isClosedBarRefetch: Boolean = false,
+        rules: daytrader.domain.TouchTurnRuleConfig = daytrader.domain.TouchTurnRuleConfig.DEFAULT
     ) {
         delay(config.historicalDelayMs)
         val trimmed = symbol.trim().uppercase()
@@ -172,7 +173,8 @@ class BrokerEmulatorEngine(
                 symbol = trimmed,
                 instrument = instrument,
                 config = config,
-                sessionCandleFetchIndex = fetchIndex
+                sessionCandleFetchIndex = fetchIndex,
+                rules = rules
             ).also { contextResult ->
                 contextResult.onSuccess { context ->
                     EmulatorLog.firstCandleColor(

@@ -2,6 +2,7 @@ package daytrader.gateway
 
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnRuleConfig
 
 sealed interface GatewayCommand {
     data object Connect : GatewayCommand
@@ -33,7 +34,8 @@ sealed interface GatewayCommand {
         /** Deployment/session RTH zone; overrides instrument currency heuristics for IB bar day. */
         val marketZoneId: String? = null,
         /** Pre-open Prepare: succeed with ATR/volume when today's opening bar is not in history yet. */
-        val allowMissingTodayOpeningBar: Boolean = false
+        val allowMissingTodayOpeningBar: Boolean = false,
+        val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ) : GatewayCommand
 
     data class CancelOrder(val orderId: Int) : GatewayCommand

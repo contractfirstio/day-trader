@@ -54,7 +54,8 @@ interface BrokerGateway {
         instrument: InstrumentIdentity? = null,
         isClosedBarRefetch: Boolean = false,
         marketZoneId: String? = null,
-        allowMissingTodayOpeningBar: Boolean = false
+        allowMissingTodayOpeningBar: Boolean = false,
+        rules: daytrader.domain.TouchTurnRuleConfig = daytrader.domain.TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext> {
         val zoneId = SymbolMarkets.marketZoneIdForSession(symbol, instrument, marketZoneId)
         val candleResult = fetchFirstFifteenMinuteCandle(symbol, instrument)

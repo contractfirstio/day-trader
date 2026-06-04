@@ -88,7 +88,8 @@ class VolumeExhaustionBufferMonitorTest {
             instrument: daytrader.domain.InstrumentIdentity?,
             isClosedBarRefetch: Boolean,
             marketZoneId: String?,
-            allowMissingTodayOpeningBar: Boolean
+            allowMissingTodayOpeningBar: Boolean,
+            rules: daytrader.domain.TouchTurnRuleConfig
         ) = error("not used")
 
         override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> = volumeTicks

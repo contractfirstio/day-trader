@@ -24,7 +24,7 @@ object VolumeExhaustionSignalEngine {
         val candle = session.candle ?: return null
         val setup = session.setup ?: return null
         val volumeSma = session.volumeSma20 ?: 0.0
-        val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma)
+        val volumeExhausted = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma, session.rules)
         val blockOutcome = TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted)
         val abortReason = when (blockOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "volume_exhaustion"
@@ -69,9 +69,14 @@ object VolumeExhaustionSignalEngine {
         else -> null
     }
 
-    fun bufferVolumeThreshold(volumeSma20: Double): Double =
-        TouchTurnLogic.volumeExhaustionThreshold(volumeSma20)
+    fun bufferVolumeThreshold(
+        volumeSma20: Double,
+        rules: daytrader.domain.TouchTurnRuleConfig = daytrader.domain.TouchTurnRuleConfig.DEFAULT
+    ): Double = TouchTurnLogic.volumeExhaustionThreshold(volumeSma20, rules)
 
-    fun openingBarVolumeExhausted(candle: OhlcBar, volumeSma20: Double): Boolean =
-        TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma20)
+    fun openingBarVolumeExhausted(
+        candle: OhlcBar,
+        volumeSma20: Double,
+        rules: daytrader.domain.TouchTurnRuleConfig = daytrader.domain.TouchTurnRuleConfig.DEFAULT
+    ): Boolean = TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma20, rules)
 }

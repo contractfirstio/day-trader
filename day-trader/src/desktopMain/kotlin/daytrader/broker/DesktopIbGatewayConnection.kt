@@ -32,6 +32,7 @@ import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.AccountPosition
@@ -148,6 +149,7 @@ class DesktopIbGatewayConnection(
     private val touchTurnHistoricalSymbol = ConcurrentHashMap<Int, String>()
     private val touchTurnHistoricalMarketZoneId = ConcurrentHashMap<Int, String>()
     private val touchTurnHistoricalAllowMissingToday = ConcurrentHashMap<Int, Boolean>()
+    private val touchTurnHistoricalRules = ConcurrentHashMap<Int, TouchTurnRuleConfig>()
     private val touchTurnGatewayRequestId = ConcurrentHashMap<Int, Long>()
     private val adrHistoricalBars = ConcurrentHashMap<Int, MutableList<Bar>>()
     private val adrHistoricalSymbol = ConcurrentHashMap<Int, String>()
@@ -220,7 +222,8 @@ class DesktopIbGatewayConnection(
                                         command.symbol,
                                         command.instrument,
                                         command.marketZoneId,
-                                        command.allowMissingTodayOpeningBar
+                                        command.allowMissingTodayOpeningBar,
+                                        command.rules
                                     )
                                 )
                             )
@@ -1636,7 +1639,8 @@ class DesktopIbGatewayConnection(
         symbol: String,
         instrument: InstrumentIdentity?,
         deploymentMarketZoneId: String? = null,
-        allowMissingTodayOpeningBar: Boolean = false
+        allowMissingTodayOpeningBar: Boolean = false,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext> {
         if (!client.isConnected) {
             return Result.failure(IllegalStateException("Not connected to IB Gateway"))
@@ -1660,6 +1664,7 @@ class DesktopIbGatewayConnection(
         if (allowMissingTodayOpeningBar) {
             touchTurnHistoricalAllowMissingToday[reqId] = true
         }
+        touchTurnHistoricalRules[reqId] = rules
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
             cancelTouchTurnHistorical(reqId)
@@ -1723,6 +1728,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnHistoricalAllowMissingToday.remove(reqId)
+        touchTurnHistoricalRules.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverTouchTurnHistoricalFailure(gatewayRequestId, "Historical request cancelled")
         }
@@ -1739,6 +1745,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalSymbol.remove(reqId)
         touchTurnHistoricalMarketZoneId.remove(reqId)
         touchTurnHistoricalAllowMissingToday.remove(reqId)
+        touchTurnHistoricalRules.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverTouchTurnHistoricalFailure(gatewayRequestId, message)
         }
@@ -1751,6 +1758,7 @@ class DesktopIbGatewayConnection(
         val marketZoneId = touchTurnHistoricalMarketZoneId.remove(reqId)
             ?: SymbolMarkets.marketZoneIdForSession(symbol.orEmpty(), instrument = null)
         val allowMissingToday = touchTurnHistoricalAllowMissingToday.remove(reqId) == true
+        val rules = touchTurnHistoricalRules.remove(reqId) ?: TouchTurnRuleConfig.DEFAULT
         val bars = touchTurnHistoricalBars.remove(reqId).orEmpty()
         val sessionDay = sessionDayYyyyMmDd(marketZoneId)
         val ohlcBars = bars.map { it.toTouchTurnOhlcBar(marketZoneId) }
@@ -1775,7 +1783,8 @@ class DesktopIbGatewayConnection(
                     ohlcBars,
                     marketZoneId,
                     sessionDay,
-                    allowMissingTodayOpeningBar = allowMissingToday
+                    allowMissingTodayOpeningBar = allowMissingToday,
+                    rules = rules
                 )
             )
             return

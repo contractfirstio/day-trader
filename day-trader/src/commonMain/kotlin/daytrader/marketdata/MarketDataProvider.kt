@@ -1,6 +1,7 @@
 package daytrader.marketdata
 
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.LiveQuote
 import kotlinx.coroutines.flow.Flow
@@ -18,7 +19,8 @@ interface MarketDataProvider {
         instrument: InstrumentIdentity? = null,
         isClosedBarRefetch: Boolean = false,
         marketZoneId: String? = null,
-        allowMissingTodayOpeningBar: Boolean = false
+        allowMissingTodayOpeningBar: Boolean = false,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext>
 
     /** Live incremental volume for post-entry buffer monitoring. */

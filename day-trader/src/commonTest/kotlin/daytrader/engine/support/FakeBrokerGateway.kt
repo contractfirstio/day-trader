@@ -104,7 +104,8 @@ class FakeBrokerGateway(
         instrument: InstrumentIdentity?,
         isClosedBarRefetch: Boolean,
         marketZoneId: String?,
-        allowMissingTodayOpeningBar: Boolean
+        allowMissingTodayOpeningBar: Boolean,
+        rules: daytrader.domain.TouchTurnRuleConfig
     ): Result<TouchTurnSignalContext> = signalContextFetchResult
 
     override fun cancelOrder(orderId: Int) = Unit

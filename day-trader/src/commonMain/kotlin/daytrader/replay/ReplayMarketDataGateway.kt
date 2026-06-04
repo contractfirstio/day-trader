@@ -95,7 +95,8 @@ class ReplayMarketDataGateway(
         instrument: InstrumentIdentity?,
         isClosedBarRefetch: Boolean,
         marketZoneId: String?,
-        allowMissingTodayOpeningBar: Boolean
+        allowMissingTodayOpeningBar: Boolean,
+        rules: daytrader.domain.TouchTurnRuleConfig
     ): Result<TouchTurnSignalContext> {
         if (!isClosedBarRefetch) {
             return resolveBootstrapContext()?.let { Result.success(it) }

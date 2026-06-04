@@ -100,6 +100,25 @@ data class TouchTurnBracketSetupRecord(
 )
 
 @Serializable
+data class TouchTurnRuleConfigRecord(
+    val atrLiquidityRatio: Double = 0.25,
+    val volumeExhaustionRatio: Double = 1.5,
+    val atrLookbackPeriods: Int = 14,
+    val volumeSmaPeriods: Int = 20,
+    val closeConfirmationMinDistanceRatioOfRange: Double = 0.15,
+    val closePositionShortMax: Double = 0.35,
+    val closePositionLongMin: Double = 0.65,
+    val barLiveDivergenceMaxRatioOfRange: Double = 0.25,
+    val entryTouchBufferRatioOfRange: Double = 0.05,
+    val minStopDistance: Double = 0.05,
+    val takeProfitFibRatioGreen: Double = 0.382,
+    val takeProfitFibRatioRed: Double = 0.382,
+    val closeConfirmationAfterCloseMs: Long = 60_000L,
+    val closedBarRefetchSettleMs: Long = 3_000L,
+    val volumeBufferObservationMs: Long = 60_000L
+)
+
+@Serializable
 data class ConfigurationRecord(
     val symbol: String,
     val maxAtRisk: Int,
@@ -109,7 +128,8 @@ data class ConfigurationRecord(
     val currencyCode: String = "USD",
     val marketSource: String? = null,
     val companyName: String? = null,
-    val instrument: InstrumentIdentityRecord? = null
+    val instrument: InstrumentIdentityRecord? = null,
+    val touchTurnRules: TouchTurnRuleConfigRecord? = null
 )
 
 @Serializable
