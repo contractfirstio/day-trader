@@ -180,7 +180,8 @@ data class TouchTurnRunRecordRecord(
     val marketInputs: TouchTurnRunMarketInputsRecord,
     val decision: TouchTurnSessionDecisionRecord,
     val stopEvent: TouchTurnStopEventRecord,
-    val milestones: TouchTurnMilestoneTimestampsRecord
+    val milestones: TouchTurnMilestoneTimestampsRecord,
+    val rules: TouchTurnRuleConfigRecord? = null
 )
 
 @Serializable

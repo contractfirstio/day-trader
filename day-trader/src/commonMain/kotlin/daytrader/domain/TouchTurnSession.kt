@@ -1931,17 +1931,24 @@ fun StrategyDeployment.touchTurnRecapSessionPnl(): Double? {
  */
 fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? {
     touchTurnSession?.let { return it }
-    return touchTurnPostStopSession()?.toTouchTurnAnalysisContext()
+    val closed = touchTurnPostStopSession() ?: return null
+    val rules = closed.touchTurnRunRecord?.rules ?: effectiveTouchTurnRules()
+    return closed.toTouchTurnAnalysisContext(rules)
 }
 
-fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
+fun StrategySession.toTouchTurnAnalysisContext(
+    rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+): TouchTurnSessionContext? {
     val record = touchTurnRunRecord
     val milestones = touchTurnMilestones ?: record?.milestones ?: return null
     val inputs = record?.marketInputs
     val candle = inputs?.openingBar
     val adr = inputs?.adr14
-    val threshold = adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) } ?: 0.0
-    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, threshold) }
+    val atr = inputs?.atr14
+    val threshold = atr?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
+        ?: adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
+        ?: 0.0
+    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, threshold, rules) }
     val plannedBracket = record?.decision?.plannedBracket
     val outcome = record?.decision?.outcome
     val executedBracketLegs = record?.decision?.executedLegs?.takeIf { it.isNotEmpty() }
@@ -1965,7 +1972,10 @@ fun StrategySession.toTouchTurnAnalysisContext(): TouchTurnSessionContext? {
         currencyCode = inputs?.currencyCode ?: "USD",
         marketZoneId = inputs?.marketZoneId ?: "America/New_York",
         adr14 = adr,
+        atr14 = atr,
+        volumeSma20 = inputs?.volumeSma20,
         rangeThreshold = threshold,
+        rules = rules,
         entryOrdersPermitted = when (outcome) {
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> true
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,

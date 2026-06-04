@@ -100,7 +100,9 @@ data class TouchTurnRunRecord(
     val marketInputs: TouchTurnRunMarketInputs,
     val decision: TouchTurnSessionDecision,
     val stopEvent: TouchTurnStopEvent,
-    val milestones: TouchTurnMilestoneTimestamps
+    val milestones: TouchTurnMilestoneTimestamps,
+    /** Rule thresholds and enable flags in effect when this run ended. */
+    val rules: TouchTurnRuleConfig? = null
 )
 
 fun TouchTurnOrderPlan.toPlannedBracket(): TouchTurnPlannedBracket =
@@ -240,7 +242,8 @@ fun buildTouchTurnRunRecord(
             stopErrorMessage = stopErrorMessage,
             brokerUnrealizedPnLAtStop = brokerUnrealizedPnLAtStop
         ),
-        milestones = touchTurnSession.milestones
+        milestones = touchTurnSession.milestones,
+        rules = touchTurnSession.rules
     )
 }
 

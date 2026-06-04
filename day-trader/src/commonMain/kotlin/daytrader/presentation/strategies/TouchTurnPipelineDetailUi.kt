@@ -169,23 +169,25 @@ object TouchTurnPipelineDetailUiMapper {
         val enables = rules.enables
         val volumeExhausted = enables.volumeExhaustion &&
             TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma20, rules)
-        val liquidity = session.liquidityEvaluation(nowEpochMillis)
+        val closeStatus = session.candleCloseStatus(nowEpochMillis)
         val closeConfirmation = resolvedCloseConfirmation(session, nowEpochMillis)
         val closeRatio = TouchTurnLogic.closePositionRatio(candle)
         val checks = mutableListOf<RuleCheckUi>()
 
         checks += RuleCheckUi(
-            label = "Liquidity bar",
-            description = "Opening bar range must meet the ADR liquidity threshold.",
+            label = "Liquidity range",
+            description = "Opening 15m bar range must meet the ATR liquidity threshold.",
             passed = when {
                 !enables.liquidityRange -> null
-                liquidity == LiquidityCandleEvaluation.LIQUIDITY -> true
-                liquidity == LiquidityCandleEvaluation.NOT_LIQUIDITY -> false
-                else -> null
+                closeStatus != FirstCandleCloseStatus.CLOSED -> null
+                setup.isLiquidityCandle -> true
+                else -> false
             },
             detail = when {
                 !enables.liquidityRange -> "Disabled"
-                else -> liquidity.name.replace('_', ' ').lowercase()
+                closeStatus != FirstCandleCloseStatus.CLOSED -> null
+                setup.isLiquidityCandle -> "OK"
+                else -> "Below threshold"
             },
             enabled = enables.liquidityRange
         )

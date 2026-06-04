@@ -671,8 +671,6 @@ fun TouchTurnPipelineSectionRules(
         }
     }
     val evaluation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.rulesEvaluation(session) }
-    val liquidity = remember(session, tick) { TouchTurnPipelineDetailUiMapper.liquidityCalculation(session) }
-    val confirmation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.closeConfirmation(session) }
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionRules"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -686,8 +684,6 @@ fun TouchTurnPipelineSectionRules(
             TouchTurnPipelineLiveOrderChart(chart = chart)
         }
         evaluation?.let { RulesEvaluationCard(evaluation = it) }
-        liquidity?.let { TouchTurnLiquidityCalculationCard(calc = it) }
-        confirmation?.let { TouchTurnCloseConfirmationCard(confirmation = it) }
         graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
             Text("Rules evaluated $time", fontSize = 10.sp, color = TextSecondary)
         }

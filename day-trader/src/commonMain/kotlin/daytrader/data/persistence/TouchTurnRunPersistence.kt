@@ -53,7 +53,8 @@ internal object TouchTurnRunPersistence {
                 stopErrorMessage = record.stopEvent.stopErrorMessage,
                 brokerUnrealizedPnLAtStop = record.stopEvent.brokerUnrealizedPnLAtStop
             ),
-            milestones = TouchTurnPersistence.milestonesToDomain(record.milestones)
+            milestones = TouchTurnPersistence.milestonesToDomain(record.milestones),
+            rules = TouchTurnRuleConfigPersistence.toDomain(record.rules)
         )
     }
 
@@ -87,7 +88,8 @@ internal object TouchTurnRunPersistence {
                 stopErrorMessage = record.stopEvent.stopErrorMessage,
                 brokerUnrealizedPnLAtStop = null
             ),
-            milestones = TouchTurnPersistence.milestonesToRecord(record.milestones)
+            milestones = TouchTurnPersistence.milestonesToRecord(record.milestones),
+            rules = record.rules?.let(TouchTurnRuleConfigPersistence::toRecord)
         )
     }
 
