@@ -30,6 +30,12 @@ object DeploymentMarket {
     fun effectiveZoneId(deployment: StrategyDeployment): String =
         deployment.marketZoneId ?: SymbolMarkets.zoneId(deployment.symbol)
 
+    /** Trading session ISO date in the deployment's market zone (matches auto-start and IB bar day). */
+    fun sessionDateIso(
+        deployment: StrategyDeployment,
+        nowEpochMillis: Long = System.currentTimeMillis()
+    ): String = TouchTurnLogic.sessionDateIsoInMarketZone(effectiveZoneId(deployment), nowEpochMillis)
+
     fun effectiveCurrencyCode(deployment: StrategyDeployment): String =
         deployment.currencyCode.ifBlank {
             deployment.instrument?.currency ?: currencyForZone(effectiveZoneId(deployment))

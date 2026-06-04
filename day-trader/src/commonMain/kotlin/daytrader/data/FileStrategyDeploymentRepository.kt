@@ -38,7 +38,7 @@ class FileStrategyDeploymentRepository(
     }
 
     override fun remove(id: String) {
-        _deployments.update { it.filterNot { deployment -> deployment.id != id } }
+        _deployments.update { it.filterNot { deployment -> deployment.id == id } }
         writer.schedule(_deployments.value)
     }
 

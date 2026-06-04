@@ -1,6 +1,7 @@
 package daytrader.domain
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -66,5 +67,19 @@ class DeploymentMarketSessionFilterTest {
             status = SessionStatus.CLOSED
         )
         assertTrue(DeploymentMarket.sessionMatchesMarketFilter(session, deployment, null))
+    }
+
+    @Test
+    fun sessionDateIso_usesDeploymentMarketZone() {
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(marketZoneId = RthMarketSessions.US.zoneId)
+        val hkMorningUsPreviousEvening = java.time.ZonedDateTime.of(
+            2026, 6, 3, 8, 0, 0, 0,
+            java.time.ZoneId.of("Asia/Hong_Kong")
+        ).toInstant().toEpochMilli()
+        assertEquals("2026-06-02", DeploymentMarket.sessionDateIso(deployment, hkMorningUsPreviousEvening))
     }
 }

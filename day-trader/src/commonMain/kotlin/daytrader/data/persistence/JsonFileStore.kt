@@ -19,7 +19,13 @@ object JsonFileStore {
         read<DeploymentsDocument>(AppDataFiles.DEPLOYMENTS)
 
     fun writeDeployments(document: DeploymentsDocument) {
+        backupDeploymentsIfPresent()
         write(AppDataFiles.DEPLOYMENTS, document)
+    }
+
+    private fun backupDeploymentsIfPresent() {
+        val current = AppFileSystem.readText(AppDataFiles.DEPLOYMENTS) ?: return
+        AppFileSystem.writeTextAtomic(AppDataFiles.DEPLOYMENTS_BACKUP, current)
     }
 
     internal fun readLegacyInstancesJson(): LegacyInstancesJsonDocument? =

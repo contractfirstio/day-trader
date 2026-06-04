@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 class TouchTurnRecapSessionTradesTest {
 
     @Test
-    fun recapSessionTrades_prefersClosedRunWithFillsOverMilestoneOnlyRun() {
+    fun recapSessionTrades_usesLatestClosedRunRegardlessOfFills() {
         val withFills = StrategySession(
             id = "older",
             date = "2026-05-21",
@@ -49,8 +49,8 @@ class TouchTurnRecapSessionTradesTest {
             maxDollars = 500,
             sessionHistory = listOf(milestonesOnly, withFills)
         )
-        assertEquals(1, deployment.touchTurnRecapSessionTrades().size)
-        assertEquals("e1", deployment.touchTurnRecapSessionTrades().single().execId)
+        assertEquals("newer", deployment.touchTurnPostStopSession()?.id)
+        assertEquals(0, deployment.touchTurnRecapSessionTrades().size)
     }
 
     @Test

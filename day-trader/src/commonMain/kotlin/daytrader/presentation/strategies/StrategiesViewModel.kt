@@ -35,6 +35,7 @@ import daytrader.domain.inProgressSession
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.MarketSource
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
@@ -48,7 +49,6 @@ import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.diagnostics.SessionTrace
 import daytrader.diagnostics.TouchTurnStateSyncLog
 import daytrader.diagnostics.UiActionLog
-import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
@@ -581,8 +581,8 @@ class StrategiesViewModel(
     }
 
     fun onToggleSession(id: String) {
-        val sessionDate = currentSessionDateIso()
         val existing = repository.deployments.value.find { it.id == id } ?: return
+        val sessionDate = DeploymentMarket.sessionDateIso(existing)
         val wasRunning = existing.status == DeploymentStatus.RUNNING
         UiActionLog.forDeployment(
             deployment = existing,
@@ -653,9 +653,10 @@ class StrategiesViewModel(
     }
 
     fun onClosePosition(instanceId: String) {
-        val sessionDate = currentSessionDateIso()
+        val instance = repository.deployments.value.find { it.id == instanceId } ?: return
+        val sessionDate = DeploymentMarket.sessionDateIso(instance)
         UiActionLog.forDeployment(
-            deployment = repository.deployments.value.find { it.id == instanceId },
+            deployment = instance,
             action = "close_position",
             details = mapOf("sessionDate" to sessionDate)
         )
@@ -749,7 +750,9 @@ class StrategiesViewModel(
 
         val selected = selectedId?.let { id -> filtered.find { it.id == id } }
         selected?.let { reconcileSessionHistorySelection(it) }
-        val sessionDate = currentSessionDateIso()
+        val sessionDate = selected?.let { DeploymentMarket.sessionDateIso(it) }
+            ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it) }
+            ?: DeploymentMarket.sessionDateIso(filtered.firstOrNull() ?: return)
         val selectedBrokerPnL = selected?.let { instance ->
             SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }

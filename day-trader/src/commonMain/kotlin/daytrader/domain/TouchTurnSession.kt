@@ -1566,16 +1566,13 @@ fun StrategyDeployment.withTouchTurnCandleFailed(
 }
 
 /**
- * Single post-stop session for pipeline UI, recap chart, and close panel.
- * Prefers the latest closed run with broker fills; otherwise the latest closed run with milestones.
+ * Most recent closed Touch Turn run for pipeline UI, recap, and close panel.
+ * Picks the latest closed run by [StrategySession.stoppedAt] (then [StrategySession.startedAt]),
+ * regardless of whether it had broker fills.
  */
 fun StrategyDeployment.touchTurnPostStopSession(): StrategySession? {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
     inProgressSession()?.takeIf { it.sessionTrades.isNotEmpty() }?.let { return it }
-    sessionHistory
-        .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
-        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
-        ?.let { return it }
     return sessionHistory
         .filter {
             it.status == SessionStatus.CLOSED &&
