@@ -382,12 +382,10 @@ private fun SessionHistoryExpandedSections(
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )
-                            TouchTurnPipelineNodeId.NoTrade ->
-                                TouchTurnPipelineSectionNoTrade(session = null, graph = graph)
-                            TouchTurnPipelineNodeId.Confirmation ->
+                            TouchTurnPipelineNodeId.Rules ->
                                 Text(
-                                    "Close confirmation: green bar needs close ≥15% of range below entry; " +
-                                        "red bar needs close ≥15% of range above entry.",
+                                    "Entry rules: liquidity bar, volume, bar-close turn confirmation, " +
+                                        "and live tape checks when applicable.",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )

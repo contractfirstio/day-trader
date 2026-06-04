@@ -52,7 +52,7 @@ object TouchTurnPipelineLog {
         detail(
             "  phase index=$phaseIndex terminal=$phaseTerminal skippedFrom=$phaseSkippedFrom " +
                 "confirmFailedOnSteps=${steps.getOrNull(4)?.state?.name} " +
-                "orders=${steps.getOrNull(5)?.state?.name} position=${steps.getOrNull(6)?.state?.name}"
+                "orders=${steps.getOrNull(3)?.state?.name} position=${steps.getOrNull(4)?.state?.name}"
         )
         detail(
             "  stepStates=${steps.map { it.state.name }.joinToString(",")} " +
@@ -67,10 +67,10 @@ object TouchTurnPipelineLog {
             )
         }
         if (session?.decisionOutcome in noTradeOutcomes &&
-            TouchTurnPipelineNodeId.NoTrade !in graph.activePath
+            TouchTurnPipelineNodeId.Close !in graph.activePath
         ) {
             detail(
-                "  WARN: decisionOutcome=${session?.decisionOutcome?.name} but NoTrade not on activePath"
+                "  WARN: decisionOutcome=${session?.decisionOutcome?.name} but Close not on activePath"
             )
         }
     }
@@ -93,15 +93,15 @@ object TouchTurnPipelineLog {
             graph.edges.firstOrNull { it.from == from && it.to == to }?.state?.name ?: "missing"
 
         detail(
-            "  edges Liq→Confirm=${edge(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.Confirmation)} " +
-                "Confirm→Orders=${edge(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.Orders)} " +
-                "Confirm→NoTrade=${edge(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.NoTrade)} " +
-                "Liq→NoTrade=${edge(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.NoTrade)} " +
-                "NoTrade→Close=${edge(TouchTurnPipelineNodeId.NoTrade, TouchTurnPipelineNodeId.Close)}"
+            "  edges Rules→Orders=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Orders)} " +
+                "Rules→Close=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Close)} " +
+                "Orders→Position=${edge(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position)} " +
+                "Orders→Close=${edge(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Close)} " +
+                "Position→Close=${edge(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close)}"
         )
         graph.caption.takeIf { it.isNotBlank() }?.let { detail("  caption=$it") }
         if (usesNoTradePipeline) {
-            detail("  expectedPath=…→Confirm(failed)?→NoTrade→Close (not Orders/Position)")
+            detail("  expectedPath=…→Rules→Close (not Orders/Position)")
         }
     }
 

@@ -39,7 +39,7 @@ class TouchTurnStateSyncLogTest {
                 ordersPlacedForSession = true,
                 hasOpenOrders = false
             ),
-            ui = uiSnapshot(phaseIndex = 5),
+            ui = uiSnapshot(phaseIndex = 3),
             session = session
         )
         assertTrue(
@@ -58,13 +58,12 @@ class TouchTurnStateSyncLogTest {
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(sessionStatus = TouchTurnCandleStatus.READY),
             ui = uiSnapshot(
-                phaseIndex = 4,
+                phaseIndex = 3,
                 activePath = listOf(
-                    TouchTurnPipelineNodeId.Start,
+                    TouchTurnPipelineNodeId.Readiness,
                     TouchTurnPipelineNodeId.Data,
-                    TouchTurnPipelineNodeId.Bar,
-                    TouchTurnPipelineNodeId.Liquidity,
-                    TouchTurnPipelineNodeId.Confirmation
+                    TouchTurnPipelineNodeId.Rules,
+                    TouchTurnPipelineNodeId.Orders
                 )
             ),
             session = session
@@ -86,7 +85,10 @@ class TouchTurnStateSyncLogTest {
             ui = uiSnapshot(phaseIndex = 2),
             session = session
         )
-        assertEquals(listOf("engine status=LOADING but ui phaseIndex=2"), mismatches)
+        assertTrue(
+            mismatches.any { it.contains("engine status=LOADING but ui phaseIndex=2") },
+            "mismatches=$mismatches"
+        )
     }
 
     @Test
@@ -103,10 +105,9 @@ class TouchTurnStateSyncLogTest {
             ),
             ui = uiSnapshot(
                 activePath = listOf(
-                    TouchTurnPipelineNodeId.Start,
+                    TouchTurnPipelineNodeId.Readiness,
                     TouchTurnPipelineNodeId.Data,
-                    TouchTurnPipelineNodeId.Bar,
-                    TouchTurnPipelineNodeId.Liquidity,
+                    TouchTurnPipelineNodeId.Rules,
                     TouchTurnPipelineNodeId.Orders
                 ),
                 phaseTerminal = true,
@@ -115,7 +116,7 @@ class TouchTurnStateSyncLogTest {
             session = session
         )
         assertTrue(mismatches.any { it.contains("Orders on ui activePath") })
-        assertTrue(mismatches.any { it.contains("NoTrade missing") })
+        assertTrue(mismatches.any { it.contains("Close missing") })
     }
 
     @Test
@@ -125,9 +126,9 @@ class TouchTurnStateSyncLogTest {
             status = TouchTurnCandleStatus.READY,
             ordersPlacedForSession = true
         )
-        val stepStates = List(8) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[5] = TouchTurnBreadcrumbStepState.CURRENT
-        stepStates[6] = TouchTurnBreadcrumbStepState.CURRENT
+        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[3] = TouchTurnBreadcrumbStepState.CURRENT
+        stepStates[4] = TouchTurnBreadcrumbStepState.CURRENT
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -152,8 +153,8 @@ class TouchTurnStateSyncLogTest {
             sessionDate = "2026-05-22",
             status = TouchTurnCandleStatus.READY
         )
-        val stepStates = List(8) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[6] = TouchTurnBreadcrumbStepState.UPCOMING
+        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[4] = TouchTurnBreadcrumbStepState.UPCOMING
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -175,9 +176,9 @@ class TouchTurnStateSyncLogTest {
             status = TouchTurnCandleStatus.READY,
             ordersPlacedForSession = true
         )
-        val stepStates = List(8) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[5] = TouchTurnBreadcrumbStepState.COMPLETED
-        stepStates[6] = TouchTurnBreadcrumbStepState.SKIPPED
+        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[3] = TouchTurnBreadcrumbStepState.COMPLETED
+        stepStates[4] = TouchTurnBreadcrumbStepState.SKIPPED
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -186,11 +187,9 @@ class TouchTurnStateSyncLogTest {
             ),
             ui = uiSnapshot(
                 activePath = listOf(
-                    TouchTurnPipelineNodeId.Start,
+                    TouchTurnPipelineNodeId.Readiness,
                     TouchTurnPipelineNodeId.Data,
-                    TouchTurnPipelineNodeId.Bar,
-                    TouchTurnPipelineNodeId.Liquidity,
-                    TouchTurnPipelineNodeId.Confirmation,
+                    TouchTurnPipelineNodeId.Rules,
                     TouchTurnPipelineNodeId.Orders,
                     TouchTurnPipelineNodeId.Position
                 ),
@@ -224,8 +223,8 @@ class TouchTurnStateSyncLogTest {
     )
 
     private fun uiSnapshot(
-        activePath: List<TouchTurnPipelineNodeId> = listOf(TouchTurnPipelineNodeId.Start),
-        stepStates: List<TouchTurnBreadcrumbStepState> = List(8) { TouchTurnBreadcrumbStepState.UPCOMING },
+        activePath: List<TouchTurnPipelineNodeId> = listOf(TouchTurnPipelineNodeId.Readiness),
+        stepStates: List<TouchTurnBreadcrumbStepState> = List(6) { TouchTurnBreadcrumbStepState.UPCOMING },
         phaseIndex: Int = 1,
         phaseTerminal: Boolean = false,
         usesNoTradePipeline: Boolean = false

@@ -164,18 +164,23 @@ object TouchTurnStateSyncLog {
             if (TouchTurnPipelineNodeId.Orders in ui.activePath) {
                 mismatches += "engine decisionOutcome=$outcome but Orders on ui activePath"
             }
-            if (ui.phaseTerminal && TouchTurnPipelineNodeId.NoTrade !in ui.activePath) {
-                mismatches += "engine decisionOutcome=$outcome but NoTrade missing from ui activePath"
+            if (ui.phaseTerminal &&
+                TouchTurnPipelineNodeId.Close !in ui.activePath
+            ) {
+                mismatches += "engine decisionOutcome=$outcome but Close missing from ui activePath"
             }
         }
         if (outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED &&
-            TouchTurnPipelineNodeId.NoTrade in ui.activePath
+            TouchTurnPipelineNodeId.Rules in ui.activePath &&
+            TouchTurnPipelineNodeId.Close in ui.activePath &&
+            TouchTurnPipelineNodeId.Orders !in ui.activePath &&
+            !ui.phaseTerminal
         ) {
-            mismatches += "engine decisionOutcome=TRADE_BRACKET_SUBMITTED but NoTrade on ui activePath"
+            mismatches += "engine decisionOutcome=TRADE_BRACKET_SUBMITTED but ui activePath skips Orders"
         }
 
         if (engine.ordersPlacedForSession) {
-            val ordersState = ui.stepStates.getOrNull(5)
+            val ordersState = ui.stepStates.getOrNull(3)
             if (ordersState != TouchTurnBreadcrumbStepState.COMPLETED &&
                 ordersState != TouchTurnBreadcrumbStepState.CURRENT
             ) {
@@ -188,8 +193,8 @@ object TouchTurnStateSyncLog {
         }
 
         if (engine.ordersPlacedForSession && !engine.hasOpenPosition && !engine.closingPhase) {
-            val ordersState = ui.stepStates.getOrNull(5)
-            val positionState = ui.stepStates.getOrNull(6)
+            val ordersState = ui.stepStates.getOrNull(3)
+            val positionState = ui.stepStates.getOrNull(4)
             if (ordersState != TouchTurnBreadcrumbStepState.CURRENT) {
                 mismatches += "engine waiting for entry but ui Orders step=${ordersState?.name}"
             }
@@ -199,7 +204,7 @@ object TouchTurnStateSyncLog {
         }
 
         if (engine.hasOpenPosition) {
-            val positionState = ui.stepStates.getOrNull(6)
+            val positionState = ui.stepStates.getOrNull(4)
             if (positionState != TouchTurnBreadcrumbStepState.COMPLETED &&
                 positionState != TouchTurnBreadcrumbStepState.CURRENT
             ) {
@@ -226,31 +231,31 @@ object TouchTurnStateSyncLog {
         }
 
         val milestones = session.milestones
-        if (milestones.barClosedAt == null && ui.phaseIndex > 2) {
+        if (milestones.barClosedAt == null && ui.phaseIndex > 1) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine barClosedAt=null"
         }
-        if (milestones.liquidityEvaluatedAt == null && ui.phaseIndex > 3) {
+        if (milestones.liquidityEvaluatedAt == null && ui.phaseIndex > 2) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine liquidityEvaluatedAt=null"
         }
-        if (!engine.ordersPlacedForSession && ui.phaseIndex in 5..6 &&
+        if (!engine.ordersPlacedForSession && ui.phaseIndex in 3..4 &&
             engine.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
         ) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine ordersPlacedForSession=false"
         }
-        if (engine.closingPhase && ui.phaseTerminal && ui.phaseIndex != 7) {
-            mismatches += "engine closingPhase=true but ui phaseIndex=${ui.phaseIndex} (expected Closing session=7)"
+        if (engine.closingPhase && ui.phaseTerminal && ui.phaseIndex != 5) {
+            mismatches += "engine closingPhase=true but ui phaseIndex=${ui.phaseIndex} (expected Close=5)"
         }
         if (!engine.closingPhase && milestones.liquidityEvaluatedAt == null &&
-            ui.phaseIndex > 3 &&
-            TouchTurnPipelineNodeId.Confirmation in ui.activePath
+            ui.phaseIndex > 2 &&
+            TouchTurnPipelineNodeId.Rules in ui.activePath
         ) {
-            mismatches += "ui Confirmation on path but engine liquidityEvaluatedAt=null"
+            mismatches += "ui Rules on path but engine liquidityEvaluatedAt=null"
         }
         if (session.failedDuringLiquidityRefetch() &&
-            ui.phaseIndex < 3 &&
+            ui.phaseIndex < 2 &&
             engine.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
         ) {
-            mismatches += "engine liquidity refetch failed but ui phaseIndex=${ui.phaseIndex} (expected Liquidity=3)"
+            mismatches += "engine liquidity refetch failed but ui phaseIndex=${ui.phaseIndex} (expected Rules=2)"
         }
         if (session.failedDuringLiquidityRefetch() &&
             milestones.barClosedAt == null
@@ -263,14 +268,15 @@ object TouchTurnStateSyncLog {
             !engine.hasOpenPosition &&
             session?.milestones?.positionOpenedAt == null
         ) {
-            val positionState = ui.stepStates.getOrNull(6)
+            val positionState = ui.stepStates.getOrNull(4)
             if (positionState != TouchTurnBreadcrumbStepState.SKIPPED) {
                 mismatches += "engine closed without entry fill but ui Position step=${positionState?.name}"
             }
-            if (TouchTurnPipelineNodeId.NoTrade in ui.activePath &&
-                TouchTurnPipelineNodeId.Orders in ui.activePath
+            if (TouchTurnPipelineNodeId.Close in ui.activePath &&
+                TouchTurnPipelineNodeId.Orders in ui.activePath &&
+                TouchTurnPipelineNodeId.Position in ui.activePath
             ) {
-                mismatches += "engine closed without entry fill but ui activePath includes NoTrade after Orders"
+                mismatches += "engine closed without entry fill but ui activePath includes Position after Orders"
             }
         }
 

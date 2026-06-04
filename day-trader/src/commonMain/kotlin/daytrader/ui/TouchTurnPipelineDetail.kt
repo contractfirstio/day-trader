@@ -44,6 +44,8 @@ import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.LiquidityCalculationUi
 import daytrader.presentation.strategies.CloseConfirmationUi
 import daytrader.presentation.strategies.OpeningBarDetailUi
+import daytrader.presentation.strategies.RuleCheckUi
+import daytrader.presentation.strategies.RulesEvaluationUi
 import daytrader.presentation.strategies.SessionDataCaptureUi
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
@@ -125,7 +127,7 @@ fun TouchTurnPipelineSectionStart(
 ) {
     val run = instance.inProgressSession() ?: lastClosedRun
     val startedAt = run?.startedAt?.takeIf { it.isNotBlank() }
-        ?: graph?.node(TouchTurnPipelineNodeId.Start)?.timestamp
+        ?: graph?.node(TouchTurnPipelineNodeId.Readiness)?.timestamp
     val stoppedAt = run?.stoppedAt?.takeIf { it.isNotBlank() }
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -610,6 +612,117 @@ fun TouchTurnPipelineSectionOrdersPreview(
 }
 
 @Composable
+fun TouchTurnPipelineSectionRules(
+    session: TouchTurnSessionContext?,
+    graph: TouchTurnPipelineGraph? = null,
+    formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
+    modifier: Modifier = Modifier
+) {
+    if (session?.candle == null) {
+        Text(
+            "Entry rules run after the opening bar closes and data is refreshed.",
+            fontSize = 12.sp,
+            color = TextSecondary,
+            modifier = modifier
+        )
+        return
+    }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(session.candle?.time, session.marketZoneId) {
+        while (true) {
+            delay(1_000)
+            tick++
+        }
+    }
+    val evaluation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.rulesEvaluation(session) }
+    val liquidity = remember(session, tick) { TouchTurnPipelineDetailUiMapper.liquidityCalculation(session) }
+    val confirmation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.closeConfirmation(session) }
+    Column(
+        modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionRules"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        session.decisionOutcome?.let { outcome ->
+            TouchTurnSessionStatusBanner(
+                status = TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session)
+            )
+        }
+        formingBarPriceChart?.let { chart ->
+            TouchTurnPipelineLiveOrderChart(chart = chart)
+        }
+        evaluation?.let { RulesEvaluationCard(evaluation = it) }
+        liquidity?.let { TouchTurnLiquidityCalculationCard(calc = it) }
+        confirmation?.let { TouchTurnCloseConfirmationCard(confirmation = it) }
+        graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
+            Text("Rules evaluated $time", fontSize = 10.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun RulesEvaluationCard(evaluation: RulesEvaluationUi) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnRulesEvaluationCard"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            "Rule checks",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        evaluation.checks.forEach { check ->
+            RuleCheckRow(check = check)
+        }
+        evaluation.entryOrdersPermitted?.let { permitted ->
+            HorizontalDivider(color = TableHeaderBg)
+            DataCaptureRow(
+                label = "Entry permitted",
+                value = if (permitted) "Yes" else "No",
+                valueColor = if (permitted) GainGreen else LossRed,
+                emphasize = true,
+                testTag = "TouchTurnRulesEntryPermitted"
+            )
+        }
+    }
+}
+
+@Composable
+private fun RuleCheckRow(check: RuleCheckUi) {
+    val (icon, color) = when (check.passed) {
+        true -> "✓" to GainGreen
+        false -> "✗" to LossRed
+        null -> "…" to TextSecondary
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(icon, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
+            Text(check.label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            check.detail?.let { detail ->
+                Text(detail, fontSize = 10.sp, color = TextSecondary, modifier = Modifier.weight(1f))
+            }
+        }
+        Text(
+            check.description,
+            fontSize = 9.sp,
+            color = TextSecondary.copy(alpha = 0.85f),
+            lineHeight = 12.sp,
+            modifier = Modifier.padding(start = 20.dp)
+        )
+    }
+}
+
+@Composable
 fun TouchTurnPipelineSectionConfirmation(
     session: TouchTurnSessionContext?,
     modifier: Modifier = Modifier
@@ -661,15 +774,17 @@ fun TouchTurnPipelineSectionNoTrade(
             } ?: "Liquidity passed but entry orders were not permitted.",
             severity = TouchTurnReasonSeverity.Warning
         )
-        graph?.activePath?.contains(TouchTurnPipelineNodeId.NoTrade) == true ->
+        graph?.activePath?.contains(TouchTurnPipelineNodeId.Close) == true &&
+            graph.activePath.contains(TouchTurnPipelineNodeId.Rules) &&
+            !graph.activePath.contains(TouchTurnPipelineNodeId.Orders) ->
             TouchTurnSessionStatusUi(
-                headline = "No-trade path",
+                headline = "No trade",
                 detail = "Orders and position steps were skipped for this session.",
                 severity = TouchTurnReasonSeverity.Warning
             )
         else -> TouchTurnSessionStatusUi(
-            headline = "No-trade path",
-            detail = "Used when liquidity fails, volume exhaustion triggers, or close confirmation fails or expires.",
+            headline = "No trade",
+            detail = "Used when entry rules fail, volume exhausts, or close confirmation fails or expires.",
             severity = TouchTurnReasonSeverity.Info
         )
     }
@@ -679,11 +794,8 @@ fun TouchTurnPipelineSectionNoTrade(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         TouchTurnSessionStatusBanner(status = noTradeExplanation)
-        graph?.node(TouchTurnPipelineNodeId.Liquidity)?.timestamp?.let { time ->
-            Text("Liquidity evaluated $time", fontSize = 10.sp, color = TextSecondary)
-        }
-        graph?.node(TouchTurnPipelineNodeId.Confirmation)?.timestamp?.let { time ->
-            Text("Close confirmation evaluated $time", fontSize = 10.sp, color = TextSecondary)
+        graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
+            Text("Rules evaluated $time", fontSize = 10.sp, color = TextSecondary)
         }
     }
 }

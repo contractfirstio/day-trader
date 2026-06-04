@@ -1951,33 +1951,28 @@ private fun TouchTurnLivePipelineDetailHost(
             graph = pipelineGraph
         ) { nodeId ->
         when (nodeId) {
-            TouchTurnPipelineNodeId.Start ->
+            TouchTurnPipelineNodeId.Readiness ->
                 TouchTurnPipelineSectionStart(
                     instance = instance,
                     graph = pipelineGraph,
                     lastClosedRun = lastClosedRun
                 )
-            TouchTurnPipelineNodeId.Data ->
+            TouchTurnPipelineNodeId.Data -> {
                 TouchTurnPipelineSectionData(session = analysisSession, symbol = instance.symbol)
-            TouchTurnPipelineNodeId.Bar ->
-                TouchTurnPipelineSectionBar(
+                if (!sessionEnded && analysisSession?.candle != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TouchTurnPipelineSectionBar(
+                        session = analysisSession,
+                        formingBarPriceChart = touchTurnFormingBarPriceChart
+                    )
+                }
+            }
+            TouchTurnPipelineNodeId.Rules ->
+                TouchTurnPipelineSectionRules(
                     session = analysisSession,
+                    graph = pipelineGraph,
                     formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart
                 )
-            TouchTurnPipelineNodeId.Liquidity -> {
-                if (!sessionEnded && touchTurnFormingBarPriceChart != null) {
-                    TouchTurnPipelineLiveOrderChart(chart = touchTurnFormingBarPriceChart)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                TouchTurnPipelineSectionLiquidity(session = analysisSession)
-            }
-            TouchTurnPipelineNodeId.Confirmation -> {
-                if (!sessionEnded && touchTurnFormingBarPriceChart != null) {
-                    TouchTurnPipelineLiveOrderChart(chart = touchTurnFormingBarPriceChart)
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                TouchTurnPipelineSectionConfirmation(session = analysisSession)
-            }
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {
@@ -2042,8 +2037,6 @@ private fun TouchTurnLivePipelineDetailHost(
                     }
                 }
             }
-            TouchTurnPipelineNodeId.NoTrade ->
-                TouchTurnPipelineSectionNoTrade(session = analysisSession, graph = pipelineGraph)
             TouchTurnPipelineNodeId.Close ->
                 if (sessionEnded) {
                     TouchTurnPipelineSectionClose(closedRun = lastClosedRun, graph = pipelineGraph)

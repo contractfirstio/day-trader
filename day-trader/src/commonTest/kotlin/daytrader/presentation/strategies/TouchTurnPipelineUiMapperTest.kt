@@ -137,10 +137,10 @@ class TouchTurnPipelineUiMapperTest {
             showLastSessionRecap = false,
             nowEpochMillis = barEnd - 1
         )!!
-        assertEquals(TouchTurnPipelineNodeId.Bar, graph.activePath.last())
+        assertEquals(TouchTurnPipelineNodeId.Data, graph.activePath.last())
         assertEquals(
             TouchTurnBreadcrumbStepState.CURRENT,
-            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Bar }.state
+            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Data }.state
         )
     }
 
