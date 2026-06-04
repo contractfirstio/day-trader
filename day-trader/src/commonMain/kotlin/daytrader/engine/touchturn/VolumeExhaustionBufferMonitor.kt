@@ -18,7 +18,9 @@ import kotlinx.coroutines.launch
 class VolumeExhaustionBufferMonitor(
     private val marketData: MarketDataProvider,
     private val execution: ExecutionManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
+    private val delayMillis: suspend (Long) -> Unit = { delay(it) }
 ) {
     private val activeJobs = mutableMapOf<String, Job>()
 
@@ -43,9 +45,9 @@ class VolumeExhaustionBufferMonitor(
                     }
                 }
                 .launchIn(this)
-            val deadline = System.currentTimeMillis() + TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS
-            while (isActive && System.currentTimeMillis() < deadline) {
-                delay(250)
+            val deadline = nowEpochMillis() + TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS
+            while (isActive && nowEpochMillis() < deadline) {
+                delayMillis(POLL_INTERVAL_MS)
             }
             observer.cancel()
             if (activeJobs.containsKey(instanceId)) {
@@ -61,5 +63,9 @@ class VolumeExhaustionBufferMonitor(
 
     fun stopAll() {
         activeJobs.keys.toList().forEach { stop(it) }
+    }
+
+    companion object {
+        private const val POLL_INTERVAL_MS = 250L
     }
 }

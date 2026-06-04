@@ -1,6 +1,7 @@
 package daytrader.diagnostics
 
 import daytrader.data.persistence.AppDataFiles
+import daytrader.broker.emulator.EmulatorLogScope
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.TouchTurnRunPersistence
 import daytrader.data.persistence.TouchTurnRunRecordRecord
@@ -68,6 +69,7 @@ object SessionTrace {
 
     fun sessionStarted(deployment: StrategyDeployment, session: StrategySession) {
         flushPendingIntoSession(deployment.id, session.id)
+        EmulatorLogScope.bind(deployment.id, session.id)
         val stamp = LogTimestamps.now()
         log(
             type = "session_started",
@@ -135,6 +137,7 @@ object SessionTrace {
             }
         )
         SessionManifestWriter.sessionClosed(deployment, session, runRecord, stamp.epochMs)
+        EmulatorLogScope.clear()
     }
 
     fun fillRecorded(

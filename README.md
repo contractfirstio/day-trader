@@ -116,13 +116,14 @@ Raw IB tick capture (optional, for high-fidelity replay) lives under `runs/run-Y
 | Session prices | `sessions/.../prices.jsonl` | IB quotes (bid/ask/last, tick volume) |
 | Session historical | `sessions/.../historical.jsonl` | Touch Turn bootstrap + closed-bar refetch payloads |
 | Session manifest | `sessions/.../manifest.json` | Session metadata and milestone timeline for replay |
-| Emulator engine | `emulator/engine.jsonl` | `bracket_placed`, `bracket_queue_received`, `bracket_ack_emitted`, `open_orders_published` |
+| Session emulator | `sessions/.../emulator-engine.jsonl` | Brackets and fills while a session is active |
+| Emulator engine | `emulator/engine.jsonl` | Global fallback when no session is bound |
 | Execution gateway | `execution/gateway.jsonl` | Global `open_orders_snapshot`, `touch_turn_bracket_placed` |
 | IB raw ticks | `runs/.../ib-prices/{SYMBOL}.jsonl` | Per-field IB ticks when disk logging enabled |
 
 Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`, `DAY_TRADER_SESSION_HISTORICAL_LOGS=false`, `DAY_TRADER_SESSION_MANIFEST=false`.
 
-**Session replay (dev):** load a captured session folder with `SessionBundleDirectoryReader.loadFromDirectory("/path/to/sessions/{deploymentId}/{sessionId}")` or parse in tests via `SessionBundleLoader.load(SessionBundleContents(...))`. Optional high-fidelity quotes: pass the path to `runs/.../ib-prices/{SYMBOL}.jsonl` as the second argument.
+**Session replay (dev):** load a captured session with `SessionBundleDirectoryReader.loadFromDirectory(...)`, or run Tier A regression with `ReplaySessionRunner(bundle, repository, scope).run()` against a parsed `SessionBundle`. Optional high-fidelity quotes: pass the path to `runs/.../ib-prices/{SYMBOL}.jsonl` when loading the bundle.
 
 **Hybrid session capture for replay** (recommended when running paper-live):
 

@@ -1,6 +1,5 @@
 package daytrader.broker.emulator
 
-import daytrader.data.persistence.AppDataFiles
 import daytrader.data.persistence.JsonFileStore
 import daytrader.diagnostics.LogTimestamps
 import kotlinx.serialization.Serializable
@@ -8,7 +7,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Structured emulator engine events (brackets, fills, session stop actions).
- * Written to `{broker-scope}/emulator/engine.jsonl` — not session-scoped.
+ * Written to `{broker-scope}/emulator/engine.jsonl`, or
+ * `sessions/{deploymentId}/{sessionId}/emulator-engine.jsonl` while a session is active.
  *
  * Disabled when `DAY_TRADER_EMULATOR_LOGS=false`.
  */
@@ -37,7 +37,7 @@ internal object EmulatorLog {
             )
         )
         runCatching {
-            JsonFileStore.appendEmulatorEngineLine(AppDataFiles.emulatorEngineLogFileName(), line)
+            JsonFileStore.appendEmulatorEngineLine(EmulatorLogScope.resolveEngineLogPath(), line)
         }
     }
 

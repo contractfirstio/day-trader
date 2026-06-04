@@ -3,6 +3,7 @@ package daytrader.replay.support
 import daytrader.data.persistence.TouchTurnRunPersistence
 import daytrader.data.persistence.TouchTurnRunRecordRecord
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
@@ -29,8 +30,11 @@ object ReplaySessionFixtures {
     private const val SESSION_ID = "sess-replay-1"
     private const val SYMBOL = "AAPL"
     private const val SESSION_DATE = "2026-06-04"
-    private const val STARTED_EPOCH_MS = 1_717_500_600_000L
-    private const val STOPPED_EPOCH_MS = 1_717_500_960_000L
+    /** 2026-06-04 09:30:00 America/New_York — aligned with IB bar open time. */
+    private const val STARTED_EPOCH_MS = 1_780_579_800_000L
+    /** 2026-06-04 09:45:00 America/New_York — first 15m RTH bar close. */
+    private const val BAR_END_EPOCH_MS = 1_780_580_700_000L
+    private const val STOPPED_EPOCH_MS = 1_780_581_600_000L
 
     fun minimalContents(): SessionBundleContents = SessionBundleContents(
         manifestJson = manifestJson(),
@@ -41,11 +45,11 @@ object ReplaySessionFixtures {
         historicalJsonl = listOf(
             historicalBootstrapLine(),
             historicalRefetchLine(attempt = 1, validation = "NOT_YET_FINAL"),
-            historicalRefetchLine(attempt = 2, validation = "READY", close = 108.5)
+            historicalRefetchLine(attempt = 2, validation = "READY", candle = notLiquidityClosedBar())
         ).joinToString("\n"),
         pricesJsonl = listOf(
-            priceLine(epochMs = STARTED_EPOCH_MS + 60_000, bid = 107.0, ask = 107.02, last = 107.01),
-            priceLine(epochMs = STARTED_EPOCH_MS + 120_000, bid = 107.5, ask = 107.52, last = 107.51)
+            priceLine(epochMs = STARTED_EPOCH_MS + 60_000, bid = 100.14, ask = 100.16, last = 100.15),
+            priceLine(epochMs = STARTED_EPOCH_MS + 120_000, bid = 100.14, ask = 100.16, last = 100.15)
         ).joinToString("\n")
     )
 
@@ -56,14 +60,7 @@ object ReplaySessionFixtures {
             brokerId = BrokerId.EMULATOR
         ),
         marketInputs = TouchTurnRunMarketInputs(
-            openingBar = OhlcBar(
-                open = 100.0,
-                high = 110.0,
-                low = 99.0,
-                close = 108.5,
-                time = "20260604  09:30:00",
-                volume = 1_200_000.0
-            ),
+            openingBar = notLiquidityClosedBar(),
             adr14 = 2.45,
             atr14 = 2.45,
             volumeSma20 = 980_000.0
@@ -80,6 +77,16 @@ object ReplaySessionFixtures {
             barClosedAt = "2026-06-04T09:45:05",
             liquidityEvaluatedAt = "2026-06-04T09:45:06"
         )
+    )
+
+    /** Range 0.30 < ATR threshold 0.6125 → not a liquidity candle. */
+    private fun notLiquidityClosedBar(): OhlcBar = OhlcBar(
+        open = 100.0,
+        high = 100.30,
+        low = 100.0,
+        close = 100.15,
+        time = "20260604  09:30:00",
+        volume = 50_000.0
     )
 
     private fun manifestJson(): String = """
@@ -141,22 +148,15 @@ object ReplaySessionFixtures {
     private fun historicalRefetchLine(
         attempt: Int,
         validation: String,
-        close: Double = 105.0
+        candle: OhlcBar = notLiquidityClosedBar()
     ): String {
         val context = TouchTurnSignalContext(
-            firstCandle = OhlcBar(
-                open = 100.0,
-                high = 110.0,
-                low = 99.0,
-                close = close,
-                time = "20260604  09:30:00",
-                volume = 1_200_000.0
-            ),
+            firstCandle = candle,
             atr14 = 2.45,
             volumeSma20 = 980_000.0
         )
         return historicalLine(
-            epochMs = STARTED_EPOCH_MS + 900_000 + attempt * 2_000L,
+            epochMs = BAR_END_EPOCH_MS + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + attempt * 2_000L,
             isClosedBarRefetch = true,
             attempt = attempt,
             validation = validation,

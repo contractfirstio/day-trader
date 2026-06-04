@@ -18,16 +18,16 @@ class SessionBundleLoaderTest {
         assertEquals("sess-replay-1", bundle.sessionId)
         assertEquals("AAPL", bundle.symbol)
         assertEquals("2026-06-04", bundle.sessionDate)
-        assertEquals(1_717_500_600_000L, bundle.timeline.sessionStartedEpochMs)
-        assertEquals(1_717_500_960_000L, bundle.timeline.sessionStoppedEpochMs)
+        assertEquals(1_780_579_800_000L, bundle.timeline.sessionStartedEpochMs)
+        assertEquals(1_780_581_600_000L, bundle.timeline.sessionStoppedEpochMs)
 
         assertNotNull(bundle.bootstrapContext)
         assertEquals(800_000.0, bundle.bootstrapContext?.firstCandle?.volume)
         assertEquals(2, bundle.refetchEvents.size)
-        assertEquals(108.5, bundle.acceptedRefetchContext?.firstCandle?.close)
+        assertEquals(100.15, bundle.acceptedRefetchContext?.firstCandle?.close)
 
         assertEquals(2, bundle.quoteEvents.size)
-        assertEquals(107.01, bundle.quoteEvents.first().quote.last)
+        assertEquals(100.15, bundle.quoteEvents.first().quote.last)
 
         assertTrue(bundle.hasGroundTruth)
         assertEquals(
@@ -41,7 +41,7 @@ class SessionBundleLoaderTest {
     fun load_withoutManifest_usesApplicationLogForTimeline() {
         val contents = ReplaySessionFixtures.minimalContents().copy(manifestJson = null)
         val bundle = SessionBundleLoader.load(contents).getOrThrow()
-        assertEquals(1_717_500_600_000L, bundle.timeline.sessionStartedEpochMs)
+        assertEquals(1_780_579_800_000L, bundle.timeline.sessionStartedEpochMs)
         assertNull(bundle.manifest)
     }
 

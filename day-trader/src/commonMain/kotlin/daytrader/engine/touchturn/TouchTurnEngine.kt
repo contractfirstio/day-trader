@@ -86,6 +86,7 @@ class TouchTurnEngine(
     private val uiEffects: TouchTurnUiEffects = NoOpTouchTurnUiEffects,
     private val isGlobalAutoStartEnabled: () -> Boolean = { true },
     private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
+    private val delayMillis: suspend (Long) -> Unit = { delay(it) },
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null
@@ -100,7 +101,13 @@ class TouchTurnEngine(
     private val loadJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
-    private val bufferMonitor = VolumeExhaustionBufferMonitor(marketData, execution, scope)
+    private val bufferMonitor = VolumeExhaustionBufferMonitor(
+        marketData = marketData,
+        execution = execution,
+        scope = scope,
+        nowEpochMillis = nowEpochMillis,
+        delayMillis = delayMillis
+    )
 
     private data class PendingBracketPlacement(
         val plan: TouchTurnOrderPlan,
@@ -206,7 +213,7 @@ class TouchTurnEngine(
     private fun handleBracketAck(ack: TouchTurnBracketAck) {
         val ackLatencyMs = pendingBracketPlacements.values.firstOrNull { pending ->
             SymbolMarkets.symbolsMatch(pending.plan.symbol, ack.symbol)
-        }?.let { System.currentTimeMillis() - it.evaluatedAt }
+        }?.let { nowEpochMillis() - it.evaluatedAt }
         val match = pendingBracketPlacements.entries.firstOrNull { (_, pending) ->
             SymbolMarkets.symbolsMatch(pending.plan.symbol, ack.symbol)
         } ?: run {
@@ -291,13 +298,13 @@ class TouchTurnEngine(
     private fun startTimers() {
         scope.launch {
             while (isActive) {
-                delay(TouchTurnEngineConfig.STOP_RULES_POLL_MS)
+                delayMillis(TouchTurnEngineConfig.STOP_RULES_POLL_MS)
                 dispatch(TouchTurnCommand.PollStopRules)
             }
         }
         scope.launch {
             while (isActive) {
-                delay(TouchTurnEngineConfig.AUTO_START_POLL_MS)
+                delayMillis(TouchTurnEngineConfig.AUTO_START_POLL_MS)
                 dispatch(TouchTurnCommand.EvaluateAutoStart)
             }
         }
@@ -633,7 +640,7 @@ class TouchTurnEngine(
         liquidityJobs[instanceId] = scope.launch {
             dispatch(TouchTurnCommand.PollLiquidity(instanceId))
             while (isActive) {
-                delay(liquidityPollIntervalMs())
+                delayMillis(liquidityPollIntervalMs())
                 dispatch(TouchTurnCommand.PollLiquidity(instanceId))
                 val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
                 if (instance.touchTurnSession?.setup != null) return@launch
@@ -651,13 +658,13 @@ class TouchTurnEngine(
         if (instance.status != DeploymentStatus.RUNNING) return
         val session = instance.touchTurnSession ?: return
         if (session.setup != null) return
-        if (session.candleCloseStatus() != FirstCandleCloseStatus.CLOSED) {
+        if (session.candleCloseStatus(nowEpochMillis()) != FirstCandleCloseStatus.CLOSED) {
             TouchTurnDecisionLog.watchPollTick(
                 instanceId = instanceId,
                 symbol = instance.symbol,
-                closeStatus = session.candleCloseStatus(),
+                closeStatus = session.candleCloseStatus(nowEpochMillis()),
                 hasSetup = session.setup != null,
-                nowEpochMillis = System.currentTimeMillis()
+                nowEpochMillis = nowEpochMillis()
             )
             val elapsedRth = session.millisSinceLastMarketOpen(session.marketZoneId)
             if (elapsedRth > TouchTurnLogic.FIRST_CANDLE_BAR_DURATION_MS &&
@@ -851,7 +858,7 @@ class TouchTurnEngine(
                                 current.withTouchTurnCandleFailed(sessionDate, failMessage)
                             }
                         } else {
-                            delay(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
+                            delayMillis(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
                         }
                     }
                     ClosedFirstCandleRefetchValidation.REJECTED -> {
@@ -917,7 +924,7 @@ class TouchTurnEngine(
             openingBarTime = openingBarTime,
             waitMs = waitMs
         )
-        delay(waitMs)
+        delayMillis(waitMs)
     }
 
     private fun evaluateLiquidityAfterClosedBar(instanceId: String) {
@@ -929,7 +936,7 @@ class TouchTurnEngine(
             scheduleClosedBarRefetch(instanceId)
             return
         }
-        val evaluatedAt = System.currentTimeMillis()
+        val evaluatedAt = nowEpochMillis()
         val enforceCloseConfirmation = brokerKind.usesLiveIbMarketData ||
             emulatorRequireCloseConfirmation()
         val requireLivePriceChecks = brokerKind.usesLiveIbMarketData
@@ -1154,7 +1161,7 @@ class TouchTurnEngine(
                         "brokerHasOpenOrders",
                         SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders.value).toString()
                     )
-                    put("submitToAckMs", (System.currentTimeMillis() - evaluatedAt).toString())
+                    put("submitToAckMs", (nowEpochMillis() - evaluatedAt).toString())
                 }
             )
             quoteForSymbol(instance.symbol)?.let { quote ->
