@@ -964,7 +964,9 @@ class StrategiesViewModel(
             if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
             val session = deployment.touchTurnSession ?: continue
-            if (!TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)) continue
+            val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
+            val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
+            if (!recordForForming && !recordForOrders) continue
             val price = LiveMarkPriceResolver.resolve(
                 deployment.symbol,
                 brokerPositions,
