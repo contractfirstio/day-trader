@@ -107,7 +107,8 @@ class QueuedBrokerGateway(
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,
         instrument: InstrumentIdentity?,
-        isClosedBarRefetch: Boolean
+        isClosedBarRefetch: Boolean,
+        marketZoneId: String?
     ): Result<TouchTurnSignalContext> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<TouchTurnSignalContext>>()
@@ -117,7 +118,8 @@ class QueuedBrokerGateway(
                 requestId = requestId,
                 symbol = symbol,
                 instrument = instrument,
-                isClosedBarRefetch = isClosedBarRefetch
+                isClosedBarRefetch = isClosedBarRefetch,
+                marketZoneId = marketZoneId
             )
         )
         return try {

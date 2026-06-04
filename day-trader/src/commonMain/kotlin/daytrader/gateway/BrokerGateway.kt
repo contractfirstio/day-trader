@@ -52,9 +52,10 @@ interface BrokerGateway {
     suspend fun fetchTouchTurnSignalContext(
         symbol: String,
         instrument: InstrumentIdentity? = null,
-        isClosedBarRefetch: Boolean = false
+        isClosedBarRefetch: Boolean = false,
+        marketZoneId: String? = null
     ): Result<TouchTurnSignalContext> {
-        val zoneId = SymbolMarkets.marketZoneIdForSession(symbol, instrument)
+        val zoneId = SymbolMarkets.marketZoneIdForSession(symbol, instrument, marketZoneId)
         val candleResult = fetchFirstFifteenMinuteCandle(symbol, instrument)
         if (candleResult.isFailure) return Result.failure(candleResult.exceptionOrNull()!!)
         val candle = candleResult.getOrThrow()

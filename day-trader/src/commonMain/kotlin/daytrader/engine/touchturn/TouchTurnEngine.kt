@@ -539,11 +539,16 @@ class TouchTurnEngine(
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
             if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
             val symbol = instance.symbol
+            val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val instrument = DeploymentMarket.effectiveInstrument(instance)
             marketData.ensureStreaming(symbol, instrument)
             val sessionId = instance.inProgressSession()?.id
-            val signalResult = marketData.fetchTouchTurnSignalContext(symbol, instrument, isClosedBarRefetch = false)
-            val zoneId = DeploymentMarket.effectiveZoneId(instance)
+            val signalResult = marketData.fetchTouchTurnSignalContext(
+                symbol = symbol,
+                instrument = instrument,
+                isClosedBarRefetch = false,
+                marketZoneId = zoneId
+            )
             val currency = DeploymentMarket.effectiveCurrencyCode(instance)
             repository.update(instanceId) { current ->
                 signalResult.fold(
@@ -738,9 +743,10 @@ class TouchTurnEngine(
             while (isActive && attempt < TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS) {
                 attempt++
                 val refetchResult = marketData.fetchTouchTurnSignalContext(
-                    symbol,
-                    instrument,
-                    isClosedBarRefetch = true
+                    symbol = symbol,
+                    instrument = instrument,
+                    isClosedBarRefetch = true,
+                    marketZoneId = zoneId
                 )
                 if (refetchResult.isFailure) {
                     refetchFailed = true

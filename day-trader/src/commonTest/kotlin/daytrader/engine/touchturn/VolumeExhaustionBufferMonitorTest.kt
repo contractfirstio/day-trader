@@ -86,7 +86,8 @@ class VolumeExhaustionBufferMonitorTest {
         override suspend fun fetchTouchTurnSignalContext(
             symbol: String,
             instrument: daytrader.domain.InstrumentIdentity?,
-            isClosedBarRefetch: Boolean
+            isClosedBarRefetch: Boolean,
+            marketZoneId: String?
         ) = error("not used")
 
         override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> = volumeTicks

@@ -25,9 +25,10 @@ class BrokerGatewayMarketDataProvider(
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,
         instrument: InstrumentIdentity?,
-        isClosedBarRefetch: Boolean
+        isClosedBarRefetch: Boolean,
+        marketZoneId: String?
     ): Result<TouchTurnSignalContext> =
-        gateway.fetchTouchTurnSignalContext(symbol, instrument, isClosedBarRefetch)
+        gateway.fetchTouchTurnSignalContext(symbol, instrument, isClosedBarRefetch, marketZoneId)
 
     override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> {
         val normalized = SymbolMarkets.normalizeSymbol(symbol)

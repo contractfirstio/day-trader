@@ -23,23 +23,61 @@ data class ResolvedInstrument(
 )
 
 object DeploymentMarket {
-    fun effectiveInstrument(deployment: StrategyDeployment): InstrumentIdentity =
-        deployment.instrument
-            ?: InstrumentIdentity.heuristic(deployment.symbol, deployment.currencyCode)
+    fun effectiveZoneId(deployment: StrategyDeployment): String {
+        deployment.marketZoneId?.trim()?.takeIf { it.isNotEmpty() }?.let { zone ->
+            return RthMarketSessions.forZoneId(zone).zoneId
+        }
+        deployment.instrument?.let { identity ->
+            return SymbolMarkets.marketZoneIdForSession(deployment.symbol, identity)
+        }
+        return SymbolMarkets.zoneId(deployment.symbol)
+    }
 
-    fun effectiveZoneId(deployment: StrategyDeployment): String =
-        deployment.marketZoneId ?: SymbolMarkets.zoneId(deployment.symbol)
+    fun effectiveCurrencyCode(deployment: StrategyDeployment): String {
+        val zoneId = effectiveZoneId(deployment)
+        val zoneCurrency = currencyForZone(zoneId)
+        val stored = deployment.currencyCode.trim().uppercase()
+        val instrumentCurrency = deployment.instrument?.currency?.trim()?.uppercase()
+        if (stored.isBlank()) {
+            return instrumentCurrency?.takeIf { it.isNotEmpty() } ?: zoneCurrency
+        }
+        // London/HK deployments created with legacy USD default — align with the selected market.
+        if (deployment.marketZoneId != null && stored != zoneCurrency) {
+            if (instrumentCurrency == null || instrumentCurrency == stored) {
+                return zoneCurrency
+            }
+        }
+        return stored
+    }
+
+    fun effectiveInstrument(deployment: StrategyDeployment): InstrumentIdentity {
+        val currency = effectiveCurrencyCode(deployment)
+        val base = deployment.instrument
+            ?: InstrumentIdentity.heuristic(deployment.symbol, currency)
+        val zoneId = effectiveZoneId(deployment)
+        var adjusted = if (!base.currency.equals(currency, ignoreCase = true)) {
+            base.copy(currency = currency)
+        } else {
+            base
+        }
+        if (adjusted.primaryExch.isNullOrBlank()) {
+            adjusted = when (zoneId) {
+                RthMarketSessions.EUR.zoneId -> adjusted.copy(primaryExch = "LSE")
+                RthMarketSessions.HK.zoneId -> adjusted.copy(
+                    exchange = "SEHK",
+                    primaryExch = "SEHK"
+                )
+                else -> adjusted
+            }
+        }
+        return adjusted
+    }
 
     /** Trading session ISO date in the deployment's market zone (matches auto-start and IB bar day). */
     fun sessionDateIso(
         deployment: StrategyDeployment,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): String = TouchTurnLogic.sessionDateIsoInMarketZone(effectiveZoneId(deployment), nowEpochMillis)
-
-    fun effectiveCurrencyCode(deployment: StrategyDeployment): String =
-        deployment.currencyCode.ifBlank {
-            deployment.instrument?.currency ?: currencyForZone(effectiveZoneId(deployment))
-        }
 
     fun currencyForZone(marketZoneId: String): String = when (marketZoneId) {
         RthMarketSessions.HK.zoneId -> "HKD"

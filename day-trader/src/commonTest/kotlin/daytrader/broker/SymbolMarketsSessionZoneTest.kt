@@ -20,4 +20,18 @@ class SymbolMarketsSessionZoneTest {
         )
         assertEquals(RthMarketSessions.EUR.zoneId, zone)
     }
+
+    @Test
+    fun marketZoneIdForSession_deploymentZoneOverridesUsdInstrumentHeuristic() {
+        val zone = SymbolMarkets.marketZoneIdForSession(
+            symbol = "NWG",
+            instrument = InstrumentIdentity(
+                symbol = "NWG",
+                exchange = "SMART",
+                currency = "USD"
+            ),
+            deploymentMarketZoneId = RthMarketSessions.EUR.zoneId
+        )
+        assertEquals(RthMarketSessions.EUR.zoneId, zone)
+    }
 }

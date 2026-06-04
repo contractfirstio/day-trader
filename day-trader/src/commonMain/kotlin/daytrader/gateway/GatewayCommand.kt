@@ -29,7 +29,9 @@ sealed interface GatewayCommand {
         val symbol: String,
         val instrument: InstrumentIdentity? = null,
         /** When true, reuse the bootstrap candle-color index for this symbol (closed-bar refetch). */
-        val isClosedBarRefetch: Boolean = false
+        val isClosedBarRefetch: Boolean = false,
+        /** Deployment/session RTH zone; overrides instrument currency heuristics for IB bar day. */
+        val marketZoneId: String? = null
     ) : GatewayCommand
 
     data class CancelOrder(val orderId: Int) : GatewayCommand

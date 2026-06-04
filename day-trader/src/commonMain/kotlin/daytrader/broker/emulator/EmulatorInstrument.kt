@@ -1,6 +1,7 @@
 package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.RthMarketSessions
 
 internal data class EmulatorInstrument(
     val symbol: String,
@@ -9,5 +10,10 @@ internal data class EmulatorInstrument(
     val priorClose: Double,
     val referencePrice: Double
 ) {
-    val marketZoneId: String get() = SymbolMarkets.zoneId(symbol)
+    val marketZoneId: String
+        get() = if (SymbolMarkets.isHongKong(symbol)) {
+            RthMarketSessions.HK.zoneId
+        } else {
+            SymbolMarkets.zoneIdForCurrency(currency)
+        }
 }

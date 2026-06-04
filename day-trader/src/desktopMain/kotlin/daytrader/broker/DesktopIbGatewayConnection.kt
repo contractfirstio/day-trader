@@ -215,7 +215,11 @@ class DesktopIbGatewayConnection(
                             emit(
                                 GatewayEvent.TouchTurnSignalContextReady(
                                     command.requestId,
-                                    fetchTouchTurnSignalContextComposite(command.symbol, command.instrument)
+                                    fetchTouchTurnSignalContextComposite(
+                                        command.symbol,
+                                        command.instrument,
+                                        command.marketZoneId
+                                    )
                                 )
                             )
                         }
@@ -1627,7 +1631,8 @@ class DesktopIbGatewayConnection(
 
     private suspend fun fetchTouchTurnSignalContextComposite(
         symbol: String,
-        instrument: InstrumentIdentity?
+        instrument: InstrumentIdentity?,
+        deploymentMarketZoneId: String? = null
     ): Result<TouchTurnSignalContext> {
         if (!client.isConnected) {
             return Result.failure(IllegalStateException("Not connected to IB Gateway"))
@@ -1640,7 +1645,11 @@ class DesktopIbGatewayConnection(
         val gatewayRequestId = nextOneShotGatewayRequestId.getAndIncrement()
         oneShotSignalContext[gatewayRequestId] = deferred
         val reqId = nextTouchTurnHistoricalReqId.getAndIncrement()
-        val marketZoneId = SymbolMarkets.marketZoneIdForSession(trimmed, instrument)
+        val marketZoneId = SymbolMarkets.marketZoneIdForSession(
+            trimmed,
+            instrument,
+            deploymentMarketZoneId = deploymentMarketZoneId
+        )
         touchTurnGatewayRequestId[reqId] = gatewayRequestId
         touchTurnHistoricalSymbol[reqId] = trimmed
         touchTurnHistoricalMarketZoneId[reqId] = marketZoneId

@@ -93,7 +93,8 @@ class ReplayMarketDataGateway(
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,
         instrument: InstrumentIdentity?,
-        isClosedBarRefetch: Boolean
+        isClosedBarRefetch: Boolean,
+        marketZoneId: String?
     ): Result<TouchTurnSignalContext> {
         if (!isClosedBarRefetch) {
             return resolveBootstrapContext()?.let { Result.success(it) }

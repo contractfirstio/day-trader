@@ -18,6 +18,47 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun normalizeIbBarTime_londonNoSuffixTreatsNineAmAsMetWallClock() {
+        val normalized = TouchTurnLogic.normalizeIbBarTimeToMarketZone(
+            "20260126 09:00:00",
+            "Europe/London"
+        )
+        assertEquals("20260126  08:00:00", normalized)
+    }
+
+    @Test
+    fun normalizeIbBarTime_londonUnknownSuffixTreatsAsMet() {
+        val normalized = TouchTurnLogic.normalizeIbBarTimeToMarketZone(
+            "20260526 09:15:00 MECST",
+            "Europe/London"
+        )
+        assertEquals("20260526  08:15:00", normalized)
+    }
+
+    @Test
+    fun normalizeIbBarTime_usMarketUnchangedWithoutSuffix() {
+        val normalized = TouchTurnLogic.normalizeIbBarTimeToMarketZone(
+            "20260526 09:30:00",
+            "America/New_York"
+        )
+        assertEquals("20260526  09:30:00", normalized)
+    }
+
+    @Test
+    fun selectFirstFifteenMinuteBar_prefersNearestOpenNotLatestWhenExactMatchMissing() {
+        val bars = listOf(
+            OhlcBar(open = 1.0, high = 2.0, low = 0.5, close = 1.5, time = "20260526 09:15:00 MET"),
+            OhlcBar(open = 1.0, high = 2.0, low = 0.5, close = 1.5, time = "20260526 10:00:00 MET")
+        )
+        val selected = TouchTurnLogic.selectFirstFifteenMinuteBar(
+            bars,
+            "Europe/London",
+            "20260526"
+        )
+        assertEquals("20260526  08:15:00", selected?.time)
+    }
+
+    @Test
     fun selectFirstFifteenMinuteBar_prefersEightAmLondonAfterMetNormalization() {
         val bars = listOf(
             OhlcBar(open = 1.0, high = 2.0, low = 0.5, close = 1.5, time = "20260526 09:00:00 MET"),

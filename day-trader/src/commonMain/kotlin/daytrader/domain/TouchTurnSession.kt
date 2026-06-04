@@ -271,13 +271,14 @@ object TouchTurnLogic {
 
     /**
      * IB may append an exchange/API zone suffix (e.g. `20260526 09:00:00 MET`).
-     * Converts the timestamp into [marketZoneId] for bar-close logic (MET → London is −1h in summer).
+     * Converts the timestamp into [marketZoneId] for bar-close logic (MET → London is −1h vs Berlin).
      */
     fun normalizeIbBarTimeToMarketZone(barTime: String?, marketZoneId: String): String? {
         val trimmed = barTime?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (ibBarTimeLooksMarketLocal(trimmed)) return trimmed
         val match = IB_BAR_TIME_WITH_SUFFIX_REGEX.find(trimmed) ?: return trimmed
         val (year, month, day, hour, minute, second, suffix) = match.destructured
-        val sourceZoneId = suffix.takeIf { it.isNotBlank() }?.let { ibBarTimeSuffixToZoneId(it) } ?: marketZoneId
+        val sourceZoneId = ibHistoricalBarSourceZoneId(suffix, marketZoneId)
         return runCatching {
             val sourceZone = java.time.ZoneId.of(sourceZoneId)
             val targetZone = java.time.ZoneId.of(marketZoneId)
@@ -294,11 +295,25 @@ object TouchTurnLogic {
         }.getOrElse { trimmed }
     }
 
+    /**
+     * Zone IB used when stamping the bar open time, before conversion into [marketZoneId].
+     * UK LSE history often arrives as `09:00:00 MET` (Middle European) for the 08:00 London open.
+     */
+    fun ibHistoricalBarSourceZoneId(suffix: String?, marketZoneId: String): String {
+        val trimmedSuffix = suffix?.trim()?.takeIf { it.isNotEmpty() }
+        trimmedSuffix?.let { ibBarTimeSuffixToZoneId(it) }?.let { return it }
+        if (marketZoneId == RthMarketSessions.EUR.zoneId) {
+            // Missing or unknown suffix on raw IB UK bars — wall clock is MET, not London local.
+            return "Europe/Berlin"
+        }
+        return marketZoneId
+    }
+
     fun ibBarTimeSuffixToZoneId(suffix: String): String? = when (suffix.trim().uppercase()) {
-        "MET", "MEZ", "CET", "CEST", "EET", "EEST" -> "Europe/Berlin"
+        "MET", "MEZ", "MEST", "CET", "CEST", "EET", "EEST", "WET", "WESTERN EUROPEAN" -> "Europe/Berlin"
         "UTC", "GMT" -> "UTC"
-        "US/EASTERN", "EST", "EDT" -> "America/New_York"
-        "LON", "BST", "GB", "UK" -> "Europe/London"
+        "US/EASTERN", "EST", "EDT", "ET" -> "America/New_York"
+        "LON", "BST", "GB", "UK", "LSE" -> "Europe/London"
         "HK", "HKT" -> "Asia/Hong_Kong"
         else -> null
     }
@@ -333,8 +348,22 @@ object TouchTurnLogic {
         expectedBarTime?.let { expected ->
             normalized.firstOrNull { it.time == expected }?.let { return it }
         }
-        // Emulator accelerated bars are the latest session-day candle, not 09:30 RTH open.
+        selectBarNearestScheduledOpen(normalized, expectedOpenMillis, marketZoneId)?.let { return it }
+        // Emulator accelerated bars are the latest session-day candle, not scheduled RTH open.
         return normalized.maxByOrNull { barTimeSortKey(it.time) }
+    }
+
+    /** Picks the session-day bar whose open is closest to scheduled RTH open (after normalization). */
+    fun selectBarNearestScheduledOpen(
+        sessionDayBars: List<OhlcBar>,
+        expectedOpenEpochMillis: Long?,
+        marketZoneId: String
+    ): OhlcBar? {
+        val anchor = expectedOpenEpochMillis ?: return null
+        return sessionDayBars.minByOrNull { bar ->
+            val start = bar.time?.let { barStartEpochMillis(it, marketZoneId) } ?: Long.MAX_VALUE
+            kotlin.math.abs(start - anchor)
+        }
     }
 
     /**
@@ -1214,9 +1243,33 @@ object TouchTurnLogic {
         return match.groupValues[1]
     }
 
+    /** True when [barTime] was produced by [formatIbBarOpenTime] (already in [marketZoneId] local time). */
+    fun ibBarTimeLooksMarketLocal(barTime: String): Boolean = "  " in barTime
+
+    private fun ibBarTimeHasSourceSuffix(barTime: String): Boolean {
+        val suffix = IB_BAR_TIME_WITH_SUFFIX_REGEX.find(barTime.trim())?.destructured?.toList()?.getOrNull(6)
+        return suffix?.isNotBlank() == true
+    }
+
+    /** Raw IB UK timestamps without suffix use MET wall clock (+1h vs London). */
+    private fun ibBarTimeLikelyRawMetWallClock(barTime: String, marketZoneId: String): Boolean {
+        if (marketZoneId != RthMarketSessions.EUR.zoneId) return false
+        if (ibBarTimeHasSourceSuffix(barTime) || ibBarTimeLooksMarketLocal(barTime)) return false
+        val hour = IB_BAR_TIME_WITH_SUFFIX_REGEX.find(barTime.trim())?.destructured?.toList()?.getOrNull(3)
+            ?.toIntOrNull() ?: return false
+        return hour > RthMarketSessions.EUR.openHour
+    }
+
+    private fun barTimeForMarketZoneParse(barTime: String, marketZoneId: String): String? = when {
+        ibBarTimeHasSourceSuffix(barTime) -> normalizeIbBarTimeToMarketZone(barTime, marketZoneId)
+        ibBarTimeLikelyRawMetWallClock(barTime, marketZoneId) ->
+            normalizeIbBarTimeToMarketZone(barTime, marketZoneId)
+        else -> barTime.trim()
+    }
+
     fun barStartEpochMillis(barTime: String, marketZoneId: String): Long? {
-        val normalized = normalizeIbBarTimeToMarketZone(barTime, marketZoneId) ?: return null
-        val match = IB_BAR_TIME_REGEX.find(normalized.trim()) ?: return null
+        val localized = barTimeForMarketZoneParse(barTime, marketZoneId) ?: return null
+        val match = IB_BAR_TIME_REGEX.find(localized.trim()) ?: return null
         val (year, month, day, hour, minute, second) = match.destructured
         return runCatching {
             val zone = java.time.ZoneId.of(marketZoneId)

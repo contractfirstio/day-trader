@@ -16,7 +16,8 @@ interface MarketDataProvider {
     suspend fun fetchTouchTurnSignalContext(
         symbol: String,
         instrument: InstrumentIdentity? = null,
-        isClosedBarRefetch: Boolean = false
+        isClosedBarRefetch: Boolean = false,
+        marketZoneId: String? = null,
     ): Result<TouchTurnSignalContext>
 
     /** Live incremental volume for post-entry buffer monitoring. */
