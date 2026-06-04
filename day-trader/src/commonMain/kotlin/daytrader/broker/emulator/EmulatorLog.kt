@@ -45,7 +45,8 @@ internal object EmulatorLog {
         symbol: String,
         isGreen: Boolean,
         fetchIndex: Int,
-        colorMode: EmulatorFirstCandleColorMode
+        colorMode: EmulatorFirstCandleColorMode,
+        isClosedBarRefetch: Boolean = false
     ) {
         val side = if (isGreen) "SHORT (green bar)" else "LONG (red bar)"
         val mode = when (colorMode) {
@@ -57,11 +58,12 @@ internal object EmulatorLog {
         event(
             type = "first_candle_color",
             symbol = symbol,
-            details = mapOf(
-                "side" to side,
-                "colorMode" to mode,
-                "fetchIndex" to fetchIndex.toString()
-            )
+            details = buildMap {
+                put("side", side)
+                put("colorMode", mode)
+                put("fetchIndex", fetchIndex.toString())
+                if (isClosedBarRefetch) put("closedBarRefetch", "true")
+            }
         )
     }
 

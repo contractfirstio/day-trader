@@ -8,6 +8,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.inProgressSession
 import daytrader.presentation.strategies.TouchTurnBreadcrumbStep
@@ -98,6 +99,7 @@ object TouchTurnStateSyncLog {
         )
         val mismatches = findMismatches(engine, ui, session)
         val milestoneDetails = milestoneDetails(session)
+        val volumeDetails = volumeCheckDetails(session)
         val fingerprint = fingerprint(engine, ui)
         if (trigger == "ui_graph_refresh" && mismatches.isEmpty() &&
             lastFingerprintByDeployment[instance.id] == fingerprint
@@ -120,6 +122,7 @@ object TouchTurnStateSyncLog {
                 }
                 putAll(triggerDetails)
                 putAll(engineDetails(engine))
+                putAll(volumeDetails)
                 putAll(milestoneDetails)
                 putAll(uiDetails(ui))
                 put("sessionTradeCount", sessionTrades.size.toString())
@@ -302,6 +305,18 @@ object TouchTurnStateSyncLog {
             "engine.milestones.liquidityEvaluated" to (m.liquidityEvaluatedAt != null).toString(),
             "engine.milestones.ordersPlaced" to (m.ordersPlacedAt != null).toString()
         )
+    }
+
+    private fun volumeCheckDetails(session: TouchTurnSessionContext?): Map<String, String> {
+        session ?: return emptyMap()
+        val check = TouchTurnVolumeCheck.fromSession(session) ?: run {
+            val sma = session.volumeSma20
+            return buildMap {
+                put("engine.volumeSma20", sma?.toString() ?: "null")
+                session.atr14?.let { put("engine.atr14", it.toString()) }
+            }
+        }
+        return check.toTraceDetails(prefix = "engine")
     }
 
     private fun engineDetails(engine: EngineSnapshot): Map<String, String> = mapOf(

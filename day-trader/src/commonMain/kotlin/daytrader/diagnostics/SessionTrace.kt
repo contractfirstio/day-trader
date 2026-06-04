@@ -7,7 +7,9 @@ import daytrader.data.persistence.TouchTurnRunRecordRecord
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.SessionTrade
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRunRecord
+import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.dedupeByExecId
 import daytrader.domain.sessionRealizedPnL
 import daytrader.diagnostics.LogTimestamps
@@ -183,6 +185,8 @@ object SessionTrace {
         event: String,
         message: String? = null,
         adr14: Double? = null,
+        atr14: Double? = null,
+        volumeSma20: Double? = null,
         barTime: String? = null
     ) {
         log(
@@ -194,7 +198,34 @@ object SessionTrace {
                 put("event", event)
                 message?.let { put("message", it) }
                 adr14?.let { put("adr14", it.toString()) }
+                atr14?.let { put("atr14", it.toString()) }
+                volumeSma20?.let { put("volumeSma20", it.toString()) }
+                volumeSma20?.takeIf { it > 0.0 }?.let { sma ->
+                    put("exhaustionThreshold", TouchTurnLogic.volumeExhaustionThreshold(sma).toString())
+                }
                 barTime?.let { put("barTime", it) }
+            }
+        )
+    }
+
+    /** Volume exhaustion gate snapshot for post-hoc diagnosis (application.jsonl). */
+    fun touchTurnVolumeCheck(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        check: TouchTurnVolumeCheck,
+        atr14: Double? = null,
+        decisionOutcome: String? = null
+    ) {
+        log(
+            type = "touch_turn_volume_check",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                putAll(check.toTraceDetails())
+                atr14?.let { put("atr14", it.toString()) }
+                decisionOutcome?.let { put("decisionOutcome", it) }
             }
         )
     }
@@ -211,7 +242,9 @@ object SessionTrace {
         waitMs: Long? = null,
         refetchedBarTime: String? = null,
         validation: String? = null,
-        reason: String? = null
+        reason: String? = null,
+        openingBarVolume: Double? = null,
+        volumeSma20: Double? = null
     ) {
         log(
             type = "closed_bar_refetch",
@@ -227,6 +260,17 @@ object SessionTrace {
                 refetchedBarTime?.let { put("refetchedBarTime", it) }
                 validation?.let { put("validation", it) }
                 reason?.let { put("reason", it) }
+                openingBarVolume?.let { put("openingBarVolume", it.toString()) }
+                volumeSma20?.let { put("volumeSma20", it.toString()) }
+                if (openingBarVolume != null && volumeSma20 != null && volumeSma20 > 0.0) {
+                    val threshold = TouchTurnLogic.volumeExhaustionThreshold(volumeSma20)
+                    put("volumeRatio", (openingBarVolume / volumeSma20).toString())
+                    put("exhaustionThreshold", threshold.toString())
+                    put(
+                        "volumeExhausted",
+                        TouchTurnLogic.isVolumeExhaustion(openingBarVolume, volumeSma20).toString()
+                    )
+                }
             }
         )
     }

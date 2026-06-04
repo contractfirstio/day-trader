@@ -59,7 +59,8 @@ data class OhlcBarRecord(
     val high: Double,
     val low: Double,
     val close: Double,
-    val time: String? = null
+    val time: String? = null,
+    val volume: Double = 0.0
 )
 
 @Serializable
@@ -140,9 +141,24 @@ data class TouchTurnRunContextRecord(
 data class TouchTurnRunMarketInputsRecord(
     val openingBar: OhlcBarRecord? = null,
     val adr14: Double? = null,
+    val atr14: Double? = null,
+    val volumeSma20: Double? = null,
+    val volumeCheck: TouchTurnVolumeCheckRecord? = null,
     val currencyCode: String = "USD",
     val marketZoneId: String = "America/New_York",
     val dataErrorMessage: String? = null
+)
+
+@Serializable
+data class TouchTurnVolumeCheckRecord(
+    val phase: String,
+    val openingBarVolume: Double,
+    val volumeSma20: Double,
+    val exhaustionThreshold: Double,
+    val volumeExhausted: Boolean,
+    val volumeRatio: Double? = null,
+    val exhaustionRatio: Double = 1.5,
+    val barTime: String? = null
 )
 
 @Serializable

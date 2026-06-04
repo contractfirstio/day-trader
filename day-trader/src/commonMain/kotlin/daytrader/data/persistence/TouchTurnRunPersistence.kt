@@ -6,6 +6,8 @@ import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
 import daytrader.domain.TouchTurnRunRecord
+import daytrader.domain.TouchTurnVolumeCheck
+import daytrader.domain.TouchTurnVolumeCheckPhase
 import daytrader.domain.TouchTurnSessionDecision
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
@@ -29,6 +31,9 @@ internal object TouchTurnRunPersistence {
             marketInputs = TouchTurnRunMarketInputs(
                 openingBar = record.marketInputs.openingBar?.toDomain(),
                 adr14 = record.marketInputs.adr14,
+                atr14 = record.marketInputs.atr14,
+                volumeSma20 = record.marketInputs.volumeSma20,
+                volumeCheck = record.marketInputs.volumeCheck?.toDomain(),
                 currencyCode = record.marketInputs.currencyCode,
                 marketZoneId = record.marketInputs.marketZoneId,
                 dataErrorMessage = record.marketInputs.dataErrorMessage
@@ -64,6 +69,9 @@ internal object TouchTurnRunPersistence {
             marketInputs = TouchTurnRunMarketInputsRecord(
                 openingBar = record.marketInputs.openingBar?.toRecord(),
                 adr14 = record.marketInputs.adr14,
+                atr14 = record.marketInputs.atr14,
+                volumeSma20 = record.marketInputs.volumeSma20,
+                volumeCheck = record.marketInputs.volumeCheck?.toRecord(),
                 currencyCode = record.marketInputs.currencyCode,
                 marketZoneId = record.marketInputs.marketZoneId,
                 dataErrorMessage = record.marketInputs.dataErrorMessage
@@ -88,7 +96,8 @@ internal object TouchTurnRunPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun OhlcBar.toRecord(): OhlcBarRecord = OhlcBarRecord(
@@ -96,8 +105,35 @@ internal object TouchTurnRunPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
+
+    private fun TouchTurnVolumeCheckRecord.toDomain(): TouchTurnVolumeCheck = TouchTurnVolumeCheck(
+        phase = parseVolumeCheckPhase(phase),
+        openingBarVolume = openingBarVolume,
+        volumeSma20 = volumeSma20,
+        exhaustionThreshold = exhaustionThreshold,
+        volumeExhausted = volumeExhausted,
+        volumeRatio = volumeRatio,
+        exhaustionRatio = exhaustionRatio,
+        barTime = barTime
+    )
+
+    private fun TouchTurnVolumeCheck.toRecord(): TouchTurnVolumeCheckRecord = TouchTurnVolumeCheckRecord(
+        phase = phase.name.lowercase(),
+        openingBarVolume = openingBarVolume,
+        volumeSma20 = volumeSma20,
+        exhaustionThreshold = exhaustionThreshold,
+        volumeExhausted = volumeExhausted,
+        volumeRatio = volumeRatio,
+        exhaustionRatio = exhaustionRatio,
+        barTime = barTime
+    )
+
+    private fun parseVolumeCheckPhase(value: String): TouchTurnVolumeCheckPhase =
+        runCatching { TouchTurnVolumeCheckPhase.valueOf(value.uppercase()) }
+            .getOrDefault(TouchTurnVolumeCheckPhase.LIQUIDITY_EVALUATED)
 
     private fun TouchTurnPlannedBracketRecord.toDomain(): TouchTurnPlannedBracket =
         TouchTurnPlannedBracket(

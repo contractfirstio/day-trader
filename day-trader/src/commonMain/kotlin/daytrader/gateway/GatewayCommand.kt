@@ -27,7 +27,9 @@ sealed interface GatewayCommand {
     data class FetchTouchTurnSignalContext(
         val requestId: Long,
         val symbol: String,
-        val instrument: InstrumentIdentity? = null
+        val instrument: InstrumentIdentity? = null,
+        /** When true, reuse the bootstrap candle-color index for this symbol (closed-bar refetch). */
+        val isClosedBarRefetch: Boolean = false
     ) : GatewayCommand
 
     data class CancelOrder(val orderId: Int) : GatewayCommand

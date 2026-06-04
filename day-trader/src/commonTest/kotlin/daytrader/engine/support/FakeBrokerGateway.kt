@@ -101,7 +101,8 @@ class FakeBrokerGateway(
 
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,
-        instrument: InstrumentIdentity?
+        instrument: InstrumentIdentity?,
+        isClosedBarRefetch: Boolean
     ): Result<TouchTurnSignalContext> = signalContextFetchResult
 
     override fun cancelOrder(orderId: Int) = Unit

@@ -97,7 +97,11 @@ class EmulatorBrokerAdapter(
                     is GatewayCommand.FetchTouchTurnSignalContext ->
                         launch {
                             withEngine {
-                                engine.fetchTouchTurnSignalContext(command.requestId, command.symbol)
+                                engine.fetchTouchTurnSignalContext(
+                                    requestId = command.requestId,
+                                    symbol = command.symbol,
+                                    isClosedBarRefetch = command.isClosedBarRefetch
+                                )
                             }
                         }
                     is GatewayCommand.CancelOrder ->

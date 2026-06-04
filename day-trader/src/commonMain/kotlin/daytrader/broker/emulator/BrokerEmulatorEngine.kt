@@ -47,6 +47,8 @@ class BrokerEmulatorEngine(
     private val bracketEntryPending = mutableMapOf<String, BracketEntryPending>()
     private val sessionFills = mutableListOf<BrokerFill>()
     private var firstCandleFetchCount = 0
+    /** Bootstrap fetch index per symbol; refetch reuses without incrementing. */
+    private val lockedCandleFetchIndexBySymbol = mutableMapOf<String, Int>()
     private val externalFeedReadyLogged = mutableSetOf<String>()
 
     fun handleConnect() {
@@ -85,6 +87,7 @@ class BrokerEmulatorEngine(
         externalFeedReadyLogged.clear()
         pendingBracketWalks.clear()
         bracketEntryPending.clear()
+        lockedCandleFetchIndexBySymbol.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
@@ -115,15 +118,7 @@ class BrokerEmulatorEngine(
             EmulatorLog.historicalFetchFailed("first_candle", trimmed, message)
             Result.failure(IllegalArgumentException(message))
         } else {
-            firstCandleFetchCount++
-            val fetchIndex = if (
-                config.alternateFirstCandleColor &&
-                config.firstCandleColorMode == EmulatorFirstCandleColorMode.AUTO
-            ) {
-                firstCandleFetchCount
-            } else {
-                0
-            }
+            val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch = false)
             val candleResult = EmulatorHistoricalData.firstFifteenMinuteCandle(
                 symbol = trimmed,
                 instrument = instrument,
@@ -138,7 +133,8 @@ class BrokerEmulatorEngine(
                     symbol = trimmed,
                     isGreen = TouchTurnLogic.firstCandleColor(bar) == FirstCandleColor.GREEN,
                     fetchIndex = fetchIndex,
-                    colorMode = config.firstCandleColorMode
+                    colorMode = config.firstCandleColorMode,
+                    isClosedBarRefetch = false
                 )
             }
             candleResult
@@ -160,30 +156,54 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.FourteenDayAdrReady(requestId, result))
     }
 
-    suspend fun fetchTouchTurnSignalContext(requestId: Long, symbol: String) {
+    suspend fun fetchTouchTurnSignalContext(
+        requestId: Long,
+        symbol: String,
+        isClosedBarRefetch: Boolean = false
+    ) {
         delay(config.historicalDelayMs)
         val trimmed = symbol.trim().uppercase()
         val instrument = resolveInstrument(trimmed)
         val result = if (instrument == null) {
             Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
         } else {
-            firstCandleFetchCount++
-            val fetchIndex = if (
-                config.alternateFirstCandleColor &&
-                config.firstCandleColorMode == EmulatorFirstCandleColorMode.AUTO
-            ) {
-                firstCandleFetchCount
-            } else {
-                0
-            }
+            val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch)
             EmulatorHistoricalData.touchTurnSignalContext(
                 symbol = trimmed,
                 instrument = instrument,
                 config = config,
                 sessionCandleFetchIndex = fetchIndex
-            )
+            ).also { contextResult ->
+                contextResult.onSuccess { context ->
+                    EmulatorLog.firstCandleColor(
+                        symbol = trimmed,
+                        isGreen = TouchTurnLogic.firstCandleColor(context.firstCandle) == FirstCandleColor.GREEN,
+                        fetchIndex = fetchIndex,
+                        colorMode = config.firstCandleColorMode,
+                        isClosedBarRefetch = isClosedBarRefetch
+                    )
+                }
+            }
         }
         emit(GatewayEvent.TouchTurnSignalContextReady(requestId, result))
+    }
+
+    /**
+     * When [alternateFirstCandleColor] is on, each Touch Turn **session** (bootstrap + refetch)
+     * shares one index; only bootstrap increments so refetch does not flip green/red.
+     */
+    private fun resolveSessionCandleFetchIndex(norm: String, isClosedBarRefetch: Boolean): Int {
+        if (!config.alternateFirstCandleColor ||
+            config.firstCandleColorMode != EmulatorFirstCandleColorMode.AUTO
+        ) {
+            return 0
+        }
+        if (isClosedBarRefetch) {
+            return lockedCandleFetchIndexBySymbol[norm] ?: firstCandleFetchCount.coerceAtLeast(1)
+        }
+        firstCandleFetchCount++
+        lockedCandleFetchIndexBySymbol[norm] = firstCandleFetchCount
+        return firstCandleFetchCount
     }
 
     fun cancelOrder(orderId: Int) {

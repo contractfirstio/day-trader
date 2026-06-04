@@ -19,6 +19,8 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnVolumeCheck
+import daytrader.domain.TouchTurnVolumeCheckPhase
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
@@ -532,7 +534,7 @@ class TouchTurnEngine(
             val instrument = DeploymentMarket.effectiveInstrument(instance)
             marketData.ensureStreaming(symbol, instrument)
             val sessionId = instance.inProgressSession()?.id
-            val signalResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
+            val signalResult = marketData.fetchTouchTurnSignalContext(symbol, instrument, isClosedBarRefetch = false)
             val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val currency = DeploymentMarket.effectiveCurrencyCode(instance)
             repository.update(instanceId) { current ->
@@ -579,8 +581,26 @@ class TouchTurnEngine(
                     symbol = symbol,
                     event = "data_ready",
                     adr14 = loadedSession.atr14,
+                    atr14 = loadedSession.atr14,
+                    volumeSma20 = loadedSession.volumeSma20,
                     barTime = loadedSession.openingBarTime ?: loadedSession.candle?.time
                 )
+                signalResult.getOrNull()?.let { context ->
+                    TouchTurnVolumeCheck.build(
+                        phase = TouchTurnVolumeCheckPhase.SIGNAL_CONTEXT,
+                        candleVolume = context.firstCandle.volume,
+                        volumeSma20 = context.volumeSma20,
+                        barTime = context.firstCandle.time
+                    )?.let { check ->
+                        SessionTrace.touchTurnVolumeCheck(
+                            deploymentId = instanceId,
+                            sessionId = sessionId,
+                            symbol = symbol,
+                            check = check,
+                            atr14 = context.atr14
+                        )
+                    }
+                }
                 TouchTurnCandleLog.candleLoaded(
                     instanceId = instanceId,
                     symbol = symbol,
@@ -702,7 +722,11 @@ class TouchTurnEngine(
             var attempt = 0
             while (isActive && attempt < TouchTurnEngineConfig.CLOSED_BAR_REFETCH_MAX_ATTEMPTS) {
                 attempt++
-                val refetchResult = marketData.fetchTouchTurnSignalContext(symbol, instrument)
+                val refetchResult = marketData.fetchTouchTurnSignalContext(
+                    symbol,
+                    instrument,
+                    isClosedBarRefetch = true
+                )
                 if (refetchResult.isFailure) {
                     refetchFailed = true
                     val message = refetchResult.exceptionOrNull()?.message
@@ -733,6 +757,7 @@ class TouchTurnEngine(
                 )
                 when (validation) {
                     ClosedFirstCandleRefetchValidation.READY -> {
+                        val volumeSma = session.volumeSma20
                         SessionTrace.closedBarRefetch(
                             deploymentId = instanceId,
                             sessionId = sessionId,
@@ -741,8 +766,24 @@ class TouchTurnEngine(
                             openingBarTime = openingBarTime,
                             attempt = attempt,
                             refetchedBarTime = context.firstCandle.time,
-                            validation = validation.name
+                            validation = validation.name,
+                            openingBarVolume = context.firstCandle.volume,
+                            volumeSma20 = volumeSma
                         )
+                        TouchTurnVolumeCheck.build(
+                            phase = TouchTurnVolumeCheckPhase.CLOSED_BAR_LOADED,
+                            candleVolume = context.firstCandle.volume,
+                            volumeSma20 = volumeSma,
+                            barTime = context.firstCandle.time
+                        )?.let { check ->
+                            SessionTrace.touchTurnVolumeCheck(
+                                deploymentId = instanceId,
+                                sessionId = sessionId,
+                                symbol = symbol,
+                                check = check,
+                                atr14 = session.atr14
+                            )
+                        }
                         repository.update(instanceId) { current ->
                             TouchTurnCandleLog.closedBarLoaded(
                                 instanceId = instanceId,
@@ -896,6 +937,23 @@ class TouchTurnEngine(
         }
         val afterEval = repository.deployments.value.find { it.id == instanceId } ?: return
         val afterSession = afterEval.touchTurnSession ?: return
+        afterSession.candle?.let { candle ->
+            TouchTurnVolumeCheck.build(
+                phase = TouchTurnVolumeCheckPhase.LIQUIDITY_EVALUATED,
+                candleVolume = candle.volume,
+                volumeSma20 = afterSession.volumeSma20,
+                barTime = candle.time
+            )?.let { check ->
+                SessionTrace.touchTurnVolumeCheck(
+                    deploymentId = instanceId,
+                    sessionId = afterEval.inProgressSession()?.id,
+                    symbol = afterEval.symbol,
+                    check = check,
+                    atr14 = afterSession.atr14,
+                    decisionOutcome = afterSession.decisionOutcome?.name
+                )
+            }
+        }
         if (afterSession.decisionOutcome in liquidityEvalNoBracketOutcomes) {
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return

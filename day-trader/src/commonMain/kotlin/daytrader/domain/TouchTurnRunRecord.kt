@@ -66,6 +66,12 @@ data class TouchTurnRunContext(
 data class TouchTurnRunMarketInputs(
     val openingBar: OhlcBar? = null,
     val adr14: Double? = null,
+    /** 14-period ATR on prior 15m bars (liquidity range threshold input). */
+    val atr14: Double? = null,
+    /** 20-period SMA of 15m volume on bars prior to the opening bar. */
+    val volumeSma20: Double? = null,
+    /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
+    val volumeCheck: TouchTurnVolumeCheck? = null,
     val currencyCode: String = "USD",
     val marketZoneId: String = "America/New_York",
     val dataErrorMessage: String? = null
@@ -217,6 +223,9 @@ fun buildTouchTurnRunRecord(
         marketInputs = TouchTurnRunMarketInputs(
             openingBar = touchTurnSession.candle,
             adr14 = touchTurnSession.adr14,
+            atr14 = touchTurnSession.atr14,
+            volumeSma20 = touchTurnSession.volumeSma20,
+            volumeCheck = TouchTurnVolumeCheck.fromSession(touchTurnSession),
             currencyCode = touchTurnSession.currencyCode,
             marketZoneId = touchTurnSession.marketZoneId,
             dataErrorMessage = touchTurnSession.errorMessage

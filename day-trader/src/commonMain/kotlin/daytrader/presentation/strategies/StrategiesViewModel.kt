@@ -36,6 +36,7 @@ import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.MarketSource
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
@@ -291,16 +292,23 @@ class StrategiesViewModel(
             }
             is TouchTurnEvent.NoTradeDecision -> {
                 val sessionId = activeSessionId(event.instanceId)
+                val instance = deployments.find { it.id == event.instanceId }
                 UiActionLog.log(
                     action = "engine_no_trade_decision",
                     deploymentId = event.instanceId,
                     sessionId = sessionId,
-                    details = mapOf("outcome" to event.outcome.name)
+                    details = buildMap {
+                        put("outcome", event.outcome.name)
+                        putAll(TouchTurnVolumeCheck.traceDetailsFromSession(instance?.touchTurnSession))
+                    }
                 )
                 recordTouchTurnEngineSync(
                     deploymentId = event.instanceId,
                     trigger = "engine_no_trade_decision",
-                    triggerDetails = mapOf("outcome" to event.outcome.name)
+                    triggerDetails = buildMap {
+                        put("outcome", event.outcome.name)
+                        putAll(TouchTurnVolumeCheck.traceDetailsFromSession(instance?.touchTurnSession))
+                    }
                 )
             }
             is TouchTurnEvent.BracketSubmitted -> {

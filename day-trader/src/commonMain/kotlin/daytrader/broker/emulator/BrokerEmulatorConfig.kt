@@ -51,7 +51,7 @@ data class BrokerEmulatorConfig(
     val firstCandleColorMode: EmulatorFirstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
     /**
      * When [firstCandleColorMode] is [EmulatorFirstCandleColorMode.AUTO], alternate green/red on each
-     * [BrokerEmulatorEngine.fetchFirstFifteenMinuteCandle] call (easy long/short testing).
+     * Touch Turn session bootstrap (refetch reuses the same index — see [BrokerEmulatorEngine]).
      */
     val alternateFirstCandleColor: Boolean = true,
     /**

@@ -51,7 +51,8 @@ interface BrokerGateway {
      */
     suspend fun fetchTouchTurnSignalContext(
         symbol: String,
-        instrument: InstrumentIdentity? = null
+        instrument: InstrumentIdentity? = null,
+        isClosedBarRefetch: Boolean = false
     ): Result<TouchTurnSignalContext> {
         val zoneId = SymbolMarkets.marketZoneIdForSession(symbol, instrument)
         val candleResult = fetchFirstFifteenMinuteCandle(symbol, instrument)

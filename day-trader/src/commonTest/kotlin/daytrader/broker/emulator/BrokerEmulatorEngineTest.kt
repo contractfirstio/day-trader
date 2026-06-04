@@ -220,6 +220,60 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
+    fun touchTurnSignalContext_bootstrapAndRefetch_shareCandleColor_perSession() = runBlocking {
+        val config = BrokerEmulatorConfig(
+            historicalDelayMs = 1,
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+            alternateFirstCandleColor = true
+        )
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+
+        suspend fun candleColorFromFetch(requestId: Long, isClosedBarRefetch: Boolean): FirstCandleColor {
+            engine.fetchTouchTurnSignalContext(requestId, "AAPL", isClosedBarRefetch)
+            val ready = events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+            val bar = ready.result.getOrThrow().firstCandle
+            return TouchTurnLogic.firstCandleColor(bar)
+        }
+
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(1L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(2L, isClosedBarRefetch = true))
+
+        assertEquals(FirstCandleColor.RED, candleColorFromFetch(3L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.RED, candleColorFromFetch(4L, isClosedBarRefetch = true))
+
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(5L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(6L, isClosedBarRefetch = true))
+    }
+
+    @Test
+    fun touchTurnSignalContext_refetchRetries_reuseBootstrapColor() = runBlocking {
+        val config = BrokerEmulatorConfig(
+            historicalDelayMs = 1,
+            firstCandleSecondsUntilClose = 10,
+            alternateFirstCandleColor = true
+        )
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+
+        engine.fetchTouchTurnSignalContext(1L, "SPY", isClosedBarRefetch = false)
+        val bootstrapColor = TouchTurnLogic.firstCandleColor(
+            events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+                .result.getOrThrow().firstCandle
+        )
+
+        repeat(3) { attempt ->
+            engine.fetchTouchTurnSignalContext(10L + attempt, "SPY", isClosedBarRefetch = true)
+            val refetchColor = TouchTurnLogic.firstCandleColor(
+                events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+                    .result.getOrThrow().firstCandle
+            )
+            assertEquals(bootstrapColor, refetchColor, "refetch attempt $attempt should match bootstrap")
+        }
+    }
+
+    @Test
     fun closeOpenPositionForSymbol_flattensHeldPosition() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(

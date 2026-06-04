@@ -91,7 +91,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun greenLiquidityBar_shortAtHigh_fib618TakeProfit_stopAboveHigh() {
+    fun greenLiquidityBar_shortAtHigh_fib382TakeProfit_stopAboveHigh() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         assertTrue(setup.isLiquidityCandle)

@@ -101,7 +101,8 @@ internal object TouchTurnPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun OhlcBar.toRecord(): OhlcBarRecord = OhlcBarRecord(
@@ -109,7 +110,8 @@ internal object TouchTurnPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun TouchTurnBracketSetupRecord.toDomain(candle: OhlcBar?): TouchTurnBracketSetup {

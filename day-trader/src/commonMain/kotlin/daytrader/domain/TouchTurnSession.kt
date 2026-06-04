@@ -97,7 +97,7 @@ enum class TouchTurnTradeSide {
 
 /**
  * Bracket levels derived from the first 15-minute candle (Touch Turn liquidity setup).
- * Green bar → short at high, TP at 61.8% of range; red bar → long at low, TP at 38.2% of range.
+ * Green bar → short at high, TP at 38.2% of range; red bar → long at low, TP at 38.2% of range.
  * Stop is half the entry-to-TP distance beyond entry (with a minimum).
  */
 @Serializable
@@ -1234,7 +1234,7 @@ object TouchTurnLogic {
     }
 
     fun takeProfitFibLabel(color: FirstCandleColor): String = when (color) {
-        FirstCandleColor.GREEN -> "61.8%"
+        FirstCandleColor.GREEN -> "38.2%"
         FirstCandleColor.RED -> "38.2%"
         FirstCandleColor.DOJI -> "—"
     }
@@ -1266,7 +1266,7 @@ object TouchTurnDefaults {
     const val VOLUME_BUFFER_OBSERVATION_MS = 60_000L
     const val MIN_STOP_DISTANCE = 0.05
     /** Green (short) liquidity bar: take-profit distance as fraction of bar range. */
-    const val TAKE_PROFIT_FIB_RATIO_GREEN = 0.618
+    const val TAKE_PROFIT_FIB_RATIO_GREEN = 0.382
     /** Red (long) liquidity bar: take-profit distance as fraction of bar range. */
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
     /** Max time after 15m bar close to pass close confirmation and place entry orders. */
