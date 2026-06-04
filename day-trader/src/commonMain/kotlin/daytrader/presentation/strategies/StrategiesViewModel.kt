@@ -17,6 +17,7 @@ import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.RunningSessionShutdown
+import daytrader.data.TouchTurnManualStopHandler
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
@@ -212,7 +213,10 @@ class StrategiesViewModel(
             ?.launchIn(scope)
 
         MarketOpenCountdownWatcher(scope = scope).start()
-        marketFilter.applyStartupDefaultIfNeeded()
+        // Emulator testing often spans US/HK symbols; do not hide deployments behind a live-market filter.
+        if (brokerKind != BrokerKind.EMULATOR) {
+            marketFilter.applyStartupDefaultIfNeeded()
+        }
 
         brokerGateway?.let { gateway ->
             PreMarketClosePositionWatcher(gateway, repository, scope).start()
@@ -724,11 +728,33 @@ class StrategiesViewModel(
 
     fun onDeleteSelected() {
         val id = appState.selectedDeploymentId ?: return
+        val existing = repository.deployments.value.find { it.id == id } ?: return
         UiActionLog.forDeployment(
-            deployment = deployments.find { it.id == id },
+            deployment = existing,
             action = "delete_deployment"
         )
+        if (existing.status == DeploymentStatus.RUNNING) {
+            val gateway = sessionGateway
+            val stopped = TouchTurnManualStopHandler.stop(
+                input = TouchTurnManualStopHandler.Input(
+                    instance = existing,
+                    brokerPositions = brokerPositions,
+                    brokerOpenOrders = brokerOpenOrders,
+                    brokerFills = brokerFills,
+                    brokerKind = brokerKind
+                ),
+                gateway = gateway,
+                explicitTrigger = TouchTurnSessionStopTrigger.MANUAL
+            ).stoppedDeployment
+            repository.update(id) { stopped }
+        }
+        prepareInProgressIds.remove(id)
         repository.remove(id)
+        repository.flushPersistence()
+        val nextId = repository.deployments.value.firstOrNull()?.id
+        appStateRepository.update { it.copy(selectedDeploymentId = nextId) }
+        syncDeploymentsFromRepository()
+        emitUiState()
     }
 
     fun onDeleteSessionHistory(instanceId: String, runId: String) {
@@ -798,7 +824,8 @@ class StrategiesViewModel(
         selected?.let { reconcileSessionHistorySelection(it) }
         val sessionDate = selected?.let { DeploymentMarket.sessionDateIso(it) }
             ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it) }
-            ?: DeploymentMarket.sessionDateIso(filtered.firstOrNull() ?: return)
+            ?: deployments.firstOrNull()?.let { DeploymentMarket.sessionDateIso(it) }
+            ?: TouchTurnLogic.sessionDateIsoInMarketZone(RthMarketSessions.US.zoneId)
         val selectedBrokerPnL = selected?.let { instance ->
             SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }

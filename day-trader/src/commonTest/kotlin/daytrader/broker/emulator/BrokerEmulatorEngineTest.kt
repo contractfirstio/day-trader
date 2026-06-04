@@ -18,7 +18,7 @@ import kotlinx.coroutines.runBlocking
 class BrokerEmulatorEngineTest {
 
     @Test
-    fun connect_publishesEmptyPositionsAndSeedOrders() = runBlocking {
+    fun connect_publishesEmptyPositionsAndOrders() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(connectDelayMs = 1, historicalDelayMs = 1),
@@ -34,8 +34,7 @@ class BrokerEmulatorEngineTest {
         assertTrue(positions.isEmpty())
 
         val orders = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>().last().orders
-        assertTrue(orders.isNotEmpty())
-        assertTrue(orders.any { it.symbol == "SPY" })
+        assertTrue(orders.isEmpty())
     }
 
     @Test

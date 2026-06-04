@@ -607,14 +607,7 @@ class BrokerEmulatorEngine(
             seedDefaultSymbolQuotes()
         }
         positions = mutableListOf()
-        orders = if (config.pricingSource.isExternal) {
-            mutableMapOf()
-        } else {
-            val orderList = EmulatorSeedCatalog.initialOrders(catalog, quoteBook.lastPricesBySymbol()) {
-                allocateOrderId()
-            }
-            orderList.associateBy { it.orderId }.toMutableMap()
-        }
+        orders = mutableMapOf()
     }
 
     private fun seedDefaultSymbolQuotes() {

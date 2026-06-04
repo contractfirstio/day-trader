@@ -94,7 +94,7 @@ fun BrokerSelectionScreen(
                     BrokerOptionCard(
                         title = "Broker Emulator",
                         subtitle = "In-memory (offline)",
-                        description = "Simulated brokerage with an empty blotter at connect, seeded working orders, and Touch Turn first 15m bar closing in ~10s. No Gateway required.",
+                        description = "Simulated brokerage with an empty blotter at connect, Touch Turn first 15m bar closing in ~10s, and orders only from your sessions. No Gateway required.",
                         selected = selected == BrokerKind.EMULATOR,
                         onClick = { onSelect(BrokerKind.EMULATOR) }
                     )
