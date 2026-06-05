@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.dp
 
 /** Shared canvas heights and plot geometry for Touch Turn price charts. */
 object TouchTurnChartDimensions {
-    val liveOrderCanvasHeight: Dp = 220.dp
+    val liveOrderCanvasHeight: Dp = 260.dp
     val openingBarFormingHeight: Dp = 220.dp
     val openingBarClosedHeight: Dp = 240.dp
     val orderPreviewHeight: Dp = 220.dp

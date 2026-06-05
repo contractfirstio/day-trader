@@ -79,11 +79,18 @@ tasks.named<Test>("desktopTest") {
 compose.desktop {
     application {
         mainClass = "MainKt"
+        jvmArgs += listOf(
+            "-Dapple.awt.application.name=Day Trader",
+            "-Dapple.laf.useScreenMenuBar=true",
+        )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "DayTrader"
+            packageName = "Day Trader"
             packageVersion = "1.0.0"
+            macOS {
+                dockName = "Day Trader"
+            }
         }
     }
 }

@@ -34,6 +34,9 @@ class LiveBrokerUiMapperTest {
             includeMarketQuotes = false,
         )
 
+        assertNull(state.bid)
+        assertNull(state.ask)
+        assertNull(state.last)
         assertNull(state.formattedBid)
         assertNull(state.formattedAsk)
         assertNull(state.formattedLast)

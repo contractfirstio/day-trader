@@ -1527,9 +1527,8 @@ private fun TouchTurnLivePipelineDetailHost(
     }
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        TouchTurnSessionStatusBanner(status = pipelineGraph?.statusBanner)
         TouchTurnPipelineDetailPanel(
             selectedNodeId = selectedNodeId,
             graph = pipelineGraph
@@ -1978,91 +1977,6 @@ private fun resolveLivePositionPnL(
 }
 
 @Composable
-private fun LiveMarketQuotesBar(
-    broker: LiveBrokerUiState,
-    modifier: Modifier = Modifier,
-    prominent: Boolean = false
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(if (prominent) 12.dp else 8.dp)
-    ) {
-        LiveMarketQuoteCell(
-            label = "Bid",
-            value = broker.formattedBid ?: "—",
-            modifier = Modifier.weight(1f),
-            prominent = prominent
-        )
-        LiveMarketQuoteCell(
-            label = "Ask",
-            value = broker.formattedAsk ?: "—",
-            modifier = Modifier.weight(1f),
-            prominent = prominent
-        )
-        LiveMarketQuoteCell(
-            label = "Last",
-            value = broker.formattedLast ?: "—",
-            modifier = Modifier.weight(1f),
-            prominent = prominent
-        )
-    }
-}
-
-@Composable
-private fun LiveMarketQuoteCell(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-    prominent: Boolean = false
-) {
-    Column(modifier = modifier) {
-        Text(
-            label,
-            fontSize = if (prominent) 10.sp else 9.sp,
-            color = TextSecondary,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1
-        )
-        Text(
-            value,
-            fontSize = if (prominent) 16.sp else 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun TradingTabLiveMarketStrip(broker: LiveBrokerUiState) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(TableHeaderBg)
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-            .testTag("TradingTabLiveMarketStrip")
-    ) {
-        Text(
-            "Live market · ${broker.symbol}",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = BrandRed
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        LiveMarketQuotesBar(broker = broker, prominent = true)
-        broker.fillReadinessHint?.let { hint ->
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = hint,
-                fontSize = 10.sp,
-                color = TextSecondary
-            )
-        }
-    }
-}
-
-@Composable
 private fun LiveTradingPositionPnLHeader(
     symbol: String,
     broker: LiveBrokerUiState?,
@@ -2123,14 +2037,14 @@ private fun LiveTradingPositionPnLHeader(
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag("LiveTradingPositionPnLHeader"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (pipelineGraph != null) {
             TouchTurnPipelineGraphView(
                 graph = pipelineGraph,
-                compact = style == LiveTradingHeaderStyle.BreadcrumbOnly,
+                compact = true,
                 showTitle = false,
                 selectedNodeId = selectedPipelineNodeId,
                 onNodeSelected = onPipelineNodeSelected,

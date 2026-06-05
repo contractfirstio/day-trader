@@ -148,6 +148,41 @@ actual object AppFileSystem {
 
     actual fun dataFilePath(fileName: String): String = resolveDataPath(fileName).toString()
 
+    actual fun readApplicationRootText(fileName: String): String? {
+        val path = stableBaseDataDirectory().resolve(fileName)
+        if (!Files.exists(path)) return null
+        return Files.readString(path)
+    }
+
+    actual fun writeApplicationRootTextAtomic(fileName: String, content: String) {
+        synchronized(writeLock) {
+            val target = stableBaseDataDirectory().resolve(fileName)
+            Files.createDirectories(target.parent ?: stableBaseDataDirectory())
+            val dir = target.parent ?: stableBaseDataDirectory()
+            val temp = Files.createTempFile(dir, "write-", ".tmp")
+            try {
+                Files.writeString(
+                    temp,
+                    content,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE,
+                )
+                try {
+                    Files.move(
+                        temp,
+                        target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+            } finally {
+                Files.deleteIfExists(temp)
+            }
+        }
+    }
+
     private fun resolveDataPath(fileName: String): Path {
         val scope = dataScope ?: error("AppFileSystem.configureDataScope must be called before persistence")
         val scopeBase = if (isRunScopedFile(fileName)) {

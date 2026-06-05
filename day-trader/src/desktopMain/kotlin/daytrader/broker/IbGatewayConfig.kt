@@ -10,11 +10,8 @@ data class IbGatewayConfig(
     val endpoint: String get() = "$host:$port"
 
     companion object {
-        fun fromEnvironment(): IbGatewayConfig = IbGatewayConfig(
-            host = System.getenv("DAY_TRADER_IB_HOST") ?: "127.0.0.1",
-            port = System.getenv("DAY_TRADER_IB_PORT")?.toIntOrNull() ?: 4001,
-            clientId = System.getenv("DAY_TRADER_IB_CLIENT_ID")?.toIntOrNull() ?: 1,
-            accountCode = System.getenv("DAY_TRADER_IB_ACCOUNT").orEmpty()
-        )
+        fun load(): IbGatewayConfig = IbGatewaySettingsStore.load()
+
+        fun fromEnvironment(): IbGatewayConfig = load()
     }
 }

@@ -1,5 +1,6 @@
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -9,18 +10,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.Desktop
+import java.awt.desktop.QuitResponse
+import javax.swing.SwingUtilities
+import daytrader.broker.IbGatewayConfig
+import daytrader.broker.IbGatewaySettingsStore
 import daytrader.data.GatewayPositionRepository
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
 import daytrader.platform.AppFileSystem
 import daytrader.platform.CrashLogging
 import daytrader.platform.DesktopFolderPicker
+import daytrader.platform.MacApplicationMenu
 import daytrader.replay.SessionBundleDirectoryReader
 import daytrader.replay.SessionReplayCatalog
 import daytrader.ui.App
 import daytrader.ui.ApplicationQuitConfirmDialog
 import daytrader.ui.ApplicationQuitCoordinator
 import daytrader.ui.BrokerSelectionScreen
+import daytrader.ui.IbGatewaySettingsDialog
 import daytrader.ui.SessionReplayPickerScreen
 
 private sealed interface StartupPhase {
@@ -29,13 +37,19 @@ private sealed interface StartupPhase {
     data class Running(val runtime: BrokerRuntime) : StartupPhase
 }
 
+private const val APPLICATION_NAME = "Day Trader"
+
 fun main() {
     CrashLogging.installDefaultHandlers()
+    System.setProperty("apple.awt.application.name", APPLICATION_NAME)
+    MacApplicationMenu.install(APPLICATION_NAME)
     application {
         var phase by remember { mutableStateOf<StartupPhase>(StartupPhase.ChooseBroker) }
         var pendingSelection by remember { mutableStateOf(BrokerKind.fromEnvironment()) }
         var applicationQuit by remember { mutableStateOf<ApplicationQuitCoordinator?>(null) }
         var showQuitConfirm by remember { mutableStateOf(false) }
+        var showIbSettings by remember { mutableStateOf(false) }
+        var ibGatewayConfig by remember { mutableStateOf(IbGatewayConfig.load()) }
 
         fun performApplicationQuit() {
             if (phase is StartupPhase.Running) {
@@ -45,14 +59,51 @@ fun main() {
             exitApplication()
         }
 
+        fun requestApplicationQuit() {
+            val quit = applicationQuit
+            if (phase is StartupPhase.Running && quit != null && quit.hasRunningSessions()) {
+                showQuitConfirm = true
+            } else {
+                performApplicationQuit()
+            }
+        }
+
+        var macQuitHandler by remember {
+            mutableStateOf<(QuitResponse) -> Unit>({ response ->
+                response.performQuit()
+                performApplicationQuit()
+            })
+        }
+        SideEffect {
+            macQuitHandler = { response ->
+                val quit = applicationQuit
+                if (phase is StartupPhase.Running && quit != null && quit.hasRunningSessions()) {
+                    showQuitConfirm = true
+                    response.cancelQuit()
+                } else {
+                    response.performQuit()
+                    performApplicationQuit()
+                }
+            }
+            MacApplicationMenu.onQuitRequest = { requestApplicationQuit() }
+            MacApplicationMenu.onOpenIbSettings = { showIbSettings = true }
+        }
+        LaunchedEffect(Unit) {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().setQuitHandler { _, response ->
+                    SwingUtilities.invokeLater { macQuitHandler(response) }
+                }
+            }
+        }
+
         val windowTitle = when (val current = phase) {
-            StartupPhase.ChooseBroker -> "Day Trader — Choose Broker"
-            StartupPhase.PickSession -> "Day Trader — Choose Session"
+            StartupPhase.ChooseBroker -> "$APPLICATION_NAME — Choose Broker"
+            StartupPhase.PickSession -> "$APPLICATION_NAME — Choose Session"
             is StartupPhase.Running -> when (current.runtime.kind) {
-                BrokerKind.EMULATOR -> "Day Trader (Broker Emulator)"
-                BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Day Trader (Paper · Live IB Data)"
-                BrokerKind.REPLAY -> "Day Trader (Session Replay)"
-                BrokerKind.INTERACTIVE_BROKERS -> "Day Trader"
+                BrokerKind.EMULATOR -> "$APPLICATION_NAME (Broker Emulator)"
+                BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "$APPLICATION_NAME (Paper · Live IB Data)"
+                BrokerKind.REPLAY -> "$APPLICATION_NAME (Session Replay)"
+                BrokerKind.INTERACTIVE_BROKERS -> APPLICATION_NAME
             }
         }
 
@@ -65,14 +116,7 @@ fun main() {
         }
 
         Window(
-            onCloseRequest = {
-                val quit = applicationQuit
-                if (phase is StartupPhase.Running && quit != null && quit.hasRunningSessions()) {
-                    showQuitConfirm = true
-                } else {
-                    performApplicationQuit()
-                }
-            },
+            onCloseRequest = { requestApplicationQuit() },
             title = windowTitle,
             state = windowState
         ) {
@@ -85,6 +129,17 @@ fun main() {
                             performApplicationQuit()
                         },
                         onDismiss = { showQuitConfirm = false }
+                    )
+                }
+                if (showIbSettings) {
+                    IbGatewaySettingsDialog(
+                        initial = ibGatewayConfig,
+                        onDismiss = { showIbSettings = false },
+                        onSave = { saved ->
+                            IbGatewaySettingsStore.save(saved)
+                            ibGatewayConfig = saved
+                            showIbSettings = false
+                        }
                     )
                 }
                 when (val current = phase) {
