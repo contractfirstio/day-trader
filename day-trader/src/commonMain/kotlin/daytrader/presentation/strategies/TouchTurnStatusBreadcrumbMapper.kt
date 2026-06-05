@@ -6,7 +6,9 @@ import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.SessionTrade
 import daytrader.domain.SessionStatus
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
@@ -37,27 +39,23 @@ data class TouchTurnBreadcrumbStep(
 
 /**
  * Touch Turn run pipeline above live position P&L:
- * Starting session → Data → Bar → Liquidity → Orders → Position → Closing session.
+ * Start → Data → Rules → Orders → Position → Close.
  */
 object TouchTurnStatusBreadcrumbMapper {
-    private const val IDX_START = 0
+    private const val IDX_READINESS = 0
     private const val IDX_DATA = 1
-    private const val IDX_BAR = 2
-    private const val IDX_LIQUIDITY = 3
-    private const val IDX_CONFIRM = 4
-    private const val IDX_ORDERS = 5
-    private const val IDX_POSITION = 6
-    private const val IDX_CLOSE = 7
+    private const val IDX_RULES = 2
+    private const val IDX_ORDERS = 3
+    private const val IDX_POSITION = 4
+    private const val IDX_CLOSE = 5
 
     private val pipelineLabels = listOf(
-        "Starting session",
+        "Start",
         "Data",
-        "Bar",
-        "Liquidity",
-        "Confirm",
+        "Rules",
         "Orders",
         "Position",
-        "Closing session"
+        "Close"
     )
 
     fun steps(
@@ -69,35 +67,19 @@ object TouchTurnStatusBreadcrumbMapper {
     ): List<TouchTurnBreadcrumbStep> {
         val session = instance.touchTurnSession
         val milestones = session?.milestones ?: TouchTurnMilestoneTimestamps()
-        val closing = isClosingPhase(
+        val phase = resolveEffectivePhase(
             instance = instance,
+            session = session,
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
-        val resolvedPhase = resolvePhase(session, hasOpenPosition, nowEpochMillis)
-        val phase = if (closing) {
-            // Preserve branch skips (e.g. no-trade) while marking session as closed.
-            val skipFrom = when {
-                confirmationStepFailed(session, nowEpochMillis) -> IDX_ORDERS
-                resolvedPhase.skippedFromIndex != null -> resolvedPhase.skippedFromIndex
-                entryNeverFilled(session, hasOpenPosition) -> IDX_POSITION
-                else -> null
-            }
-            Phase(
-                index = IDX_CLOSE,
-                skippedFromIndex = skipFrom,
-                terminal = true
-            )
-        } else {
-            resolvedPhase
-        }
         if (phase.failed) {
             return pipelineLabels.mapIndexed { index, label ->
                 val state = when {
-                    index == IDX_DATA -> TouchTurnBreadcrumbStepState.FAILED
-                    index < IDX_DATA -> TouchTurnBreadcrumbStepState.COMPLETED
+                    index == phase.index -> TouchTurnBreadcrumbStepState.FAILED
+                    index < phase.index -> TouchTurnBreadcrumbStepState.COMPLETED
                     else -> TouchTurnBreadcrumbStepState.UPCOMING
                 }
                 TouchTurnBreadcrumbStep(
@@ -107,14 +89,18 @@ object TouchTurnStatusBreadcrumbMapper {
                 )
             }
         }
-        val confirmFailed = confirmationStepFailed(session, nowEpochMillis)
+        val rulesFailed = rulesStepFailed(session, nowEpochMillis)
+        val liquidityRefetchFailed = session?.failedDuringLiquidityRefetch() == true &&
+            session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
         return pipelineLabels.mapIndexed { index, label ->
             val state = when {
+                index == IDX_RULES && liquidityRefetchFailed ->
+                    TouchTurnBreadcrumbStepState.FAILED
                 index == IDX_CLOSE && phase.index == IDX_CLOSE && phase.terminal ->
                     TouchTurnBreadcrumbStepState.COMPLETED
-                index == IDX_CONFIRM && confirmFailed ->
+                index == IDX_RULES && rulesFailed ->
                     TouchTurnBreadcrumbStepState.FAILED
-                confirmFailed && (index == IDX_ORDERS || index == IDX_POSITION) ->
+                rulesFailed && (index == IDX_ORDERS || index == IDX_POSITION) ->
                     TouchTurnBreadcrumbStepState.SKIPPED
                 phase.skippedFromIndex != null && index >= phase.skippedFromIndex &&
                     index < IDX_CLOSE ->
@@ -142,20 +128,57 @@ object TouchTurnStatusBreadcrumbMapper {
     ): String? {
         if (state == TouchTurnBreadcrumbStepState.UPCOMING) return null
         val iso = when (index) {
-            IDX_START -> milestones.startingSessionAt ?: instance.inProgressSession()?.startedAt
+            IDX_READINESS -> milestones.startingSessionAt ?: instance.inProgressSession()?.startedAt
             IDX_DATA -> when {
-                phase.failed -> milestones.dataFailedAt
+                phase.failed && phase.index == IDX_DATA -> milestones.dataFailedAt
+                milestones.barClosedAt != null -> milestones.barClosedAt
                 else -> milestones.dataReadyAt
             }
-            IDX_BAR -> milestones.barClosedAt
-            IDX_LIQUIDITY -> milestones.liquidityEvaluatedAt
-            IDX_CONFIRM -> milestones.closeConfirmedAt
+            IDX_RULES -> when {
+                phase.failed && phase.index == IDX_RULES -> milestones.dataFailedAt
+                else -> milestones.liquidityEvaluatedAt ?: milestones.closeConfirmedAt
+            }
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt
+                ?: milestones.liquidityEvaluatedAt.takeIf {
+                    phase.index == IDX_CLOSE && phase.terminal
+                }
+                ?: instance.inProgressSession()?.stoppedAt?.takeIf { it.isNotBlank() }
             else -> null
         }
         return Formatters.milestoneTimeFromIso(iso)
+    }
+
+    private fun resolveEffectivePhase(
+        instance: StrategyDeployment,
+        session: TouchTurnSessionContext?,
+        hasOpenPosition: Boolean,
+        hasOpenOrders: Boolean,
+        sessionTrades: List<SessionTrade>,
+        nowEpochMillis: Long
+    ): Phase {
+        val closing = isClosingPhase(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
+            nowEpochMillis = nowEpochMillis
+        )
+        val resolved = resolvePhase(session, hasOpenPosition, hasOpenOrders, nowEpochMillis)
+        if (!closing) return resolved
+        val skipFrom = when {
+            rulesStepFailed(session, nowEpochMillis) -> IDX_ORDERS
+            resolved.failed -> (resolved.index + 1).coerceAtMost(IDX_ORDERS)
+            resolved.skippedFromIndex != null -> resolved.skippedFromIndex
+            entryNeverFilled(session, hasOpenPosition) -> IDX_POSITION
+            else -> null
+        }
+        return Phase(
+            index = IDX_CLOSE,
+            skippedFromIndex = skipFrom,
+            terminal = true
+        )
     }
 
     private fun isClosingPhase(
@@ -165,17 +188,15 @@ object TouchTurnStatusBreadcrumbMapper {
         sessionTrades: List<SessionTrade>,
         nowEpochMillis: Long
     ): Boolean {
-        if (DeploymentSessionStopLogic.shouldStopAfterTradeOutcome(
-                instance = instance,
-                sessionTrades = sessionTrades,
-                hasOpenPosition = hasOpenPosition,
-                hasOpenOrders = hasOpenOrders
-            )
+        if (DeploymentSessionStopLogic.shouldStopAfterNoTradeDecision(instance)) return true
+        if (instance.touchTurnSession?.milestones?.closingSessionAt != null) return true
+        if (instance.touchTurnSession?.status != TouchTurnCandleStatus.READY) return false
+        if (!hasOpenPosition && !hasOpenOrders &&
+            instance.touchTurnSession?.ordersPlacedForSession == true &&
+            DeploymentSessionStopLogic.tradeCycleComplete(sessionTrades)
         ) {
             return true
         }
-        if (DeploymentSessionStopLogic.shouldStopAfterNoTradeDecision(instance)) return true
-        if (instance.touchTurnSession?.status != TouchTurnCandleStatus.READY) return false
         return DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance, nowEpochMillis) ==
             DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE
     }
@@ -187,79 +208,63 @@ object TouchTurnStatusBreadcrumbMapper {
         val terminal: Boolean = false
     )
 
+    /**
+     * Live pipeline phase follows engine [TouchTurnMilestoneTimestamps], not calendar-derived
+     * liquidity/close hints. Broker position/order flags advance Orders and Position only after
+     * the engine has committed the corresponding milestones.
+     */
     private fun resolvePhase(
         session: TouchTurnSessionContext?,
         hasOpenPosition: Boolean,
+        hasOpenOrders: Boolean,
         nowEpochMillis: Long
     ): Phase {
-        if (session == null) return Phase(index = IDX_START)
+        if (session == null) return Phase(index = IDX_READINESS)
         when (session.status) {
             TouchTurnCandleStatus.LOADING -> return Phase(index = IDX_DATA)
-            TouchTurnCandleStatus.FAILED -> return Phase(index = IDX_DATA, failed = true)
+            TouchTurnCandleStatus.FAILED -> return failedPhase(session)
             TouchTurnCandleStatus.READY -> Unit
         }
 
         if (hasOpenPosition) {
-            return if (session.milestones.positionOpenedAt != null) {
-                Phase(index = IDX_POSITION, terminal = true)
-            } else {
-                Phase(index = IDX_POSITION)
-            }
+            return Phase(index = IDX_POSITION)
         }
 
         when (session.decisionOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED ->
-                return Phase(index = IDX_DATA, failed = true)
-            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ->
-                return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
+                return failedPhase(session)
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
-                return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
+                return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_ORDERS, terminal = true)
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED ->
-                return Phase(index = IDX_ORDERS, skippedFromIndex = IDX_POSITION, terminal = true)
+                return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_POSITION, terminal = true)
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             null -> Unit
         }
 
-        val closeStatus = session.candleCloseStatus(nowEpochMillis)
-        if (closeStatus != FirstCandleCloseStatus.CLOSED) {
-            return Phase(index = IDX_BAR)
+        val milestones = session.milestones
+        if (milestones.liquidityEvaluatedAt == null) {
+            if (milestones.dataReadyAt == null) return Phase(index = IDX_DATA)
+            return Phase(index = IDX_DATA)
         }
 
-        val liquidity = session.liquidityEvaluation(nowEpochMillis)
-        when (liquidity) {
-            LiquidityCandleEvaluation.AWAITING_CLOSE -> return Phase(index = IDX_BAR)
-            LiquidityCandleEvaluation.UNKNOWN -> return Phase(index = IDX_LIQUIDITY)
-            LiquidityCandleEvaluation.NOT_LIQUIDITY ->
-                return Phase(index = IDX_LIQUIDITY, skippedFromIndex = IDX_ORDERS, terminal = true)
-            LiquidityCandleEvaluation.LIQUIDITY -> Unit
+        when (session.entryOrdersPermitted) {
+            false -> return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_ORDERS, terminal = true)
+            true, null -> Unit
         }
 
         if (tradeOrdersCommitted(session)) {
             return Phase(index = IDX_ORDERS)
         }
 
-        val closeConfirmation = session.closeConfirmation(nowEpochMillis)
-        when (closeConfirmation) {
-            TouchTurnCloseConfirmation.AWAITING_LIQUIDITY,
-            TouchTurnCloseConfirmation.UNKNOWN -> return Phase(index = IDX_CONFIRM)
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnCloseConfirmation.EXPIRED ->
-                return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
-            TouchTurnCloseConfirmation.PASSED -> Unit
-        }
-
-        val entryPermitted = session.entryOrdersPermitted
-        if (entryPermitted == false) {
-            return Phase(index = IDX_CONFIRM, skippedFromIndex = IDX_ORDERS, terminal = true)
-        }
-
-        if (entryPermitted == true) {
-            return Phase(index = IDX_ORDERS)
-        }
-
-        return Phase(index = IDX_LIQUIDITY)
+        return Phase(index = IDX_RULES)
     }
 
     /** Most recent closed session with a persisted pipeline log (Live tab after stop). */
@@ -298,8 +303,8 @@ object TouchTurnStatusBreadcrumbMapper {
     ): List<TouchTurnBreadcrumbStep> {
         val notLiquidity = hadLiquidityCandle == false ||
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-        val noTradeAfterConfirm = decisionOutcome in noTradeAfterConfirmationOutcomes
-        val ordersSkipped = notLiquidity || noTradeAfterConfirm
+        val noTradeAfterRules = decisionOutcome in noTradeAfterRulesOutcomes
+        val ordersSkipped = notLiquidity || noTradeAfterRules
         val positionSkipped = ordersSkipped ||
             positionOpened != true && (ordersPlacedForCandle != true || milestones.positionOpenedAt == null)
         val dataFailed = milestones.dataFailedAt != null
@@ -307,23 +312,13 @@ object TouchTurnStatusBreadcrumbMapper {
             val state = when (index) {
                 IDX_DATA -> when {
                     dataFailed -> TouchTurnBreadcrumbStepState.FAILED
-                    milestones.dataReadyAt != null -> TouchTurnBreadcrumbStepState.COMPLETED
+                    milestones.barClosedAt != null || milestones.dataReadyAt != null ->
+                        TouchTurnBreadcrumbStepState.COMPLETED
                     else -> TouchTurnBreadcrumbStepState.UPCOMING
                 }
-                IDX_BAR -> if (milestones.barClosedAt != null) {
-                    TouchTurnBreadcrumbStepState.COMPLETED
-                } else {
-                    TouchTurnBreadcrumbStepState.UPCOMING
-                }
-                IDX_LIQUIDITY -> if (milestones.liquidityEvaluatedAt != null) {
-                    TouchTurnBreadcrumbStepState.COMPLETED
-                } else {
-                    TouchTurnBreadcrumbStepState.UPCOMING
-                }
-                IDX_CONFIRM -> when {
-                    noTradeAfterConfirm -> TouchTurnBreadcrumbStepState.FAILED
-                    milestones.closeConfirmedAt != null -> TouchTurnBreadcrumbStepState.COMPLETED
-                    notLiquidity -> TouchTurnBreadcrumbStepState.UPCOMING
+                IDX_RULES -> when {
+                    noTradeAfterRules -> TouchTurnBreadcrumbStepState.FAILED
+                    milestones.liquidityEvaluatedAt != null -> TouchTurnBreadcrumbStepState.COMPLETED
                     else -> TouchTurnBreadcrumbStepState.UPCOMING
                 }
                 IDX_ORDERS -> when {
@@ -367,11 +362,13 @@ object TouchTurnStatusBreadcrumbMapper {
         dataFailed: Boolean
     ): String? {
         val iso = when (index) {
-            IDX_START -> milestones.startingSessionAt ?: startedAt.takeIf { it.isNotBlank() }
-            IDX_DATA -> if (dataFailed) milestones.dataFailedAt else milestones.dataReadyAt
-            IDX_BAR -> milestones.barClosedAt
-            IDX_LIQUIDITY -> milestones.liquidityEvaluatedAt
-            IDX_CONFIRM -> milestones.closeConfirmedAt
+            IDX_READINESS -> milestones.startingSessionAt ?: startedAt.takeIf { it.isNotBlank() }
+            IDX_DATA -> when {
+                dataFailed -> milestones.dataFailedAt
+                milestones.barClosedAt != null -> milestones.barClosedAt
+                else -> milestones.dataReadyAt
+            }
+            IDX_RULES -> milestones.liquidityEvaluatedAt ?: milestones.closeConfirmedAt
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt ?: stoppedAt.takeIf { it.isNotBlank() }
@@ -396,10 +393,21 @@ object TouchTurnStatusBreadcrumbMapper {
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
+        val closing = isClosingPhase(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
+            nowEpochMillis = nowEpochMillis
+        )
         val graph = buildGraph(
             steps = stepList,
             session = instance.touchTurnSession,
-            nowEpochMillis = nowEpochMillis
+            nowEpochMillis = nowEpochMillis,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            closing = closing,
+            deploymentRunning = instance.status == DeploymentStatus.RUNNING
         )
         logPipelineGraph(
             instanceId = instance.id,
@@ -420,6 +428,10 @@ object TouchTurnStatusBreadcrumbMapper {
 
     fun graphForLastClosedSession(instance: StrategyDeployment): TouchTurnPipelineGraph? {
         val run = instance.lastClosedTouchTurnSession() ?: return null
+        return graphForSession(instance, run)
+    }
+
+    fun graphForSession(instance: StrategyDeployment, run: StrategySession): TouchTurnPipelineGraph? {
         val runRecord = run.touchTurnRunRecord
         val milestones = run.touchTurnMilestones ?: runRecord?.milestones ?: return null
         return graphFromHistory(
@@ -472,7 +484,10 @@ object TouchTurnStatusBreadcrumbMapper {
         val graph = buildGraph(
             steps = steps,
             session = session,
-            nowEpochMillis = System.currentTimeMillis()
+            nowEpochMillis = System.currentTimeMillis(),
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            closing = true
         )
         TouchTurnPipelineLog.graphBuilt(
             instanceId = instanceId,
@@ -497,82 +512,51 @@ object TouchTurnStatusBreadcrumbMapper {
     fun buildGraph(
         steps: List<TouchTurnBreadcrumbStep>,
         session: TouchTurnSessionContext? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        hasOpenPosition: Boolean = false,
+        hasOpenOrders: Boolean = false,
+        closing: Boolean = false,
+        deploymentRunning: Boolean = false
     ): TouchTurnPipelineGraph {
-        val noTradeState = noTradeNodeState(steps, session, nowEpochMillis)
-        val activePath = activePathFor(steps, noTradeState, session, nowEpochMillis)
-        val nodes = pipelineNodes(steps, noTradeState)
+        val activePath = activePathFor(steps, session, nowEpochMillis)
+        val nodes = pipelineNodes(steps)
         val edges = pipelineEdges(activePath, nodes)
-        val caption = pipelineCaption(steps, nodes, activePath)
+        val caption = pipelineCaption(steps, nodes, activePath, session, nowEpochMillis)
+        val statusBanner = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            closing = closing,
+            nowEpochMillis = nowEpochMillis,
+            deploymentRunning = deploymentRunning
+        )
         return TouchTurnPipelineGraph(
             nodes = nodes,
             edges = edges,
             activePath = activePath,
-            caption = caption
+            caption = caption,
+            statusBanner = statusBanner
         )
-    }
-
-    private fun noTradeNodeState(
-        steps: List<TouchTurnBreadcrumbStep>,
-        session: TouchTurnSessionContext?,
-        nowEpochMillis: Long
-    ): TouchTurnBreadcrumbStepState {
-        if (usesNoTradePipeline(session, steps, nowEpochMillis)) {
-            return when (steps[IDX_CLOSE].state) {
-                TouchTurnBreadcrumbStepState.UPCOMING -> TouchTurnBreadcrumbStepState.CURRENT
-                else -> TouchTurnBreadcrumbStepState.COMPLETED
-            }
-        }
-        val orders = steps[IDX_ORDERS].state
-        val position = steps[IDX_POSITION].state
-        val liquidity = steps[IDX_LIQUIDITY].state
-        if (orders != TouchTurnBreadcrumbStepState.SKIPPED &&
-            position != TouchTurnBreadcrumbStepState.SKIPPED
-        ) {
-            return TouchTurnBreadcrumbStepState.UPCOMING
-        }
-        if (orders == TouchTurnBreadcrumbStepState.SKIPPED &&
-            position == TouchTurnBreadcrumbStepState.SKIPPED
-        ) {
-            return when (liquidity) {
-                TouchTurnBreadcrumbStepState.COMPLETED ->
-                    if (steps[IDX_CLOSE].state == TouchTurnBreadcrumbStepState.UPCOMING) {
-                        TouchTurnBreadcrumbStepState.COMPLETED
-                    } else {
-                        steps[IDX_CLOSE].state
-                    }
-                TouchTurnBreadcrumbStepState.CURRENT -> TouchTurnBreadcrumbStepState.CURRENT
-                else -> TouchTurnBreadcrumbStepState.UPCOMING
-            }
-        }
-        if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
-            orders == TouchTurnBreadcrumbStepState.COMPLETED
-        ) {
-            return TouchTurnBreadcrumbStepState.UPCOMING
-        }
-        if (position == TouchTurnBreadcrumbStepState.SKIPPED &&
-            orders == TouchTurnBreadcrumbStepState.CURRENT
-        ) {
-            return TouchTurnBreadcrumbStepState.UPCOMING
-        }
-        return TouchTurnBreadcrumbStepState.UPCOMING
     }
 
     private fun activePathFor(
         steps: List<TouchTurnBreadcrumbStep>,
-        noTradeState: TouchTurnBreadcrumbStepState,
         session: TouchTurnSessionContext?,
         nowEpochMillis: Long
     ): List<TouchTurnPipelineNodeId> {
         val path = mutableListOf<TouchTurnPipelineNodeId>()
-        fun trunkStep(i: Int): TouchTurnBreadcrumbStepState = steps[i].state
 
-        for (i in IDX_START..IDX_LIQUIDITY) {
-            when (val state = trunkStep(i)) {
+        for (i in IDX_READINESS..IDX_RULES) {
+            when (val state = steps[i].state) {
                 TouchTurnBreadcrumbStepState.COMPLETED,
                 TouchTurnBreadcrumbStepState.FAILED -> {
                     path.add(indexToNodeId(i))
-                    if (state == TouchTurnBreadcrumbStepState.FAILED) return path
+                    if (state == TouchTurnBreadcrumbStepState.FAILED) {
+                        if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
+                            path.add(TouchTurnPipelineNodeId.Close)
+                        }
+                        return path
+                    }
                 }
                 TouchTurnBreadcrumbStepState.CURRENT -> {
                     path.add(indexToNodeId(i))
@@ -582,38 +566,7 @@ object TouchTurnStatusBreadcrumbMapper {
             }
         }
 
-        when (steps[IDX_CONFIRM].state) {
-            TouchTurnBreadcrumbStepState.COMPLETED,
-            TouchTurnBreadcrumbStepState.FAILED,
-            TouchTurnBreadcrumbStepState.CURRENT -> path.add(TouchTurnPipelineNodeId.Confirmation)
-            else -> Unit
-        }
-
         if (usesNoTradePipeline(session, steps, nowEpochMillis)) {
-            path.add(TouchTurnPipelineNodeId.NoTrade)
-            if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
-                path.add(TouchTurnPipelineNodeId.Close)
-            }
-            return path
-        }
-
-        if (TouchTurnPipelineNodeId.Confirmation !in path) {
-            return path
-        }
-
-        when (steps[IDX_CONFIRM].state) {
-            TouchTurnBreadcrumbStepState.CURRENT -> return path
-            TouchTurnBreadcrumbStepState.UPCOMING -> return path
-            else -> Unit
-        }
-
-        val ordersSkipped = steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED
-        val positionSkipped = steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.SKIPPED
-
-        if (ordersSkipped && positionSkipped) {
-            if (noTradeState != TouchTurnBreadcrumbStepState.UPCOMING) {
-                path.add(TouchTurnPipelineNodeId.NoTrade)
-            }
             if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
                 path.add(TouchTurnPipelineNodeId.Close)
             }
@@ -624,33 +577,25 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnBreadcrumbStepState.COMPLETED,
             TouchTurnBreadcrumbStepState.CURRENT -> {
                 path.add(TouchTurnPipelineNodeId.Orders)
-                if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.CURRENT) {
-                    return path
+                if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.CURRENT) return path
+            }
+            TouchTurnBreadcrumbStepState.SKIPPED -> {
+                if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
+                    path.add(TouchTurnPipelineNodeId.Close)
                 }
+                return path
             }
             else -> return path
         }
 
-        if (!positionSkipped) {
-            when (steps[IDX_POSITION].state) {
-                TouchTurnBreadcrumbStepState.COMPLETED,
-                TouchTurnBreadcrumbStepState.CURRENT -> {
-                    path.add(TouchTurnPipelineNodeId.Position)
-                    if (steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.CURRENT) {
-                        return path
-                    }
-                }
-                else -> return path
+        when (steps[IDX_POSITION].state) {
+            TouchTurnBreadcrumbStepState.COMPLETED,
+            TouchTurnBreadcrumbStepState.CURRENT -> {
+                path.add(TouchTurnPipelineNodeId.Position)
+                if (steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.CURRENT) return path
             }
-        } else if (
-            (noTradeState == TouchTurnBreadcrumbStepState.COMPLETED ||
-                noTradeState == TouchTurnBreadcrumbStepState.CURRENT) &&
-            steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED
-        ) {
-            path.add(TouchTurnPipelineNodeId.NoTrade)
-            if (noTradeState == TouchTurnBreadcrumbStepState.CURRENT) {
-                return path
-            }
+            TouchTurnBreadcrumbStepState.SKIPPED -> Unit
+            else -> return path
         }
 
         if (steps[IDX_CLOSE].state != TouchTurnBreadcrumbStepState.UPCOMING) {
@@ -666,31 +611,20 @@ object TouchTurnStatusBreadcrumbMapper {
         val isDecision: Boolean
     )
 
-    private fun pipelineNodes(
-        steps: List<TouchTurnBreadcrumbStep>,
-        noTradeState: TouchTurnBreadcrumbStepState
-    ): List<TouchTurnPipelineNode> {
-        val noTradeOnPath = noTradeState != TouchTurnBreadcrumbStepState.UPCOMING
-
+    private fun pipelineNodes(steps: List<TouchTurnBreadcrumbStep>): List<TouchTurnPipelineNode> {
         fun stepState(index: Int): TouchTurnBreadcrumbStepState = steps[index].state
         fun stepTime(index: Int): String? = steps[index].timestamp
 
         return TouchTurnPipelineNodeId.entries.map { id ->
             val meta = when (id) {
-                TouchTurnPipelineNodeId.Start -> PipelineNodeMeta(
-                    IDX_START, pipelineLabels[IDX_START], "Start", false
+                TouchTurnPipelineNodeId.Readiness -> PipelineNodeMeta(
+                    IDX_READINESS, pipelineLabels[IDX_READINESS], "Start", false
                 )
                 TouchTurnPipelineNodeId.Data -> PipelineNodeMeta(
                     IDX_DATA, pipelineLabels[IDX_DATA], "Data", false
                 )
-                TouchTurnPipelineNodeId.Bar -> PipelineNodeMeta(
-                    IDX_BAR, pipelineLabels[IDX_BAR], "Bar", false
-                )
-                TouchTurnPipelineNodeId.Liquidity -> PipelineNodeMeta(
-                    IDX_LIQUIDITY, pipelineLabels[IDX_LIQUIDITY], "Liq", true
-                )
-                TouchTurnPipelineNodeId.Confirmation -> PipelineNodeMeta(
-                    IDX_CONFIRM, pipelineLabels[IDX_CONFIRM], "Confirm", true
+                TouchTurnPipelineNodeId.Rules -> PipelineNodeMeta(
+                    IDX_RULES, pipelineLabels[IDX_RULES], "Rules", true
                 )
                 TouchTurnPipelineNodeId.Orders -> PipelineNodeMeta(
                     IDX_ORDERS, pipelineLabels[IDX_ORDERS], "Orders", true
@@ -698,38 +632,18 @@ object TouchTurnStatusBreadcrumbMapper {
                 TouchTurnPipelineNodeId.Position -> PipelineNodeMeta(
                     IDX_POSITION, pipelineLabels[IDX_POSITION], "Pos", false
                 )
-                TouchTurnPipelineNodeId.NoTrade -> PipelineNodeMeta(
-                    -1, "No trade", "No trade", false
-                )
                 TouchTurnPipelineNodeId.Close -> PipelineNodeMeta(
                     IDX_CLOSE, pipelineLabels[IDX_CLOSE], "Close", false
                 )
             }
             val index = meta.stepIndex
-            val state = when (id) {
-                TouchTurnPipelineNodeId.NoTrade ->
-                    if (noTradeOnPath) noTradeState else TouchTurnBreadcrumbStepState.SKIPPED
-                TouchTurnPipelineNodeId.Orders,
-                TouchTurnPipelineNodeId.Position ->
-                    if (noTradeOnPath) TouchTurnBreadcrumbStepState.SKIPPED else stepState(index)
-                else -> if (index >= 0) stepState(index) else TouchTurnBreadcrumbStepState.UPCOMING
-            }
-            val timestamp = when (id) {
-                TouchTurnPipelineNodeId.NoTrade ->
-                    if (state == TouchTurnBreadcrumbStepState.COMPLETED) {
-                        stepTime(IDX_LIQUIDITY) ?: stepTime(IDX_ORDERS)
-                    } else {
-                        null
-                    }
-                else -> if (index >= 0) stepTime(index) else null
-            }
             val (x, y) = TouchTurnPipelineLayout.position(id)
             TouchTurnPipelineNode(
                 id = id,
                 label = meta.label,
                 shortLabel = meta.shortLabel,
-                state = state,
-                timestamp = timestamp,
+                state = stepState(index),
+                timestamp = stepTime(index),
                 x = x,
                 y = y,
                 isDecision = meta.isDecision
@@ -769,9 +683,9 @@ object TouchTurnStatusBreadcrumbMapper {
             }
         }
         val fromNode = nodeById[from] ?: return TouchTurnPipelineEdgeState.Unreachable
-        if (from == TouchTurnPipelineNodeId.Confirmation &&
+        if (from == TouchTurnPipelineNodeId.Rules &&
             fromNode.state == TouchTurnBreadcrumbStepState.FAILED &&
-            (to == TouchTurnPipelineNodeId.Orders || to == TouchTurnPipelineNodeId.Position)
+            to == TouchTurnPipelineNodeId.Orders
         ) {
             return TouchTurnPipelineEdgeState.Unreachable
         }
@@ -789,37 +703,115 @@ object TouchTurnStatusBreadcrumbMapper {
     private fun pipelineCaption(
         steps: List<TouchTurnBreadcrumbStep>,
         nodes: List<TouchTurnPipelineNode>,
-        activePath: List<TouchTurnPipelineNodeId>
+        activePath: List<TouchTurnPipelineNodeId>,
+        session: TouchTurnSessionContext?,
+        nowEpochMillis: Long
     ): String {
+        session?.decisionOutcome?.takeIf { it != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED }?.let { outcome ->
+            val headline = TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session).headline
+            return appendTimestamp(headline, nodes)
+        }
+        if (session?.status == TouchTurnCandleStatus.FAILED) {
+            val headline = TouchTurnSessionReasonUi.forDecisionOutcome(
+                TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+                session
+            ).headline
+            return appendTimestamp(headline, nodes)
+        }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.let { current ->
-            if (current.id == TouchTurnPipelineNodeId.Orders &&
-                nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
-                    ?.state == TouchTurnBreadcrumbStepState.UPCOMING
-            ) {
-                return buildString {
-                    append("Waiting for entry")
-                    current.timestamp?.let { append(" · $it") }
+            when (current.id) {
+                TouchTurnPipelineNodeId.Readiness ->
+                    return if (session == null) {
+                        appendTimestamp("Waiting for session start", nodes, current.timestamp)
+                    } else {
+                        appendTimestamp("Session started — loading market data", nodes, current.timestamp)
+                    }
+                TouchTurnPipelineNodeId.Orders -> if (
+                    nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
+                        ?.state == TouchTurnBreadcrumbStepState.UPCOMING
+                ) {
+                    return appendTimestamp("Waiting for entry fill", nodes, current.timestamp)
                 }
+                TouchTurnPipelineNodeId.Position -> {
+                    return appendTimestamp("In position — TP / SL working", nodes, current.timestamp)
+                }
+                TouchTurnPipelineNodeId.Close -> {
+                    session?.decisionOutcome?.let { outcome ->
+                        return appendTimestamp(
+                            TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session).headline,
+                            nodes,
+                            current.timestamp
+                        )
+                    }
+                }
+                else -> Unit
             }
             return captionForNode(current)
         }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.FAILED }?.let { failed ->
-            return "${failed.label} failed${failed.timestamp?.let { " · $it" } ?: ""}"
+            val detail = when (failed.id) {
+                TouchTurnPipelineNodeId.Data ->
+                    session?.errorMessage?.takeIf { it.isNotBlank() }
+                        ?: "Could not load opening bar or ATR"
+                TouchTurnPipelineNodeId.Rules ->
+                    TouchTurnSessionReasonUi.forDecisionOutcome(
+                        session?.decisionOutcome ?: TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+                        session
+                    ).headline.removePrefix("No trade — ")
+                else -> null
+            }
+            return buildString {
+                append(failed.label)
+                append(" failed")
+                detail?.let { append(" — $it") }
+                failed.timestamp?.let { append(" · $it") }
+            }
         }
         if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
-            (steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED ||
-                steps[IDX_CONFIRM].state == TouchTurnBreadcrumbStepState.COMPLETED)
+            steps[IDX_RULES].state == TouchTurnBreadcrumbStepState.COMPLETED
         ) {
-            return buildString {
-                append("No trade path")
-                steps[IDX_LIQUIDITY].timestamp?.let { append(" · $it") }
-            }
+            val reason = session?.decisionOutcome?.let {
+                TouchTurnSessionReasonUi.forDecisionOutcome(it, session).headline
+            } ?: "No trade — orders skipped"
+            return appendTimestamp(reason, nodes, steps[IDX_RULES].timestamp)
+        }
+        if (session?.entryOrdersPermitted == false &&
+            steps[IDX_RULES].state != TouchTurnBreadcrumbStepState.UPCOMING
+        ) {
+            return appendTimestamp(
+                TouchTurnSessionReasonUi.pendingEntryBlockDetail(session, nowEpochMillis),
+                nodes
+            )
         }
         activePath.lastOrNull()?.let { lastId ->
             nodes.firstOrNull { it.id == lastId && it.state == TouchTurnBreadcrumbStepState.COMPLETED }
-                ?.let { return captionForNode(it, suffix = "done") }
+                ?.let { node ->
+                    val outcome = session?.decisionOutcome
+                    if (node.id == TouchTurnPipelineNodeId.Close && outcome != null) {
+                        return appendTimestamp(
+                            TouchTurnSessionReasonUi.forDecisionOutcome(
+                                outcome,
+                                session
+                            ).headline,
+                            nodes,
+                            node.timestamp
+                        )
+                    }
+                    return captionForNode(node, suffix = "done")
+                }
         }
         return ""
+    }
+
+    private fun appendTimestamp(
+        text: String,
+        nodes: List<TouchTurnPipelineNode>,
+        explicitTimestamp: String? = null
+    ): String = buildString {
+        append(text)
+        val ts = explicitTimestamp
+            ?: nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.timestamp
+        ts?.let { append(" · $it") }
     }
 
     private fun captionForNode(node: TouchTurnPipelineNode, suffix: String? = null): String =
@@ -829,12 +821,23 @@ object TouchTurnStatusBreadcrumbMapper {
             node.timestamp?.let { append(" · $it") }
         }
 
-    private val noTradeAfterConfirmationOutcomes = setOf(
+    private val noTradeAfterRulesOutcomes = setOf(
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
+
+    private fun failedPhase(session: TouchTurnSessionContext): Phase =
+        if (session.failedDuringLiquidityRefetch()) {
+            Phase(index = IDX_RULES, failed = true)
+        } else {
+            Phase(index = IDX_DATA, failed = true)
+        }
 
     private fun tradeOrdersCommitted(session: TouchTurnSessionContext?): Boolean =
         session?.ordersPlacedForSession == true ||
@@ -846,14 +849,29 @@ object TouchTurnStatusBreadcrumbMapper {
             tradeOrdersCommitted(session) &&
             session?.milestones?.positionOpenedAt == null
 
-    private fun confirmationStepFailed(
+    private fun rulesStepFailed(
         session: TouchTurnSessionContext?,
         nowEpochMillis: Long
     ): Boolean {
         if (session == null) return false
         if (tradeOrdersCommitted(session)) return false
-        if (session.decisionOutcome in noTradeAfterConfirmationOutcomes) return true
-        return session.closeConfirmation(nowEpochMillis) in setOf(
+        when (session.decisionOutcome) {
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+            TouchTurnSessionOutcome.NO_TRADE_DOJI -> return false
+            in noTradeAfterRulesOutcomes -> return true
+            else -> Unit
+        }
+        when (session.entryOrdersPermitted) {
+            true -> return false
+            false -> {
+                if (session.milestones.liquidityEvaluatedAt == null) return false
+                return session.decisionOutcome in noTradeAfterRulesOutcomes
+            }
+            null -> Unit
+        }
+        if (session.milestones.liquidityEvaluatedAt == null) return false
+        return session.pipelineCloseConfirmation(nowEpochMillis) in setOf(
             TouchTurnCloseConfirmation.FAILED,
             TouchTurnCloseConfirmation.EXPIRED
         )
@@ -864,11 +882,11 @@ object TouchTurnStatusBreadcrumbMapper {
         steps: List<TouchTurnBreadcrumbStep>,
         nowEpochMillis: Long
     ): Boolean {
-        if (confirmationStepFailed(session, nowEpochMillis)) return true
-        if (steps[IDX_CONFIRM].state == TouchTurnBreadcrumbStepState.FAILED) return true
+        if (rulesStepFailed(session, nowEpochMillis)) return true
+        if (steps[IDX_RULES].state == TouchTurnBreadcrumbStepState.FAILED) return true
         if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
             steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.SKIPPED &&
-            steps[IDX_LIQUIDITY].state == TouchTurnBreadcrumbStepState.COMPLETED &&
+            steps[IDX_RULES].state == TouchTurnBreadcrumbStepState.COMPLETED &&
             session?.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
         ) {
             return true
@@ -899,7 +917,14 @@ object TouchTurnStatusBreadcrumbMapper {
             sessionTrades = sessionTrades,
             nowEpochMillis = nowEpochMillis
         )
-        val phase = resolvePhase(session, hasOpenPosition, nowEpochMillis)
+        val phase = resolveEffectivePhase(
+            instance = instance,
+            session = session,
+            hasOpenPosition = hasOpenPosition,
+            hasOpenOrders = hasOpenOrders,
+            sessionTrades = sessionTrades,
+            nowEpochMillis = nowEpochMillis
+        )
         TouchTurnPipelineLog.graphBuilt(
             instanceId = instanceId,
             symbol = symbol,
@@ -913,7 +938,7 @@ object TouchTurnStatusBreadcrumbMapper {
             phaseSkippedFrom = phase.skippedFromIndex,
             phaseTerminal = phase.terminal,
             usesNoTradePipeline = usesNoTradePipeline(session, steps, nowEpochMillis),
-            closeConfirmation = session?.closeConfirmation(nowEpochMillis),
+            closeConfirmation = session?.pipelineCloseConfirmation(nowEpochMillis),
             nowEpochMillis = nowEpochMillis,
             source = source
         )
@@ -931,7 +956,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 phaseSkippedFrom = phase.skippedFromIndex,
                 phaseTerminal = phase.terminal,
                 usesNoTradePipeline = usesNoTradePipeline(session, steps, nowEpochMillis),
-                closeConfirmation = session?.closeConfirmation(nowEpochMillis),
+                closeConfirmation = session?.pipelineCloseConfirmation(nowEpochMillis),
                 nowEpochMillis = nowEpochMillis,
                 trigger = syncTrigger,
                 triggerDetails = syncTriggerDetails
@@ -940,11 +965,9 @@ object TouchTurnStatusBreadcrumbMapper {
     }
 
     private fun indexToNodeId(index: Int): TouchTurnPipelineNodeId = when (index) {
-        IDX_START -> TouchTurnPipelineNodeId.Start
+        IDX_READINESS -> TouchTurnPipelineNodeId.Readiness
         IDX_DATA -> TouchTurnPipelineNodeId.Data
-        IDX_BAR -> TouchTurnPipelineNodeId.Bar
-        IDX_LIQUIDITY -> TouchTurnPipelineNodeId.Liquidity
-        IDX_CONFIRM -> TouchTurnPipelineNodeId.Confirmation
+        IDX_RULES -> TouchTurnPipelineNodeId.Rules
         IDX_ORDERS -> TouchTurnPipelineNodeId.Orders
         IDX_POSITION -> TouchTurnPipelineNodeId.Position
         IDX_CLOSE -> TouchTurnPipelineNodeId.Close

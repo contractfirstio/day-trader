@@ -31,6 +31,8 @@ actual object AppFileSystem {
         return stableBaseDataDirectory().resolve(scope.dataDirectorySegment).toString()
     }
 
+    actual fun applicationDataRoot(): String = stableBaseDataDirectory().toString()
+
     private fun stableBaseDataDirectory(): Path =
         if (!envOverride.isNullOrBlank()) Path.of(envOverride) else defaultBaseDataDirectory()
 

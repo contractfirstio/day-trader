@@ -4,6 +4,8 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.MarketSource
 import daytrader.domain.StrategyType
+import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.defaultStrategyDeployment
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -78,5 +80,28 @@ class DeploymentPersistenceTest {
         val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
 
         assertEquals(identity, restored.instrument)
+    }
+
+    @Test
+    fun configurationRoundTrip_persistsTouchTurnRuleEnables() {
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange = false,
+                volumeExhaustion = false,
+                postEntryVolumeBuffer = false
+            )
+        )
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(touchTurnRules = rules)
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(false, restored.touchTurnRules?.enables?.liquidityRange)
+        assertEquals(false, restored.touchTurnRules?.enables?.volumeExhaustion)
+        assertEquals(false, restored.touchTurnRules?.enables?.postEntryVolumeBuffer)
+        assertEquals(true, restored.touchTurnRules?.enables?.barCloseTurn)
     }
 }

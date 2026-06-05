@@ -60,6 +60,42 @@ class TradingPanelRecapTest {
     }
 
     @Test
+    fun showsHistoricSession_evenWhenLatestDismissed() {
+        val deployment = stoppedTouchTurnWithHistory(sessionId = "run-2").copy(
+            sessionHistory = listOf(
+                StrategySession(
+                    id = "run-1",
+                    date = "2026-05-27",
+                    pnl = 1.0,
+                    trades = 1,
+                    maxAtRisk = 500,
+                    status = SessionStatus.CLOSED,
+                    stoppedAt = "2026-05-27T16:00:00Z",
+                    touchTurnMilestones = TouchTurnMilestoneTimestamps(startingSessionAt = "2026-05-27T13:30:00Z"),
+                ),
+                StrategySession(
+                    id = "run-2",
+                    date = "2026-05-28",
+                    pnl = 2.0,
+                    trades = 1,
+                    maxAtRisk = 500,
+                    status = SessionStatus.CLOSED,
+                    stoppedAt = "2026-05-28T16:00:00Z",
+                    touchTurnMilestones = TouchTurnMilestoneTimestamps(startingSessionAt = "2026-05-28T13:30:00Z"),
+                ),
+            )
+        )
+        val dismissed = mapOf(deployment.id to "run-2")
+        assertTrue(
+            TradingPanelRecap.showsSessionRecap(
+                deployment,
+                dismissedRecapSessionIdByDeployment = dismissed,
+                historicRunId = "run-1",
+            )
+        )
+    }
+
+    @Test
     fun hidesLiveMarketQuotes_whenRecapDismissed() {
         val deployment = stoppedTouchTurnWithHistory(sessionId = "run-1")
         assertFalse(

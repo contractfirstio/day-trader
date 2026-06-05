@@ -88,7 +88,7 @@ On first launch, deployments are loaded from disk or seeded from `mockStrategyDe
 
 Persistence is scoped by broker so IB and emulator state never share the same JSON files. After you choose a broker on the startup screen, data is written under a broker-specific subdirectory.
 
-Deployments and UI state stay in the broker-scoped directory so they persist across launches. Only session trace logs are isolated per app launch under `runs/` (UTC timestamp + process id).
+Deployments and UI state stay in the broker-scoped directory so they persist across launches. Only raw IB tick disk logs (`ib-prices/`) are isolated per app launch under `runs/` (UTC timestamp + process id).
 
 Default base locations (set `DAY_TRADER_DATA_DIR` to override with a fixed path):
 
@@ -98,24 +98,42 @@ Default base locations (set `DAY_TRADER_DATA_DIR` to override with a fixed path)
 | Windows | `%APPDATA%\Day Trader\`                     |
 | Linux   | `~/.local/share/day-trader/`                |
 
-Effective default path pattern for session trace logs:
+Effective default path pattern for session logs (under `{broker-scope}/`):
 
 | OS      | Pattern |
 |---------|---------|
-| macOS   | `~/Library/Application Support/Day Trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
-| Windows | `%APPDATA%\Day Trader\runs\run-YYYYMMDD-HHMMSS-PID\<broker>\session-traces\...` |
-| Linux   | `~/.local/share/day-trader/runs/run-YYYYMMDD-HHMMSS-PID/<broker>/session-traces/...` |
+| macOS   | `~/Library/Application Support/Day Trader/{broker}/sessions/{deploymentId}/{sessionId}/` |
+| Windows | `%APPDATA%\Day Trader\{broker}\sessions\{deploymentId}\{sessionId}\` |
+| Linux   | `~/.local/share/day-trader/{broker}/sessions/{deploymentId}/{sessionId}/` |
+
+Raw IB tick capture (optional, for high-fidelity replay) lives under `runs/run-YYYYMMDD-HHMMSS-PID/{broker}/ib-prices/` when `DAY_TRADER_IB_PRICE_DISK_LOGS=true`.
 
 **Touch Turn diagnosis** (correlate by `epochMs` + symbol):
 
 | Log | Path (under `{broker-scope}/`) | Purpose |
 |-----|--------------------------------|---------|
 | Session application | `sessions/{deploymentId}/{sessionId}/application.jsonl` | Lifecycle, `bracket_submit_requested`, `bracket_acknowledged`, `broker_open_orders`, `touch_turn_state_sync` |
-| Session prices | `sessions/.../prices.jsonl` | IB quotes |
-| Emulator engine | `emulator/engine.jsonl` | `bracket_placed`, `bracket_queue_received`, `bracket_ack_emitted`, `open_orders_published` |
+| Session prices | `sessions/.../prices.jsonl` | IB quotes (bid/ask/last, tick volume) |
+| Session historical | `sessions/.../historical.jsonl` | Touch Turn bootstrap + closed-bar refetch payloads |
+| Session manifest | `sessions/.../manifest.json` | Session metadata and milestone timeline for replay |
+| Session emulator | `sessions/.../emulator-engine.jsonl` | Brackets and fills while a session is active |
+| Emulator engine | `emulator/engine.jsonl` | Global fallback when no session is bound |
 | Execution gateway | `execution/gateway.jsonl` | Global `open_orders_snapshot`, `touch_turn_bracket_placed` |
+| IB raw ticks | `runs/.../ib-prices/{SYMBOL}.jsonl` | Per-field IB ticks when disk logging enabled |
 
-Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`.
+Disable noisy logs: `DAY_TRADER_TOUCH_TURN_STATE_SYNC_LOG=false`, `DAY_TRADER_EMULATOR_LOGS=false`, `DAY_TRADER_EXECUTION_GATEWAY_LOG=false`, `DAY_TRADER_SESSION_HISTORICAL_LOGS=false`, `DAY_TRADER_SESSION_MANIFEST=false`.
+
+**Session replay (dev):** load a captured session with `SessionBundleDirectoryReader.loadFromDirectory(...)`, or run Tier A regression with `ReplaySessionRunner(bundle, repository, scope).run()` against a parsed `SessionBundle`. Optional high-fidelity quotes: pass the path to `runs/.../ib-prices/{SYMBOL}.jsonl` when loading the bundle.
+
+**Desktop session replay:** choose **Session Replay** on startup, pick a captured **hybrid (paper-live-ib)** session folder (or browse manually), then press **Run Replay** in the control bar. Offline emulator and replay-mode captures are excluded. Set `DAY_TRADER_BROKER=replay` to pre-select replay mode.
+
+**Hybrid session capture for replay** (recommended when running paper-live):
+
+```bash
+export DAY_TRADER_BROKER=hybrid
+export DAY_TRADER_IB_PRICE_DISK_LOGS=true
+./gradlew :day-trader:run
+```
 
 | Broker               | Subdirectory            | Example (macOS)                                                                      |
 |----------------------|-------------------------|--------------------------------------------------------------------------------------|
@@ -182,7 +200,7 @@ Enrichment requests (`reqContractDetails`, streaming `reqMktData`) are **paced**
 
 **Hybrid paper mode** (`DAY_TRADER_BROKER=hybrid`): Touch Turn **order matching** is emulated (positions, brackets, fills), but **pricing is decoupled**: fill triggers use live **bid**, **ask**, and **last** from IB (`EmulatorPricingSource.LIVE_EXCHANGE`), not synthetic walks. The chart uses the IB session gateway; the emulator only consumes the same ticks via `ingestExternalQuote`. Full emulator mode (`emulator`) uses `EmulatorPricingSource.SYNTHETIC` instead. Limit/stop rules are identical (buy at ask, sell at bid); live mode waits for both bid and ask before evaluating fills.
 
-Market data uses **delayed-frozen** mode so US/UK lines still get a last price when those exchanges are closed; HK lines update while SEHK is open. **Market price for P&L** uses, in order: streaming ticks → bid/ask mid → **latest daily historical close** (`reqHistoricalData`, requested ~4s after load if no live price) → portfolio (only if distinct from avg cost) → avg cost fallback. Log codes **2119** (data farm connecting) and **10167** (no live subscription — delayed data) are informational.
+Market data uses **live** streaming by default (`reqMarketDataType` live). If you lack a subscription for a symbol, IB may fall back to delayed data (informational log **10167**). Use the subtle chart icon in the connection bar to test feeds or switch to delayed / delayed-frozen. **Market price for P&L** uses, in order: streaming ticks → bid/ask mid → **latest daily historical close** (`reqHistoricalData`, requested ~4s after load if no live price) → portfolio (only if distinct from avg cost) → avg cost fallback. Log codes **2119** (data farm connecting) and **10167** (no live subscription — delayed data) are informational.
 
 Default endpoint: `127.0.0.1:4001` (Gateway paper). Override with environment variables:
 

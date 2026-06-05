@@ -40,6 +40,31 @@ class TouchTurnSessionStopLogicTest {
     }
 
     @Test
+    fun evaluateOpenDeadline_continuesWhenOpeningBarTimeAnchorsDeadline() {
+        val barTime = "20260603  13:03:21"
+        val zone = "Asia/Hong_Kong"
+        val instance = touchTurnRunningInstance().copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-06-03",
+                status = TouchTurnCandleStatus.READY,
+                openingBarTime = barTime,
+                candle = null,
+                marketZoneId = zone
+            )
+        )
+        val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2026-06-03")!!
+        val expectedOpen = TouchTurnLogic.marketOpenEpochMillis("2026-06-03", zone, barTime)!!
+        assertEquals(expectedOpen, open)
+        assertEquals(
+            DeploymentSessionStopAction.CONTINUE,
+            TouchTurnSessionStopLogic.evaluateOpenDeadline(
+                instance = instance,
+                nowEpochMillis = open + 30 * 60_000
+            )
+        )
+    }
+
+    @Test
     fun sessionOpenEpochMillis_usesFirstCandleAnchor() {
         val barTime = "20250522  09:30:00"
         val instance = touchTurnRunningInstance().copy(

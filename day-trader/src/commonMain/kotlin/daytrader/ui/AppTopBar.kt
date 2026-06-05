@@ -14,6 +14,7 @@ fun AppTopBar(
     marketDataGateway: BrokerGateway? = null,
     selectedMarketZoneId: String?,
     onMarketClick: (String) -> Unit,
+    onOpenPriceFeedTester: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -24,7 +25,8 @@ fun AppTopBar(
         ConnectionStatusBar(
             brokerGateway = brokerGateway,
             brokerKind = brokerKind,
-            marketDataGateway = marketDataGateway
+            marketDataGateway = marketDataGateway,
+            onOpenPriceFeedTester = onOpenPriceFeedTester
         )
     }
 }

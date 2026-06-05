@@ -9,6 +9,8 @@ expect object AppFileSystem {
     fun currentDataScope(): BrokerKind
 
     fun appDataDirectory(): String
+    /** App data root before broker scope segment (parent of `emulator/`, `paper-live-ib/`, etc.). */
+    fun applicationDataRoot(): String
     fun ensureAppDataDirectory()
     fun readText(fileName: String): String?
     fun writeTextAtomic(fileName: String, content: String)

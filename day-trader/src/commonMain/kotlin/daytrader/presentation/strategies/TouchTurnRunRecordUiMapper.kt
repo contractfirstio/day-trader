@@ -25,7 +25,13 @@ object TouchTurnRunRecordUiMapper {
     fun from(record: TouchTurnRunRecord, session: StrategySession? = null): TouchTurnRunRecordUi {
         val currency = record.marketInputs.currencyCode
         val stopTrigger = effectiveStopTrigger(record, session)
-        val teaser = "${outcomeShort(record.decision.outcome)} · ${stopShort(stopTrigger)}"
+        val outcomeLine = TouchTurnSessionReasonUi.forDecisionOutcome(record.decision.outcome).headline
+        val stopLine = TouchTurnSessionReasonUi.forStopTrigger(
+            trigger = stopTrigger,
+            stopErrorMessage = record.stopEvent.stopErrorMessage,
+            decisionOutcome = record.decision.outcome
+        ).headline
+        val teaser = "$outcomeLine · $stopLine"
         val body = buildList {
             add(
                 buildString {
@@ -104,8 +110,13 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Not liq."
         TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Doji"
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED -> "Close gate"
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED -> "Live close"
+        TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE -> "Bar/live gap"
+        TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE -> "No touch"
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> "No quote"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Window expired"
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "No order"
+        TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "Volume exhaustion"
         TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> "Bracket"
     }
 
@@ -126,6 +137,7 @@ object TouchTurnRunRecordUiMapper {
 
     private fun brokerShort(context: TouchTurnRunContext): String = when (context.brokerKind) {
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper·IB"
+        BrokerKind.REPLAY -> "Replay"
         BrokerKind.EMULATOR -> "Emu"
         BrokerKind.INTERACTIVE_BROKERS -> "IB"
         null -> brokerShort(context.brokerId)

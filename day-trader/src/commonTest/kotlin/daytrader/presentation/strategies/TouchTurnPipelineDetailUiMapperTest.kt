@@ -6,10 +6,13 @@ import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
+import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -90,6 +93,37 @@ class TouchTurnPipelineDetailUiMapperTest {
         val ui = TouchTurnPipelineDetailUiMapper.closeConfirmation(session, now)!!
         assertEquals(TouchTurnCloseConfirmation.PASSED, ui.confirmation)
         assertEquals(null, ui.remainingMillis)
+    }
+
+    @Test
+    fun rulesEvaluation_liquidityMatchesOtherRuleChecks() {
+        val barTime = "20260522  09:30:00"
+        val now = TouchTurnLogic.barEndEpochMillis(barTime, "America/New_York")!! + 1
+        val setup = TouchTurnBracketSetup(
+            range = 6.0,
+            rangeThreshold = 2.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.SHORT,
+            entry = 105.0,
+            stopLoss = 106.0,
+            takeProfit = 102.0
+        )
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = OhlcBar(open = 100.0, high = 105.0, low = 99.0, close = 103.0, time = barTime),
+            setup = setup,
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5,
+            adr14 = 10.0
+        )
+        val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(session, now)
+        assertNotNull(evaluation)
+        val liquidity = evaluation.checks.first { it.label == "Liquidity range" }
+        assertEquals(true, liquidity.passed)
+        assertEquals("OK", liquidity.detail)
+        assertEquals(true, liquidity.enabled)
     }
 
     @Test

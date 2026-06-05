@@ -1,6 +1,5 @@
 package daytrader.broker.emulator
 
-import daytrader.data.persistence.AppDataFiles
 import daytrader.data.persistence.JsonFileStore
 import daytrader.diagnostics.LogTimestamps
 import kotlinx.serialization.Serializable
@@ -8,7 +7,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Structured emulator engine events (brackets, fills, session stop actions).
- * Written to `{broker-scope}/emulator/engine.jsonl` — not session-scoped.
+ * Written to `{broker-scope}/emulator/engine.jsonl`, or
+ * `sessions/{deploymentId}/{sessionId}/emulator-engine.jsonl` while a session is active.
  *
  * Disabled when `DAY_TRADER_EMULATOR_LOGS=false`.
  */
@@ -37,7 +37,7 @@ internal object EmulatorLog {
             )
         )
         runCatching {
-            JsonFileStore.appendEmulatorEngineLine(AppDataFiles.emulatorEngineLogFileName(), line)
+            JsonFileStore.appendEmulatorEngineLine(EmulatorLogScope.resolveEngineLogPath(), line)
         }
     }
 
@@ -45,7 +45,8 @@ internal object EmulatorLog {
         symbol: String,
         isGreen: Boolean,
         fetchIndex: Int,
-        colorMode: EmulatorFirstCandleColorMode
+        colorMode: EmulatorFirstCandleColorMode,
+        isClosedBarRefetch: Boolean = false
     ) {
         val side = if (isGreen) "SHORT (green bar)" else "LONG (red bar)"
         val mode = when (colorMode) {
@@ -57,11 +58,12 @@ internal object EmulatorLog {
         event(
             type = "first_candle_color",
             symbol = symbol,
-            details = mapOf(
-                "side" to side,
-                "colorMode" to mode,
-                "fetchIndex" to fetchIndex.toString()
-            )
+            details = buildMap {
+                put("side", side)
+                put("colorMode", mode)
+                put("fetchIndex", fetchIndex.toString())
+                if (isClosedBarRefetch) put("closedBarRefetch", "true")
+            }
         )
     }
 

@@ -19,7 +19,13 @@ object JsonFileStore {
         read<DeploymentsDocument>(AppDataFiles.DEPLOYMENTS)
 
     fun writeDeployments(document: DeploymentsDocument) {
+        backupDeploymentsIfPresent()
         write(AppDataFiles.DEPLOYMENTS, document)
+    }
+
+    private fun backupDeploymentsIfPresent() {
+        val current = AppFileSystem.readText(AppDataFiles.DEPLOYMENTS) ?: return
+        AppFileSystem.writeTextAtomic(AppDataFiles.DEPLOYMENTS_BACKUP, current)
     }
 
     internal fun readLegacyInstancesJson(): LegacyInstancesJsonDocument? =
@@ -38,6 +44,14 @@ object JsonFileStore {
 
     fun appendSessionPriceLine(relativePath: String, line: String) {
         AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun appendSessionHistoricalLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
+    fun writeSessionFile(relativePath: String, content: String) {
+        AppFileSystem.writeTextAtomic(relativePath, content)
     }
 
     fun appendIbPriceTickLine(relativePath: String, line: String) {

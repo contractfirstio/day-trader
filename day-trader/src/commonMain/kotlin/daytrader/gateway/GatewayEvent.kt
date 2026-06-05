@@ -2,6 +2,7 @@ package daytrader.gateway
 
 import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.TouchTurnSignalContext
 
 sealed interface GatewayEvent {
     data class ConnectionStateChanged(val state: GatewayConnectionState) : GatewayEvent
@@ -29,6 +30,11 @@ sealed interface GatewayEvent {
     data class FourteenDayAdrReady(
         val requestId: Long,
         val result: Result<Double>
+    ) : GatewayEvent
+
+    data class TouchTurnSignalContextReady(
+        val requestId: Long,
+        val result: Result<TouchTurnSignalContext>
     ) : GatewayEvent
 
     data class InstrumentResolved(

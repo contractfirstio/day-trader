@@ -184,6 +184,70 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun touchTurnSignalContext_usSymbol_usesMarketZoneSessionDayNotJvmLocal() {
+        // UTC 2026-06-02 22:57 = NY 2026-06-02 18:57, but UTC+8 local calendar is already 2026-06-03.
+        val now = 1_780_441_021_834L
+        val instrument = EmulatorSeedCatalog.instruments()["SPY"]!!
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val result = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = "SPY",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val barDay = TouchTurnLogic.barDayKey(result.getOrThrow().firstCandle.time)
+        assertEquals("20260602", barDay)
+        assertEquals(
+            "20260602",
+            TouchTurnLogic.sessionDayYyyyMmDd(instrument.marketZoneId, now)
+        )
+    }
+
+    @Test
+    fun touchTurnSignalContext_acceleratedCandle_usesOpeningBarNotIntradaySlot() {
+        val instrument = EmulatorSeedCatalog.instruments()["700"]!!
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val now = 1_780_561_451_379L
+        val ctx = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = "700",
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        ).getOrThrow()
+        val zone = instrument.marketZoneId
+        assertEquals(
+            FirstCandleCloseStatus.FORMING,
+            TouchTurnLogic.firstCandleCloseStatus(ctx.firstCandle, zone, now)
+        )
+        assertTrue(
+            !TouchTurnLogic.isVolumeExhaustion(ctx.firstCandle.volume, ctx.volumeSma20),
+            "opening volume=${ctx.firstCandle.volume} sma=${ctx.volumeSma20}"
+        )
+    }
+
+    @Test
+    fun touchTurnSignalContext_acceleratedCandle_hasAtrAndVolumeSma() {
+        val instrument = EmulatorSeedCatalog.instruments()["700"]
+            ?: EmulatorSeedCatalog.instruments().values.first()
+        val symbol = EmulatorSeedCatalog.instruments().entries
+            .first { it.value == instrument }.key
+        val config = BrokerEmulatorConfig(firstCandleSecondsUntilClose = 10)
+        val now = System.currentTimeMillis()
+        val result = EmulatorHistoricalData.touchTurnSignalContext(
+            symbol = symbol,
+            instrument = instrument,
+            config = config,
+            nowEpochMillis = now
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val ctx = result.getOrThrow()
+        assertTrue(ctx.atr14 > 0.0)
+        assertTrue(ctx.volumeSma20 > 0.0)
+        assertTrue(ctx.firstCandle.volume > 0.0)
+    }
+
+    @Test
     fun parseFirstCandleSecondsUntilClose_defaultsOffAndCustom() {
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(null))
         assertEquals(10L, BrokerEmulatorConfig.parseFirstCandleSecondsUntilClose(""))

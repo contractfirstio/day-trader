@@ -8,6 +8,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.onSessionStarted
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -107,7 +108,7 @@ class TouchTurnPipelineUiMapperTest {
             brokerPositions = positions,
             brokerOpenOrders = emptyList(),
             brokerFills = fills,
-            showLastSessionRecap = false,
+            showSessionRecap = false,
             nowEpochMillis = now
         )!!
         assertTrue(TouchTurnPipelineNodeId.Close in graph.activePath)
@@ -124,7 +125,8 @@ class TouchTurnPipelineUiMapperTest {
                 candle = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime),
                 marketZoneId = "America/New_York",
                 rangeThreshold = 0.01,
-                adr14 = 0.04
+                adr14 = 0.04,
+                milestones = TouchTurnMilestoneTimestamps(dataReadyAt = "2026-05-22T09:30:12")
             )
         )
         val graph = TouchTurnPipelineUiMapper.graphForDeployment(
@@ -132,13 +134,13 @@ class TouchTurnPipelineUiMapperTest {
             brokerPositions = emptyList(),
             brokerOpenOrders = emptyList(),
             brokerFills = emptyList(),
-            showLastSessionRecap = false,
+            showSessionRecap = false,
             nowEpochMillis = barEnd - 1
         )!!
-        assertEquals(TouchTurnPipelineNodeId.Bar, graph.activePath.last())
+        assertEquals(TouchTurnPipelineNodeId.Data, graph.activePath.last())
         assertEquals(
             TouchTurnBreadcrumbStepState.CURRENT,
-            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Bar }.state
+            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Data }.state
         )
     }
 

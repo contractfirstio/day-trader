@@ -4,6 +4,7 @@ import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.presentation.strategies.StartBlockedByPositionAlert
 import daytrader.presentation.strategies.StrategyDetailTab
 
@@ -41,4 +42,11 @@ sealed interface TouchTurnEvent {
     ) : TouchTurnEvent
 
     data class StartBlocked(val alert: StartBlockedByPositionAlert) : TouchTurnEvent
+
+    data class PrepareStarted(val instanceId: String) : TouchTurnEvent
+
+    data class PrepareFinished(
+        val instanceId: String,
+        val overallStatus: TouchTurnPrepareOverallStatus
+    ) : TouchTurnEvent
 }

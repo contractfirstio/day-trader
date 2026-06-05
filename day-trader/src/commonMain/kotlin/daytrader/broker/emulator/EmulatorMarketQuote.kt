@@ -11,13 +11,15 @@ internal data class EmulatorMarketQuote(
     var last: Double,
     var bid: Double,
     var ask: Double,
-    var halfSpread: Double
+    var halfSpread: Double,
+    var lastTickVolume: Double = 0.0
 ) {
     fun toLiveQuote(symbol: String): LiveQuote = LiveQuote(
         symbol = symbol,
         bid = bid,
         ask = ask,
-        last = last
+        last = last,
+        tickVolume = lastTickVolume.takeIf { it > 0.0 }
     )
 
     fun setFromBarClose(close: Double, spread: Double) {
@@ -28,9 +30,14 @@ internal data class EmulatorMarketQuote(
     }
 
     fun setMid(mid: Double) {
+        val previous = last
         last = mid.coerceAtLeast(0.01)
         bid = last - halfSpread
         ask = last + halfSpread
+        val delta = kotlin.math.abs(last - previous)
+        if (delta > 0.0) {
+            lastTickVolume = delta * 50_000.0
+        }
     }
 
     fun nudgeMid(delta: Double) {
@@ -64,7 +71,14 @@ internal data class EmulatorMarketQuote(
                 ?: existing?.last
                 ?: (bid + ask) / 2.0
             val halfSpread = max((ask - bid) / 2.0, last * 1e-6)
-            return EmulatorMarketQuote(last = last, bid = bid, ask = ask, halfSpread = halfSpread)
+            val tickVolume = incoming.tickVolume?.takeIf { it > 0.0 } ?: 0.0
+            return EmulatorMarketQuote(
+                last = last,
+                bid = bid,
+                ask = ask,
+                halfSpread = halfSpread,
+                lastTickVolume = tickVolume
+            )
         }
     }
 }
@@ -78,6 +92,16 @@ internal object EmulatorMarketQuoteBook {
 
     /** Sell limit: hit the bid — fill when bid is at or above the limit. */
     fun sellLimitFillable(bid: Double, limit: Double): Boolean = bid >= limit
+
+    /**
+     * Touch Turn entry: buy limit is not marketable when ask has blown through the level
+     * (same 5% of bracket range buffer as strategy gates, minimum tick).
+     */
+    fun buyEntryTouchable(ask: Double, limit: Double, touchBuffer: Double): Boolean =
+        ask >= limit - touchBuffer
+
+    fun sellEntryTouchable(bid: Double, limit: Double, touchBuffer: Double): Boolean =
+        bid <= limit + touchBuffer
 
     /** Sell stop (e.g. long protection): triggered when bid trades at or through the stop. */
     fun sellStopTriggered(bid: Double, stop: Double): Boolean = bid <= stop

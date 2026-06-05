@@ -4,6 +4,7 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BrokerGateway
@@ -23,11 +24,27 @@ class FakeBrokerGateway(
     override val brokerId: BrokerId = BrokerId.EMULATOR,
     adrResult: Result<Double> = Result.success(10.0),
     candleResult: Result<OhlcBar> = Result.success(
-        OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = "20260522  09:30:00")
-    )
+        OhlcBar(
+            open = 100.0,
+            high = 110.0,
+            low = 99.0,
+            close = 108.0,
+            time = "20260522  09:30:00",
+            volume = 50_000.0
+        )
+    ),
+    signalContextResult: Result<TouchTurnSignalContext>? = null
 ) : BrokerGateway {
     var adrFetchResult: Result<Double> = adrResult
     var candleFetchResult: Result<OhlcBar> = candleResult
+    var signalContextFetchResult: Result<TouchTurnSignalContext> = signalContextResult
+        ?: Result.success(
+            TouchTurnSignalContext(
+                firstCandle = candleResult.getOrThrow(),
+                atr14 = adrResult.getOrThrow(),
+                volumeSma20 = 30_000.0
+            )
+        )
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
     val flattenedSymbols = mutableListOf<String>()
 
@@ -81,6 +98,17 @@ class FakeBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<Double> = adrFetchResult
+
+    override suspend fun fetchTouchTurnSignalContext(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        isClosedBarRefetch: Boolean,
+        marketZoneId: String?,
+        allowMissingTodayOpeningBar: Boolean,
+        rules: daytrader.domain.TouchTurnRuleConfig
+    ): Result<TouchTurnSignalContext> = signalContextFetchResult
+
+    override fun cancelOrder(orderId: Int) = Unit
 
     override suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution> =
         Result.success(InstrumentResolution(emptyList()))

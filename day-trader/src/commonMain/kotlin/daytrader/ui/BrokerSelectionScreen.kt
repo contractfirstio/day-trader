@@ -51,6 +51,7 @@ fun BrokerSelectionScreen(
         BrokerKind.INTERACTIVE_BROKERS -> "Start with Interactive Brokers"
         BrokerKind.EMULATOR -> "Start with Broker Emulator"
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Start Paper Trading (Live IB Data)"
+        BrokerKind.REPLAY -> "Start Session Replay"
     }
 
     Surface(modifier = modifier.fillMaxSize(), color = DarkBackground) {
@@ -93,7 +94,7 @@ fun BrokerSelectionScreen(
                     BrokerOptionCard(
                         title = "Broker Emulator",
                         subtitle = "In-memory (offline)",
-                        description = "Simulated brokerage with an empty blotter at connect, seeded working orders, and Touch Turn first 15m bar closing in ~10s. No Gateway required.",
+                        description = "Simulated brokerage with an empty blotter at connect, Touch Turn first 15m bar closing in ~10s, and orders only from your sessions. No Gateway required.",
                         selected = selected == BrokerKind.EMULATOR,
                         onClick = { onSelect(BrokerKind.EMULATOR) }
                     )
@@ -103,6 +104,13 @@ fun BrokerSelectionScreen(
                         description = "Live 14-day ADR, opening 15-minute bar, and streaming marks from IB Gateway or TWS. Orders and positions stay simulated in the emulator so no real capital is at risk.",
                         selected = selected == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
                         onClick = { onSelect(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA) }
+                    )
+                    BrokerOptionCard(
+                        title = "Session Replay",
+                        subtitle = "Offline captured session",
+                        description = "Re-run a previously captured Touch Turn session using recorded IB market data and emulator execution. No Gateway connection required.",
+                        selected = selected == BrokerKind.REPLAY,
+                        onClick = { onSelect(BrokerKind.REPLAY) }
                     )
                 }
             }

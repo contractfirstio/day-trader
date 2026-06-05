@@ -31,6 +31,12 @@ fun BrokerModeBadge(
     modifier: Modifier = Modifier
 ) {
     val (label, borderColor, surfaceColor, textColor) = when {
+        brokerKind == BrokerKind.REPLAY -> BrokerModeBadgeStyle(
+            label = "REPLAY · CAPTURED",
+            borderColor = Color(0xFF80CBC4),
+            surfaceColor = Color(0xFF142220),
+            textColor = Color(0xFF80CBC4)
+        )
         brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> BrokerModeBadgeStyle(
             label = "PAPER · LIVE IB",
             borderColor = LiveAccent,

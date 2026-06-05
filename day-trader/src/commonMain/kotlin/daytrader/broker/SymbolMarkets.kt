@@ -24,8 +24,19 @@ object SymbolMarkets {
         else -> "America/New_York"
     }
 
-    /** RTH session zone for IB session-day filters and bar timestamps (prefers saved listing). */
-    fun marketZoneIdForSession(symbol: String, instrument: InstrumentIdentity?): String {
+    /**
+     * RTH session zone for IB session-day filters and bar timestamps.
+     * [deploymentMarketZoneId] wins when set (UI market selection) so currency/listing heuristics
+     * cannot drift from [daytrader.domain.DeploymentMarket.effectiveZoneId].
+     */
+    fun marketZoneIdForSession(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        deploymentMarketZoneId: String? = null
+    ): String {
+        deploymentMarketZoneId?.trim()?.takeIf { it.isNotEmpty() }?.let { zone ->
+            return RthMarketSessions.forZoneId(zone).zoneId
+        }
         if (instrument != null) {
             return InstrumentMarketResolver.fromIbContract(
                 InstrumentMarketResolver.ContractSnapshot(

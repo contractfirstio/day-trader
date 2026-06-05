@@ -9,6 +9,9 @@ data class LiveQuote(
     val symbol: String,
     val bid: Double? = null,
     val ask: Double? = null,
-    val last: Double? = null
+    val last: Double? = null,
+    /** Incremental volume since the previous tick (for buffer-zone monitoring). */
+    val tickVolume: Double? = null,
+    val quoteEpochMillis: Long = System.currentTimeMillis()
 )
 

@@ -3,9 +3,13 @@ package daytrader.data.persistence
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnPlannedBracket
+import daytrader.domain.TouchTurnPrepareCheck
+import daytrader.domain.TouchTurnPrepareSnapshot
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
 import daytrader.domain.TouchTurnRunRecord
+import daytrader.domain.TouchTurnVolumeCheck
+import daytrader.domain.TouchTurnVolumeCheckPhase
 import daytrader.domain.TouchTurnSessionDecision
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
@@ -24,11 +28,15 @@ internal object TouchTurnRunPersistence {
                 maxDollars = record.runContext.maxDollars,
                 startedBy = parseStartedBy(record.runContext.startedBy),
                 brokerId = parseBrokerId(record.runContext.brokerId),
-                brokerKind = parseBrokerKind(record.runContext.brokerKind)
+                brokerKind = parseBrokerKind(record.runContext.brokerKind),
+                prepareSnapshot = record.runContext.prepareSnapshot?.toDomain()
             ),
             marketInputs = TouchTurnRunMarketInputs(
                 openingBar = record.marketInputs.openingBar?.toDomain(),
                 adr14 = record.marketInputs.adr14,
+                atr14 = record.marketInputs.atr14,
+                volumeSma20 = record.marketInputs.volumeSma20,
+                volumeCheck = record.marketInputs.volumeCheck?.toDomain(),
                 currencyCode = record.marketInputs.currencyCode,
                 marketZoneId = record.marketInputs.marketZoneId,
                 dataErrorMessage = record.marketInputs.dataErrorMessage
@@ -48,7 +56,8 @@ internal object TouchTurnRunPersistence {
                 stopErrorMessage = record.stopEvent.stopErrorMessage,
                 brokerUnrealizedPnLAtStop = record.stopEvent.brokerUnrealizedPnLAtStop
             ),
-            milestones = TouchTurnPersistence.milestonesToDomain(record.milestones)
+            milestones = TouchTurnPersistence.milestonesToDomain(record.milestones),
+            rules = TouchTurnRuleConfigPersistence.toDomain(record.rules)
         )
     }
 
@@ -59,11 +68,15 @@ internal object TouchTurnRunPersistence {
                 maxDollars = record.runContext.maxDollars,
                 startedBy = record.runContext.startedBy.name.lowercase(),
                 brokerId = record.runContext.brokerId.name.lowercase(),
-                brokerKind = record.runContext.brokerKind?.name?.lowercase()
+                brokerKind = record.runContext.brokerKind?.name?.lowercase(),
+                prepareSnapshot = record.runContext.prepareSnapshot?.toRecord()
             ),
             marketInputs = TouchTurnRunMarketInputsRecord(
                 openingBar = record.marketInputs.openingBar?.toRecord(),
                 adr14 = record.marketInputs.adr14,
+                atr14 = record.marketInputs.atr14,
+                volumeSma20 = record.marketInputs.volumeSma20,
+                volumeCheck = record.marketInputs.volumeCheck?.toRecord(),
                 currencyCode = record.marketInputs.currencyCode,
                 marketZoneId = record.marketInputs.marketZoneId,
                 dataErrorMessage = record.marketInputs.dataErrorMessage
@@ -79,7 +92,8 @@ internal object TouchTurnRunPersistence {
                 stopErrorMessage = record.stopEvent.stopErrorMessage,
                 brokerUnrealizedPnLAtStop = null
             ),
-            milestones = TouchTurnPersistence.milestonesToRecord(record.milestones)
+            milestones = TouchTurnPersistence.milestonesToRecord(record.milestones),
+            rules = record.rules?.let(TouchTurnRuleConfigPersistence::toRecord)
         )
     }
 
@@ -88,7 +102,8 @@ internal object TouchTurnRunPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun OhlcBar.toRecord(): OhlcBarRecord = OhlcBarRecord(
@@ -96,8 +111,35 @@ internal object TouchTurnRunPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
+
+    private fun TouchTurnVolumeCheckRecord.toDomain(): TouchTurnVolumeCheck = TouchTurnVolumeCheck(
+        phase = parseVolumeCheckPhase(phase),
+        openingBarVolume = openingBarVolume,
+        volumeSma20 = volumeSma20,
+        exhaustionThreshold = exhaustionThreshold,
+        volumeExhausted = volumeExhausted,
+        volumeRatio = volumeRatio,
+        exhaustionRatio = exhaustionRatio,
+        barTime = barTime
+    )
+
+    private fun TouchTurnVolumeCheck.toRecord(): TouchTurnVolumeCheckRecord = TouchTurnVolumeCheckRecord(
+        phase = phase.name.lowercase(),
+        openingBarVolume = openingBarVolume,
+        volumeSma20 = volumeSma20,
+        exhaustionThreshold = exhaustionThreshold,
+        volumeExhausted = volumeExhausted,
+        volumeRatio = volumeRatio,
+        exhaustionRatio = exhaustionRatio,
+        barTime = barTime
+    )
+
+    private fun parseVolumeCheckPhase(value: String): TouchTurnVolumeCheckPhase =
+        runCatching { TouchTurnVolumeCheckPhase.valueOf(value.uppercase()) }
+            .getOrDefault(TouchTurnVolumeCheckPhase.LIQUIDITY_EVALUATED)
 
     private fun TouchTurnPlannedBracketRecord.toDomain(): TouchTurnPlannedBracket =
         TouchTurnPlannedBracket(
@@ -161,4 +203,40 @@ internal object TouchTurnRunPersistence {
 
     private fun parseOrderRole(value: String): TouchTurnOrderRole? =
         runCatching { TouchTurnOrderRole.valueOf(value.uppercase()) }.getOrNull()
+
+    private fun TouchTurnPrepareSnapshotRecord.toDomain(): TouchTurnPrepareSnapshot =
+        TouchTurnPrepareSnapshot(
+            preparedAtEpochMillis = preparedAtEpochMillis,
+            overallStatus = overallStatus,
+            checks = checks.map { c ->
+                TouchTurnPrepareCheck(
+                    id = c.id,
+                    status = c.status,
+                    label = c.label,
+                    detail = c.detail
+                )
+            },
+            bootstrapReusedFromPrepare = bootstrapReusedFromPrepare,
+            atr14 = atr14,
+            volumeSma20 = volumeSma20,
+            todayOpeningBarPending = todayOpeningBarPending
+        )
+
+    private fun TouchTurnPrepareSnapshot.toRecord(): TouchTurnPrepareSnapshotRecord =
+        TouchTurnPrepareSnapshotRecord(
+            preparedAtEpochMillis = preparedAtEpochMillis,
+            overallStatus = overallStatus,
+            checks = checks.map { c ->
+                TouchTurnPrepareCheckRecord(
+                    id = c.id,
+                    status = c.status,
+                    label = c.label,
+                    detail = c.detail
+                )
+            },
+            bootstrapReusedFromPrepare = bootstrapReusedFromPrepare,
+            atr14 = atr14,
+            volumeSma20 = volumeSma20,
+            todayOpeningBarPending = todayOpeningBarPending
+        )
 }

@@ -19,6 +19,20 @@ class SessionPriceLogTest {
     }
 
     @Test
+    fun quotesEqual_comparesBidAskLastAndTickVolume() {
+        val a = LiveQuote(symbol = "AAPL", bid = 100.0, ask = 101.0, last = 100.5, tickVolume = 10.0)
+        val b = LiveQuote(symbol = "AAPL", bid = 100.0, ask = 101.0, last = 100.5, tickVolume = 10.0)
+        val c = LiveQuote(symbol = "AAPL", bid = 100.0, ask = 101.0, last = 100.5, tickVolume = 11.0)
+        assertTrue(SessionPriceLog.quotesEqual(a, b))
+        assertFalse(SessionPriceLog.quotesEqual(a, c))
+    }
+
+    @Test
+    fun quoteHasData_trueWhenTickVolumePresent() {
+        assertTrue(SessionPriceLog.quoteHasData(LiveQuote(symbol = "AAPL", tickVolume = 50.0)))
+    }
+
+    @Test
     fun quotesEqual_comparesBidAskLast() {
         val a = LiveQuote(symbol = "AAPL", bid = 100.0, ask = 101.0, last = 100.5)
         val b = LiveQuote(symbol = "AAPL", bid = 100.0, ask = 101.0, last = 100.5)

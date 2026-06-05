@@ -18,6 +18,7 @@ internal object TouchTurnPersistence {
         return TouchTurnSessionContext(
             sessionDate = record.sessionDate,
             status = parseStatus(record.status),
+            openingBarTime = record.openingBarTime ?: record.candle?.time,
             candle = record.candle?.toDomain(),
             setup = record.setup?.toDomain(record.candle?.toDomain()),
             errorMessage = record.errorMessage,
@@ -40,6 +41,7 @@ internal object TouchTurnPersistence {
         return TouchTurnSessionRecord(
             sessionDate = context.sessionDate,
             status = statusLabel(context.status),
+            openingBarTime = context.openingBarTime,
             candle = context.candle?.toRecord(),
             setup = context.setup?.toRecord(),
             errorMessage = context.errorMessage,
@@ -99,7 +101,8 @@ internal object TouchTurnPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun OhlcBar.toRecord(): OhlcBarRecord = OhlcBarRecord(
@@ -107,7 +110,8 @@ internal object TouchTurnPersistence {
         high = high,
         low = low,
         close = close,
-        time = time
+        time = time,
+        volume = volume
     )
 
     private fun TouchTurnBracketSetupRecord.toDomain(candle: OhlcBar?): TouchTurnBracketSetup {

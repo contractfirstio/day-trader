@@ -2,8 +2,10 @@ package daytrader.domain
 
 import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
+import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class TouchTurnRunRecordTest {
@@ -103,6 +105,48 @@ class TouchTurnRunRecordTest {
     }
 
     @Test
+    fun onSessionStopped_persistsPrepareSnapshotOnRunRecord() {
+        val prepareSnapshot = TouchTurnPrepareSnapshot(
+            preparedAtEpochMillis = 1_700_000_000_000L,
+            overallStatus = TouchTurnPrepareOverallStatus.PASS.name,
+            checks = listOf(
+                TouchTurnPrepareCheck(
+                    id = TouchTurnPrepareCheckId.IB_CONNECTED.name,
+                    status = TouchTurnPrepareStatus.PASS.name,
+                    label = "IB / market data connected"
+                )
+            ),
+            bootstrapReusedFromPrepare = true,
+            atr14 = 2.5,
+            volumeSma20 = 1_000_000.0
+        )
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "SPY",
+            maxDollars = 500
+        ).onSessionStarted("2026-05-22")
+            .copy(
+                touchTurnSession = TouchTurnSessionContext(
+                    sessionDate = "2026-05-22",
+                    status = TouchTurnCandleStatus.READY,
+                    prepareSnapshot = prepareSnapshot,
+                    decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+                )
+            )
+        val stopped = instance.onSessionStopped(
+            stopParams = SessionStopParams(
+                stopTrigger = TouchTurnSessionStopTrigger.NO_TRADE_DECISION,
+                brokerId = BrokerId.EMULATOR
+            )
+        )
+        val snapshot = stopped.sessionHistory.single().touchTurnRunRecord?.runContext?.prepareSnapshot
+        requireNotNull(snapshot)
+        assertEquals(true, snapshot.bootstrapReusedFromPrepare)
+        assertEquals(1, snapshot.checks.size)
+        assertEquals(2.5, snapshot.atr14)
+    }
+
+    @Test
     fun touchTurnAnalysisSession_restoresOpeningBarFromClosedRun() {
         val candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = "20260522  09:30:00")
         val setup = TouchTurnBracketSetup(
@@ -145,6 +189,59 @@ class TouchTurnRunRecordTest {
         assertEquals(40.0, analysis.adr14)
         assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, analysis.decisionOutcome)
         assertEquals(true, analysis.ordersPlacedForSession)
+    }
+
+    @Test
+    fun touchTurnAnalysisSession_restoresDisabledRuleEnablesFromClosedRun() {
+        val barTime = "20260522  09:30:00"
+        val candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = barTime)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange = false,
+                volumeExhaustion = false
+            )
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 5.0, rules)
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "700",
+            maxDollars = 500
+        ).copy(touchTurnRules = rules).onSessionStarted("2026-05-22")
+            .copy(
+                touchTurnSession = TouchTurnSessionContext(
+                    sessionDate = "2026-05-22",
+                    status = TouchTurnCandleStatus.READY,
+                    candle = candle,
+                    setup = setup,
+                    adr14 = 40.0,
+                    atr14 = 20.0,
+                    rangeThreshold = 5.0,
+                    rules = rules,
+                    ordersPlacedForSession = true,
+                    decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+                )
+            )
+        val stopped = instance.onSessionStopped(
+            stopParams = SessionStopParams(
+                stopTrigger = TouchTurnSessionStopTrigger.MANUAL,
+                brokerId = BrokerId.EMULATOR
+            )
+        )
+        val analysis = stopped.touchTurnAnalysisSession()
+        requireNotNull(analysis)
+        assertEquals(rules, analysis.rules)
+
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, "America/New_York")!! + 1
+        val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(analysis, barEnd)
+        requireNotNull(evaluation)
+        val liquidity = evaluation.checks.first { it.label == "Liquidity range" }
+        val volume = evaluation.checks.first { it.key == "volumeExhaustion" }
+        assertFalse(liquidity.enabled)
+        assertEquals("Disabled", liquidity.detail)
+        assertNull(liquidity.passed)
+        assertFalse(volume.enabled)
+        assertEquals("Disabled", volume.detail)
+        assertNull(volume.passed)
     }
 
     @Test

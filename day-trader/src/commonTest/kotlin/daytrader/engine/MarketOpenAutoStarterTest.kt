@@ -7,6 +7,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
+import daytrader.engine.support.testTouchTurnEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.CoroutineScope
@@ -32,9 +33,8 @@ class MarketOpenAutoStarterTest {
 
         val gateway = FakeBrokerGateway()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val engine = TouchTurnEngine(
-            sessionGateway = gateway,
-            executionGateway = gateway,
+        val engine = testTouchTurnEngine(
+            gateway = gateway,
             repository = repo,
             scope = scope,
             isGlobalAutoStartEnabled = { true },

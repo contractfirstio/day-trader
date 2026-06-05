@@ -18,7 +18,7 @@ import kotlinx.coroutines.runBlocking
 class BrokerEmulatorEngineTest {
 
     @Test
-    fun connect_publishesEmptyPositionsAndSeedOrders() = runBlocking {
+    fun connect_publishesEmptyPositionsAndOrders() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(connectDelayMs = 1, historicalDelayMs = 1),
@@ -34,8 +34,7 @@ class BrokerEmulatorEngineTest {
         assertTrue(positions.isEmpty())
 
         val orders = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>().last().orders
-        assertTrue(orders.isNotEmpty())
-        assertTrue(orders.any { it.symbol == "SPY" })
+        assertTrue(orders.isEmpty())
     }
 
     @Test
@@ -132,6 +131,37 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
+    fun liveIbMode_doesNotInstantFillMarketableBuyFarBelowEntry() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 0.9,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.LONG,
+            entry = 84.8,
+            stopLoss = 84.628,
+            takeProfit = 85.1438
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("3690", setup, maxDollars = 500, currencyCode = "HKD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        engine.ingestLiveQuote(
+            "3690",
+            LiveQuote(symbol = "3690", bid = 83.3, ask = 83.4, last = 83.35),
+            priorClose = null
+        )
+        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
+    }
+
+    @Test
     fun liveIbMode_ignoresLastOnlyUntilBidAndAskArrive() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
@@ -186,6 +216,60 @@ class BrokerEmulatorEngineTest {
         engine.cancelOpenOrdersForSymbol("AAPL")
         val after = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>().last().orders
         assertTrue(after.none { SymbolMarkets.symbolsMatch("AAPL", it.symbol) })
+    }
+
+    @Test
+    fun touchTurnSignalContext_bootstrapAndRefetch_shareCandleColor_perSession() = runBlocking {
+        val config = BrokerEmulatorConfig(
+            historicalDelayMs = 1,
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+            alternateFirstCandleColor = true
+        )
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+
+        suspend fun candleColorFromFetch(requestId: Long, isClosedBarRefetch: Boolean): FirstCandleColor {
+            engine.fetchTouchTurnSignalContext(requestId, "AAPL", isClosedBarRefetch)
+            val ready = events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+            val bar = ready.result.getOrThrow().firstCandle
+            return TouchTurnLogic.firstCandleColor(bar)
+        }
+
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(1L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(2L, isClosedBarRefetch = true))
+
+        assertEquals(FirstCandleColor.RED, candleColorFromFetch(3L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.RED, candleColorFromFetch(4L, isClosedBarRefetch = true))
+
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(5L, isClosedBarRefetch = false))
+        assertEquals(FirstCandleColor.GREEN, candleColorFromFetch(6L, isClosedBarRefetch = true))
+    }
+
+    @Test
+    fun touchTurnSignalContext_refetchRetries_reuseBootstrapColor() = runBlocking {
+        val config = BrokerEmulatorConfig(
+            historicalDelayMs = 1,
+            firstCandleSecondsUntilClose = 10,
+            alternateFirstCandleColor = true
+        )
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+
+        engine.fetchTouchTurnSignalContext(1L, "SPY", isClosedBarRefetch = false)
+        val bootstrapColor = TouchTurnLogic.firstCandleColor(
+            events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+                .result.getOrThrow().firstCandle
+        )
+
+        repeat(3) { attempt ->
+            engine.fetchTouchTurnSignalContext(10L + attempt, "SPY", isClosedBarRefetch = true)
+            val refetchColor = TouchTurnLogic.firstCandleColor(
+                events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+                    .result.getOrThrow().firstCandle
+            )
+            assertEquals(bootstrapColor, refetchColor, "refetch attempt $attempt should match bootstrap")
+        }
     }
 
     @Test

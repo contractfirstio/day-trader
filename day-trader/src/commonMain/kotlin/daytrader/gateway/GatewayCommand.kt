@@ -2,6 +2,7 @@ package daytrader.gateway
 
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnRuleConfig
 
 sealed interface GatewayCommand {
     data object Connect : GatewayCommand
@@ -23,6 +24,21 @@ sealed interface GatewayCommand {
         val symbol: String,
         val instrument: InstrumentIdentity? = null
     ) : GatewayCommand
+
+    data class FetchTouchTurnSignalContext(
+        val requestId: Long,
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null,
+        /** When true, reuse the bootstrap candle-color index for this symbol (closed-bar refetch). */
+        val isClosedBarRefetch: Boolean = false,
+        /** Deployment/session RTH zone; overrides instrument currency heuristics for IB bar day. */
+        val marketZoneId: String? = null,
+        /** Pre-open Prepare: succeed with ATR/volume when today's opening bar is not in history yet. */
+        val allowMissingTodayOpeningBar: Boolean = false,
+        val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ) : GatewayCommand
+
+    data class CancelOrder(val orderId: Int) : GatewayCommand
 
     data class ResolveInstrument(
         val requestId: Long,

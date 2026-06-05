@@ -60,6 +60,22 @@ data class LiquidityCalculationUi(
         get() = passes != null && evaluation != LiquidityCandleEvaluation.UNKNOWN
 }
 
+data class RuleCheckUi(
+    val key: String,
+    val label: String,
+    val description: String,
+    val passed: Boolean?,
+    val detail: String? = null,
+    val enabled: Boolean = true,
+    val explanationSteps: List<String> = emptyList()
+)
+
+data class RulesEvaluationUi(
+    val checks: List<RuleCheckUi>,
+    val entryOrdersPermitted: Boolean?,
+    val evaluatedAt: String?
+)
+
 data class CloseConfirmationUi(
     val confirmation: TouchTurnCloseConfirmation,
     val closePositionRatio: Double?,
@@ -89,9 +105,9 @@ object TouchTurnPipelineDetailUiMapper {
         session: TouchTurnSessionContext,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): OpeningBarDetailUi? {
-        val candle = session.candle ?: return null
+        val barTime = session.resolvedOpeningBarTime() ?: return null
         val closeStatus = session.candleCloseStatus(nowEpochMillis)
-        val barEnd = candle.time?.let { TouchTurnLogic.barEndEpochMillis(it, session.marketZoneId) }
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, session.marketZoneId)
         val timeUntilClose = when (closeStatus) {
             FirstCandleCloseStatus.FORMING -> barEnd?.let { end ->
                 val remaining = (end - nowEpochMillis).coerceAtLeast(0L)
@@ -99,21 +115,24 @@ object TouchTurnPipelineDetailUiMapper {
             }
             else -> null
         }
-        val color = session.firstCandleColor() ?: TouchTurnLogic.firstCandleColor(candle)
+        val candle = session.candle
+        val color = session.firstCandleColor()
+            ?: candle?.let { TouchTurnLogic.firstCandleColor(it) }
+            ?: FirstCandleColor.DOJI
         return OpeningBarDetailUi(
-            barTime = candle.time,
+            barTime = barTime,
             closeStatus = closeStatus,
             closeStatusLabel = TouchTurnLogic.closeStatusLabel(closeStatus),
             timeUntilCloseLabel = timeUntilClose,
             candleColor = color,
             candleColorLabel = TouchTurnLogic.candleColorLabel(color),
             currency = session.currencyCode,
-            open = candle.open,
-            high = candle.high,
-            low = candle.low,
-            close = candle.close,
-            range = candle.range,
-            bodyChange = candle.close - candle.open
+            open = candle?.open ?: 0.0,
+            high = candle?.high ?: 0.0,
+            low = candle?.low ?: 0.0,
+            close = candle?.close ?: 0.0,
+            range = candle?.range ?: 0.0,
+            bodyChange = candle?.let { it.close - it.open } ?: 0.0
         )
     }
 
@@ -138,6 +157,31 @@ object TouchTurnPipelineDetailUiMapper {
             barRange = candle.range,
             passes = passes,
             currency = session.currencyCode
+        )
+    }
+
+    fun rulesEvaluation(
+        session: TouchTurnSessionContext,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        verboseExplanations: Boolean = false,
+        requireLivePriceChecks: Boolean = false
+    ): RulesEvaluationUi? {
+        if (session.candle == null || session.setup == null) return null
+        val evaluationInstant = if (verboseExplanations) {
+            TouchTurnRuleExplanationMapper.evaluationEpochMillis(session)
+        } else {
+            nowEpochMillis
+        }
+        val checks = TouchTurnRuleExplanationMapper.buildChecks(
+            session = session,
+            evaluationInstant = evaluationInstant,
+            verboseExplanations = verboseExplanations,
+            requireLivePriceChecks = requireLivePriceChecks
+        )
+        return RulesEvaluationUi(
+            checks = checks,
+            entryOrdersPermitted = session.entryOrdersPermitted,
+            evaluatedAt = session.milestones.liquidityEvaluatedAt
         )
     }
 
@@ -181,15 +225,7 @@ object TouchTurnPipelineDetailUiMapper {
     private fun resolvedCloseConfirmation(
         session: TouchTurnSessionContext,
         nowEpochMillis: Long
-    ): TouchTurnCloseConfirmation {
-        if (session.ordersPlacedForSession ||
-            session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED ||
-            session.milestones.closeConfirmedAt != null
-        ) {
-            return TouchTurnCloseConfirmation.PASSED
-        }
-        return session.closeConfirmation(nowEpochMillis)
-    }
+    ): TouchTurnCloseConfirmation = session.pipelineCloseConfirmation(nowEpochMillis)
 
     private fun formatCountdown(remainingMs: Long): String {
         val totalSec = remainingMs / 1000

@@ -16,13 +16,38 @@ data class DeploymentRecord(
     val configuration: ConfigurationRecord,
     val live: LiveRecord,
     val sessionHistory: List<SessionHistoryRecord> = emptyList(),
-    val touchTurnSession: TouchTurnSessionRecord? = null
+    val touchTurnSession: TouchTurnSessionRecord? = null,
+    val touchTurnPrepare: TouchTurnSessionPrepareRecord? = null
+)
+
+@Serializable
+data class TouchTurnSessionPrepareRecord(
+    val sessionDateIso: String,
+    val preparedAtEpochMillis: Long,
+    val instrumentKey: String,
+    val marketZoneId: String,
+    val currencyCode: String,
+    val atr14: Double,
+    val volumeSma20: Double,
+    val todayOpeningBarPending: Boolean = false,
+    val firstCandle: OhlcBarRecord? = null,
+    val checks: List<TouchTurnPrepareCheckRecord> = emptyList(),
+    val overallStatus: String = "FAIL"
+)
+
+@Serializable
+data class TouchTurnPrepareCheckRecord(
+    val id: String,
+    val status: String,
+    val label: String,
+    val detail: String? = null
 )
 
 @Serializable
 data class TouchTurnSessionRecord(
     val sessionDate: String,
     val status: String,
+    val openingBarTime: String? = null,
     val candle: OhlcBarRecord? = null,
     val setup: TouchTurnBracketSetupRecord? = null,
     val errorMessage: String? = null,
@@ -58,7 +83,8 @@ data class OhlcBarRecord(
     val high: Double,
     val low: Double,
     val close: Double,
-    val time: String? = null
+    val time: String? = null,
+    val volume: Double = 0.0
 )
 
 @Serializable
@@ -74,6 +100,35 @@ data class TouchTurnBracketSetupRecord(
 )
 
 @Serializable
+data class TouchTurnRuleConfigRecord(
+    val atrLiquidityRatio: Double = 0.25,
+    val volumeExhaustionRatio: Double = 1.5,
+    val atrLookbackPeriods: Int = 14,
+    val volumeSmaPeriods: Int = 20,
+    val closeConfirmationMinDistanceRatioOfRange: Double = 0.15,
+    val closePositionShortMax: Double = 0.35,
+    val closePositionLongMin: Double = 0.65,
+    val barLiveDivergenceMaxRatioOfRange: Double = 0.25,
+    val entryTouchBufferRatioOfRange: Double = 0.05,
+    val minStopDistance: Double = 0.05,
+    val takeProfitFibRatioGreen: Double = 0.382,
+    val takeProfitFibRatioRed: Double = 0.382,
+    val closeConfirmationAfterCloseMs: Long = 60_000L,
+    val closedBarRefetchSettleMs: Long = 3_000L,
+    val volumeBufferObservationMs: Long = 60_000L,
+    val enableLiquidityRange: Boolean = true,
+    val enableNotDoji: Boolean = true,
+    val enableVolumeExhaustion: Boolean = true,
+    val enableBarCloseTurn: Boolean = true,
+    val enableEntryWindow: Boolean = true,
+    val enableLiveQuoteRequired: Boolean = true,
+    val enableLiveBarAgreement: Boolean = true,
+    val enableLiveTurnConfirmation: Boolean = true,
+    val enableLiveEntryTouchable: Boolean = true,
+    val enablePostEntryVolumeBuffer: Boolean = true
+)
+
+@Serializable
 data class ConfigurationRecord(
     val symbol: String,
     val maxAtRisk: Int,
@@ -83,7 +138,8 @@ data class ConfigurationRecord(
     val currencyCode: String = "USD",
     val marketSource: String? = null,
     val companyName: String? = null,
-    val instrument: InstrumentIdentityRecord? = null
+    val instrument: InstrumentIdentityRecord? = null,
+    val touchTurnRules: TouchTurnRuleConfigRecord? = null
 )
 
 @Serializable
@@ -124,7 +180,8 @@ data class TouchTurnRunRecordRecord(
     val marketInputs: TouchTurnRunMarketInputsRecord,
     val decision: TouchTurnSessionDecisionRecord,
     val stopEvent: TouchTurnStopEventRecord,
-    val milestones: TouchTurnMilestoneTimestampsRecord
+    val milestones: TouchTurnMilestoneTimestampsRecord,
+    val rules: TouchTurnRuleConfigRecord? = null
 )
 
 @Serializable
@@ -132,16 +189,43 @@ data class TouchTurnRunContextRecord(
     val maxDollars: Int,
     val startedBy: String,
     val brokerId: String,
-    val brokerKind: String? = null
+    val brokerKind: String? = null,
+    val prepareSnapshot: TouchTurnPrepareSnapshotRecord? = null
+)
+
+@Serializable
+data class TouchTurnPrepareSnapshotRecord(
+    val preparedAtEpochMillis: Long? = null,
+    val overallStatus: String,
+    val checks: List<TouchTurnPrepareCheckRecord> = emptyList(),
+    val bootstrapReusedFromPrepare: Boolean? = null,
+    val atr14: Double? = null,
+    val volumeSma20: Double? = null,
+    val todayOpeningBarPending: Boolean? = null
 )
 
 @Serializable
 data class TouchTurnRunMarketInputsRecord(
     val openingBar: OhlcBarRecord? = null,
     val adr14: Double? = null,
+    val atr14: Double? = null,
+    val volumeSma20: Double? = null,
+    val volumeCheck: TouchTurnVolumeCheckRecord? = null,
     val currencyCode: String = "USD",
     val marketZoneId: String = "America/New_York",
     val dataErrorMessage: String? = null
+)
+
+@Serializable
+data class TouchTurnVolumeCheckRecord(
+    val phase: String,
+    val openingBarVolume: Double,
+    val volumeSma20: Double,
+    val exhaustionThreshold: Double,
+    val volumeExhausted: Boolean,
+    val volumeRatio: Double? = null,
+    val exhaustionRatio: Double = 1.5,
+    val barTime: String? = null
 )
 
 @Serializable

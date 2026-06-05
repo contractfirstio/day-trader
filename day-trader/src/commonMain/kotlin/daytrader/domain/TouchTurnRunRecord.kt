@@ -17,8 +17,18 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_NOT_LIQUIDITY,
     NO_TRADE_DOJI,
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+    /** Live tape no longer on the confirming side of entry at decision time (hybrid / live data). */
+    NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
+    /** Completed bar close and live bid/ask mid disagree beyond tolerance (hybrid / live data). */
+    NO_TRADE_BAR_LIVE_DIVERGENCE,
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
+    /** Resting entry would be marketable — live price already through the touch level. */
+    NO_TRADE_ENTRY_NOT_TOUCHABLE,
+    /** Bid/ask unavailable when live price gates are required. */
+    NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
     NO_TRADE_ORDER_REJECTED,
+    /** Opening 15m volume exceeded exhaustion threshold (high-conviction breakout). */
+    NO_TRADE_VOLUME_EXHAUSTION,
     TRADE_BRACKET_SUBMITTED
 }
 
@@ -49,13 +59,21 @@ data class TouchTurnRunContext(
     val startedBy: TouchTurnSessionStartedBy,
     val brokerId: BrokerId,
     /** Startup broker mode (e.g. paper-live vs pure emulator); null on legacy rows. */
-    val brokerKind: BrokerKind? = null
+    val brokerKind: BrokerKind? = null,
+    /** Pre-flight checks snapshotted when the session was started; null on legacy rows. */
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
 )
 
 @Serializable
 data class TouchTurnRunMarketInputs(
     val openingBar: OhlcBar? = null,
     val adr14: Double? = null,
+    /** 14-period ATR on prior 15m bars (liquidity range threshold input). */
+    val atr14: Double? = null,
+    /** 20-period SMA of prior session-opening 15m bar volume. */
+    val volumeSma20: Double? = null,
+    /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
+    val volumeCheck: TouchTurnVolumeCheck? = null,
     val currencyCode: String = "USD",
     val marketZoneId: String = "America/New_York",
     val dataErrorMessage: String? = null
@@ -84,7 +102,9 @@ data class TouchTurnRunRecord(
     val marketInputs: TouchTurnRunMarketInputs,
     val decision: TouchTurnSessionDecision,
     val stopEvent: TouchTurnStopEvent,
-    val milestones: TouchTurnMilestoneTimestamps
+    val milestones: TouchTurnMilestoneTimestamps,
+    /** Rule thresholds and enable flags in effect when this run ended. */
+    val rules: TouchTurnRuleConfig? = null
 )
 
 fun TouchTurnOrderPlan.toPlannedBracket(): TouchTurnPlannedBracket =
@@ -102,14 +122,31 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     val setup = session.setup ?: return TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
     val liquidityEvaluatedAt = session.milestones.liquidityEvaluatedAt?.let(::parseIsoToEpochMillis)
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
-    if (!setup.isLiquidityCandle) return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-    if (!setup.isActionable) return TouchTurnSessionOutcome.NO_TRADE_DOJI
-    when (session.closeConfirmation(evalInstant)) {
-        TouchTurnCloseConfirmation.FAILED ->
-            return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-        TouchTurnCloseConfirmation.EXPIRED ->
-            return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
-        else -> Unit
+    TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted = false, session.rules)?.let { return it }
+    when (session.entryOrdersPermitted) {
+        true ->
+            return if (session.ordersPlacedForSession) {
+                TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+            } else {
+                TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            }
+        false -> {
+            session.decisionOutcome?.let { return it }
+            when (session.pipelineCloseConfirmation(evalInstant)) {
+                TouchTurnCloseConfirmation.FAILED ->
+                    return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+                TouchTurnCloseConfirmation.EXPIRED ->
+                    return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+                else -> return TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            }
+        }
+        null -> when (session.pipelineCloseConfirmation(evalInstant)) {
+            TouchTurnCloseConfirmation.FAILED ->
+                return TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
+            TouchTurnCloseConfirmation.EXPIRED ->
+                return TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
+            else -> Unit
+        }
     }
     return TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
 }
@@ -184,11 +221,15 @@ fun buildTouchTurnRunRecord(
             maxDollars = session.maxAtRisk,
             startedBy = session.touchTurnStartedBy ?: TouchTurnSessionStartedBy.MANUAL,
             brokerId = brokerId,
-            brokerKind = brokerKind
+            brokerKind = brokerKind,
+            prepareSnapshot = touchTurnSession.prepareSnapshot
         ),
         marketInputs = TouchTurnRunMarketInputs(
             openingBar = touchTurnSession.candle,
             adr14 = touchTurnSession.adr14,
+            atr14 = touchTurnSession.atr14,
+            volumeSma20 = touchTurnSession.volumeSma20,
+            volumeCheck = TouchTurnVolumeCheck.fromSession(touchTurnSession),
             currencyCode = touchTurnSession.currencyCode,
             marketZoneId = touchTurnSession.marketZoneId,
             dataErrorMessage = touchTurnSession.errorMessage
@@ -204,7 +245,8 @@ fun buildTouchTurnRunRecord(
             stopErrorMessage = stopErrorMessage,
             brokerUnrealizedPnLAtStop = brokerUnrealizedPnLAtStop
         ),
-        milestones = touchTurnSession.milestones
+        milestones = touchTurnSession.milestones,
+        rules = touchTurnSession.rules
     )
 }
 

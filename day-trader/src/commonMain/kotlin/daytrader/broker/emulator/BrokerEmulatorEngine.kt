@@ -47,6 +47,8 @@ class BrokerEmulatorEngine(
     private val bracketEntryPending = mutableMapOf<String, BracketEntryPending>()
     private val sessionFills = mutableListOf<BrokerFill>()
     private var firstCandleFetchCount = 0
+    /** Bootstrap fetch index per symbol; refetch reuses without incrementing. */
+    private val lockedCandleFetchIndexBySymbol = mutableMapOf<String, Int>()
     private val externalFeedReadyLogged = mutableSetOf<String>()
 
     fun handleConnect() {
@@ -85,6 +87,7 @@ class BrokerEmulatorEngine(
         externalFeedReadyLogged.clear()
         pendingBracketWalks.clear()
         bracketEntryPending.clear()
+        lockedCandleFetchIndexBySymbol.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
@@ -115,15 +118,7 @@ class BrokerEmulatorEngine(
             EmulatorLog.historicalFetchFailed("first_candle", trimmed, message)
             Result.failure(IllegalArgumentException(message))
         } else {
-            firstCandleFetchCount++
-            val fetchIndex = if (
-                config.alternateFirstCandleColor &&
-                config.firstCandleColorMode == EmulatorFirstCandleColorMode.AUTO
-            ) {
-                firstCandleFetchCount
-            } else {
-                0
-            }
+            val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch = false)
             val candleResult = EmulatorHistoricalData.firstFifteenMinuteCandle(
                 symbol = trimmed,
                 instrument = instrument,
@@ -138,7 +133,8 @@ class BrokerEmulatorEngine(
                     symbol = trimmed,
                     isGreen = TouchTurnLogic.firstCandleColor(bar) == FirstCandleColor.GREEN,
                     fetchIndex = fetchIndex,
-                    colorMode = config.firstCandleColorMode
+                    colorMode = config.firstCandleColorMode,
+                    isClosedBarRefetch = false
                 )
             }
             candleResult
@@ -158,6 +154,67 @@ class BrokerEmulatorEngine(
             EmulatorHistoricalData.fourteenDayAdr(trimmed, instrument)
         }
         emit(GatewayEvent.FourteenDayAdrReady(requestId, result))
+    }
+
+    suspend fun fetchTouchTurnSignalContext(
+        requestId: Long,
+        symbol: String,
+        isClosedBarRefetch: Boolean = false,
+        rules: daytrader.domain.TouchTurnRuleConfig = daytrader.domain.TouchTurnRuleConfig.DEFAULT
+    ) {
+        delay(config.historicalDelayMs)
+        val trimmed = symbol.trim().uppercase()
+        val instrument = resolveInstrument(trimmed)
+        val result = if (instrument == null) {
+            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+        } else {
+            val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch)
+            EmulatorHistoricalData.touchTurnSignalContext(
+                symbol = trimmed,
+                instrument = instrument,
+                config = config,
+                sessionCandleFetchIndex = fetchIndex,
+                rules = rules
+            ).also { contextResult ->
+                contextResult.onSuccess { context ->
+                    EmulatorLog.firstCandleColor(
+                        symbol = trimmed,
+                        isGreen = TouchTurnLogic.firstCandleColor(context.firstCandle) == FirstCandleColor.GREEN,
+                        fetchIndex = fetchIndex,
+                        colorMode = config.firstCandleColorMode,
+                        isClosedBarRefetch = isClosedBarRefetch
+                    )
+                }
+            }
+        }
+        emit(GatewayEvent.TouchTurnSignalContextReady(requestId, result))
+    }
+
+    /**
+     * When [alternateFirstCandleColor] is on, each Touch Turn **session** (bootstrap + refetch)
+     * shares one index; only bootstrap increments so refetch does not flip green/red.
+     */
+    private fun resolveSessionCandleFetchIndex(norm: String, isClosedBarRefetch: Boolean): Int {
+        if (!config.alternateFirstCandleColor ||
+            config.firstCandleColorMode != EmulatorFirstCandleColorMode.AUTO
+        ) {
+            return 0
+        }
+        if (isClosedBarRefetch) {
+            return lockedCandleFetchIndexBySymbol[norm] ?: firstCandleFetchCount.coerceAtLeast(1)
+        }
+        firstCandleFetchCount++
+        lockedCandleFetchIndexBySymbol[norm] = firstCandleFetchCount
+        return firstCandleFetchCount
+    }
+
+    fun cancelOrder(orderId: Int) {
+        if (!connected) return
+        val order = orders[orderId] ?: return
+        if (order.isTerminal()) return
+        updateOrder(order.copy(status = "Cancelled"))
+        EmulatorLog.sessionOrdersCancelled(order.symbol, 1)
+        publishOrders()
     }
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
@@ -296,6 +353,17 @@ class BrokerEmulatorEngine(
                 entryScenario = entryScenario
             )
         } else {
+            val legPrices = adjustedPlan.orders.map { it.price }
+            val range = (legPrices.max() - legPrices.min()).coerceAtLeast(0.01)
+            val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
+            bracketEntryPending[symbol] = BracketEntryPending(
+                entryOrderId = entryId,
+                entryPrice = entryPrice,
+                openingBarClose = entryPrice,
+                isBuyEntry = isBuyEntry,
+                scenario = TouchTurnEntryScenario.APPROACH_AND_FILL,
+                range = range
+            )
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
                 orderIds = allOrderIds,
@@ -541,14 +609,7 @@ class BrokerEmulatorEngine(
             seedDefaultSymbolQuotes()
         }
         positions = mutableListOf()
-        orders = if (config.pricingSource.isExternal) {
-            mutableMapOf()
-        } else {
-            val orderList = EmulatorSeedCatalog.initialOrders(catalog, quoteBook.lastPricesBySymbol()) {
-                allocateOrderId()
-            }
-            orderList.associateBy { it.orderId }.toMutableMap()
-        }
+        orders = mutableMapOf()
     }
 
     private fun seedDefaultSymbolQuotes() {
@@ -686,10 +747,45 @@ class BrokerEmulatorEngine(
         return parent.status == "Filled"
     }
 
+    private fun entryTouchBuffer(range: Double): Double =
+        (range * 0.05).coerceAtLeast(0.05)
+
+    private fun recordEntryApproachSide(symbol: String, quote: EmulatorMarketQuote) {
+        val pending = bracketEntryPending[symbol] ?: return
+        val buffer = entryTouchBuffer(pending.range)
+        when {
+            pending.isBuyEntry && quote.ask > pending.entryPrice + buffer ->
+                pending.sawApproachSide = true
+            !pending.isBuyEntry && quote.bid < pending.entryPrice - buffer ->
+                pending.sawApproachSide = true
+        }
+    }
+
+    private fun touchTurnEntryLimitMayFill(order: EmulatorOrder, quote: EmulatorMarketQuote): Boolean {
+        if (order.parentId != 0 || !bracketManagedOrderIds.contains(order.orderId)) {
+            return true
+        }
+        if (!config.pricingSource.isExternal) {
+            return true
+        }
+        val norm = SymbolMarkets.normalizeSymbol(order.symbol)
+        val pending = bracketEntryPending[norm] ?: return true
+        recordEntryApproachSide(norm, quote)
+        val limit = order.limitPrice ?: return false
+        val limitCrossed = when (order.action.uppercase()) {
+            "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
+            "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)
+            else -> false
+        }
+        if (!limitCrossed) return false
+        return pending.sawApproachSide
+    }
+
     private fun maybeFillLimitOrder(order: EmulatorOrder) {
         if (!quoteBook.canTriggerFills(order.symbol)) return
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return
         val limit = order.limitPrice ?: return
+        if (!touchTurnEntryLimitMayFill(order, quote)) return
         val shouldFill = when (order.action.uppercase()) {
             "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
             "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)

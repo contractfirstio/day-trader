@@ -28,6 +28,34 @@ class TouchTurnOrderLifecycleResolverTest {
     }
 
     @Test
+    fun notPlaced_whenBrokerHasStaleOpenOrdersButSessionDidNotPlaceBracket() {
+        val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
+            session = session(ordersPlaced = false),
+            hasOpenPosition = false,
+            hasOpenOrders = true,
+            inActiveTrade = false,
+            sessionEnded = false,
+            hasSessionTrades = false
+        )
+        assertEquals(TouchTurnOrderLifecyclePhase.NOT_PLACED, lifecycle.phase)
+        assertFalse(lifecycle.showLiveOrdersPanel)
+    }
+
+    @Test
+    fun notPlaced_whenEntryPermittedButBracketNotYetPlaced() {
+        val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
+            session = session(ordersPlaced = false).copy(entryOrdersPermitted = true),
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            inActiveTrade = false,
+            sessionEnded = false,
+            hasSessionTrades = false
+        )
+        assertEquals(TouchTurnOrderLifecyclePhase.NOT_PLACED, lifecycle.phase)
+        assertFalse(lifecycle.showLiveOrdersPanel)
+    }
+
+    @Test
     fun submittedPendingVisibility_whenSessionCommittedButBrokerFeedEmpty() {
         val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
             session = session(ordersPlaced = true),
@@ -56,7 +84,7 @@ class TouchTurnOrderLifecycleResolverTest {
         )
         assertEquals(TouchTurnOrderLifecyclePhase.AWAITING_ENTRY, lifecycle.phase)
         assertTrue(lifecycle.showLiveOrdersPanel)
-        assertNull(lifecycle.statusMessage)
+        assertTrue(lifecycle.statusMessage!!.contains("Entry order working"))
     }
 
     @Test
@@ -71,6 +99,26 @@ class TouchTurnOrderLifecycleResolverTest {
         )
         assertEquals(TouchTurnOrderLifecyclePhase.IN_POSITION, lifecycle.phase)
         assertTrue(lifecycle.showLiveOrdersPanel)
+    }
+
+    @Test
+    fun closed_afterEntryFillWhenFlatAndNoWorkingOrders() {
+        val lifecycle = TouchTurnOrderLifecycleResolver.resolve(
+            session = session(ordersPlaced = true).copy(
+                milestones = TouchTurnMilestoneTimestamps(
+                    ordersPlacedAt = "2026-06-01T10:00:00",
+                    positionOpenedAt = "2026-06-01T10:01:00"
+                )
+            ),
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            inActiveTrade = false,
+            sessionEnded = false,
+            hasSessionTrades = false
+        )
+        assertEquals(TouchTurnOrderLifecyclePhase.CLOSED, lifecycle.phase)
+        assertFalse(lifecycle.showLiveOrdersPanel)
+        assertNull(lifecycle.statusMessage)
     }
 
     @Test

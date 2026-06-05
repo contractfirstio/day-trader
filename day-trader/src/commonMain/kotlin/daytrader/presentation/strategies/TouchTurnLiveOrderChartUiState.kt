@@ -2,6 +2,7 @@ package daytrader.presentation.strategies
 
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnPlannedBracket
+import daytrader.domain.TouchTurnSessionContext
 import daytrader.gateway.WorkingOrder
 
 enum class TouchTurnPriceChartContext {
@@ -23,6 +24,10 @@ data class TouchTurnLiveOrderChartUiState(
 )
 
 object TouchTurnLiveOrderChartUiMapper {
+    /** Keep streaming marks while brackets are working or entry was permitted. */
+    fun shouldRecordPrices(session: TouchTurnSessionContext): Boolean =
+        session.ordersPlacedForSession || session.entryOrdersPermitted == true
+
     fun build(
         symbol: String,
         currencyCode: String,
@@ -33,7 +38,7 @@ object TouchTurnLiveOrderChartUiMapper {
         bracketSetup: TouchTurnBracketSetup?,
         statusHint: String? = null
     ): TouchTurnLiveOrderChartUiState? {
-        val levels = TouchTurnLiveOrderLevels.fromWorkingOrders(
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
             openOrders = openOrders,
             plannedBracket = plannedBracket,
             bracketSetup = bracketSetup

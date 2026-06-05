@@ -10,6 +10,13 @@ import kotlin.test.assertTrue
 class EmulatorMarketQuoteBookTest {
 
     @Test
+    fun buyEntryTouchable_rejectsAskFarBelowLimit() {
+        val buffer = 0.05
+        assertTrue(EmulatorMarketQuoteBook.buyEntryTouchable(ask = 99.96, limit = 100.0, touchBuffer = buffer))
+        assertFalse(EmulatorMarketQuoteBook.buyEntryTouchable(ask = 83.4, limit = 84.8, touchBuffer = buffer))
+    }
+
+    @Test
     fun buyLimit_fillsWhenAskAtOrBelowLimit() {
         assertTrue(EmulatorMarketQuoteBook.buyLimitFillable(ask = 99.9, limit = 100.0))
         assertFalse(EmulatorMarketQuoteBook.buyLimitFillable(ask = 100.1, limit = 100.0))
@@ -50,5 +57,13 @@ class EmulatorMarketQuoteBookTest {
         assertEquals(100.0, merged.bid)
         assertEquals(100.4, merged.ask)
         assertEquals(99.5, merged.last)
+    }
+
+    @Test
+    fun fromLiveQuote_carriesTickVolumeFromIbFeed() {
+        val book = EmulatorMarketQuote.fromLiveQuote(
+            LiveQuote(symbol = "AAPL", bid = 100.0, ask = 100.4, last = 100.2, tickVolume = 750.0)
+        )!!
+        assertEquals(750.0, book.toLiveQuote("AAPL").tickVolume)
     }
 }

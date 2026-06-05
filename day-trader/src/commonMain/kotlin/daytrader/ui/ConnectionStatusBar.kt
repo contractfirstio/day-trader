@@ -5,8 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +35,7 @@ fun ConnectionStatusBar(
     brokerGateway: BrokerGateway,
     brokerKind: BrokerKind,
     marketDataGateway: BrokerGateway? = null,
+    onOpenPriceFeedTester: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val executionState by brokerGateway.connectionState.collectAsState()
@@ -46,7 +53,9 @@ fun ConnectionStatusBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BrokerModeBadge(brokerId = brokerGateway.brokerId, brokerKind = brokerKind)
-            if (brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA && marketDataGateway != null) {
+            if ((brokerKind == BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA || brokerKind == BrokerKind.REPLAY) &&
+                marketDataGateway != null
+            ) {
                 HybridConnectionStatus(
                     executionState = executionState,
                     marketDataState = marketDataState ?: GatewayConnectionState.Disconnected
@@ -64,7 +73,8 @@ fun ConnectionStatusBar(
             executionState = executionState,
             marketDataState = marketDataState,
             onReconnectExecution = brokerGateway::reconnect,
-            onReconnectMarketData = marketDataGateway?.let { gateway -> { gateway.reconnect() } }
+            onReconnectMarketData = marketDataGateway?.let { gateway -> { gateway.reconnect() } },
+            onOpenPriceFeedTester = onOpenPriceFeedTester
         )
     }
 }
@@ -94,14 +104,21 @@ private fun HybridReconnectButtons(
     executionState: GatewayConnectionState,
     marketDataState: GatewayConnectionState?,
     onReconnectExecution: () -> Unit,
-    onReconnectMarketData: (() -> Unit)?
+    onReconnectMarketData: (() -> Unit)?,
+    onOpenPriceFeedTester: (() -> Unit)? = null
 ) {
-    if (brokerKind != BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA || onReconnectMarketData == null) {
-        BrokerReconnectButton(state = executionState, onReconnect = onReconnectExecution)
-        return
-    }
-    val marketState = marketDataState ?: GatewayConnectionState.Disconnected
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onOpenPriceFeedTester != null) {
+            PriceFeedTesterIconButton(onClick = onOpenPriceFeedTester)
+        }
+        if (brokerKind != BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA || onReconnectMarketData == null) {
+            BrokerReconnectButton(state = executionState, onReconnect = onReconnectExecution)
+            return@Row
+        }
+        val marketState = marketDataState ?: GatewayConnectionState.Disconnected
         if (needsReconnect(executionState)) {
             BrokerReconnectButton(
                 state = executionState,
@@ -116,6 +133,23 @@ private fun HybridReconnectButtons(
                 labelPrefix = "IB Data"
             )
         }
+    }
+}
+
+@Composable
+private fun PriceFeedTesterIconButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(32.dp),
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = TextSecondary.copy(alpha = 0.55f)
+        )
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ShowChart,
+            contentDescription = "Test price feeds",
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
@@ -157,6 +191,7 @@ private fun brokerStatusLabel(state: GatewayConnectionState, brokerKind: BrokerK
         BrokerKind.INTERACTIVE_BROKERS -> "Interactive Brokers"
         BrokerKind.EMULATOR -> "Broker Emulator"
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Paper Trading (Live IB Data)"
+        BrokerKind.REPLAY -> "Session Replay (Captured Data)"
     }
     return when (state) {
         GatewayConnectionState.Disconnected -> "Not Connected to $brokerName"

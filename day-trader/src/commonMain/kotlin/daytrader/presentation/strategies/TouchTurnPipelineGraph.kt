@@ -1,18 +1,15 @@
 package daytrader.presentation.strategies
 
 /**
- * Touch Turn session lifecycle as a fixed DAG (trunk + trade/no-trade branches).
+ * Touch Turn session lifecycle as a linear pipeline with decision branches at Rules and Orders.
  * Built from [TouchTurnStatusBreadcrumbMapper] step states.
  */
 enum class TouchTurnPipelineNodeId {
-    Start,
+    Readiness,
     Data,
-    Bar,
-    Liquidity,
-    Confirmation,
+    Rules,
     Orders,
     Position,
-    NoTrade,
     Close
 }
 
@@ -52,7 +49,9 @@ data class TouchTurnPipelineGraph(
     val nodes: List<TouchTurnPipelineNode>,
     val edges: List<TouchTurnPipelineEdge>,
     val activePath: List<TouchTurnPipelineNodeId>,
-    val caption: String
+    val caption: String,
+    /** Prominent explanation when trade was blocked, data failed, or session is stopping. */
+    val statusBanner: TouchTurnSessionStatusUi? = null
 ) {
     fun currentNodeId(): TouchTurnPipelineNodeId? =
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.id
@@ -74,41 +73,31 @@ fun TouchTurnPipelineNode.isSelectable(): Boolean =
         state != TouchTurnBreadcrumbStepState.UPCOMING
 
 fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
-    TouchTurnPipelineNodeId.Start -> "Starting session"
-    TouchTurnPipelineNodeId.Data -> "Session data"
-    TouchTurnPipelineNodeId.Bar -> "Opening 15-minute bar"
-    TouchTurnPipelineNodeId.Liquidity -> "Liquidity check"
-    TouchTurnPipelineNodeId.Confirmation -> "Close confirmation"
+    TouchTurnPipelineNodeId.Readiness -> "Session start"
+    TouchTurnPipelineNodeId.Data -> "Market data"
+    TouchTurnPipelineNodeId.Rules -> "Entry rules"
     TouchTurnPipelineNodeId.Orders -> "Orders"
     TouchTurnPipelineNodeId.Position -> "Position"
-    TouchTurnPipelineNodeId.NoTrade -> "No trade path"
     TouchTurnPipelineNodeId.Close -> "Closing session"
 }
 
 object TouchTurnPipelineLayout {
     fun position(id: TouchTurnPipelineNodeId): Pair<Float, Float> = when (id) {
-        TouchTurnPipelineNodeId.Start -> 0.05f to 0.45f
-        TouchTurnPipelineNodeId.Data -> 0.20f to 0.45f
-        TouchTurnPipelineNodeId.Bar -> 0.35f to 0.45f
-        TouchTurnPipelineNodeId.Liquidity -> 0.50f to 0.45f
-        TouchTurnPipelineNodeId.Confirmation -> 0.64f to 0.45f
-        TouchTurnPipelineNodeId.Orders -> 0.77f to 0.16f
-        TouchTurnPipelineNodeId.Position -> 0.88f to 0.16f
-        TouchTurnPipelineNodeId.NoTrade -> 0.77f to 0.74f
-        TouchTurnPipelineNodeId.Close -> 0.93f to 0.45f
+        TouchTurnPipelineNodeId.Readiness -> 0.06f to 0.45f
+        TouchTurnPipelineNodeId.Data -> 0.22f to 0.45f
+        TouchTurnPipelineNodeId.Rules -> 0.38f to 0.45f
+        TouchTurnPipelineNodeId.Orders -> 0.54f to 0.45f
+        TouchTurnPipelineNodeId.Position -> 0.70f to 0.45f
+        TouchTurnPipelineNodeId.Close -> 0.88f to 0.45f
     }
 
     val edgeDefinitions: List<Triple<TouchTurnPipelineNodeId, TouchTurnPipelineNodeId, String?>> = listOf(
-        Triple(TouchTurnPipelineNodeId.Start, TouchTurnPipelineNodeId.Data, null),
-        Triple(TouchTurnPipelineNodeId.Data, TouchTurnPipelineNodeId.Bar, null),
-        Triple(TouchTurnPipelineNodeId.Bar, TouchTurnPipelineNodeId.Liquidity, null),
-        Triple(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.Confirmation, "yes"),
-        Triple(TouchTurnPipelineNodeId.Liquidity, TouchTurnPipelineNodeId.NoTrade, "no"),
-        Triple(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.Orders, "yes"),
-        Triple(TouchTurnPipelineNodeId.Confirmation, TouchTurnPipelineNodeId.NoTrade, "no"),
-        Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position, "yes"),
-        Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.NoTrade, "no"),
-        Triple(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close, null),
-        Triple(TouchTurnPipelineNodeId.NoTrade, TouchTurnPipelineNodeId.Close, null)
+        Triple(TouchTurnPipelineNodeId.Readiness, TouchTurnPipelineNodeId.Data, null),
+        Triple(TouchTurnPipelineNodeId.Data, TouchTurnPipelineNodeId.Rules, null),
+        Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Orders, "pass"),
+        Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Close, "no"),
+        Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position, "fill"),
+        Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Close, "skip"),
+        Triple(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close, null)
     )
 }

@@ -1,17 +1,18 @@
 package daytrader.presentation.strategies
 
-import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionContext
 
-/** Live IB marks while the first 15-minute RTH bar is still forming. */
+/** Live marks from data-ready through bar/liquidity/confirm until brackets are placed. */
 object TouchTurnFormingBarPriceChartUiMapper {
+    /** From data-ready until the engine commits bracket placement for the session. */
     fun shouldRecordPrices(session: TouchTurnSessionContext): Boolean =
         session.status == TouchTurnCandleStatus.READY &&
-            session.candle != null &&
-            session.candleCloseStatus() == FirstCandleCloseStatus.FORMING
+            session.openingBarTime != null &&
+            session.milestones.dataReadyAt != null &&
+            !session.ordersPlacedForSession
 
     fun build(
         deployment: StrategyDeployment,
@@ -22,12 +23,17 @@ object TouchTurnFormingBarPriceChartUiMapper {
     ): TouchTurnLiveOrderChartUiState? {
         if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         if (!shouldRecordPrices(session)) return null
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
+            openOrders = emptyList(),
+            plannedBracket = session.plannedBracket,
+            bracketSetup = session.setup
+        )
         return TouchTurnLiveOrderChartUiState(
             symbol = deployment.symbol,
             currencyCode = session.currencyCode,
             priceHistory = priceHistory,
             currentPrice = currentPrice,
-            levels = emptyList(),
+            levels = levels,
             context = TouchTurnPriceChartContext.OPENING_BAR_FORMING,
             statusHint = statusHint
         )

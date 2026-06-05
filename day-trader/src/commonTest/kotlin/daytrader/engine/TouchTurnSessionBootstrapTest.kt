@@ -9,6 +9,7 @@ import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.onSessionStarted
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
+import daytrader.engine.support.testTouchTurnEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -37,24 +38,19 @@ class TouchTurnSessionBootstrapTest {
         ).onSessionStarted("2026-05-22").beginTouchTurnSession("2026-05-22")
         repo.add(instance)
 
-        val engine = TouchTurnEngine(
-            sessionGateway = gateway,
-            executionGateway = gateway,
-            repository = repo,
-            scope = scope
-        )
+        val engine = testTouchTurnEngine(gateway, repo, scope)
         engine.start()
         engine.dispatch(TouchTurnCommand.LoadFirstCandle(instance.id, "2026-05-22"))
         var attempts = 0
         while (attempts < 100) {
             delay(50)
             val session = repo.deployments.value.first().touchTurnSession
-            if (session?.candle != null && session.adr14 != null) break
+            if (session?.candle != null && session.atr14 != null) break
             attempts++
         }
 
         val updated = repo.deployments.value.first()
         assertEquals(TouchTurnCandleStatus.READY, updated.touchTurnSession?.status)
-        assertTrue(updated.touchTurnSession?.adr14 != null)
+        assertTrue(updated.touchTurnSession?.atr14 != null)
     }
 }

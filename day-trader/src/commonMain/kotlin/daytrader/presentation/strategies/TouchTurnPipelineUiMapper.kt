@@ -7,6 +7,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.inProgressSession
+import daytrader.domain.touchTurnRecapRun
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.WorkingOrder
@@ -73,7 +74,8 @@ object TouchTurnPipelineUiMapper {
         brokerPositions: List<AccountPosition>,
         brokerOpenOrders: List<WorkingOrder>,
         brokerFills: List<BrokerFill>,
-        showLastSessionRecap: Boolean,
+        showSessionRecap: Boolean,
+        recapRunId: String? = null,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnPipelineGraph? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
@@ -94,8 +96,10 @@ object TouchTurnPipelineUiMapper {
                     nowEpochMillis = ctx.nowEpochMillis
                 )
             }
-            showLastSessionRecap ->
-                TouchTurnStatusBreadcrumbMapper.graphForLastClosedSession(instance)
+            showSessionRecap -> {
+                val run = instance.touchTurnRecapRun(recapRunId) ?: return null
+                TouchTurnStatusBreadcrumbMapper.graphForSession(instance, run)
+            }
             else ->
                 TouchTurnStatusBreadcrumbMapper.graph(
                     instance = instance,

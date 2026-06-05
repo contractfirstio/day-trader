@@ -41,5 +41,6 @@ fun duplicateStrategyDeployment(source: StrategyDeployment): StrategyDeployment 
     sessionHistory = emptyList(),
     live = ActiveExecution.flat(),
     touchTurnSession = null,
+    touchTurnPrepare = null,
     lastAutoStartSessionDate = null
 )

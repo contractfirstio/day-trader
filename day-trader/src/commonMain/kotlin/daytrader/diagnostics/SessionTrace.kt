@@ -1,13 +1,16 @@
 package daytrader.diagnostics
 
 import daytrader.data.persistence.AppDataFiles
+import daytrader.broker.emulator.EmulatorLogScope
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.TouchTurnRunPersistence
 import daytrader.data.persistence.TouchTurnRunRecordRecord
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.SessionTrade
+import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRunRecord
+import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.dedupeByExecId
 import daytrader.domain.sessionRealizedPnL
 import daytrader.diagnostics.LogTimestamps
@@ -29,6 +32,8 @@ import kotlinx.serialization.serializer
  * Paired per session under `sessions/{deploymentId}/{sessionId}/`:
  * - [AppDataFiles.SESSION_APPLICATION_LOG] — lifecycle, decisions, and engine/UI sync (`touch_turn_state_sync`)
  * - [AppDataFiles.SESSION_PRICES_LOG] — live IB quote updates (see [SessionPriceLog])
+ * - [AppDataFiles.SESSION_HISTORICAL_LOG] — Touch Turn bootstrap/refetch payloads (see [SessionHistoricalLog])
+ * - [AppDataFiles.SESSION_MANIFEST] — session metadata for replay (see [SessionManifestWriter])
  *
  * Each JSONL line includes `at` (ISO local with millis) and `epochMs` for cross-file correlation.
  */
@@ -64,6 +69,8 @@ object SessionTrace {
 
     fun sessionStarted(deployment: StrategyDeployment, session: StrategySession) {
         flushPendingIntoSession(deployment.id, session.id)
+        EmulatorLogScope.bind(deployment.id, session.id)
+        val stamp = LogTimestamps.now()
         log(
             type = "session_started",
             deploymentId = deployment.id,
@@ -77,6 +84,7 @@ object SessionTrace {
                 "startedBy" to (session.touchTurnStartedBy?.name ?: "unknown")
             )
         )
+        SessionManifestWriter.sessionStarted(deployment, session, stamp.epochMs)
     }
 
     fun sessionClosed(
@@ -91,6 +99,7 @@ object SessionTrace {
     ) {
         val deduped = rawTrades.dedupeByExecId()
         val fillPnl = deduped.sessionRealizedPnL()
+        val stamp = LogTimestamps.now()
         log(
             type = "session_closed",
             deploymentId = deployment.id,
@@ -127,6 +136,8 @@ object SessionTrace {
                 }
             }
         )
+        SessionManifestWriter.sessionClosed(deployment, session, runRecord, stamp.epochMs)
+        EmulatorLogScope.clear()
     }
 
     fun fillRecorded(
@@ -183,6 +194,8 @@ object SessionTrace {
         event: String,
         message: String? = null,
         adr14: Double? = null,
+        atr14: Double? = null,
+        volumeSma20: Double? = null,
         barTime: String? = null
     ) {
         log(
@@ -194,7 +207,79 @@ object SessionTrace {
                 put("event", event)
                 message?.let { put("message", it) }
                 adr14?.let { put("adr14", it.toString()) }
+                atr14?.let { put("atr14", it.toString()) }
+                volumeSma20?.let { put("volumeSma20", it.toString()) }
+                volumeSma20?.takeIf { it > 0.0 }?.let { sma ->
+                    put("exhaustionThreshold", TouchTurnLogic.volumeExhaustionThreshold(sma).toString())
+                }
                 barTime?.let { put("barTime", it) }
+            }
+        )
+    }
+
+    /** Volume exhaustion gate snapshot for post-hoc diagnosis (application.jsonl). */
+    fun touchTurnVolumeCheck(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        check: TouchTurnVolumeCheck,
+        atr14: Double? = null,
+        decisionOutcome: String? = null
+    ) {
+        log(
+            type = "touch_turn_volume_check",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                putAll(check.toTraceDetails())
+                atr14?.let { put("atr14", it.toString()) }
+                decisionOutcome?.let { put("decisionOutcome", it) }
+            }
+        )
+    }
+
+    /** Post-close OHLC refetch after [TouchTurnSessionContext.openingBarTime] (application.jsonl). */
+    fun closedBarRefetch(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        event: String,
+        openingBarTime: String? = null,
+        attempt: Int? = null,
+        maxAttempts: Int? = null,
+        waitMs: Long? = null,
+        refetchedBarTime: String? = null,
+        validation: String? = null,
+        reason: String? = null,
+        openingBarVolume: Double? = null,
+        volumeSma20: Double? = null
+    ) {
+        log(
+            type = "closed_bar_refetch",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("event", event)
+                openingBarTime?.let { put("openingBarTime", it) }
+                attempt?.let { put("attempt", it.toString()) }
+                maxAttempts?.let { put("maxAttempts", it.toString()) }
+                waitMs?.let { put("waitMs", it.toString()) }
+                refetchedBarTime?.let { put("refetchedBarTime", it) }
+                validation?.let { put("validation", it) }
+                reason?.let { put("reason", it) }
+                openingBarVolume?.let { put("openingBarVolume", it.toString()) }
+                volumeSma20?.let { put("volumeSma20", it.toString()) }
+                if (openingBarVolume != null && volumeSma20 != null && volumeSma20 > 0.0) {
+                    val threshold = TouchTurnLogic.volumeExhaustionThreshold(volumeSma20)
+                    put("volumeRatio", (openingBarVolume / volumeSma20).toString())
+                    put("exhaustionThreshold", threshold.toString())
+                    put(
+                        "volumeExhausted",
+                        TouchTurnLogic.isVolumeExhaustion(openingBarVolume, volumeSma20).toString()
+                    )
+                }
             }
         )
     }
