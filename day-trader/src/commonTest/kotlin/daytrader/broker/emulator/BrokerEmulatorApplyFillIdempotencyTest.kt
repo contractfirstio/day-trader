@@ -4,6 +4,7 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnTradeSide
+import daytrader.broker.emulator.TouchTurnEntryScenario
 import daytrader.gateway.GatewayEvent
 import daytrader.gateway.LiveQuote
 import kotlin.test.Test
@@ -16,7 +17,10 @@ class BrokerEmulatorApplyFillIdempotencyTest {
     fun repeatedQuoteCrossingStop_doesNotDuplicateFills() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
-            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE
+            ),
             emit = { events.add(it) }
         )
         engine.handleConnect()

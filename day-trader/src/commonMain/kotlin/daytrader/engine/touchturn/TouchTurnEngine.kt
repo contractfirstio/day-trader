@@ -493,6 +493,10 @@ class TouchTurnEngine(
         }
     }
 
+    /** Replay drives virtual time via [nowEpochMillis]; live modes keep wall clock for open-deadline stops. */
+    private fun stopRulesNowEpochMillis(): Long =
+        if (brokerKind == BrokerKind.REPLAY) nowEpochMillis() else System.currentTimeMillis()
+
     private fun handlePollStopRules(snapshot: TouchTurnCommand.BrokerSnapshot? = null) {
         val positions = snapshot?.positions ?: brokerPositions.value
         val openOrders = snapshot?.openOrders ?: brokerOpenOrders.value
@@ -507,7 +511,8 @@ class TouchTurnEngine(
             deployments = repository.deployments.value,
             positions = positions,
             openOrders = openOrders,
-            fills = fills
+            fills = fills,
+            nowEpochMillis = stopRulesNowEpochMillis()
         )
         for (candidate in candidates) {
             val instance = repository.deployments.value.find { it.id == candidate.instanceId } ?: continue
@@ -1460,7 +1465,8 @@ class TouchTurnEngine(
             deployments = deployments,
             positions = positions,
             openOrders = openOrders,
-            fills = fills
+            fills = fills,
+            nowEpochMillis = stopRulesNowEpochMillis()
         )
         val candidateIds = candidates.map { it.instanceId }.toSet()
         for (instance in deployments) {

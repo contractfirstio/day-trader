@@ -51,8 +51,8 @@ class TouchTurnBracketExecutionTest {
     fun postStopSession_prefersTradedRunForAnalysisContext() {
         val traded = StrategySession(
             id = "traded",
-            date = "2026-05-21",
-            stoppedAt = "2026-05-21T10:00:00",
+            date = "2026-05-22",
+            stoppedAt = "2026-05-22T10:00:00",
             pnl = 25.0,
             trades = 2,
             maxAtRisk = 500,
@@ -71,8 +71,8 @@ class TouchTurnBracketExecutionTest {
         )
         val empty = StrategySession(
             id = "empty",
-            date = "2026-05-22",
-            stoppedAt = "2026-05-22T10:00:00",
+            date = "2026-05-21",
+            stoppedAt = "2026-05-21T10:00:00",
             pnl = 0.0,
             trades = 0,
             maxAtRisk = 500,

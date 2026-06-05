@@ -356,14 +356,21 @@ class BrokerEmulatorEngine(
             val legPrices = adjustedPlan.orders.map { it.price }
             val range = (legPrices.max() - legPrices.min()).coerceAtLeast(0.01)
             val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
-            bracketEntryPending[symbol] = BracketEntryPending(
-                entryOrderId = entryId,
-                entryPrice = entryPrice,
-                openingBarClose = entryPrice,
-                isBuyEntry = isBuyEntry,
-                scenario = TouchTurnEntryScenario.APPROACH_AND_FILL,
-                range = range
-            )
+            val entryScenario = pickTouchTurnEntryScenario()
+            when (entryScenario) {
+                TouchTurnEntryScenario.IMMEDIATE -> fillEntryImmediately(entryId)
+                TouchTurnEntryScenario.APPROACH_AND_FILL,
+                TouchTurnEntryScenario.NEVER_FILL -> {
+                    bracketEntryPending[symbol] = BracketEntryPending(
+                        entryOrderId = entryId,
+                        entryPrice = entryPrice,
+                        openingBarClose = entryPrice,
+                        isBuyEntry = isBuyEntry,
+                        scenario = entryScenario,
+                        range = range
+                    )
+                }
+            }
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
                 orderIds = allOrderIds,
@@ -371,7 +378,7 @@ class BrokerEmulatorEngine(
                 initialMark = entryPrice,
                 walkFloor = entryPrice,
                 walkCeiling = entryPrice,
-                entryScenario = TouchTurnEntryScenario.APPROACH_AND_FILL
+                entryScenario = entryScenario
             )
             onSymbolNeedsLiveQuotes(symbol)
         }
