@@ -1929,32 +1929,56 @@ fun StrategyDeployment.touchTurnPostStopSession(): StrategySession? {
 /** Most recent closed Touch Turn run used for pipeline / recap / close. */
 fun StrategyDeployment.lastClosedTouchTurnSession(): StrategySession? = touchTurnPostStopSession()
 
-/** Closed or in-progress run whose fills power the post-session Orders recap chart. */
-fun StrategyDeployment.touchTurnRecapSessionRun(): StrategySession? = touchTurnPostStopSession()
+fun StrategyDeployment.sessionHistoryRun(runId: String): StrategySession? =
+    sessionHistory.find { it.id == runId }
 
-/** Broker fills for the Trading tab order recap chart (running or most recent closed run with fills). */
-fun StrategyDeployment.touchTurnRecapSessionTrades(): List<SessionTrade> =
-    touchTurnRecapSessionRun()?.sessionTrades.orEmpty()
+/**
+ * Touch Turn run shown on the Trading tab recap (live in-progress with fills, else closed).
+ * When [runId] is set, returns that history row if it has pipeline data; otherwise the latest closed run.
+ */
+fun StrategyDeployment.touchTurnRecapRun(runId: String? = null): StrategySession? {
+    if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+    inProgressSession()?.takeIf { it.sessionTrades.isNotEmpty() }?.let { return it }
+    runId?.let { id ->
+        sessionHistoryRun(id)?.takeIf { run ->
+            (run.status == SessionStatus.CLOSED || run.status == SessionStatus.IN_PROGRESS) &&
+                (run.touchTurnMilestones != null || run.touchTurnRunRecord != null)
+        }?.let { return it }
+    }
+    return touchTurnPostStopSession()
+}
+
+/** Closed or in-progress run whose fills power the post-session Orders recap chart. */
+fun StrategyDeployment.touchTurnRecapSessionRun(runId: String? = null): StrategySession? =
+    touchTurnRecapRun(runId)
+
+/** Broker fills for the Trading tab order recap chart. */
+fun StrategyDeployment.touchTurnRecapSessionTrades(runId: String? = null): List<SessionTrade> =
+    touchTurnRecapSessionRun(runId)?.sessionTrades.orEmpty()
 
 /** Realized P&L for the recap chart — from fills on the same run as [touchTurnRecapSessionTrades]. */
-fun StrategyDeployment.touchTurnRecapSessionPnl(): Double? {
-    val trades = touchTurnRecapSessionTrades()
+fun StrategyDeployment.touchTurnRecapSessionPnl(runId: String? = null): Double? {
+    val trades = touchTurnRecapSessionTrades(runId)
     if (trades.isEmpty()) return null
     val fromFills = trades.sessionRealizedPnL()
     if (fromFills != 0.0) return fromFills
-    return touchTurnRecapSessionRun()?.pnl
+    return touchTurnRecapSessionRun(runId)?.pnl
 }
 
 /**
- * Live or last-closed session context for the Trading tab pipeline detail panels.
+ * Live or closed-run session context for the Trading tab pipeline detail panels.
  * After stop, [touchTurnSession] is cleared but opening bar / ADR are restored from [StrategySession.touchTurnRunRecord].
  */
-fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? {
+fun StrategyDeployment.touchTurnAnalysisSessionForRun(run: StrategySession? = null): TouchTurnSessionContext? {
     touchTurnSession?.let { return it }
-    val closed = touchTurnPostStopSession() ?: return null
+    val closed = run ?: touchTurnPostStopSession() ?: return null
     val rules = closed.touchTurnRunRecord?.rules ?: effectiveTouchTurnRules()
     return closed.toTouchTurnAnalysisContext(rules)
 }
+
+/** @see [touchTurnAnalysisSessionForRun] with the latest closed run. */
+fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? =
+    touchTurnAnalysisSessionForRun(touchTurnPostStopSession())
 
 fun StrategySession.toTouchTurnAnalysisContext(
     rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT

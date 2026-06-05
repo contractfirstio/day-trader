@@ -8,6 +8,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.SessionStatus
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
@@ -427,6 +428,10 @@ object TouchTurnStatusBreadcrumbMapper {
 
     fun graphForLastClosedSession(instance: StrategyDeployment): TouchTurnPipelineGraph? {
         val run = instance.lastClosedTouchTurnSession() ?: return null
+        return graphForSession(instance, run)
+    }
+
+    fun graphForSession(instance: StrategyDeployment, run: StrategySession): TouchTurnPipelineGraph? {
         val runRecord = run.touchTurnRunRecord
         val milestones = run.touchTurnMilestones ?: runRecord?.milestones ?: return null
         return graphFromHistory(

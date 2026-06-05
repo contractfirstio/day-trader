@@ -49,6 +49,7 @@ import daytrader.data.StrategyCatalog
 import daytrader.domain.withClosedPosition
 import daytrader.data.withDemoLiveExecutionOnStart
 import daytrader.domain.withStopPrice
+import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.diagnostics.SessionTrace
 import daytrader.diagnostics.SessionHistoricalLog
@@ -326,6 +327,7 @@ class TouchTurnEngine(
             is TouchTurnCommand.AdjustStop -> handleAdjustStop(command)
             is TouchTurnCommand.ClosePosition -> handleClosePosition(command)
             is TouchTurnCommand.DeleteSessionHistory -> handleDeleteSessionHistory(command)
+            is TouchTurnCommand.DeleteAllSessionHistory -> handleDeleteAllSessionHistory(command)
             is TouchTurnCommand.BrokerSnapshot -> handleBrokerSnapshot(command)
             TouchTurnCommand.BrokerConnected -> handleBrokerConnected()
             is TouchTurnCommand.PollLiquidity -> handlePollLiquidity(command.instanceId)
@@ -446,6 +448,11 @@ class TouchTurnEngine(
 
     private fun handleDeleteSessionHistory(command: TouchTurnCommand.DeleteSessionHistory) {
         repository.update(command.instanceId) { it.withoutSessionHistoryEntry(command.runId) }
+        repository.flushPersistence()
+    }
+
+    private fun handleDeleteAllSessionHistory(command: TouchTurnCommand.DeleteAllSessionHistory) {
+        repository.update(command.instanceId) { it.withoutClosedSessionHistory() }
         repository.flushPersistence()
     }
 

@@ -29,7 +29,8 @@ import daytrader.domain.StrategyType
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
-import daytrader.domain.touchTurnAnalysisSession
+import daytrader.domain.touchTurnAnalysisSessionForRun
+import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
@@ -47,6 +48,7 @@ import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.withClosedPosition
+import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
 import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.diagnostics.SessionTrace
@@ -133,6 +135,12 @@ class StrategiesViewModel(
                             deployment.symbol,
                             DeploymentMarket.effectiveInstrument(deployment)
                         )
+                    }
+                    if (was?.status != DeploymentStatus.RUNNING &&
+                        deployment.status == DeploymentStatus.RUNNING &&
+                        deployment.id == appState.selectedDeploymentId
+                    ) {
+                        selectedSessionHistoryId = null
                     }
                 }
                 deployments = list
@@ -469,7 +477,11 @@ class StrategiesViewModel(
     }
 
     fun onSelectSessionHistory(runId: String) {
+        val deploymentId = appState.selectedDeploymentId ?: return
+        val instance = deployments.find { it.id == deploymentId } ?: return
+        if (instance.sessionHistory.none { it.id == runId }) return
         selectedSessionHistoryId = if (selectedSessionHistoryId == runId) null else runId
+        appStateRepository.update { it.copy(detailTab = StrategyDetailTab.LIVE) }
         emitUiState()
     }
 
@@ -480,11 +492,14 @@ class StrategiesViewModel(
 
     fun onResetTradingPanel(deploymentId: String) {
         val instance = deployments.find { it.id == deploymentId } ?: return
-        val lastClosed = instance.lastClosedTouchTurnSession() ?: return
+        val recapRun = instance.touchTurnRecapRun(selectedSessionHistoryId) ?: return
+        if (deploymentId == appState.selectedDeploymentId) {
+            selectedSessionHistoryId = null
+        }
         appStateRepository.update { state ->
             state.copy(
                 tradingPanelDismissedRecapSessionId =
-                    state.tradingPanelDismissedRecapSessionId + (deploymentId to lastClosed.id)
+                    state.tradingPanelDismissedRecapSessionId + (deploymentId to recapRun.id)
             )
         }
         emitUiState()
@@ -774,6 +789,28 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun onDeleteAllSessionHistory(instanceId: String) {
+        val deployment = repository.deployments.value.find { it.id == instanceId } ?: return
+        val closedRunIds = deployment.sessionHistory
+            .filter { it.status != SessionStatus.IN_PROGRESS }
+            .map { it.id }
+        if (closedRunIds.isEmpty()) return
+        UiActionLog.forDeployment(
+            deployment = deployment,
+            action = "delete_all_session_history",
+            details = mapOf("count" to closedRunIds.size.toString())
+        )
+        if (selectedSessionHistoryId in closedRunIds) selectedSessionHistoryId = null
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            touchTurnEngine.dispatch(TouchTurnCommand.DeleteAllSessionHistory(instanceId))
+        } else {
+            repository.update(instanceId) { it.withoutClosedSessionHistory() }
+            repository.flushPersistence()
+        }
+        syncDeploymentsFromRepository()
+        emitUiState()
+    }
+
     fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
         StrategyCatalog.defaultMaxDollars(strategyType)
 
@@ -867,8 +904,13 @@ class StrategiesViewModel(
             state.strategyTypeFilter != null ||
             selectedMarketZoneId != null
 
-        val showLastSessionRecap = selected?.let { instance ->
-            TradingPanelRecap.showsLastSession(instance, state.tradingPanelDismissedRecapSessionId)
+        val recapRunId = selectedSessionHistoryId?.takeIf { selected?.status != DeploymentStatus.RUNNING }
+        val showSessionRecap = selected?.let { instance ->
+            TradingPanelRecap.showsSessionRecap(
+                instance,
+                state.tradingPanelDismissedRecapSessionId,
+                historicRunId = recapRunId,
+            )
         } == true
         val touchTurnPipelineGraph = selected?.let { instance ->
             if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
@@ -881,12 +923,13 @@ class StrategiesViewModel(
                 brokerPositions = brokerPositions,
                 brokerOpenOrders = brokerOpenOrders,
                 brokerFills = brokerFills,
-                showLastSessionRecap = showLastSessionRecap,
+                showSessionRecap = showSessionRecap,
+                recapRunId = recapRunId,
                 nowEpochMillis = System.currentTimeMillis()
             )
         }
         val touchTurnOrderLifecycle = selected?.let { instance ->
-            touchTurnOrderLifecycleFor(instance, showLastSessionRecap)
+            touchTurnOrderLifecycleFor(instance, showSessionRecap, recapRunId)
         }
         val touchTurnPrepare = selected?.let { instance ->
             TouchTurnPrepareUiMapper.forDeployment(
@@ -923,25 +966,23 @@ class StrategiesViewModel(
                         includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
                             instance,
                             state.tradingPanelDismissedRecapSessionId,
+                            historicRunId = recapRunId,
                         ),
                         requireBidAskForFills = requiresBidAskForFills &&
                             instance.status == DeploymentStatus.RUNNING &&
-                            touchTurnOrderLifecycleFor(instance, showLastSessionRecap = false)
+                            touchTurnOrderLifecycleFor(instance, showSessionRecap = false, recapRunId = null)
                                 ?.phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
                     )
                 },
                 liveSessionTrades = selected?.let { instance ->
-                    val showRecap = TradingPanelRecap.showsLastSession(
-                        instance,
-                        state.tradingPanelDismissedRecapSessionId,
-                    )
-                    if (instance.status != DeploymentStatus.RUNNING && !showRecap) {
+                    if (instance.status != DeploymentStatus.RUNNING && !showSessionRecap) {
                         null
                     } else {
                         LiveSessionTradesUiMapper.forDeployment(
                             instance = instance,
                             liveFills = brokerFills,
-                            brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
+                            brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions),
+                            recapRunId = recapRunId,
                         )
                     }
                 },
@@ -949,11 +990,13 @@ class StrategiesViewModel(
                 touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(selected),
                 startBlockedAlert = startBlockedAlert,
                 globalAutoStartEnabled = state.globalAutoStartEnabled,
-                tradingPanelShowsLastSessionRecap = showLastSessionRecap,
+                tradingPanelShowsSessionRecap = showSessionRecap,
+                tradingPanelRecapRunId = recapRunId,
                 tradingPanelShowsLiveMarketQuotes = selected?.let { instance ->
                     TradingPanelRecap.showsLiveMarketQuotes(
                         instance,
                         state.tradingPanelDismissedRecapSessionId,
+                        historicRunId = recapRunId,
                     )
                 } == true,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
@@ -965,13 +1008,19 @@ class StrategiesViewModel(
 
     private fun touchTurnOrderLifecycleFor(
         instance: StrategyDeployment,
-        showLastSessionRecap: Boolean
+        showSessionRecap: Boolean,
+        recapRunId: String? = null,
     ): TouchTurnOrderLifecycleUi? {
         if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
-        val sessionEnded = instance.status != DeploymentStatus.RUNNING && showLastSessionRecap
+        val sessionEnded = instance.status != DeploymentStatus.RUNNING && showSessionRecap
         val live = LiveExecutionUiMapper.toLiveState(instance)
         val inActiveTrade = live?.state == ExecutionState.FILLED && live.showPanel
-        val session = if (sessionEnded) instance.touchTurnAnalysisSession() else instance.touchTurnSession
+        val recapRun = if (sessionEnded) instance.touchTurnRecapRun(recapRunId) else null
+        val session = if (sessionEnded) {
+            instance.touchTurnAnalysisSessionForRun(recapRun)
+        } else {
+            instance.touchTurnSession
+        }
         val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions)
         val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
         val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(instance, brokerFills)
@@ -1049,7 +1098,7 @@ class StrategiesViewModel(
         if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
         if (deployment.status != DeploymentStatus.RUNNING) return null
         val session = deployment.touchTurnSession ?: return null
-        val lifecycle = touchTurnOrderLifecycleFor(deployment, showLastSessionRecap = false) ?: return null
+        val lifecycle = touchTurnOrderLifecycleFor(deployment, showSessionRecap = false) ?: return null
         if (!lifecycle.showLiveOrderChart) return null
         val symbolOrders = brokerOpenOrders.filter {
             SymbolMarkets.symbolsMatch(deployment.symbol, it.symbol)
@@ -1103,7 +1152,7 @@ class StrategiesViewModel(
         hasOpenOrders: Boolean
     ): Map<String, String> {
         val symbolOrders = SymbolMarkets.openOrdersForDeployment(instance, brokerOpenOrders)
-        val lifecycle = touchTurnOrderLifecycleFor(instance, showLastSessionRecap = false)
+        val lifecycle = touchTurnOrderLifecycleFor(instance, showSessionRecap = false)
         return mapOf(
             "broker.openOrdersForSymbol" to symbolOrders.size.toString(),
             "broker.openOrdersTotal" to brokerOpenOrders.size.toString(),

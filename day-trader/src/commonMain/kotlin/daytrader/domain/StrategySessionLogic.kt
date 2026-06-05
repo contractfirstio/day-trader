@@ -10,6 +10,9 @@ fun StrategyDeployment.inProgressSession(): StrategySession? =
 fun StrategyDeployment.withoutSessionHistoryEntry(sessionId: String): StrategyDeployment =
     copy(sessionHistory = sessionHistory.filterNot { it.id == sessionId })
 
+fun StrategyDeployment.withoutClosedSessionHistory(): StrategyDeployment =
+    copy(sessionHistory = sessionHistory.filter { it.status == SessionStatus.IN_PROGRESS })
+
 fun StrategyDeployment.updateInProgressSession(
     transform: (StrategySession) -> StrategySession
 ): StrategyDeployment {

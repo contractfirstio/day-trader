@@ -65,10 +65,11 @@ import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnPrepareStatus
 import daytrader.domain.inProgressSession
-import daytrader.domain.lastClosedTouchTurnSession
-import daytrader.domain.touchTurnAnalysisSession
+import daytrader.domain.touchTurnAnalysisSessionForRun
+import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.touchTurnRecapSessionPnl
 import daytrader.domain.touchTurnRecapSessionTrades
+import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
 import kotlinx.coroutines.delay
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
@@ -190,7 +191,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
                     touchTurnOrderLifecycle = uiState.touchTurnOrderLifecycle,
                     touchTurnPrepare = uiState.touchTurnPrepare,
-                    tradingPanelShowsLastSessionRecap = uiState.tradingPanelShowsLastSessionRecap,
+                    tradingPanelShowsSessionRecap = uiState.tradingPanelShowsSessionRecap,
+                    tradingPanelRecapRunId = uiState.tradingPanelRecapRunId,
                     tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
                     onResetTradingPanel = viewModel::onResetTradingPanel,
                     onTabChange = viewModel::onDetailTabChange,
@@ -201,6 +203,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
                     onSelectSessionHistory = viewModel::onSelectSessionHistory,
                     onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
+                    onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistory,
                     onAdjustStop = viewModel::onAdjustStop,
                     onClosePosition = viewModel::onClosePosition,
                     onDuplicate = viewModel::onDuplicateSelected,
@@ -227,7 +230,8 @@ private fun StrategyDeploymentDetailPanel(
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
     touchTurnPrepare: TouchTurnPrepareUiState?,
-    tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsSessionRecap: Boolean,
+    tradingPanelRecapRunId: String?,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: (String) -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
@@ -238,6 +242,7 @@ private fun StrategyDeploymentDetailPanel(
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectSessionHistory: (String) -> Unit,
     onDeleteSessionHistory: (String, String) -> Unit,
+    onDeleteAllSessionHistory: (String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -266,7 +271,8 @@ private fun StrategyDeploymentDetailPanel(
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 touchTurnOrderLifecycle = touchTurnOrderLifecycle,
                 touchTurnPrepare = touchTurnPrepare,
-                tradingPanelShowsLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                tradingPanelShowsSessionRecap = tradingPanelShowsSessionRecap,
+                tradingPanelRecapRunId = tradingPanelRecapRunId,
                 tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
                 onTabChange = onTabChange,
@@ -277,6 +283,7 @@ private fun StrategyDeploymentDetailPanel(
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
                 onSelectSessionHistory = onSelectSessionHistory,
                 onDeleteSessionHistory = onDeleteSessionHistory,
+                onDeleteAllSessionHistory = onDeleteAllSessionHistory,
                 onAdjustStop = onAdjustStop,
                 onClosePosition = onClosePosition,
                 onDuplicate = onDuplicate,
@@ -888,7 +895,8 @@ private fun StrategyDeploymentDetail(
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
     touchTurnPrepare: TouchTurnPrepareUiState?,
-    tradingPanelShowsLastSessionRecap: Boolean,
+    tradingPanelShowsSessionRecap: Boolean,
+    tradingPanelRecapRunId: String?,
     tradingPanelShowsLiveMarketQuotes: Boolean,
     onResetTradingPanel: () -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
@@ -899,6 +907,7 @@ private fun StrategyDeploymentDetail(
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectSessionHistory: (String) -> Unit,
     onDeleteSessionHistory: (String, String) -> Unit,
+    onDeleteAllSessionHistory: (String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
@@ -1027,7 +1036,8 @@ private fun StrategyDeploymentDetail(
                     touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                     touchTurnPipelineGraph = touchTurnPipelineGraph,
                     touchTurnOrderLifecycle = touchTurnOrderLifecycle,
-                    showLastSessionRecap = tradingPanelShowsLastSessionRecap,
+                    showSessionRecap = tradingPanelShowsSessionRecap,
+                    tradingPanelRecapRunId = tradingPanelRecapRunId,
                     onResetTradingPanel = onResetTradingPanel,
                     onAdjustStop = onAdjustStop,
                     onClosePosition = onClosePosition
@@ -1036,7 +1046,8 @@ private fun StrategyDeploymentDetail(
                     sessionHistory = sessionHistory,
                     onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
                     onSelectRun = onSelectSessionHistory,
-                    onDeleteRun = { runId -> onDeleteSessionHistory(instance.id, runId) }
+                    onDeleteRun = { runId -> onDeleteSessionHistory(instance.id, runId) },
+                    onDeleteAllRuns = { onDeleteAllSessionHistory(instance.id) }
                 )
             }
         }
@@ -1922,7 +1933,9 @@ private fun TouchTurnLivePipelineDetailHost(
     pipelineGraph: TouchTurnPipelineGraph?,
     instance: StrategyDeployment,
     analysisSession: TouchTurnSessionContext?,
-    lastClosedRun: StrategySession?,
+    recapRun: StrategySession?,
+    recapRunId: String?,
+    recapSessionStartUi: TouchTurnSessionStartUi?,
     sessionEnded: Boolean,
     liveExecution: LiveExecutionUiState?,
     liveBroker: LiveBrokerUiState?,
@@ -1934,11 +1947,11 @@ private fun TouchTurnLivePipelineDetailHost(
     onClosePosition: (String) -> Unit
 ) {
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
-    val recapSessionTrades = remember(instance.id, instance.sessionHistory.size) {
-        instance.touchTurnRecapSessionTrades()
+    val recapSessionTrades = remember(instance.id, instance.sessionHistory.size, recapRunId) {
+        instance.touchTurnRecapSessionTrades(recapRunId)
     }
-    val recapSessionPnl = remember(instance.id, instance.sessionHistory.size, recapSessionTrades) {
-        instance.touchTurnRecapSessionPnl()
+    val recapSessionPnl = remember(instance.id, instance.sessionHistory.size, recapSessionTrades, recapRunId) {
+        instance.touchTurnRecapSessionPnl(recapRunId)
             ?: liveSessionTrades?.tradeDetail?.realizedPnL
     }
     Column(
@@ -1955,8 +1968,9 @@ private fun TouchTurnLivePipelineDetailHost(
                 TouchTurnPipelineSectionStart(
                     instance = instance,
                     graph = pipelineGraph,
-                    lastClosedRun = lastClosedRun,
-                    session = analysisSession
+                    lastClosedRun = recapRun,
+                    session = analysisSession,
+                    startUi = recapSessionStartUi,
                 )
             TouchTurnPipelineNodeId.Data ->
                 TouchTurnPipelineSectionData(
@@ -1970,7 +1984,7 @@ private fun TouchTurnLivePipelineDetailHost(
                     graph = pipelineGraph,
                     formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart,
                     sessionEnded = sessionEnded,
-                    requireLivePriceChecks = lastClosedRun?.touchTurnRunRecord?.runContext?.brokerKind
+                    requireLivePriceChecks = recapRun?.touchTurnRunRecord?.runContext?.brokerKind
                         ?.usesLiveIbMarketData == true
                 )
             TouchTurnPipelineNodeId.Orders -> {
@@ -2039,7 +2053,7 @@ private fun TouchTurnLivePipelineDetailHost(
             }
             TouchTurnPipelineNodeId.Close ->
                 if (sessionEnded) {
-                    TouchTurnPipelineSectionClose(closedRun = lastClosedRun, graph = pipelineGraph)
+                    TouchTurnPipelineSectionClose(closedRun = recapRun, graph = pipelineGraph)
                 } else {
                     TouchTurnSessionAutoStopStatus(instance = instance)
                 }
@@ -2100,7 +2114,8 @@ private fun LiveTab(
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
-    showLastSessionRecap: Boolean,
+    showSessionRecap: Boolean,
+    tradingPanelRecapRunId: String?,
     onResetTradingPanel: () -> Unit,
     onAdjustStop: (String, String) -> Unit,
     onClosePosition: (String) -> Unit
@@ -2108,28 +2123,46 @@ private fun LiveTab(
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
     val isTouchTurn = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
     val isRunning = instance.status == DeploymentStatus.RUNNING
-    val sessionEnded = isTouchTurn && !isRunning && showLastSessionRecap
+    val sessionEnded = isTouchTurn && !isRunning && showSessionRecap
     val touchTurnInstance = instance.takeIf { isTouchTurn }
-    val lastClosedTouchTurnRun = remember(instance.id, instance.sessionHistory.size, showLastSessionRecap) {
-        if (showLastSessionRecap) instance.lastClosedTouchTurnSession() else null
+    val recapRun = remember(
+        instance.id,
+        instance.sessionHistory.size,
+        showSessionRecap,
+        tradingPanelRecapRunId,
+    ) {
+        if (showSessionRecap) instance.touchTurnRecapRun(tradingPanelRecapRunId) else null
+    }
+    val recapSessionStartUi = remember(recapRun, instance.id) {
+        recapRun?.touchTurnRunRecord?.runContext?.let { runContext ->
+            TouchTurnSessionStartUiMapper.forHistory(
+                instance = instance,
+                run = recapRun,
+                runContext = runContext,
+            )
+        }
     }
     val analysisSession = remember(
         instance.id,
         instance.touchTurnSession,
         instance.sessionHistory.size,
-        showLastSessionRecap,
+        showSessionRecap,
+        tradingPanelRecapRunId,
     ) {
-        if (!isRunning && !showLastSessionRecap) null
-        else instance.touchTurnAnalysisSession()
+        when {
+            isRunning -> instance.touchTurnAnalysisSessionForRun(null)
+            showSessionRecap -> instance.touchTurnAnalysisSessionForRun(recapRun)
+            else -> null
+        }
     }
     val orderLifecycle = touchTurnOrderLifecycle
-    var selectedPipelineNode by rememberSaveable(instance.id, showLastSessionRecap) {
+    var selectedPipelineNode by rememberSaveable(instance.id, showSessionRecap, tradingPanelRecapRunId) {
         mutableStateOf<TouchTurnPipelineNodeId?>(null)
     }
-    var lastTrackedCurrentNode by remember(instance.id, showLastSessionRecap) {
+    var lastTrackedCurrentNode by remember(instance.id, showSessionRecap, tradingPanelRecapRunId) {
         mutableStateOf<TouchTurnPipelineNodeId?>(null)
     }
-    val pipelineLiveSessionTrades = if (isRunning || showLastSessionRecap) liveSessionTrades else null
+    val pipelineLiveSessionTrades = if (isRunning || showSessionRecap) liveSessionTrades else null
     LaunchedEffect(touchTurnPipelineGraph) {
         val graph = touchTurnPipelineGraph ?: return@LaunchedEffect
         val currentActive = graph.currentNodeId()
@@ -2151,7 +2184,7 @@ private fun LiveTab(
     ) {
         val activeSessionId = when {
             isRunning -> instance.inProgressSession()?.id
-            showLastSessionRecap -> lastClosedTouchTurnRun?.id
+            showSessionRecap -> recapRun?.id
             else -> null
         }
         activeSessionId?.let { sessionId ->
@@ -2161,17 +2194,24 @@ private fun LiveTab(
                 modifier = Modifier.padding(bottom = 2.dp)
             )
         }
-        if (isTouchTurn && !isRunning && showLastSessionRecap) {
+        if (isTouchTurn && !isRunning && showSessionRecap) {
+            val recapTimeLabel = recapRun?.let { run ->
+                daytrader.presentation.Formatters.runSessionTimeDisplay(
+                    startedAt = run.startedAt,
+                    stoppedAt = run.stoppedAt,
+                    inProgress = false,
+                )
+            }?.takeIf { it != "—" }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Showing last session",
+                    recapTimeLabel?.let { "Showing session · $it" } ?: "Showing session recap",
                     fontSize = 12.sp,
                     color = TextSecondary,
-                    modifier = Modifier.testTag("TradingPanelLastSessionLabel"),
+                    modifier = Modifier.testTag("TradingPanelRecapSessionLabel"),
                 )
                 TextButton(
                     onClick = onResetTradingPanel,
@@ -2187,9 +2227,9 @@ private fun LiveTab(
                 }
             }
         }
-        if (isTouchTurn && !isRunning && !showLastSessionRecap) {
+        if (isTouchTurn && !isRunning && !showSessionRecap) {
             Text(
-                "Ready for the next session. Past runs stay on the Session history tab.",
+                "Ready for the next session. Pick a past run on Session history to review it here.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 modifier = Modifier.testTag("TradingPanelIdleHint"),
@@ -2217,7 +2257,9 @@ private fun LiveTab(
                 pipelineGraph = touchTurnPipelineGraph,
                 instance = instance,
                 analysisSession = analysisSession,
-                lastClosedRun = lastClosedTouchTurnRun,
+                recapRun = recapRun,
+                recapRunId = tradingPanelRecapRunId,
+                recapSessionStartUi = recapSessionStartUi,
                 sessionEnded = sessionEnded,
                 liveExecution = liveExecution,
                 liveBroker = liveBroker,
@@ -2970,7 +3012,8 @@ private fun PerformanceTab(
     sessionHistory: SessionHistoryUiState?,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectRun: (runId: String) -> Unit,
-    onDeleteRun: (runId: String) -> Unit
+    onDeleteRun: (runId: String) -> Unit,
+    onDeleteAllRuns: () -> Unit
 ) {
     if (sessionHistory == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2989,14 +3032,40 @@ private fun PerformanceTab(
         return
     }
 
+    var showDeleteAllConfirm by remember { mutableStateOf(false) }
+    val deletableCount = sessionHistory.rows.count { it.canDelete }
+    val hasInProgress = sessionHistory.rows.any { it.isInProgress }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        SessionHistorySummaryBar(
-            rollup30d = sessionHistory.rollup30d,
-            winRate = sessionHistory.winRate
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SessionHistorySummaryBar(
+                rollup30d = sessionHistory.rollup30d,
+                winRate = sessionHistory.winRate,
+                modifier = Modifier.weight(1f)
+            )
+            if (deletableCount > 0) {
+                TextButton(
+                    onClick = { showDeleteAllConfirm = true },
+                    modifier = Modifier.testTag("SessionHistoryDeleteAllButton")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Clear history", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+        }
 
         SessionHistoryBlotterTable(
             sessionHistory = sessionHistory,
@@ -3004,6 +3073,50 @@ private fun PerformanceTab(
             onSelectRun = onSelectRun,
             onDeleteRun = onDeleteRun,
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    if (showDeleteAllConfirm) {
+        val sessionLabel = if (deletableCount == 1) "session" else "sessions"
+        AlertDialog(
+            onDismissRequest = { showDeleteAllConfirm = false },
+            containerColor = SurfaceDark,
+            title = {
+                Text("Clear session history?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    Text(
+                        "Remove all $deletableCount closed $sessionLabel from this deployment? This cannot be undone.",
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                    if (hasInProgress) {
+                        Text(
+                            "The in-progress session will be kept.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteAllConfirm = false
+                        onDeleteAllRuns()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
+                ) {
+                    Text("Clear history")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllConfirm = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
         )
     }
 }

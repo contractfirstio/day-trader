@@ -49,8 +49,8 @@ import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 
 private enum class TouchTurnRulesConfigTab(val label: String) {
-    THRESHOLDS("Thresholds"),
-    RULES("Rules")
+    RULES("Rules"),
+    THRESHOLDS("Thresholds")
 }
 
 @Composable
@@ -60,7 +60,7 @@ fun TouchTurnRulesConfigDialog(
     onDismiss: () -> Unit,
     onSave: (TouchTurnRuleConfig) -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(TouchTurnRulesConfigTab.THRESHOLDS.ordinal) }
+    var selectedTab by remember { mutableIntStateOf(TouchTurnRulesConfigTab.RULES.ordinal) }
     val fieldValues = remember(initialRules) {
         mutableStateMapOf<String, String>().apply {
             TouchTurnRuleConfig.fieldDefinitions.forEach { field ->
@@ -119,23 +119,6 @@ fun TouchTurnRulesConfigDialog(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     when (TouchTurnRulesConfigTab.entries[selectedTab]) {
-                        TouchTurnRulesConfigTab.THRESHOLDS -> {
-                            Text(
-                                "Numeric thresholds for liquidity, volume, turn confirmation, live tape, and " +
-                                    "bracket sizing. Changes apply on the next session start.",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                lineHeight = 16.sp
-                            )
-                            TouchTurnRuleConfig.fieldDefinitions.forEach { field ->
-                                TouchTurnRuleFieldEditor(
-                                    field = field,
-                                    value = fieldValues[field.key].orEmpty(),
-                                    enabled = enabled,
-                                    onValueChange = { fieldValues[field.key] = it }
-                                )
-                            }
-                        }
                         TouchTurnRulesConfigTab.RULES -> {
                             Text(
                                 "Enable or disable individual entry-gate rules. Disabled rules are skipped " +
@@ -150,6 +133,23 @@ fun TouchTurnRulesConfigDialog(
                                     checked = toggleValues[toggle.key] ?: true,
                                     enabled = enabled,
                                     onCheckedChange = { toggleValues[toggle.key] = it }
+                                )
+                            }
+                        }
+                        TouchTurnRulesConfigTab.THRESHOLDS -> {
+                            Text(
+                                "Numeric thresholds for liquidity, volume, turn confirmation, live tape, and " +
+                                    "bracket sizing. Changes apply on the next session start.",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                            TouchTurnRuleConfig.fieldDefinitions.forEach { field ->
+                                TouchTurnRuleFieldEditor(
+                                    field = field,
+                                    value = fieldValues[field.key].orEmpty(),
+                                    enabled = enabled,
+                                    onValueChange = { fieldValues[field.key] = it }
                                 )
                             }
                         }

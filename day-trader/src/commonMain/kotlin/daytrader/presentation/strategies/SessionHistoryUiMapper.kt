@@ -5,10 +5,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
-import daytrader.domain.TouchTurnSessionOutcome
-import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.rollups
-import daytrader.domain.toTouchTurnAnalysisContext
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
 
@@ -34,20 +31,6 @@ object SessionHistoryUiMapper {
         val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
             .map { toRowUi(it, isTouchTurn, selectedRunId, instance) }
         val rollup = closedSessions.rollups(sessionDate)
-        val selectedRun = displaySessions.find { it.id == selectedRunId }
-        val selectedDetail = selectedRun
-            ?.takeIf { it.sessionTrades.isNotEmpty() }
-            ?.let { run ->
-                val inProgress = run.status == SessionStatus.IN_PROGRESS
-                SessionTradeDetailUiMapper.fromSessionTrades(
-                    trades = run.sessionTrades,
-                    lifecycleLabel = if (inProgress) {
-                        "Session open"
-                    } else {
-                        "Session ${run.date} · ${Formatters.runStartTimeDisplay(run.startedAt)}"
-                    }
-                )
-            }
 
         return SessionHistoryUiState(
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
@@ -56,7 +39,6 @@ object SessionHistoryUiMapper {
             sortColumn = sortColumn,
             sortDirection = sortDirection,
             selectedRunId = selectedRunId,
-            selectedSessionTradeDetail = selectedDetail,
             marketFilterLabel = marketFilterLabel
         )
     }
@@ -79,57 +61,9 @@ object SessionHistoryUiMapper {
         val positionLine = tradeSummary ?: "—"
         val runRecord = run.touchTurnRunRecord
         val milestones = run.touchTurnMilestones ?: runRecord?.milestones
-        val pipelineGraph = if (isSelected && isTouchTurn && !inProgress) {
-            milestones?.let {
-                TouchTurnStatusBreadcrumbMapper.graphFromHistory(
-                    milestones = it,
-                    startedAt = run.startedAt,
-                    stoppedAt = run.stoppedAt,
-                    hadLiquidityCandle = run.hadLiquidityCandle
-                        ?: runRecord?.let { r ->
-                            r.decision.outcome != TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-                        },
-                    ordersPlacedForCandle = run.ordersPlacedForCandle
-                        ?: runRecord?.let { r ->
-                            r.decision.outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
-                        },
-                    positionOpened = run.positionOpened,
-                    decisionOutcome = runRecord?.decision?.outcome,
-                    instanceId = instance.id,
-                    symbol = instance.symbol
-                )
-            }
-        } else {
-            null
-        }
-        val touchTurnRunDetail = if (isSelected) {
-            runRecord?.let { TouchTurnRunRecordUiMapper.from(it, run) }
-        } else {
-            null
-        }
-        val marketInputs = runRecord?.marketInputs
-        val openingBar = if (isSelected) marketInputs?.openingBar else null
-        val rangeThreshold = if (isSelected) {
-            marketInputs?.atr14?.let { it * instance.effectiveTouchTurnRules().atrLiquidityRatio }
-        } else {
-            null
-        }
-        val analysisRules = runRecord?.rules ?: instance.effectiveTouchTurnRules()
-        val analysisSession = if (isSelected && isTouchTurn && !inProgress) {
-            run.toTouchTurnAnalysisContext(analysisRules)
-        } else {
-            null
-        }
-        val requireLivePriceChecks = runRecord?.runContext?.brokerKind?.usesLiveIbMarketData == true
-        val sessionStartUi = if (isSelected && isTouchTurn && !inProgress && runRecord != null) {
-            TouchTurnSessionStartUiMapper.forHistory(
-                instance = instance,
-                run = run,
-                runContext = runRecord.runContext
-            )
-        } else {
-            null
-        }
+        val opensOnTradingTab = isTouchTurn &&
+            !inProgress &&
+            (milestones != null || runRecord != null)
         return StrategySessionRowUi(
             id = run.id,
             deploymentId = instance.id,
@@ -140,24 +74,13 @@ object SessionHistoryUiMapper {
                 inProgress = inProgress
             ),
             positionLine = positionLine,
-            hasTradeDetail = run.sessionTrades.isNotEmpty(),
-            hasPipelineLog = isTouchTurn &&
-                !inProgress &&
-                (milestones != null || runRecord != null),
             isSelected = isSelected,
             formattedPnL = formattedPnL,
             isPositivePnL = run.pnl > 0.005,
             isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
             canDelete = !inProgress,
-            pipelineGraph = pipelineGraph,
-            touchTurnRunDetail = touchTurnRunDetail,
-            touchTurnOpeningBar = openingBar,
-            touchTurnOpeningBarCurrency = marketInputs?.currencyCode,
-            touchTurnRangeThreshold = rangeThreshold,
-            touchTurnAnalysisSession = analysisSession,
-            touchTurnRequireLivePriceChecks = requireLivePriceChecks,
-            touchTurnSessionStart = sessionStartUi
+            opensOnTradingTab = opensOnTradingTab
         )
     }
 

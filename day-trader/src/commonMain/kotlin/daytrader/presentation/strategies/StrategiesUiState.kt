@@ -65,8 +65,10 @@ data class StrategiesUiState(
     val touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
     val globalAutoStartEnabled: Boolean = true,
-    /** When false, the Trading tab shows an idle pipeline instead of the last closed session. */
-    val tradingPanelShowsLastSessionRecap: Boolean = false,
+    /** When false, the Trading tab shows an idle pipeline instead of a closed-session recap. */
+    val tradingPanelShowsSessionRecap: Boolean = false,
+    /** Session history row driving the Trading tab recap; null = latest closed run. */
+    val tradingPanelRecapRunId: String? = null,
     /** When false, bid/ask/last are hidden on the Trading tab (idle Touch Turn panel). */
     val tradingPanelShowsLiveMarketQuotes: Boolean = false,
     /** Live Touch Turn pipeline graph for the selected deployment (engine-aligned). */

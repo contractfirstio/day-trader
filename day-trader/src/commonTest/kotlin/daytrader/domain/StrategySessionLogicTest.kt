@@ -41,6 +41,16 @@ class StrategySessionLogicTest {
     }
 
     @Test
+    fun withoutClosedSessionHistory_keepsInProgressOnly() {
+        val first = base.onSessionStarted("2026-05-22", startedAt = "2026-05-22T09:30:00")
+        val stopped = first.onSessionStopped(stoppedAt = "2026-05-22T10:00:00")
+        val active = stopped.onSessionStarted("2026-05-22", startedAt = "2026-05-22T11:00:00")
+        val trimmed = active.withoutClosedSessionHistory()
+        assertEquals(1, trimmed.sessionHistory.size)
+        assertEquals(SessionStatus.IN_PROGRESS, trimmed.sessionHistory.single().status)
+    }
+
+    @Test
     fun onSessionStopped_closesActiveRunAndClearsTouchTurnSession() {
         val touchTurn = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,

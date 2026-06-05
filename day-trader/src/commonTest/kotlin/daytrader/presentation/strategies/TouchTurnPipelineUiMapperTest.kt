@@ -108,7 +108,7 @@ class TouchTurnPipelineUiMapperTest {
             brokerPositions = positions,
             brokerOpenOrders = emptyList(),
             brokerFills = fills,
-            showLastSessionRecap = false,
+            showSessionRecap = false,
             nowEpochMillis = now
         )!!
         assertTrue(TouchTurnPipelineNodeId.Close in graph.activePath)
@@ -134,7 +134,7 @@ class TouchTurnPipelineUiMapperTest {
             brokerPositions = emptyList(),
             brokerOpenOrders = emptyList(),
             brokerFills = emptyList(),
-            showLastSessionRecap = false,
+            showSessionRecap = false,
             nowEpochMillis = barEnd - 1
         )!!
         assertEquals(TouchTurnPipelineNodeId.Data, graph.activePath.last())

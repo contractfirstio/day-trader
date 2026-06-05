@@ -8,6 +8,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.inProgressSession
+import daytrader.domain.touchTurnRecapRun
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 
@@ -23,7 +24,8 @@ object LiveSessionTradesUiMapper {
     fun forDeployment(
         instance: StrategyDeployment,
         liveFills: List<BrokerFill>,
-        brokerPosition: AccountPosition? = null
+        brokerPosition: AccountPosition? = null,
+        recapRunId: String? = null,
     ): LiveSessionTradesUiState? {
         val symbol = instance.symbol
         val currency = brokerPosition?.currency
@@ -51,14 +53,16 @@ object LiveSessionTradesUiMapper {
                 )
             }
             else -> {
-                val lastRun = instance.sessionHistory
-                    .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
-                    .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+                val recapRun = instance.touchTurnRecapRun(recapRunId)
+                    ?.takeIf { it.sessionTrades.isNotEmpty() }
+                    ?: instance.sessionHistory
+                        .filter { it.status == SessionStatus.CLOSED && it.sessionTrades.isNotEmpty() }
+                        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
                     ?: return null
-                val trades = lastRun.sessionTrades
+                val trades = recapRun.sessionTrades
                 fromTrades(
                     symbol = symbol,
-                    runLabel = lastRun.date,
+                    runLabel = recapRun.date,
                     lifecycleLabel = "Session ended — verify fills below",
                     trades = trades,
                     unrealizedPnL = 0.0,

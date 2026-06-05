@@ -28,6 +28,8 @@ sealed interface TouchTurnCommand {
 
     data class DeleteSessionHistory(val instanceId: String, val runId: String) : TouchTurnCommand
 
+    data class DeleteAllSessionHistory(val instanceId: String) : TouchTurnCommand
+
     data class BrokerSnapshot(
         val positions: List<AccountPosition>,
         val openOrders: List<WorkingOrder>,
