@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.rollups
@@ -27,7 +28,7 @@ object SessionHistoryUiMapper {
                 it.status == SessionStatus.CLOSED || it.status == SessionStatus.IN_PROGRESS
             }
             .filter { DeploymentMarket.sessionMatchesMarketFilter(it, instance, marketZoneFilter) }
-        val isTouchTurn = instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
+        val isTouchTurn = instance.isTouchTurn
         val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
             .map { toRowUi(it, isTouchTurn, selectedRunId, instance) }
         val rollup = closedSessions.rollups(sessionDate)

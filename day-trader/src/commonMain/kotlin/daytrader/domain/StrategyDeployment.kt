@@ -31,3 +31,9 @@ data class StrategyDeployment(
     /** Touch Turn entry-gate thresholds; [TouchTurnRuleConfig.DEFAULT] when unset in legacy records. */
     val touchTurnRules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
 )
+
+val StrategyDeployment.isTouchTurn: Boolean
+    get() = strategyType == StrategyType.TOUCH_AND_TURN_SCALPER
+
+val StrategyDeployment.isQuickFlip: Boolean
+    get() = strategyType == StrategyType.QUICK_FLIP_SCALPER

@@ -30,7 +30,8 @@ import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnDecisionLog
 import daytrader.domain.inProgressSession
 import daytrader.domain.beginTouchTurnSession
-import daytrader.domain.onSessionStarted
+import daytrader.domain.isTouchTurn
+import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withOpeningBarClosedMilestone
 import daytrader.domain.withFirstFifteenMinuteCandle
@@ -47,7 +48,7 @@ import daytrader.domain.withTouchTurnDecisionOutcome
 import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
 import daytrader.data.StrategyCatalog
 import daytrader.domain.withClosedPosition
-import daytrader.data.withDemoLiveExecutionOnStart
+import daytrader.data.DeploymentSessionController
 import daytrader.domain.withStopPrice
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
@@ -360,12 +361,11 @@ class TouchTurnEngine(
             return
         }
         repository.update(command.instanceId) { current ->
-            val started = current
-                .onSessionStarted(command.sessionDate, touchTurnStartedBy = command.startedBy)
-                .beginTouchTurnSession(command.sessionDate)
-                .copy(lastAutoStartSessionDate = command.sessionDate)
-            started.inProgressSession()?.let { SessionTrace.sessionStarted(started, it) }
-            started
+            DeploymentSessionController.start(
+                instance = current,
+                sessionDate = command.sessionDate,
+                markAutoStarted = command.startedBy == TouchTurnSessionStartedBy.AUTO_MARKET_OPEN,
+            )
         }
         tracedFillExecIdsByInstance.remove(command.instanceId)
         repository.flushPersistence()
@@ -387,10 +387,8 @@ class TouchTurnEngine(
             emit(TouchTurnEvent.UiNavigate(command.instanceId, tab))
             uiEffects.selectDeployment(command.instanceId, tab)
         }
-        if (updated.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+        if (updated.isTouchTurn) {
             dispatch(TouchTurnCommand.LoadFirstCandle(command.instanceId, command.sessionDate))
-        } else if (updated.strategyType == StrategyType.QUICK_FLIP_SCALPER) {
-            repository.update(command.instanceId) { it.withDemoLiveExecutionOnStart(command.sessionDate) }
         }
     }
 
@@ -468,7 +466,7 @@ class TouchTurnEngine(
     private fun recordTouchTurnPositionMilestones(positions: List<daytrader.gateway.AccountPosition>) {
         for (instance in repository.deployments.value) {
             if (instance.status != DeploymentStatus.RUNNING) continue
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (!instance.isTouchTurn) continue
             if (!SymbolMarkets.hasOpenPosition(instance.symbol, positions)) continue
             if (instance.touchTurnSession?.milestones?.positionOpenedAt != null) continue
             repository.update(instance.id) { it.withTouchTurnPositionOpenedIfNeeded() }
@@ -529,7 +527,7 @@ class TouchTurnEngine(
         repository.deployments.value
             .asSequence()
             .filter { it.status == DeploymentStatus.RUNNING }
-            .filter { it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER }
+            .filter { it.isTouchTurn }
             .forEach { instance ->
                 val session = instance.touchTurnSession ?: return@forEach
                 val sessionDate = instance.inProgressSession()?.date ?: session.sessionDate
@@ -555,7 +553,7 @@ class TouchTurnEngine(
         prepareJobs[instanceId]?.cancel()
         prepareJobs[instanceId] = scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
+            if (!instance.isTouchTurn) return@launch
             if (instance.status == DeploymentStatus.RUNNING) return@launch
             emit(TouchTurnEvent.PrepareStarted(instanceId))
             val sessionDate = DeploymentMarket.sessionDateIso(instance)
@@ -604,7 +602,7 @@ class TouchTurnEngine(
         loadJobs[instanceId]?.cancel()
         loadJobs[instanceId] = scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
+            if (!instance.isTouchTurn) return@launch
             val symbol = instance.symbol
             val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val instrument = DeploymentMarket.effectiveInstrument(instance)

@@ -1,11 +1,11 @@
 package daytrader.data
 
 import daytrader.domain.StrategyDeployment
-import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.beginTouchTurnSession
-import daytrader.data.StrategyCatalog
 import daytrader.data.withDemoLiveExecutionOnStart
+import daytrader.domain.isQuickFlip
+import daytrader.domain.isTouchTurn
 import daytrader.diagnostics.SessionTrace
 import daytrader.domain.inProgressSession
 import daytrader.domain.onSessionStarted
@@ -29,13 +29,13 @@ object DeploymentSessionController {
         val started = instance
             .onSessionStarted(sessionDate, touchTurnStartedBy = startedBy)
             .beginTouchTurnSession(sessionDate)
-        val withSession = when (instance.strategyType) {
-            StrategyType.TOUCH_AND_TURN_SCALPER -> {
+        val withSession = when {
+            instance.isTouchTurn -> {
                 onTouchTurnSessionStarted?.invoke(started.id, sessionDate)
                 started
             }
-            StrategyType.QUICK_FLIP_SCALPER ->
-                started.withDemoLiveExecutionOnStart(sessionDate)
+            instance.isQuickFlip -> started.withDemoLiveExecutionOnStart(sessionDate)
+            else -> started
         }
         val result = withSession.copy(lastAutoStartSessionDate = sessionDate)
         result.inProgressSession()?.let { SessionTrace.sessionStarted(result, it) }

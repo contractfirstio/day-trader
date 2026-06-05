@@ -32,13 +32,12 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlin:kotlin-stdlib")
                 implementation(compose.foundation)
-                implementation(compose.material3)
+                implementation(libs.compose.material3)
                 implementation(compose.runtime)
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
 
                 // UI Component & Icon packs
-                implementation(libs.compose.material3)
                 implementation(libs.compose.icons.core)
                 implementation(libs.compose.icons.extended)
             }

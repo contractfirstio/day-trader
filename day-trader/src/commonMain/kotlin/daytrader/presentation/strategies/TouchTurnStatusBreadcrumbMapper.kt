@@ -8,6 +8,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.SessionStatus
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
@@ -269,7 +270,7 @@ object TouchTurnStatusBreadcrumbMapper {
 
     /** Most recent closed session with a persisted pipeline log (Live tab after stop). */
     fun pipelineForLastClosedSession(instance: StrategyDeployment): List<TouchTurnBreadcrumbStep>? {
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        if (!instance.isTouchTurn) return null
         val run = instance.sessionHistory
             .filter {
                 it.status == SessionStatus.CLOSED &&

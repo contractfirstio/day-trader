@@ -64,7 +64,7 @@ import daytrader.presentation.strategies.TouchTurnSessionStatusUi
 import daytrader.presentation.strategies.TouchTurnRunRecordUiMapper
 import daytrader.presentation.strategies.detailTitle
 import daytrader.presentation.strategies.fmt
-import daytrader.presentation.strategies.formattedAdr14
+import daytrader.presentation.strategies.formattedAtr14
 import daytrader.presentation.strategies.isSelectable
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
@@ -356,12 +356,12 @@ fun TouchTurnPipelineSectionData(
             )
             session.status == TouchTurnCandleStatus.LOADING -> {
                 Text(
-                    "Loading opening bar and 14-day ADR from broker…",
+                    "Loading opening bar and 14-period ATR from broker…",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
                 Text(
-                    "Requests: 14-day average daily range and the first 15-minute RTH candle for $symbol.",
+                    "Requests: 14-period ATR and the first 15-minute RTH candle for $symbol.",
                     fontSize = 10.sp,
                     color = TextSecondary.copy(alpha = 0.85f),
                     lineHeight = 13.sp
@@ -443,22 +443,22 @@ private fun TouchTurnDataCaptureCard(capture: SessionDataCaptureUi) {
             DataCaptureRow(label = "Ready at", value = readyAt, testTag = "TouchTurnDataCaptureReadyAt")
         }
 
-        if (capture.hasAdr) {
+        if (capture.hasAtr) {
             HorizontalDivider(color = TableHeaderBg)
             Text(
-                "14-day ADR",
+                "14-period ATR",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = TextSecondary
             )
             DataCaptureRow(
-                label = "Average daily range",
-                value = capture.formattedAdr14() ?: "—",
+                label = "Average true range",
+                value = capture.formattedAtr14() ?: "—",
                 emphasize = true,
-                testTag = "TouchTurnDataCaptureAdr14"
+                testTag = "TouchTurnDataCaptureAtr14"
             )
             DataCaptureRow(
-                label = "Liquidity threshold (${capture.adrRatioPercent}% of ADR)",
+                label = "Liquidity threshold (${capture.atrRatioPercent}% of ATR)",
                 value = capture.fmt(capture.rangeThreshold),
                 testTag = "TouchTurnDataCaptureThreshold"
             )
@@ -1208,7 +1208,7 @@ private fun TouchTurnLiquidityCalculationCard(
         calc.evaluation == LiquidityCandleEvaluation.AWAITING_CLOSE ->
             "Waiting for the opening bar to close before comparing range to threshold."
         calc.passes == true ->
-            "Liquidity candle — bar range exceeds ${calc.adrRatioPercent}% of 14-day ADR. Trade path may continue."
+            "Liquidity candle — bar range exceeds ${calc.atrRatioPercent}% of 14-period ATR. Trade path may continue."
         calc.passes == false ->
             "Not a liquidity candle — bar range did not exceed threshold. Session takes the no-trade branch."
         else -> TouchTurnLogic.liquidityEvaluationLabel(calc.evaluation)
@@ -1242,18 +1242,18 @@ private fun TouchTurnLiquidityCalculationCard(
 
             LiquidityCalcStep(
                 step = "1",
-                title = "14-day ADR (average daily range)",
-                value = calc.formattedAdr14() ?: "—",
-                detail = "Mean high − low over the last 14 completed sessions."
+                title = "14-period ATR (average true range)",
+                value = calc.formattedAtr14() ?: "—",
+                detail = "Mean true range over the last 14 completed sessions."
             )
 
             LiquidityCalcStep(
                 step = "2",
-                title = "Liquidity threshold (ADR × ${calc.adrRatioPercent}%)",
+                title = "Liquidity threshold (ATR × ${calc.atrRatioPercent}%)",
                 value = calc.fmt(calc.rangeThreshold),
-                detail = calc.formattedAdr14()?.let { adr ->
-                    "$adr × ${calc.adrRatioPercent}% = ${calc.fmt(calc.rangeThreshold)}"
-                } ?: "25% of 14-day ADR."
+                detail = calc.formattedAtr14()?.let { atr ->
+                    "$atr × ${calc.atrRatioPercent}% = ${calc.fmt(calc.rangeThreshold)}"
+                } ?: "25% of 14-period ATR."
             )
 
             LiquidityCalcStep(

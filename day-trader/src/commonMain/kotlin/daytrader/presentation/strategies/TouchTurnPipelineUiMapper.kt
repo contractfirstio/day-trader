@@ -5,6 +5,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
 import daytrader.domain.inProgressSession
 import daytrader.domain.touchTurnRecapRun
@@ -78,7 +79,7 @@ object TouchTurnPipelineUiMapper {
         recapRunId: String? = null,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnPipelineGraph? {
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        if (!instance.isTouchTurn) return null
         return when {
             instance.status == DeploymentStatus.RUNNING -> {
                 val ctx = liveContext(

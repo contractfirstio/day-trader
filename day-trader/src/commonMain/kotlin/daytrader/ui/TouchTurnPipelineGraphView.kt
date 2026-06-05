@@ -300,17 +300,3 @@ private fun DrawScope.drawPipelineNode(
         drawCircle(color = GainGreen, radius = radius * 0.35f, center = center)
     }
 }
-
-/** @deprecated Use [TouchTurnPipelineGraphView] */
-@Composable
-fun TouchTurnStatusBreadcrumbRow(
-    steps: List<TouchTurnBreadcrumbStep>,
-    modifier: Modifier = Modifier
-) {
-    TouchTurnPipelineGraphView(
-        graph = daytrader.presentation.strategies.TouchTurnStatusBreadcrumbMapper.buildGraph(steps),
-        modifier = modifier,
-        compact = true,
-        showTitle = false
-    )
-}

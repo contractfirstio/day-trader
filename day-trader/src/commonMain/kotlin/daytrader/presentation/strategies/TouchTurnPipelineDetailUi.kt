@@ -12,21 +12,21 @@ import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.presentation.Formatters
 
-/** Values loaded from IB at the Data pipeline step (ADR + first 15m RTH bar). */
+/** Values loaded from IB at the Data pipeline step (ATR + first 15m RTH bar). */
 data class SessionDataCaptureUi(
     val status: TouchTurnCandleStatus,
     val errorMessage: String?,
     val marketZoneAbbrev: String,
     val currency: String,
     val dataReadyAt: String?,
-    val adr14: Double?,
+    val atr14: Double?,
     val rangeThreshold: Double,
-    val adrRatioPercent: Int,
+    val atrRatioPercent: Int,
     val candle: OhlcBar?
 ) {
-    val hasAdr: Boolean get() = adr14 != null && adr14 > 0.0
+    val hasAtr: Boolean get() = atr14 != null && atr14 > 0.0
     val hasOpeningBar: Boolean get() = candle != null
-    val isReady: Boolean get() = status == TouchTurnCandleStatus.READY && (hasAdr || hasOpeningBar)
+    val isReady: Boolean get() = status == TouchTurnCandleStatus.READY && (hasAtr || hasOpeningBar)
 }
 
 data class OpeningBarDetailUi(
@@ -47,8 +47,8 @@ data class OpeningBarDetailUi(
 
 data class LiquidityCalculationUi(
     val evaluation: LiquidityCandleEvaluation,
-    val adr14: Double?,
-    val adrRatioPercent: Int,
+    val atr14: Double?,
+    val atrRatioPercent: Int,
     val rangeThreshold: Double,
     val barHigh: Double,
     val barLow: Double,
@@ -95,9 +95,9 @@ object TouchTurnPipelineDetailUiMapper {
             marketZoneAbbrev = TouchTurnLogic.marketOpenZoneAbbrev(session.marketZoneId),
             currency = session.currencyCode,
             dataReadyAt = session.milestones.dataReadyAt,
-            adr14 = session.adr14,
+            atr14 = session.atr14 ?: session.adr14,
             rangeThreshold = session.rangeThreshold,
-            adrRatioPercent = (TouchTurnDefaults.ADR_LIQUIDITY_RATIO * 100).toInt(),
+            atrRatioPercent = (TouchTurnDefaults.ATR_LIQUIDITY_RATIO * 100).toInt(),
             candle = session.candle
         )
 
@@ -149,8 +149,8 @@ object TouchTurnPipelineDetailUiMapper {
         }
         return LiquidityCalculationUi(
             evaluation = evaluation,
-            adr14 = session.adr14,
-            adrRatioPercent = (TouchTurnDefaults.ADR_LIQUIDITY_RATIO * 100).toInt(),
+            atr14 = session.atr14 ?: session.adr14,
+            atrRatioPercent = (TouchTurnDefaults.ATR_LIQUIDITY_RATIO * 100).toInt(),
             rangeThreshold = session.rangeThreshold,
             barHigh = candle.high,
             barLow = candle.low,
@@ -235,8 +235,8 @@ object TouchTurnPipelineDetailUiMapper {
     }
 }
 
-fun LiquidityCalculationUi.formattedAdr14(): String? =
-    adr14?.let { Formatters.moneyPlain(it, currency) }
+fun LiquidityCalculationUi.formattedAtr14(): String? =
+    atr14?.let { Formatters.moneyPlain(it, currency) }
 
 fun LiquidityCalculationUi.fmt(amount: Double): String =
     Formatters.moneyPlain(amount, currency)
@@ -247,5 +247,5 @@ fun OpeningBarDetailUi.fmt(amount: Double): String =
 fun SessionDataCaptureUi.fmt(amount: Double): String =
     Formatters.moneyPlain(amount, currency)
 
-fun SessionDataCaptureUi.formattedAdr14(): String? =
-    adr14?.let { fmt(it) }
+fun SessionDataCaptureUi.formattedAtr14(): String? =
+    atr14?.let { fmt(it) }

@@ -48,7 +48,7 @@ UI (Compose) → ViewModel → Repository → Domain
 |------------------|------------------------------|--------------------------------------------------------------------------------|
 | **UI**           | `daytrader.ui`               | Compose screens, navigation rail, blotter components, theme                    |
 | **Presentation** | `daytrader.presentation`     | `ViewModel`s, UI state, formatters, mappers (`*UiMapper`)                      |
-| **Data**         | `daytrader.data`             | Repositories, `StrategyCatalog`, mock seeds, demo execution helpers            |
+| **Data**         | `daytrader.data`             | Repositories, `StrategyCatalog`, demo execution helpers                        |
 | **Persistence**  | `daytrader.data.persistence` | JSON documents, debounced writes, legacy migration                             |
 | **Domain**       | `daytrader.domain`           | `StrategyDeployment`, `StrategySession`, `ActiveExecution`, session lifecycle, risk math |
 | **Platform**     | `daytrader.platform`         | `expect`/`actual` file I/O and session date                                    |
@@ -57,7 +57,7 @@ UI (Compose) → ViewModel → Repository → Domain
 
 - `FileStrategyDeploymentRepository` — deployments, session history, and live execution state
 - `FileStrategiesAppStateRepository` — strategies screen UI state (selection, detail tab, global auto-start)
-- `IbPositionRepository` (desktop) — live positions from IB Gateway via `reqPositions` + market data ticks
+- `GatewayPositionRepository` (desktop) — live positions from IB Gateway via `reqPositions` + market data ticks
 
 **Domain highlights:**
 
@@ -70,7 +70,7 @@ Starting a session seeds a **demo filled position** (`DemoActiveExecution`) so t
 
 ## Persistence
 
-On first launch, deployments are loaded from disk or seeded from `mockStrategyDeployments()` and written out. UI preferences persist separately.
+On first launch, deployments are loaded from `deployments.json` when present; otherwise legacy files (`strategy-instances.json`, `instances.json`) are migrated once and written to the new format. A missing file yields an empty deployment list (add deployments from the Strategies screen). UI preferences persist separately.
 
 | File                     | Contents                                                             |
 |--------------------------|----------------------------------------------------------------------|
@@ -253,12 +253,11 @@ day-trader/                          # Gradle root (Kotlin Multiplatform)
         ├── commonMain/kotlin/
         │   ├── daytrader/
         │   │   ├── domain/          # Models + run/execution logic
-        │   │   ├── data/            # Repositories, mocks, catalog
+        │   │   ├── data/            # Repositories, catalog
         │   │   ├── data/persistence/ # JSON store, records, migration
         │   │   ├── presentation/    # ViewModels, UI state, mappers
         │   │   ├── ui/              # App, screens, blotter, theme
         │   │   └── platform/        # expect APIs (AppFileSystem, SessionDate)
-        │   └── Platform.kt          # expect Platform metadata
         └── desktopMain/kotlin/
             ├── main.kt              # Window entry (title: "Day Trader")
             └── daytrader/platform/  # actual file system + session date

@@ -5,6 +5,8 @@ import daytrader.data.persistence.DeploymentPersistence
 import daytrader.data.persistence.DeploymentsDocument
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LegacyDataCleanup
+import daytrader.data.persistence.LegacyDeploymentPersistence
+import daytrader.data.persistence.LegacyInstancesJsonPersistence
 import daytrader.domain.StrategyDeployment
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
@@ -48,14 +50,25 @@ class FileStrategyDeploymentRepository(
 
     private fun loadInitial(): List<StrategyDeployment> {
         AppFileSystem.ensureAppDataDirectory()
-        val loaded = JsonFileStore.readDeployments()
+        val fromNew = JsonFileStore.readDeployments()
             ?.deployments
             ?.map(DeploymentPersistence::toDomain)
-            ?: emptyList()
-        if (loaded.isNotEmpty()) {
-            LegacyDataCleanup.removeOrphanedLegacyFiles()
+        if (fromNew != null) {
+            if (fromNew.isNotEmpty()) {
+                LegacyDataCleanup.removeOrphanedLegacyFiles()
+            }
+            return fromNew
         }
-        return loaded
+
+        val fromLegacy = LegacyDeploymentPersistence.load()
+            ?: LegacyInstancesJsonPersistence.load()
+        if (fromLegacy != null) {
+            writer.persistNow(fromLegacy)
+            LegacyDataCleanup.removeOrphanedLegacyFiles()
+            return fromLegacy
+        }
+
+        return emptyList()
     }
 
     private fun persistDeployments(deployments: List<StrategyDeployment>) {

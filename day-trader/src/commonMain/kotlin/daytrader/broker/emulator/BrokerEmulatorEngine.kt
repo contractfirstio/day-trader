@@ -475,23 +475,6 @@ class BrokerEmulatorEngine(
     fun ingestLiveQuote(symbol: String, quote: LiveQuote, priorClose: Double?) =
         ingestExternalQuote(symbol, quote, priorClose)
 
-    /** @deprecated Use [ingestExternalQuote]; kept for tests that pass a single mid price. */
-    fun ingestLiveMark(symbol: String, marketPrice: Double, priorClose: Double?) {
-        if (marketPrice <= 0.0) return
-        val norm = SymbolMarkets.normalizeSymbol(symbol)
-        val half = marketPrice * 0.0001
-        ingestExternalQuote(
-            symbol = norm,
-            quote = LiveQuote(
-                symbol = norm,
-                bid = marketPrice - half,
-                ask = marketPrice + half,
-                last = marketPrice
-            ),
-            priorClose = priorClose
-        )
-    }
-
     private fun applyPriorClose(norm: String, priorClose: Double?) {
         priorClose?.takeIf { it > 0.0 }?.let { close ->
             dynamicInstruments[norm]?.let { instrument ->

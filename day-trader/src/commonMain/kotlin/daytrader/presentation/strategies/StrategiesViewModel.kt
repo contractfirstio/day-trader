@@ -25,6 +25,7 @@ import daytrader.engine.TouchTurnEvent
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.ExecutionState
@@ -234,7 +235,7 @@ class StrategiesViewModel(
             while (true) {
                 kotlinx.coroutines.delay(1_000)
                 val selected = deployments.find { it.id == appState.selectedDeploymentId }
-                val needsPipelineRefresh = selected?.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+                val needsPipelineRefresh = selected?.isTouchTurn == true &&
                     selected.status == DeploymentStatus.RUNNING
                 if (needsPipelineRefresh) {
                     pipelineRefreshTick++
@@ -687,7 +688,7 @@ class StrategiesViewModel(
     fun onPrepareSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
         if (existing.status == DeploymentStatus.RUNNING) return
-        if (existing.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
+        if (!existing.isTouchTurn) return
         if (!useTouchTurnEngine || touchTurnEngine == null) return
         UiActionLog.forDeployment(
             deployment = existing,
@@ -913,7 +914,7 @@ class StrategiesViewModel(
             )
         } == true
         val touchTurnPipelineGraph = selected?.let { instance ->
-            if (instance.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+            if (instance.isTouchTurn &&
                 instance.status == DeploymentStatus.RUNNING
             ) {
                 pipelineRefreshTick
@@ -1011,7 +1012,7 @@ class StrategiesViewModel(
         showSessionRecap: Boolean,
         recapRunId: String? = null,
     ): TouchTurnOrderLifecycleUi? {
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        if (!instance.isTouchTurn) return null
         val sessionEnded = instance.status != DeploymentStatus.RUNNING && showSessionRecap
         val live = LiveExecutionUiMapper.toLiveState(instance)
         val inActiveTrade = live?.state == ExecutionState.FILLED && live.showPanel
@@ -1037,7 +1038,7 @@ class StrategiesViewModel(
     private fun recordTouchTurnLivePrices() {
         val now = System.currentTimeMillis()
         for (deployment in deployments) {
-            if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (!deployment.isTouchTurn) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
             val session = deployment.touchTurnSession ?: continue
             val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
@@ -1055,7 +1056,7 @@ class StrategiesViewModel(
     private fun pruneTouchTurnPriceHistories() {
         val activeSymbols = deployments
             .filter {
-                it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER &&
+                it.isTouchTurn &&
                     it.status == DeploymentStatus.RUNNING
             }
             .map { SymbolMarkets.normalizeSymbol(it.symbol) }
@@ -1095,7 +1096,7 @@ class StrategiesViewModel(
         instance: StrategyDeployment?
     ): TouchTurnLiveOrderChartUiState? {
         val deployment = instance ?: return null
-        if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        if (!deployment.isTouchTurn) return null
         if (deployment.status != DeploymentStatus.RUNNING) return null
         val session = deployment.touchTurnSession ?: return null
         val lifecycle = touchTurnOrderLifecycleFor(deployment, showSessionRecap = false) ?: return null
@@ -1129,7 +1130,7 @@ class StrategiesViewModel(
         triggerDetails: Map<String, String> = emptyMap()
     ) {
         val instance = deployments.find { it.id == deploymentId } ?: return
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return
+        if (!instance.isTouchTurn) return
         val ctx = TouchTurnPipelineUiMapper.liveContext(
             instance = instance,
             brokerPositions = brokerPositions,
@@ -1169,7 +1170,7 @@ class StrategiesViewModel(
         trigger: String
     ) {
         for (deployment in deployments) {
-            if (deployment.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (!deployment.isTouchTurn) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
             val symbolOrders = SymbolMarkets.openOrdersForDeployment(deployment, orders)
             val fingerprint = symbolOrders.joinToString("|") { "${it.orderId}:${it.status}:${it.remaining}" }
