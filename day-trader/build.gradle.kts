@@ -60,7 +60,20 @@ kotlin {
                 implementation("org.jetbrains.compose.ui:ui-test:1.8.1")
             }
         }
+
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.junit)
+                implementation("io.cucumber:cucumber-java:7.20.1")
+                implementation("io.cucumber:cucumber-junit:7.20.1")
+            }
+        }
     }
+}
+
+tasks.named<Test>("desktopTest") {
+    useJUnit()
 }
 
 compose.desktop {

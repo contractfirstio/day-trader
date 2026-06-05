@@ -106,12 +106,16 @@ class StrategiesViewModel(
     private var pipelineRefreshTick: Int = 0
     private val prepareInProgressIds = mutableSetOf<String>()
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
+    private val touchTurnEntryApproachTrackers = mutableMapOf<String, TouchTurnEntryApproachTracker>()
 
     private fun touchTurnPriceHistoryFor(symbol: String): LivePriceTickHistory =
         touchTurnPriceHistories.getOrPut(SymbolMarkets.normalizeSymbol(symbol)) {
             // ~15 minutes at one sample every 2s
             LivePriceTickHistory(maxPoints = 450, minIntervalMillis = 2_000L)
         }
+
+    private fun touchTurnEntryApproachTrackerFor(deploymentId: String): TouchTurnEntryApproachTracker =
+        touchTurnEntryApproachTrackers.getOrPut(deploymentId) { TouchTurnEntryApproachTracker() }
 
     private val _uiState = MutableStateFlow(StrategiesUiState())
     val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
@@ -168,7 +172,7 @@ class StrategiesViewModel(
             gateway.positions
                 .onEach {
                     brokerPositions = it
-                    recordTouchTurnLivePrices()
+                    recordTouchTurnLiveChartSamples()
                     emitUiState()
                 }
                 .launchIn(scope)
@@ -176,7 +180,7 @@ class StrategiesViewModel(
                 .onEach { orders ->
                     brokerOpenOrders = orders
                     logBrokerOpenOrdersForRunningTouchTurn(orders, "gateway_open_orders")
-                    recordTouchTurnLivePrices()
+                    recordTouchTurnLiveChartSamples()
                     emitUiState()
                 }
                 .launchIn(scope)
@@ -203,7 +207,7 @@ class StrategiesViewModel(
                     )
                 }
                 brokerQuotes = quotes
-                recordTouchTurnLivePrices()
+                recordTouchTurnLiveChartSamples()
                 emitUiState()
             }
             ?.launchIn(scope)
@@ -1035,6 +1039,11 @@ class StrategiesViewModel(
         )
     }
 
+    private fun recordTouchTurnLiveChartSamples() {
+        recordTouchTurnLivePrices()
+        recordTouchTurnEntryApproach()
+    }
+
     private fun recordTouchTurnLivePrices() {
         val now = System.currentTimeMillis()
         for (deployment in deployments) {
@@ -1053,15 +1062,51 @@ class StrategiesViewModel(
         }
     }
 
+    private fun recordTouchTurnEntryApproach() {
+        for (deployment in deployments) {
+            if (!deployment.isTouchTurn) continue
+            if (deployment.status != DeploymentStatus.RUNNING) continue
+            val session = deployment.touchTurnSession ?: continue
+            val setup = session.setup ?: continue
+            val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
+            val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
+            if (!recordForForming && !recordForOrders) continue
+            val quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes) ?: continue
+            val fillGap = TouchTurnQuoteStripFormat.fillGap(
+                entryPrice = setup.entry,
+                entrySide = setup.side,
+                bid = quote.bid,
+                ask = quote.ask
+            ) ?: continue
+            val fillPrice = TouchTurnQuoteStripUiMapper.fillPriceForGap(
+                entrySide = setup.side,
+                bid = quote.bid,
+                ask = quote.ask
+            ) ?: continue
+            val sessionId = deployment.inProgressSession()?.id ?: continue
+            val tracker = touchTurnEntryApproachTrackerFor(deployment.id)
+            tracker.bindSession(sessionId)
+            tracker.record(fillGap, fillPrice)
+        }
+    }
+
     private fun pruneTouchTurnPriceHistories() {
-        val activeSymbols = deployments
-            .filter {
-                it.isTouchTurn &&
-                    it.status == DeploymentStatus.RUNNING
-            }
+        val activeDeployments = deployments.filter {
+            it.isTouchTurn && it.status == DeploymentStatus.RUNNING
+        }
+        val activeSymbols = activeDeployments
             .map { SymbolMarkets.normalizeSymbol(it.symbol) }
             .toSet()
         touchTurnPriceHistories.keys.retainAll(activeSymbols)
+        val activeDeploymentIds = activeDeployments.map { it.id }.toSet()
+        touchTurnEntryApproachTrackers.keys.retainAll(activeDeploymentIds)
+    }
+
+    private fun closestApproachFor(deployment: StrategyDeployment): TouchTurnClosestApproachUi? {
+        deployment.inProgressSession()?.id?.let { sessionId ->
+            touchTurnEntryApproachTrackerFor(deployment.id).bindSession(sessionId)
+        }
+        return touchTurnEntryApproachTrackers[deployment.id]?.snapshot()
     }
 
     private fun buildTouchTurnFormingBarPriceChart(
@@ -1082,7 +1127,9 @@ class StrategiesViewModel(
             session = session,
             priceHistory = history,
             currentPrice = currentPrice,
-            statusHint = fillReadinessHint(deployment.symbol)
+            statusHint = fillReadinessHint(deployment.symbol),
+            quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
+            closestApproach = closestApproachFor(deployment)
         )
     }
 
@@ -1120,7 +1167,9 @@ class StrategiesViewModel(
             openOrders = symbolOrders,
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup,
-            statusHint = fillReadinessHint(deployment.symbol)
+            statusHint = fillReadinessHint(deployment.symbol),
+            quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
+            closestApproach = closestApproachFor(deployment)
         )
     }
 

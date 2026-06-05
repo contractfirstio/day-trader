@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 
 enum class TouchTurnPriceChartContext {
@@ -20,7 +21,9 @@ data class TouchTurnLiveOrderChartUiState(
     val levels: List<TouchTurnOrderLevelUi>,
     val context: TouchTurnPriceChartContext = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
     /** Shown under the chart title when live bid/ask are required for paper fills. */
-    val statusHint: String? = null
+    val statusHint: String? = null,
+    /** Bid/ask/last and distance to entry — rendered under the chart canvas. */
+    val quoteStrip: TouchTurnQuoteStripUi? = null
 )
 
 object TouchTurnLiveOrderChartUiMapper {
@@ -36,7 +39,9 @@ object TouchTurnLiveOrderChartUiMapper {
         openOrders: List<WorkingOrder>,
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?,
-        statusHint: String? = null
+        statusHint: String? = null,
+        quote: LiveQuote? = null,
+        closestApproach: TouchTurnClosestApproachUi? = null
     ): TouchTurnLiveOrderChartUiState? {
         val levels = TouchTurnLiveOrderLevels.chartLevels(
             openOrders = openOrders,
@@ -45,6 +50,13 @@ object TouchTurnLiveOrderChartUiMapper {
         )
         val hasPrice = currentPrice != null && currentPrice > 0.0
         if (levels.isEmpty() && priceHistory.isEmpty() && !hasPrice) return null
+        val quoteStrip = TouchTurnQuoteStripUiMapper.from(
+            quote = quote,
+            currencyCode = currencyCode,
+            bracketSetup = bracketSetup,
+            levels = levels,
+            closestApproach = closestApproach
+        )
         return TouchTurnLiveOrderChartUiState(
             symbol = symbol,
             currencyCode = currencyCode,
@@ -52,7 +64,8 @@ object TouchTurnLiveOrderChartUiMapper {
             currentPrice = currentPrice,
             levels = levels,
             context = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
-            statusHint = statusHint
+            statusHint = statusHint,
+            quoteStrip = quoteStrip
         )
     }
 }

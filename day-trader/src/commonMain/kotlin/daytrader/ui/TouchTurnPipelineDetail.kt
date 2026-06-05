@@ -402,6 +402,7 @@ fun TouchTurnPipelineSectionData(
                             rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
                             livePriceHistory = formingBarPriceChart?.priceHistory.orEmpty(),
                             currentPrice = formingBarPriceChart?.currentPrice,
+                            quoteStrip = formingBarPriceChart?.quoteStrip,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }

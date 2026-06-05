@@ -1336,7 +1336,7 @@ internal fun TouchTurnOrderPreviewChart(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(148.dp)
+            .height(TouchTurnChartDimensions.orderPreviewHeight)
     ) {
         val chartHeight = maxHeight
         val labelColumnWidth = 96.dp

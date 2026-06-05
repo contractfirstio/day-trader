@@ -5,6 +5,7 @@ import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnSessionContext
+import daytrader.gateway.LiveQuote
 
 /** Live marks from data-ready through bar/liquidity/confirm until brackets are placed. */
 object TouchTurnFormingBarPriceChartUiMapper {
@@ -20,7 +21,9 @@ object TouchTurnFormingBarPriceChartUiMapper {
         session: TouchTurnSessionContext,
         priceHistory: List<Double>,
         currentPrice: Double?,
-        statusHint: String? = null
+        statusHint: String? = null,
+        quote: LiveQuote? = null,
+        closestApproach: TouchTurnClosestApproachUi? = null
     ): TouchTurnLiveOrderChartUiState? {
         if (!deployment.isTouchTurn) return null
         if (!shouldRecordPrices(session)) return null
@@ -29,6 +32,13 @@ object TouchTurnFormingBarPriceChartUiMapper {
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup
         )
+        val quoteStrip = TouchTurnQuoteStripUiMapper.from(
+            quote = quote,
+            currencyCode = session.currencyCode,
+            bracketSetup = session.setup,
+            levels = levels,
+            closestApproach = closestApproach
+        )
         return TouchTurnLiveOrderChartUiState(
             symbol = deployment.symbol,
             currencyCode = session.currencyCode,
@@ -36,7 +46,8 @@ object TouchTurnFormingBarPriceChartUiMapper {
             currentPrice = currentPrice,
             levels = levels,
             context = TouchTurnPriceChartContext.OPENING_BAR_FORMING,
-            statusHint = statusHint
+            statusHint = statusHint,
+            quoteStrip = quoteStrip
         )
     }
 }

@@ -96,6 +96,12 @@ fun TouchTurnLiveOrderPriceChart(
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
+        chart.quoteStrip?.let { strip ->
+            TouchTurnQuoteStrip(
+                strip = strip,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
 
         if (priceSeries.isEmpty() && chart.levels.isEmpty()) {
             Text(
@@ -113,7 +119,7 @@ fun TouchTurnLiveOrderPriceChart(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(148.dp)
+                .height(TouchTurnChartDimensions.liveOrderCanvasHeight)
                 .padding(top = 6.dp)
                 .testTag("TouchTurnLiveOrderPriceChartCanvas")
         ) {
