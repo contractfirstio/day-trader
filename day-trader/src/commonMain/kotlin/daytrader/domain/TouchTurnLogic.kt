@@ -418,48 +418,6 @@ object TouchTurnLogic {
     }
 
     /**
-     * Green liquidity bar (short): close sufficiently below entry confirms the turn.
-     * Red liquidity bar (long): close sufficiently above entry confirms the turn.
-     */
-    fun closeConfirmationMinDistanceFromEntry(
-        setup: TouchTurnBracketSetup,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double = setup.range * rules.closeConfirmationMinDistanceRatioOfRange
-
-    /** Price level close must stay on the confirming side of the range buffer from entry. */
-    fun closeConfirmationBufferPrice(
-        setup: TouchTurnBracketSetup,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double? {
-        if (!setup.isActionable) return null
-        val minDistance = closeConfirmationMinDistanceFromEntry(setup, rules)
-        return when (setup.candleColor) {
-            FirstCandleColor.GREEN -> setup.entry - minDistance
-            FirstCandleColor.RED -> setup.entry + minDistance
-            FirstCandleColor.DOJI -> null
-        }
-    }
-
-    fun closeSeparatesFromEntry(
-        setup: TouchTurnBracketSetup,
-        close: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean {
-        val minDistance = closeConfirmationMinDistanceFromEntry(setup, rules)
-        return when (setup.candleColor) {
-            FirstCandleColor.GREEN -> {
-                val belowEntry = setup.entry - close
-                belowEntry > 0.0 && belowEntry >= minDistance
-            }
-            FirstCandleColor.RED -> {
-                val aboveEntry = close - setup.entry
-                aboveEntry > 0.0 && aboveEntry >= minDistance
-            }
-            FirstCandleColor.DOJI -> false
-        }
-    }
-
-    /**
      * Close must sit in the turn zone of the 15m range: lower third for shorts (green),
      * upper third for longs (red).
      */
@@ -483,15 +441,13 @@ object TouchTurnLogic {
         return ((price - bar.low) / range).coerceIn(0.0, 1.0)
     }
 
-    /** Turn confirmed when [price] is separated from entry and sits in the bar's turn zone. */
+    /** Turn confirmed when [price] sits in the bar's turn zone. */
     fun confirmsTurnAtPrice(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,
         price: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean =
-        closeSeparatesFromEntry(setup, price, rules) &&
-            closePositionInTurnZone(setup, bar, price, rules)
+    ): Boolean = closePositionInTurnZone(setup, bar, price, rules)
 
     fun closeConfirmsTurn(
         setup: TouchTurnBracketSetup,

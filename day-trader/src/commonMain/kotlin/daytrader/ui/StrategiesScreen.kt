@@ -70,6 +70,7 @@ import daytrader.domain.touchTurnAnalysisSessionForRun
 import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.touchTurnRecapSessionPnl
 import daytrader.domain.touchTurnRecapSessionTrades
+import daytrader.domain.sessionRealizedPnL
 import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
 import kotlinx.coroutines.delay
 import daytrader.presentation.Formatters
@@ -1267,7 +1268,6 @@ internal fun TouchTurnOrderPreviewChart(
         label = "touchTurnExecutedOrderThrobStroke"
     )
     val entryColor = Color(0xFF42A5F5)
-    val closeBufferColor = Color(0xFFFFB74D)
     val bodyColor = when (setup.candleColor) {
         FirstCandleColor.GREEN -> CandleGreen
         FirstCandleColor.RED -> CandleRed
@@ -1281,7 +1281,6 @@ internal fun TouchTurnOrderPreviewChart(
         add(setup.entry)
         add(setup.stopLoss)
         add(setup.takeProfit)
-        TouchTurnLogic.closeConfirmationBufferPrice(setup)?.let { add(it) }
     }
     val pad = candle.range * 0.15
     val priceTop = prices.max() + pad
@@ -1302,17 +1301,6 @@ internal fun TouchTurnOrderPreviewChart(
                 TouchTurnOrderLevelKind.ENTRY
             )
         )
-        TouchTurnLogic.closeConfirmationBufferPrice(setup)?.let { bufferPrice ->
-            add(
-                TouchTurnPriceLevel(
-                    bufferPrice,
-                    "Close buffer (15%)",
-                    closeBufferColor,
-                    2f,
-                    TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER
-                )
-            )
-        }
         add(
             TouchTurnPriceLevel(
                 setup.takeProfit,
@@ -1339,7 +1327,7 @@ internal fun TouchTurnOrderPreviewChart(
             .height(TouchTurnChartDimensions.orderPreviewHeight)
     ) {
         val chartHeight = maxHeight
-        val labelColumnWidth = 96.dp
+        val labelColumnWidth = TouchTurnChartDimensions.orderLevelLabelColumnWidth
         val chartWidth = (maxWidth - labelColumnWidth).coerceAtLeast(80.dp)
 
         Canvas(
@@ -1382,9 +1370,8 @@ internal fun TouchTurnOrderPreviewChart(
             levels.forEach { level ->
                 val yPos = y(level.price)
                 val executed = level.kind != null && level.kind in executedLevels
-                if (executed) return@forEach
                 drawLine(
-                    color = level.color.copy(alpha = 0.55f),
+                    color = level.color.copy(alpha = if (executed) 0.45f else 0.55f),
                     start = Offset(0f, yPos),
                     end = Offset(size.width, yPos),
                     strokeWidth = level.strokeWidthDp.dp.toPx()
@@ -1426,11 +1413,14 @@ internal fun TouchTurnOrderPreviewChart(
 
         Box(modifier = Modifier.fillMaxSize()) {
             levels.sortedByDescending { it.price }.forEach { level ->
-                val yOffset = chartHeight * yFraction(level.price) - 9.dp
+                val yOffset = TouchTurnChartDimensions.levelLabelYOffset(
+                    chartHeight = chartHeight,
+                    yFraction = yFraction(level.price)
+                )
                 val executed = level.kind != null && level.kind in executedLevels
                 val labelColor = when {
                     executed -> level.color.copy(alpha = throbAlpha)
-                    level.kind != null -> level.color.copy(alpha = 0.55f)
+                    level.kind != null -> level.color.copy(alpha = 0.85f)
                     else -> level.color
                 }
                 Row(
@@ -1438,7 +1428,8 @@ internal fun TouchTurnOrderPreviewChart(
                         .align(Alignment.TopStart)
                         .offset(x = chartWidth, y = yOffset)
                         .width(labelColumnWidth)
-                        .padding(start = 4.dp),
+                        .background(TableHeaderBg.copy(alpha = 0.95f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1463,7 +1454,6 @@ internal fun TouchTurnOrderPreviewChart(
         ) {
             TouchTurnLegendDot("Bar", bodyColor)
             TouchTurnLegendDot("Entry", entryColor)
-            TouchTurnLegendDot("Close buffer", closeBufferColor)
             TouchTurnLegendDot("TP", GainGreen)
             TouchTurnLegendDot("SL", LossRed)
             val sideLabel = if (setup.side == TouchTurnTradeSide.SHORT) "Short" else "Long"
@@ -1590,8 +1580,16 @@ private fun TouchTurnLivePipelineDetailHost(
                 } else if (lifecycle?.showOrdersPreview != false) {
                     TouchTurnPipelineSectionOrdersPreview(
                         session = analysisSession,
-                        sessionTrades = if (sessionEnded) recapSessionTrades else emptyList(),
-                        sessionPnl = if (sessionEnded) recapSessionPnl else null
+                        sessionTrades = if (sessionEnded) {
+                            recapSessionTrades
+                        } else {
+                            liveSessionTrades?.sessionTrades.orEmpty()
+                        },
+                        sessionPnl = if (sessionEnded) {
+                            recapSessionPnl
+                        } else {
+                            liveSessionTrades?.sessionTrades?.sessionRealizedPnL()
+                        }
                     )
                 }
             }

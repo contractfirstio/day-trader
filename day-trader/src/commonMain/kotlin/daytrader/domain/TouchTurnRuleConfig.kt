@@ -39,9 +39,6 @@ data class TouchTurnRuleConfig(
     val atrLookbackPeriods: Int = TouchTurnDefaults.ATR_LOOKBACK_PERIODS,
     /** Prior session opening bars used to compute the volume SMA. */
     val volumeSmaPeriods: Int = TouchTurnDefaults.VOLUME_SMA_PERIODS,
-    /** Min distance from entry as a fraction of bar range for turn confirmation (bar close and live mid). */
-    val closeConfirmationMinDistanceRatioOfRange: Double =
-        TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE,
     /** Green/short: max position in bar range (0=low, 1=high) for turn confirmation. */
     val closePositionShortMax: Double = TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX,
     /** Red/long: min position in bar range (0=low, 1=high) for turn confirmation. */
@@ -151,13 +148,6 @@ data class TouchTurnRuleConfig(
                 kind = TouchTurnRuleFieldKind.INTEGER
             ),
             TouchTurnRuleFieldDefinition(
-                key = "closeConfirmationMinDistanceRatioOfRange",
-                label = "Turn separation (× range)",
-                description = "For turn confirmation, price must be at least this fraction of the bar range away " +
-                    "from entry on the confirming side (green/short: below entry; red/long: above entry).",
-                kind = TouchTurnRuleFieldKind.RATIO
-            ),
-            TouchTurnRuleFieldDefinition(
                 key = "closePositionShortMax",
                 label = "Short turn zone (max)",
                 description = "Green liquidity bar (short): confirming price must sit at or below this fraction of " +
@@ -232,8 +222,6 @@ data class TouchTurnRuleConfig(
             "volumeExhaustionRatio" -> config.volumeExhaustionRatio.toString()
             "atrLookbackPeriods" -> config.atrLookbackPeriods.toString()
             "volumeSmaPeriods" -> config.volumeSmaPeriods.toString()
-            "closeConfirmationMinDistanceRatioOfRange" ->
-                config.closeConfirmationMinDistanceRatioOfRange.toString()
             "closePositionShortMax" -> config.closePositionShortMax.toString()
             "closePositionLongMin" -> config.closePositionLongMin.toString()
             "barLiveDivergenceMaxRatioOfRange" -> config.barLiveDivergenceMaxRatioOfRange.toString()
@@ -275,8 +263,6 @@ data class TouchTurnRuleConfig(
                     when (key) {
                         "atrLiquidityRatio" -> config.copy(atrLiquidityRatio = doubleValue)
                         "volumeExhaustionRatio" -> config.copy(volumeExhaustionRatio = doubleValue)
-                        "closeConfirmationMinDistanceRatioOfRange" ->
-                            config.copy(closeConfirmationMinDistanceRatioOfRange = doubleValue)
                         "closePositionShortMax" -> config.copy(closePositionShortMax = doubleValue)
                         "closePositionLongMin" -> config.copy(closePositionLongMin = doubleValue)
                         "barLiveDivergenceMaxRatioOfRange" ->

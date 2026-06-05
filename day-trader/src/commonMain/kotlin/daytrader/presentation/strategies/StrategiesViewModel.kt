@@ -35,6 +35,7 @@ import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
+import daytrader.domain.sessionRealizedPnL
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
@@ -1159,6 +1160,14 @@ class StrategiesViewModel(
             brokerPositions,
             brokerQuotes
         )
+        val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(deployment, brokerFills)
+        val executedLevels = TouchTurnExecutedBracketLegs.resolve(
+            trades = sessionTrades,
+            plannedBracket = session.plannedBracket,
+            bracketSetup = session.setup,
+            sessionPnl = sessionTrades.sessionRealizedPnL().takeIf { sessionTrades.isNotEmpty() },
+            persistedLegs = session.executedBracketLegs
+        )
         return TouchTurnLiveOrderChartUiMapper.build(
             symbol = deployment.symbol,
             currencyCode = session.currencyCode,
@@ -1169,7 +1178,8 @@ class StrategiesViewModel(
             bracketSetup = session.setup,
             statusHint = fillReadinessHint(deployment.symbol),
             quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
-            closestApproach = closestApproachFor(deployment)
+            closestApproach = closestApproachFor(deployment),
+            executedLevels = executedLevels
         )
     }
 

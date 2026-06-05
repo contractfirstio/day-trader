@@ -105,7 +105,6 @@ data class TouchTurnRuleConfigRecord(
     val volumeExhaustionRatio: Double = 1.5,
     val atrLookbackPeriods: Int = 14,
     val volumeSmaPeriods: Int = 20,
-    val closeConfirmationMinDistanceRatioOfRange: Double = 0.15,
     val closePositionShortMax: Double = 0.35,
     val closePositionLongMin: Double = 0.65,
     val barLiveDivergenceMaxRatioOfRange: Double = 0.25,

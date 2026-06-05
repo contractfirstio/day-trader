@@ -20,6 +20,8 @@ data class TouchTurnLiveOrderChartUiState(
     val currentPrice: Double?,
     val levels: List<TouchTurnOrderLevelUi>,
     val context: TouchTurnPriceChartContext = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
+    /** Bracket legs filled during this session — chart lines pulse instead of disappearing. */
+    val executedLevels: Set<TouchTurnOrderLevelKind> = emptySet(),
     /** Shown under the chart title when live bid/ask are required for paper fills. */
     val statusHint: String? = null,
     /** Bid/ask/last and distance to entry — rendered under the chart canvas. */
@@ -41,7 +43,8 @@ object TouchTurnLiveOrderChartUiMapper {
         bracketSetup: TouchTurnBracketSetup?,
         statusHint: String? = null,
         quote: LiveQuote? = null,
-        closestApproach: TouchTurnClosestApproachUi? = null
+        closestApproach: TouchTurnClosestApproachUi? = null,
+        executedLevels: Set<TouchTurnOrderLevelKind> = emptySet()
     ): TouchTurnLiveOrderChartUiState? {
         val levels = TouchTurnLiveOrderLevels.chartLevels(
             openOrders = openOrders,
@@ -64,6 +67,7 @@ object TouchTurnLiveOrderChartUiMapper {
             currentPrice = currentPrice,
             levels = levels,
             context = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
+            executedLevels = executedLevels,
             statusHint = statusHint,
             quoteStrip = quoteStrip
         )

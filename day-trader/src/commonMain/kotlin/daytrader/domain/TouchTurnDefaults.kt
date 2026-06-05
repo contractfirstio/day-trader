@@ -24,12 +24,6 @@ object TouchTurnDefaults {
     const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 60_000L
     /** Wait after 15m bar end before trusting IB historical refetch (bar-not-final race). */
     const val CLOSED_BAR_REFETCH_SETTLE_MS = 3_000L
-    /**
-     * Green liquidity bar (short): close below entry by at least this fraction of bar range.
-     * Red liquidity bar (long): close above entry by the same margin — keeps entry resting so the
-     * post-placement volume buffer can observe before a fill.
-     */
-    const val CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE = 0.15
     /** Long: skip entry when ask is more than this fraction of bar range below entry (and vice versa for short). */
     const val ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE = 0.05
     /** Max |bar.close − liveMid| as a fraction of bar range before hybrid mode rejects the setup. */

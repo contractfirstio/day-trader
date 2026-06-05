@@ -17,6 +17,7 @@ data class LiveSessionTradesUiState(
     val runLabel: String?,
     val lifecycleLabel: String?,
     val tradeDetail: SessionTradeDetailUiState,
+    val sessionTrades: List<SessionTrade> = emptyList(),
     val emptyMessage: String?
 )
 
@@ -107,6 +108,7 @@ object LiveSessionTradesUiMapper {
             runLabel = runLabel,
             lifecycleLabel = lifecycleLabel,
             tradeDetail = tradeDetail,
+            sessionTrades = trades,
             emptyMessage = null
         )
     }

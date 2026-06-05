@@ -1,18 +1,31 @@
 package daytrader.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -40,7 +53,6 @@ import daytrader.ui.theme.TextSecondary
 import kotlin.math.max
 
 private val EntryLevelColor = Color(0xFF42A5F5)
-private val CloseConfirmationBufferColor = Color(0xFFFFB74D)
 
 @Composable
 fun TouchTurnLiveOrderPriceChart(
@@ -59,6 +71,20 @@ fun TouchTurnLiveOrderPriceChart(
     val levelStrokePx = with(density) { 1.5.dp.toPx() }
     val priceStrokePx = with(density) { 2.dp.toPx() }
     val currentDotRadiusPx = with(density) { 3.5.dp.toPx() }
+    val showThrob = chart.executedLevels.isNotEmpty()
+    val throbTransition = rememberInfiniteTransition(label = "touchTurnLiveOrderThrob")
+    val throbAlpha by throbTransition.animateFloat(
+        initialValue = if (showThrob) 0.2f else 1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(550), repeatMode = RepeatMode.Reverse),
+        label = "touchTurnLiveOrderThrobAlpha"
+    )
+    val throbStrokeBoost by throbTransition.animateFloat(
+        initialValue = if (showThrob) 0f else 1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(550), repeatMode = RepeatMode.Reverse),
+        label = "touchTurnLiveOrderThrobStroke"
+    )
 
     Column(
         modifier = modifier
@@ -116,119 +142,212 @@ fun TouchTurnLiveOrderPriceChart(
             return
         }
 
-        Canvas(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(TouchTurnChartDimensions.liveOrderCanvasHeight)
                 .padding(top = 6.dp)
-                .testTag("TouchTurnLiveOrderPriceChartCanvas")
         ) {
-            val labelPadLeft = 44f
-            val labelPadRight = 8f
-            val labelPadTop = 6f
-            val labelPadBottom = 14f
-            val plotLeft = labelPadLeft
-            val plotRight = size.width - labelPadRight
-            val plotTop = labelPadTop
-            val plotBottom = size.height - labelPadBottom
-            val plotWidth = (plotRight - plotLeft).coerceAtLeast(1f)
-            val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
+            val labelColumnWidth = TouchTurnChartDimensions.orderLevelLabelColumnWidth
+            val chartWidth = (maxWidth - labelColumnWidth).coerceAtLeast(80.dp)
+            val chartHeight = maxHeight
+            fun yFraction(price: Double): Float =
+                ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
 
-            fun yFor(price: Double): Float {
-                val fraction = ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
-                return plotTop + fraction * plotHeight
-            }
+            Box(
+                modifier = Modifier
+                    .width(chartWidth)
+                    .fillMaxHeight()
+            ) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                        .testTag("TouchTurnLiveOrderPriceChartCanvas")
+                ) {
+                val labelPadLeft = 44f
+                val labelPadRight = 4f
+                val labelPadTop = 6f
+                val labelPadBottom = 14f
+                val plotLeft = labelPadLeft
+                val plotRight = size.width - labelPadRight
+                val plotTop = labelPadTop
+                val plotBottom = size.height - labelPadBottom
+                val plotWidth = (plotRight - plotLeft).coerceAtLeast(1f)
+                val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
 
-            fun xFor(index: Int, count: Int): Float {
-                if (count <= 1) return plotRight
-                return plotLeft + (index.toFloat() / (count - 1).coerceAtLeast(1)) * plotWidth
-            }
+                fun yFor(price: Double): Float {
+                    val fraction = ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
+                    return plotTop + fraction * plotHeight
+                }
 
-            val gridColor = TextSecondary.copy(alpha = 0.22f)
-            for (i in 0..3) {
-                val y = plotTop + (plotHeight * i / 3f)
-                drawLine(
-                    color = gridColor,
-                    start = Offset(plotLeft, y),
-                    end = Offset(plotRight, y),
-                    strokeWidth = 1f
-                )
-            }
+                fun xFor(index: Int, count: Int): Float {
+                    if (count <= 1) return plotRight
+                    return plotLeft + (index.toFloat() / (count - 1).coerceAtLeast(1)) * plotWidth
+                }
 
-            drawRect(
-                color = DarkBackground.copy(alpha = 0.35f),
-                topLeft = Offset(plotLeft, plotTop),
-                size = androidx.compose.ui.geometry.Size(plotWidth, plotHeight)
-            )
-
-            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
-            chart.levels.forEach { level ->
-                val y = yFor(level.price)
-                val color = levelColor(level.kind)
-                drawLine(
-                    color = color.copy(alpha = 0.85f),
-                    start = Offset(plotLeft, y),
-                    end = Offset(plotRight, y),
-                    strokeWidth = levelStrokePx,
-                    pathEffect = dashEffect
-                )
-                val label = "${level.label} ${Formatters.moneyPlain(level.price, chart.currencyCode)}"
-                val layout = textMeasurer.measure(label, labelStyle.copy(color = color))
-                drawText(
-                    textLayoutResult = layout,
-                    topLeft = Offset(
-                        (plotLeft - layout.size.width - 6f).coerceAtLeast(0f),
-                        (y - layout.size.height / 2f).coerceIn(0f, size.height - layout.size.height)
+                val gridColor = TextSecondary.copy(alpha = 0.22f)
+                for (i in 0..3) {
+                    val y = plotTop + (plotHeight * i / 3f)
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(plotLeft, y),
+                        end = Offset(plotRight, y),
+                        strokeWidth = 1f
                     )
-                )
-            }
+                }
 
-            if (priceSeries.isNotEmpty()) {
-                val path = Path()
-                when (priceSeries.size) {
-                    1 -> {
-                        val y = yFor(priceSeries.single())
-                        path.moveTo(plotLeft, y)
-                        path.lineTo(plotRight, y)
+                drawRect(
+                    color = DarkBackground.copy(alpha = 0.35f),
+                    topLeft = Offset(plotLeft, plotTop),
+                    size = androidx.compose.ui.geometry.Size(plotWidth, plotHeight)
+                )
+
+                val dashEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
+                chart.levels.forEach { level ->
+                    val y = yFor(level.price)
+                    val color = levelColor(level.kind)
+                    val executed = level.kind in chart.executedLevels
+                    drawLine(
+                        color = color.copy(alpha = if (executed) 0.45f else 0.85f),
+                        start = Offset(plotLeft, y),
+                        end = Offset(plotRight, y),
+                        strokeWidth = levelStrokePx,
+                        pathEffect = dashEffect
+                    )
+                }
+
+                if (priceSeries.isNotEmpty()) {
+                    val path = Path()
+                    when (priceSeries.size) {
+                        1 -> {
+                            val y = yFor(priceSeries.single())
+                            path.moveTo(plotLeft, y)
+                            path.lineTo(plotRight, y)
+                        }
+                        else -> priceSeries.forEachIndexed { index, price ->
+                            val point = Offset(xFor(index, priceSeries.size), yFor(price))
+                            if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                        }
                     }
-                    else -> priceSeries.forEachIndexed { index, price ->
-                        val point = Offset(xFor(index, priceSeries.size), yFor(price))
-                        if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+                    drawPath(
+                        path = path,
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = Stroke(width = priceStrokePx, cap = StrokeCap.Round)
+                    )
+                }
+
+                chart.currentPrice?.takeIf { it > 0.0 }?.let { current ->
+                    val x = plotRight
+                    val y = yFor(current)
+                    drawCircle(
+                        color = Color.White,
+                        radius = currentDotRadiusPx,
+                        center = Offset(x, y)
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.25f),
+                        radius = currentDotRadiusPx * 2.2f,
+                        center = Offset(x, y)
+                    )
+                }
+
+                listOf(priceRange.priceMax, priceRange.priceMin).forEachIndexed { index, price ->
+                    val y = if (index == 0) plotTop else plotBottom
+                    val label = Formatters.moneyPlain(price, chart.currencyCode)
+                    val layout = textMeasurer.measure(label, labelStyle)
+                    drawText(
+                        textLayoutResult = layout,
+                        topLeft = Offset(
+                            (plotLeft - layout.size.width - 6f).coerceAtLeast(0f),
+                            (y - layout.size.height / 2f).coerceIn(0f, size.height - layout.size.height)
+                        )
+                    )
+                }
+                }
+
+                if (showThrob) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .testTag("TouchTurnLiveOrderPriceChartThrob")
+                    ) {
+                    val labelPadLeft = 44f
+                    val labelPadRight = 8f
+                    val labelPadTop = 6f
+                    val labelPadBottom = 14f
+                    val plotLeft = labelPadLeft
+                    val plotRight = size.width - labelPadRight
+                    val plotTop = labelPadTop
+                    val plotBottom = size.height - labelPadBottom
+                    val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
+
+                    fun yFor(price: Double): Float {
+                        val fraction = ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
+                        return plotTop + fraction * plotHeight
+                    }
+
+                    chart.levels
+                        .filter { it.kind in chart.executedLevels }
+                        .forEach { level ->
+                            val y = yFor(level.price)
+                            val color = levelColor(level.kind)
+                            val strokePx = levelStrokePx * (1.6f + throbStrokeBoost * 1.4f)
+                            val glowAlpha = throbAlpha * 0.35f
+                            drawLine(
+                                color = color.copy(alpha = glowAlpha),
+                                start = Offset(plotLeft, y),
+                                end = Offset(plotRight, y),
+                                strokeWidth = strokePx * 2.2f
+                            )
+                            drawLine(
+                                color = color.copy(alpha = throbAlpha),
+                                start = Offset(plotLeft, y),
+                                end = Offset(plotRight, y),
+                                strokeWidth = strokePx
+                            )
+                        }
                     }
                 }
-                drawPath(
-                    path = path,
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = Stroke(width = priceStrokePx, cap = StrokeCap.Round)
-                )
             }
 
-            chart.currentPrice?.takeIf { it > 0.0 }?.let { current ->
-                val x = plotRight
-                val y = yFor(current)
-                drawCircle(
-                    color = Color.White,
-                    radius = currentDotRadiusPx,
-                    center = Offset(x, y)
-                )
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.25f),
-                    radius = currentDotRadiusPx * 2.2f,
-                    center = Offset(x, y)
-                )
-            }
-
-            listOf(priceRange.priceMax, priceRange.priceMin).forEachIndexed { index, price ->
-                val y = if (index == 0) plotTop else plotBottom
-                val label = Formatters.moneyPlain(price, chart.currencyCode)
-                val layout = textMeasurer.measure(label, labelStyle)
-                drawText(
-                    textLayoutResult = layout,
-                    topLeft = Offset(
-                        (plotLeft - layout.size.width - 6f).coerceAtLeast(0f),
-                        (y - layout.size.height / 2f).coerceIn(0f, size.height - layout.size.height)
-                    )
-                )
+            Box(modifier = Modifier.fillMaxSize()) {
+                chart.levels.sortedByDescending { it.price }.forEach { level ->
+                    val fraction = yFraction(level.price)
+                    val yOffset = TouchTurnChartDimensions.levelLabelYOffset(chartHeight, fraction)
+                    val color = levelColor(level.kind)
+                    val executed = level.kind in chart.executedLevels
+                    val labelColor = when {
+                        executed -> color.copy(alpha = throbAlpha)
+                        else -> color.copy(alpha = 0.85f)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset(x = chartWidth, y = yOffset)
+                            .width(labelColumnWidth)
+                            .background(TableHeaderBg.copy(alpha = 0.95f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            level.label,
+                            fontSize = 8.sp,
+                            color = labelColor,
+                            fontWeight = if (executed) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            Formatters.moneyPlain(level.price, chart.currencyCode),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                    }
+                }
             }
         }
 
@@ -238,13 +357,10 @@ fun TouchTurnLiveOrderPriceChart(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 LiveOrderChartLegendDot("Entry", EntryLevelColor)
-                if (chart.levels.any { it.kind == TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER }) {
-                    LiveOrderChartLegendDot("Close buffer", CloseConfirmationBufferColor)
-                }
                 LiveOrderChartLegendDot("TP", GainGreen)
                 LiveOrderChartLegendDot("SL", LossRed)
                 Text(
-                    "Levels drop off when their order fills",
+                    if (showThrob) "Pulsing lines = filled" else "Dashed lines = working orders",
                     fontSize = 9.sp,
                     color = TextSecondary.copy(alpha = 0.85f)
                 )
@@ -304,6 +420,5 @@ private fun levelColor(kind: TouchTurnOrderLevelKind): Color = when (kind) {
     TouchTurnOrderLevelKind.ENTRY -> EntryLevelColor
     TouchTurnOrderLevelKind.TAKE_PROFIT -> GainGreen
     TouchTurnOrderLevelKind.STOP_LOSS -> LossRed
-    TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER -> CloseConfirmationBufferColor
     TouchTurnOrderLevelKind.OTHER -> TextSecondary
 }

@@ -1,7 +1,5 @@
 package daytrader.presentation.strategies
 
-import daytrader.domain.OhlcBar
-import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.gateway.WorkingOrder
@@ -32,30 +30,35 @@ class TouchTurnLiveOrderLevelsTest {
     }
 
     @Test
-    fun chartLevels_includesCloseConfirmationBufferWhenSetupPresent() {
-        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 405.0)
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val levels = TouchTurnLiveOrderLevels.chartLevels(
-            openOrders = emptyList(),
-            plannedBracket = null,
-            bracketSetup = setup
-        )
-        assertEquals(1, levels.size)
-        assertEquals(TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER, levels.single().kind)
-        assertEquals(408.5, levels.single().price)
-    }
-
-    @Test
-    fun fromWorkingOrders_omitsFilledOrders() {
+    fun chartLevels_usesPlannedBracketWhenPresent() {
         val bracket = TouchTurnPlannedBracket(
             side = TouchTurnTradeSide.LONG,
             entry = 100.0,
             stopLoss = 95.0,
             takeProfit = 110.0
         )
-        val levels = TouchTurnLiveOrderLevels.fromWorkingOrders(
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
             openOrders = listOf(workingOrder(orderId = 2, limit = 110.0, parentId = 1)),
             plannedBracket = bracket,
+            bracketSetup = null
+        )
+        assertEquals(3, levels.size)
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.ENTRY && it.price == 100.0 })
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TAKE_PROFIT && it.price == 110.0 })
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.STOP_LOSS && it.price == 95.0 })
+    }
+
+    @Test
+    fun chartLevels_withoutPlannedBracket_fallsBackToOpenOrders() {
+        val bracket = TouchTurnPlannedBracket(
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0
+        )
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
+            openOrders = listOf(workingOrder(orderId = 2, limit = 110.0, parentId = 1)),
+            plannedBracket = null,
             bracketSetup = null
         )
         assertEquals(1, levels.size)
