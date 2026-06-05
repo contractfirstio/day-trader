@@ -127,6 +127,29 @@ fun TouchTurnRulesConfigDialog(
                                 color = TextSecondary,
                                 lineHeight = 16.sp
                             )
+                            val allRulesEnabled = TouchTurnRuleConfig.toggleDefinitions.all { toggle ->
+                                toggleValues[toggle.key] ?: true
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val enableAll = !allRulesEnabled
+                                        TouchTurnRuleConfig.toggleDefinitions.forEach { toggle ->
+                                            toggleValues[toggle.key] = enableAll
+                                        }
+                                    },
+                                    enabled = enabled,
+                                    modifier = Modifier.testTag("TouchTurnRulesToggleAllButton")
+                                ) {
+                                    Text(
+                                        if (allRulesEnabled) "Disable all" else "Enable all",
+                                        color = if (enabled) Color.White else TextSecondary
+                                    )
+                                }
+                            }
                             TouchTurnRuleConfig.toggleDefinitions.forEach { toggle ->
                                 TouchTurnRuleToggleRow(
                                     toggle = toggle,
