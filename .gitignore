@@ -12,3 +12,6 @@ build
 logs.txt
 
 .idea
+
+# PlantUML tool jar (used locally to render docs/diagrams/*.png)
+docs/diagrams/plantuml.jar

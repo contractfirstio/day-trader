@@ -1,0 +1,33 @@
+@startuml data-flow-emulator
+title Emulator Mode
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 90
+skinparam ranksep 50
+left to right direction
+
+rectangle "**UI**\nCompose screens" as UI #LightBlue
+rectangle "**Presentation**\nViewModels" as PRES #LightYellow
+rectangle "**Engine**\nTouchTurnEngine" as ENG #LightGreen
+rectangle "**Data**\nRepositories → JSON" as DATA #Wheat
+rectangle "**Broker**\nEmulator" as BRK #Pink
+
+UI --> PRES
+PRES --> ENG
+ENG --> BRK
+ENG -[hidden]down- DATA
+DATA -[hidden]up- ENG
+ENG --> DATA
+
+note bottom
+  **Data flows**
+  • UI ↔ Presentation: user actions, screen state
+  • Presentation ↔ Engine: start/stop session, pipeline UI
+  • Presentation ← Broker: positions blotter
+  • Engine ↔ Data: deployments & settings
+  • Engine ↔ Broker: quotes, bars, orders, fills
+
+  **Emulator only** — synthetic prices, paper execution. No IB Gateway.
+end note
+
+@enduml

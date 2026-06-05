@@ -1,0 +1,37 @@
+@startuml data-flow-hybrid
+title Hybrid Mode (Paper + Live IB Data)
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 90
+skinparam ranksep 50
+left to right direction
+
+rectangle "**UI**\nCompose screens" as UI #LightBlue
+rectangle "**Presentation**\nViewModels" as PRES #LightYellow
+rectangle "**Engine**\nTouchTurnEngine" as ENG #LightGreen
+rectangle "**Data**\nRepositories → JSON" as DATA #Wheat
+rectangle "**Broker**\nIB: live prices\nEmulator: paper orders" as BRK #Pink
+cloud "**External**\nIB Gateway / TWS" as EXT
+
+UI --> PRES
+PRES --> ENG
+ENG --> BRK
+BRK --> EXT
+ENG -[hidden]down- DATA
+DATA -[hidden]up- ENG
+ENG --> DATA
+
+note bottom
+  **Data flows**
+  • UI ↔ Presentation: user actions, screen state
+  • Presentation ↔ Engine: start/stop session, pipeline UI
+  • Presentation ← Broker: paper positions blotter
+  • Engine ↔ Data: deployments & settings
+  • Engine → Broker (IB path): live quotes & history
+  • Engine → Broker (emulator path): orders & fills
+  • Broker ← IB Gateway: price feed only
+
+  **Split backend** — real prices from IB, execution stays in the emulator.
+end note
+
+@enduml
