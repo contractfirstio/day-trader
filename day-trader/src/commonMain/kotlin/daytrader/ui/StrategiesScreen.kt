@@ -1967,7 +1967,10 @@ private fun TouchTurnLivePipelineDetailHost(
                 TouchTurnPipelineSectionRules(
                     session = analysisSession,
                     graph = pipelineGraph,
-                    formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart
+                    formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart,
+                    sessionEnded = sessionEnded,
+                    requireLivePriceChecks = lastClosedRun?.touchTurnRunRecord?.runContext?.brokerKind
+                        ?.usesLiveIbMarketData == true
                 )
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle

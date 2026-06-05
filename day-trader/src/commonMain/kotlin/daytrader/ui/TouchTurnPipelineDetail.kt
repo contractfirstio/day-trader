@@ -1,7 +1,9 @@
 package daytrader.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +18,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -652,6 +656,8 @@ fun TouchTurnPipelineSectionRules(
     session: TouchTurnSessionContext?,
     graph: TouchTurnPipelineGraph? = null,
     formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
+    sessionEnded: Boolean = false,
+    requireLivePriceChecks: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (session?.candle == null) {
@@ -670,7 +676,13 @@ fun TouchTurnPipelineSectionRules(
             tick++
         }
     }
-    val evaluation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.rulesEvaluation(session) }
+    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks) {
+        TouchTurnPipelineDetailUiMapper.rulesEvaluation(
+            session = session,
+            verboseExplanations = sessionEnded,
+            requireLivePriceChecks = requireLivePriceChecks
+        )
+    }
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionRules"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -683,7 +695,7 @@ fun TouchTurnPipelineSectionRules(
         formingBarPriceChart?.let { chart ->
             TouchTurnPipelineLiveOrderChart(chart = chart)
         }
-        evaluation?.let { RulesEvaluationCard(evaluation = it) }
+        evaluation?.let { RulesEvaluationCard(evaluation = it, verboseExplanations = sessionEnded) }
         graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
             Text("Rules evaluated $time", fontSize = 10.sp, color = TextSecondary)
         }
@@ -691,7 +703,10 @@ fun TouchTurnPipelineSectionRules(
 }
 
 @Composable
-private fun RulesEvaluationCard(evaluation: RulesEvaluationUi) {
+private fun RulesEvaluationCard(
+    evaluation: RulesEvaluationUi,
+    verboseExplanations: Boolean
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -701,13 +716,13 @@ private fun RulesEvaluationCard(evaluation: RulesEvaluationUi) {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            "Rule checks",
+            if (verboseExplanations) "Rule checks (tap a row for step-by-step detail)" else "Rule checks",
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             color = TextSecondary
         )
         evaluation.checks.forEach { check ->
-            RuleCheckRow(check = check)
+            RuleCheckRow(check = check, verboseExplanations = verboseExplanations)
         }
         evaluation.entryOrdersPermitted?.let { permitted ->
             HorizontalDivider(color = TableHeaderBg)
@@ -723,7 +738,12 @@ private fun RulesEvaluationCard(evaluation: RulesEvaluationUi) {
 }
 
 @Composable
-private fun RuleCheckRow(check: RuleCheckUi) {
+private fun RuleCheckRow(
+    check: RuleCheckUi,
+    verboseExplanations: Boolean
+) {
+    var expanded by rememberSaveable(check.key) { mutableStateOf(false) }
+    val canExpand = verboseExplanations && check.enabled && check.explanationSteps.isNotEmpty()
     val (icon, color) = when {
         !check.enabled -> "—" to TextSecondary
         check.passed == true -> "✓" to GainGreen
@@ -731,14 +751,32 @@ private fun RuleCheckRow(check: RuleCheckUi) {
         else -> "…" to TextSecondary
     }
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnRuleCheck-${check.key}"),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (canExpand) {
+                        Modifier.clickable { expanded = !expanded }
+                    } else {
+                        Modifier
+                    }
+                ),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (canExpand) {
+                Text(
+                    text = if (expanded) "▾" else "▸",
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("TouchTurnRuleCheckExpand-${check.key}")
+                )
+            }
             Text(icon, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
             Text(check.label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color.White)
             check.detail?.let { detail ->
@@ -750,8 +788,26 @@ private fun RuleCheckRow(check: RuleCheckUi) {
             fontSize = 9.sp,
             color = TextSecondary.copy(alpha = 0.85f),
             lineHeight = 12.sp,
-            modifier = Modifier.padding(start = 20.dp)
+            modifier = Modifier.padding(start = if (canExpand) 28.dp else 20.dp)
         )
+        if (canExpand) {
+            AnimatedVisibility(
+                visible = expanded,
+                modifier = Modifier.padding(start = 28.dp, top = 4.dp, end = 4.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    check.explanationSteps.forEachIndexed { index, step ->
+                        Text(
+                            "${index + 1}. $step",
+                            fontSize = 9.sp,
+                            color = TextSecondary,
+                            lineHeight = 13.sp,
+                            modifier = Modifier.testTag("TouchTurnRuleCheckStep-${check.key}-$index")
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

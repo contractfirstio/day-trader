@@ -6,7 +6,9 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.rollups
+import daytrader.domain.toTouchTurnAnalysisContext
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
 
@@ -108,10 +110,17 @@ object SessionHistoryUiMapper {
         val marketInputs = runRecord?.marketInputs
         val openingBar = if (isSelected) marketInputs?.openingBar else null
         val rangeThreshold = if (isSelected) {
-            marketInputs?.atr14?.let { it * instance.touchTurnRules.atrLiquidityRatio }
+            marketInputs?.atr14?.let { it * instance.effectiveTouchTurnRules().atrLiquidityRatio }
         } else {
             null
         }
+        val analysisRules = runRecord?.rules ?: instance.effectiveTouchTurnRules()
+        val analysisSession = if (isSelected && isTouchTurn && !inProgress) {
+            run.toTouchTurnAnalysisContext(analysisRules)
+        } else {
+            null
+        }
+        val requireLivePriceChecks = runRecord?.runContext?.brokerKind?.usesLiveIbMarketData == true
         return StrategySessionRowUi(
             id = run.id,
             deploymentId = instance.id,
@@ -136,7 +145,9 @@ object SessionHistoryUiMapper {
             touchTurnRunDetail = touchTurnRunDetail,
             touchTurnOpeningBar = openingBar,
             touchTurnOpeningBarCurrency = marketInputs?.currencyCode,
-            touchTurnRangeThreshold = rangeThreshold
+            touchTurnRangeThreshold = rangeThreshold,
+            touchTurnAnalysisSession = analysisSession,
+            touchTurnRequireLivePriceChecks = requireLivePriceChecks
         )
     }
 

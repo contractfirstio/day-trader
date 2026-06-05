@@ -61,11 +61,13 @@ data class LiquidityCalculationUi(
 }
 
 data class RuleCheckUi(
+    val key: String,
     val label: String,
     val description: String,
     val passed: Boolean?,
     val detail: String? = null,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val explanationSteps: List<String> = emptyList()
 )
 
 data class RulesEvaluationUi(
@@ -160,82 +162,22 @@ object TouchTurnPipelineDetailUiMapper {
 
     fun rulesEvaluation(
         session: TouchTurnSessionContext,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        verboseExplanations: Boolean = false,
+        requireLivePriceChecks: Boolean = false
     ): RulesEvaluationUi? {
-        val candle = session.candle ?: return null
-        val rules = session.rules
-        val setup = session.setup ?: return null
-        val volumeSma20 = session.volumeSma20 ?: 0.0
-        val enables = rules.enables
-        val volumeExhausted = enables.volumeExhaustion &&
-            TouchTurnLogic.isVolumeExhaustion(candle.volume, volumeSma20, rules)
-        val closeStatus = session.candleCloseStatus(nowEpochMillis)
-        val closeConfirmation = resolvedCloseConfirmation(session, nowEpochMillis)
-        val closeRatio = TouchTurnLogic.closePositionRatio(candle)
-        val checks = mutableListOf<RuleCheckUi>()
-
-        checks += RuleCheckUi(
-            label = "Liquidity range",
-            description = "Opening 15m bar range must meet the ATR liquidity threshold.",
-            passed = when {
-                !enables.liquidityRange -> null
-                closeStatus != FirstCandleCloseStatus.CLOSED -> null
-                setup.isLiquidityCandle -> true
-                else -> false
-            },
-            detail = when {
-                !enables.liquidityRange -> "Disabled"
-                closeStatus != FirstCandleCloseStatus.CLOSED -> null
-                setup.isLiquidityCandle -> "OK"
-                else -> "Below threshold"
-            },
-            enabled = enables.liquidityRange
+        if (session.candle == null || session.setup == null) return null
+        val evaluationInstant = if (verboseExplanations) {
+            TouchTurnRuleExplanationMapper.evaluationEpochMillis(session)
+        } else {
+            nowEpochMillis
+        }
+        val checks = TouchTurnRuleExplanationMapper.buildChecks(
+            session = session,
+            evaluationInstant = evaluationInstant,
+            verboseExplanations = verboseExplanations,
+            requireLivePriceChecks = requireLivePriceChecks
         )
-        checks += RuleCheckUi(
-            label = "Not a doji",
-            description = "Bar must be actionable (not a doji).",
-            passed = when {
-                !enables.notDoji -> null
-                else -> setup.isActionable
-            },
-            detail = when {
-                !enables.notDoji -> "Disabled"
-                setup.isActionable -> "Actionable"
-                else -> "Doji"
-            },
-            enabled = enables.notDoji
-        )
-        checks += RuleCheckUi(
-            label = "Volume",
-            description = "Bar volume must not be exhausted vs the 20-bar SMA.",
-            passed = when {
-                !enables.volumeExhaustion -> null
-                else -> !volumeExhausted
-            },
-            detail = when {
-                !enables.volumeExhaustion -> "Disabled"
-                volumeExhausted -> "Exhausted"
-                else -> "OK"
-            },
-            enabled = enables.volumeExhaustion
-        )
-        checks += RuleCheckUi(
-            label = "Bar close turn",
-            description = "Close must confirm the turn zone on the 15-minute bar.",
-            passed = when {
-                !enables.barCloseTurn -> null
-                closeConfirmation == TouchTurnCloseConfirmation.PASSED -> true
-                closeConfirmation == TouchTurnCloseConfirmation.FAILED ||
-                    closeConfirmation == TouchTurnCloseConfirmation.EXPIRED -> false
-                else -> null
-            },
-            detail = when {
-                !enables.barCloseTurn -> "Disabled"
-                else -> closeRatio?.let { "Close at ${(it * 100).toInt()}% of range" }
-            },
-            enabled = enables.barCloseTurn
-        )
-
         return RulesEvaluationUi(
             checks = checks,
             entryOrdersPermitted = session.entryOrdersPermitted,

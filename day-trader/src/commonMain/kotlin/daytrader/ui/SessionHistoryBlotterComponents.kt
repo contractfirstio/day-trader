@@ -405,9 +405,15 @@ private fun SessionHistoryExpandedSections(
                                 }
                             }
                             TouchTurnPipelineNodeId.Rules ->
-                                Text(
-                                    "Entry rules: liquidity bar, volume, bar-close turn confirmation, " +
-                                        "and live tape checks when applicable.",
+                                row.touchTurnAnalysisSession?.let { analysisSession ->
+                                    TouchTurnPipelineSectionRules(
+                                        session = analysisSession,
+                                        graph = graph,
+                                        sessionEnded = true,
+                                        requireLivePriceChecks = row.touchTurnRequireLivePriceChecks
+                                    )
+                                } ?: Text(
+                                    "Entry rules were not recorded for this session.",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )

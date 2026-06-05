@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnSessionContext
 import daytrader.presentation.positions.SortDirection
 
 enum class SessionHistorySortColumn {
@@ -28,7 +29,9 @@ data class StrategySessionRowUi(
     /** Opening bar snapshot for pipeline Data detail on the selected row only. */
     val touchTurnOpeningBar: OhlcBar? = null,
     val touchTurnOpeningBarCurrency: String? = null,
-    val touchTurnRangeThreshold: Double? = null
+    val touchTurnRangeThreshold: Double? = null,
+    val touchTurnAnalysisSession: TouchTurnSessionContext? = null,
+    val touchTurnRequireLivePriceChecks: Boolean = false
 )
 
 data class SessionHistoryUiState(

@@ -193,7 +193,7 @@ class TouchTurnRunRecordTest {
         val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(analysis, barEnd)
         requireNotNull(evaluation)
         val liquidity = evaluation.checks.first { it.label == "Liquidity range" }
-        val volume = evaluation.checks.first { it.label == "Volume" }
+        val volume = evaluation.checks.first { it.key == "volumeExhaustion" }
         assertFalse(liquidity.enabled)
         assertEquals("Disabled", liquidity.detail)
         assertNull(liquidity.passed)
