@@ -105,6 +105,48 @@ class TouchTurnRunRecordTest {
     }
 
     @Test
+    fun onSessionStopped_persistsPrepareSnapshotOnRunRecord() {
+        val prepareSnapshot = TouchTurnPrepareSnapshot(
+            preparedAtEpochMillis = 1_700_000_000_000L,
+            overallStatus = TouchTurnPrepareOverallStatus.PASS.name,
+            checks = listOf(
+                TouchTurnPrepareCheck(
+                    id = TouchTurnPrepareCheckId.IB_CONNECTED.name,
+                    status = TouchTurnPrepareStatus.PASS.name,
+                    label = "IB / market data connected"
+                )
+            ),
+            bootstrapReusedFromPrepare = true,
+            atr14 = 2.5,
+            volumeSma20 = 1_000_000.0
+        )
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "SPY",
+            maxDollars = 500
+        ).onSessionStarted("2026-05-22")
+            .copy(
+                touchTurnSession = TouchTurnSessionContext(
+                    sessionDate = "2026-05-22",
+                    status = TouchTurnCandleStatus.READY,
+                    prepareSnapshot = prepareSnapshot,
+                    decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+                )
+            )
+        val stopped = instance.onSessionStopped(
+            stopParams = SessionStopParams(
+                stopTrigger = TouchTurnSessionStopTrigger.NO_TRADE_DECISION,
+                brokerId = BrokerId.EMULATOR
+            )
+        )
+        val snapshot = stopped.sessionHistory.single().touchTurnRunRecord?.runContext?.prepareSnapshot
+        requireNotNull(snapshot)
+        assertEquals(true, snapshot.bootstrapReusedFromPrepare)
+        assertEquals(1, snapshot.checks.size)
+        assertEquals(2.5, snapshot.atr14)
+    }
+
+    @Test
     fun touchTurnAnalysisSession_restoresOpeningBarFromClosedRun() {
         val candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = "20260522  09:30:00")
         val setup = TouchTurnBracketSetup(

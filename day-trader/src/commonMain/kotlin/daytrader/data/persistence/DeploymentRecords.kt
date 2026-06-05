@@ -189,7 +189,19 @@ data class TouchTurnRunContextRecord(
     val maxDollars: Int,
     val startedBy: String,
     val brokerId: String,
-    val brokerKind: String? = null
+    val brokerKind: String? = null,
+    val prepareSnapshot: TouchTurnPrepareSnapshotRecord? = null
+)
+
+@Serializable
+data class TouchTurnPrepareSnapshotRecord(
+    val preparedAtEpochMillis: Long? = null,
+    val overallStatus: String,
+    val checks: List<TouchTurnPrepareCheckRecord> = emptyList(),
+    val bootstrapReusedFromPrepare: Boolean? = null,
+    val atr14: Double? = null,
+    val volumeSma20: Double? = null,
+    val todayOpeningBarPending: Boolean? = null
 )
 
 @Serializable

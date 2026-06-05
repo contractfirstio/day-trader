@@ -167,7 +167,9 @@ data class TouchTurnSessionContext(
     /** Filled legs for a closed run (from persisted run record or derived from fills). */
     val executedBracketLegs: List<TouchTurnOrderRole> = emptyList(),
     /** Rule thresholds snapshotted from deployment at session start. */
-    val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
+    /** Pre-flight checks captured when this session was started. */
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 
@@ -1641,12 +1643,14 @@ object TouchTurnDefaults {
 fun StrategyDeployment.beginTouchTurnSession(sessionDate: String): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val startedAt = inProgressSession()?.startedAt ?: currentSessionTimestampIso()
+    val prepareSnapshot = touchTurnPrepare?.let(TouchTurnPrepareSnapshot::from)
     return copy(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
             status = TouchTurnCandleStatus.LOADING,
             rules = effectiveTouchTurnRules(),
-            milestones = TouchTurnMilestoneTimestamps(startingSessionAt = startedAt)
+            milestones = TouchTurnMilestoneTimestamps(startingSessionAt = startedAt),
+            prepareSnapshot = prepareSnapshot
         )
     )
 }
@@ -1682,12 +1686,27 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
     volumeSma20: Double,
     adr14: Double? = null,
     currencyCode: String = "USD",
-    marketZoneId: String = "America/New_York"
+    marketZoneId: String = "America/New_York",
+    bootstrapReusedFromPrepare: Boolean? = null
 ): StrategyDeployment {
     if (strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return this
     val rules = effectiveTouchTurnRules()
     val threshold = TouchTurnLogic.liquidityRangeThresholdFromAtr(atr14, rules)
-    val prior = touchTurnSession?.milestones
+    val priorSession = touchTurnSession
+    val prior = priorSession?.milestones
+    val prepareSnapshot = when {
+        priorSession?.prepareSnapshot != null && bootstrapReusedFromPrepare != null ->
+            priorSession.prepareSnapshot.withBootstrapReused(bootstrapReusedFromPrepare)
+        bootstrapReusedFromPrepare != null ->
+            TouchTurnPrepareSnapshot(
+                overallStatus = TouchTurnPrepareOverallStatus.PASS.name,
+                checks = emptyList(),
+                bootstrapReusedFromPrepare = bootstrapReusedFromPrepare,
+                atr14 = atr14,
+                volumeSma20 = volumeSma20
+            )
+        else -> priorSession?.prepareSnapshot
+    }
     val at = currentSessionTimestampIso()
     return copy(
         touchTurnSession = TouchTurnSessionContext(
@@ -1705,7 +1724,8 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
             milestones = TouchTurnMilestoneTimestamps(
                 startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
                 dataReadyAt = at
-            )
+            ),
+            prepareSnapshot = prepareSnapshot
         )
     )
 }

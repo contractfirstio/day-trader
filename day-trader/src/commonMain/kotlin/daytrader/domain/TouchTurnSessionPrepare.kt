@@ -89,6 +89,37 @@ enum class TouchTurnPrepareOverallStatus {
     FAIL
 }
 
+/** Frozen pre-flight checks captured when a Touch Turn session starts. */
+@Serializable
+data class TouchTurnPrepareSnapshot(
+    val preparedAtEpochMillis: Long? = null,
+    val overallStatus: String,
+    val checks: List<TouchTurnPrepareCheck> = emptyList(),
+    val bootstrapReusedFromPrepare: Boolean? = null,
+    val atr14: Double? = null,
+    val volumeSma20: Double? = null,
+    val todayOpeningBarPending: Boolean? = null
+) {
+    fun overall(): TouchTurnPrepareOverallStatus =
+        runCatching { TouchTurnPrepareOverallStatus.valueOf(overallStatus) }
+            .getOrDefault(TouchTurnPrepareOverallStatus.FAIL)
+
+    companion object {
+        fun from(prepare: TouchTurnSessionPrepare): TouchTurnPrepareSnapshot =
+            TouchTurnPrepareSnapshot(
+                preparedAtEpochMillis = prepare.preparedAtEpochMillis,
+                overallStatus = prepare.overallStatus,
+                checks = prepare.checks,
+                atr14 = prepare.signalContext.atr14,
+                volumeSma20 = prepare.signalContext.volumeSma20,
+                todayOpeningBarPending = prepare.signalContext.todayOpeningBarPending
+            )
+    }
+
+    fun withBootstrapReused(reused: Boolean): TouchTurnPrepareSnapshot =
+        copy(bootstrapReusedFromPrepare = reused)
+}
+
 object TouchTurnPrepareDefaults {
     /** Reuse prepared bootstrap on Start when younger than this (same session day + listing). */
     const val MAX_AGE_MS = 4 * 60 * 60 * 1000L

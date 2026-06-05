@@ -3,6 +3,8 @@ package daytrader.data.persistence
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnPlannedBracket
+import daytrader.domain.TouchTurnPrepareCheck
+import daytrader.domain.TouchTurnPrepareSnapshot
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
 import daytrader.domain.TouchTurnRunRecord
@@ -26,7 +28,8 @@ internal object TouchTurnRunPersistence {
                 maxDollars = record.runContext.maxDollars,
                 startedBy = parseStartedBy(record.runContext.startedBy),
                 brokerId = parseBrokerId(record.runContext.brokerId),
-                brokerKind = parseBrokerKind(record.runContext.brokerKind)
+                brokerKind = parseBrokerKind(record.runContext.brokerKind),
+                prepareSnapshot = record.runContext.prepareSnapshot?.toDomain()
             ),
             marketInputs = TouchTurnRunMarketInputs(
                 openingBar = record.marketInputs.openingBar?.toDomain(),
@@ -65,7 +68,8 @@ internal object TouchTurnRunPersistence {
                 maxDollars = record.runContext.maxDollars,
                 startedBy = record.runContext.startedBy.name.lowercase(),
                 brokerId = record.runContext.brokerId.name.lowercase(),
-                brokerKind = record.runContext.brokerKind?.name?.lowercase()
+                brokerKind = record.runContext.brokerKind?.name?.lowercase(),
+                prepareSnapshot = record.runContext.prepareSnapshot?.toRecord()
             ),
             marketInputs = TouchTurnRunMarketInputsRecord(
                 openingBar = record.marketInputs.openingBar?.toRecord(),
@@ -199,4 +203,40 @@ internal object TouchTurnRunPersistence {
 
     private fun parseOrderRole(value: String): TouchTurnOrderRole? =
         runCatching { TouchTurnOrderRole.valueOf(value.uppercase()) }.getOrNull()
+
+    private fun TouchTurnPrepareSnapshotRecord.toDomain(): TouchTurnPrepareSnapshot =
+        TouchTurnPrepareSnapshot(
+            preparedAtEpochMillis = preparedAtEpochMillis,
+            overallStatus = overallStatus,
+            checks = checks.map { c ->
+                TouchTurnPrepareCheck(
+                    id = c.id,
+                    status = c.status,
+                    label = c.label,
+                    detail = c.detail
+                )
+            },
+            bootstrapReusedFromPrepare = bootstrapReusedFromPrepare,
+            atr14 = atr14,
+            volumeSma20 = volumeSma20,
+            todayOpeningBarPending = todayOpeningBarPending
+        )
+
+    private fun TouchTurnPrepareSnapshot.toRecord(): TouchTurnPrepareSnapshotRecord =
+        TouchTurnPrepareSnapshotRecord(
+            preparedAtEpochMillis = preparedAtEpochMillis,
+            overallStatus = overallStatus,
+            checks = checks.map { c ->
+                TouchTurnPrepareCheckRecord(
+                    id = c.id,
+                    status = c.status,
+                    label = c.label,
+                    detail = c.detail
+                )
+            },
+            bootstrapReusedFromPrepare = bootstrapReusedFromPrepare,
+            atr14 = atr14,
+            volumeSma20 = volumeSma20,
+            todayOpeningBarPending = todayOpeningBarPending
+        )
 }

@@ -121,6 +121,15 @@ object SessionHistoryUiMapper {
             null
         }
         val requireLivePriceChecks = runRecord?.runContext?.brokerKind?.usesLiveIbMarketData == true
+        val sessionStartUi = if (isSelected && isTouchTurn && !inProgress && runRecord != null) {
+            TouchTurnSessionStartUiMapper.forHistory(
+                instance = instance,
+                run = run,
+                runContext = runRecord.runContext
+            )
+        } else {
+            null
+        }
         return StrategySessionRowUi(
             id = run.id,
             deploymentId = instance.id,
@@ -147,7 +156,8 @@ object SessionHistoryUiMapper {
             touchTurnOpeningBarCurrency = marketInputs?.currencyCode,
             touchTurnRangeThreshold = rangeThreshold,
             touchTurnAnalysisSession = analysisSession,
-            touchTurnRequireLivePriceChecks = requireLivePriceChecks
+            touchTurnRequireLivePriceChecks = requireLivePriceChecks,
+            touchTurnSessionStart = sessionStartUi
         )
     }
 

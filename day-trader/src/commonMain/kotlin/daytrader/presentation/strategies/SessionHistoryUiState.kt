@@ -31,7 +31,8 @@ data class StrategySessionRowUi(
     val touchTurnOpeningBarCurrency: String? = null,
     val touchTurnRangeThreshold: Double? = null,
     val touchTurnAnalysisSession: TouchTurnSessionContext? = null,
-    val touchTurnRequireLivePriceChecks: Boolean = false
+    val touchTurnRequireLivePriceChecks: Boolean = false,
+    val touchTurnSessionStart: TouchTurnSessionStartUi? = null
 )
 
 data class SessionHistoryUiState(

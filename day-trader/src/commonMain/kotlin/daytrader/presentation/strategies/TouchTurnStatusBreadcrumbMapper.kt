@@ -38,7 +38,7 @@ data class TouchTurnBreadcrumbStep(
 
 /**
  * Touch Turn run pipeline above live position P&L:
- * Readiness → Data → Rules → Orders → Position → Close.
+ * Start → Data → Rules → Orders → Position → Close.
  */
 object TouchTurnStatusBreadcrumbMapper {
     private const val IDX_READINESS = 0
@@ -49,7 +49,7 @@ object TouchTurnStatusBreadcrumbMapper {
     private const val IDX_CLOSE = 5
 
     private val pipelineLabels = listOf(
-        "Readiness",
+        "Start",
         "Data",
         "Rules",
         "Orders",
@@ -613,7 +613,7 @@ object TouchTurnStatusBreadcrumbMapper {
         return TouchTurnPipelineNodeId.entries.map { id ->
             val meta = when (id) {
                 TouchTurnPipelineNodeId.Readiness -> PipelineNodeMeta(
-                    IDX_READINESS, pipelineLabels[IDX_READINESS], "Ready", false
+                    IDX_READINESS, pipelineLabels[IDX_READINESS], "Start", false
                 )
                 TouchTurnPipelineNodeId.Data -> PipelineNodeMeta(
                     IDX_DATA, pipelineLabels[IDX_DATA], "Data", false
@@ -715,6 +715,12 @@ object TouchTurnStatusBreadcrumbMapper {
         }
         nodes.firstOrNull { it.state == TouchTurnBreadcrumbStepState.CURRENT }?.let { current ->
             when (current.id) {
+                TouchTurnPipelineNodeId.Readiness ->
+                    return if (session == null) {
+                        appendTimestamp("Waiting for session start", nodes, current.timestamp)
+                    } else {
+                        appendTimestamp("Session started — loading market data", nodes, current.timestamp)
+                    }
                 TouchTurnPipelineNodeId.Orders -> if (
                     nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
                         ?.state == TouchTurnBreadcrumbStepState.UPCOMING

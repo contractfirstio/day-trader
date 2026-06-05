@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import daytrader.domain.DeploymentStatus
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.StrategyDeployment
@@ -52,6 +51,10 @@ import daytrader.presentation.strategies.RuleCheckUi
 import daytrader.presentation.strategies.RulesEvaluationUi
 import daytrader.presentation.strategies.SessionDataCaptureUi
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
+import daytrader.domain.TouchTurnPrepareStatus
+import daytrader.presentation.strategies.TouchTurnPrepareCheckRowUi
+import daytrader.presentation.strategies.TouchTurnSessionStartUi
+import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
 import daytrader.presentation.strategies.TouchTurnPipelineNodeId
@@ -127,46 +130,156 @@ fun TouchTurnPipelineSectionStart(
     instance: StrategyDeployment,
     graph: TouchTurnPipelineGraph?,
     lastClosedRun: StrategySession? = null,
+    session: TouchTurnSessionContext? = null,
+    startUi: TouchTurnSessionStartUi? = null,
     modifier: Modifier = Modifier
 ) {
-    val run = instance.inProgressSession() ?: lastClosedRun
-    val startedAt = run?.startedAt?.takeIf { it.isNotBlank() }
-        ?: graph?.node(TouchTurnPipelineNodeId.Readiness)?.timestamp
-    val stoppedAt = run?.stoppedAt?.takeIf { it.isNotBlank() }
+    val ui = startUi ?: TouchTurnSessionStartUiMapper.forLive(
+        instance = instance,
+        session = session,
+        lastClosedRun = lastClosedRun,
+        graphCaption = graph?.statusBanner?.detail ?: graph?.statusBanner?.headline
+    )
+    TouchTurnSessionStartDetail(ui = ui, modifier = modifier)
+}
+
+@Composable
+fun TouchTurnSessionStartDetail(
+    ui: TouchTurnSessionStartUi,
+    modifier: Modifier = Modifier
+) {
     Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionStart"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            "Symbol ${instance.symbol} · max risk ${Formatters.currencyPlain(instance.maxDollars.toDouble())}",
-            fontSize = 11.sp,
-            color = TextSecondary
-        )
-        val runningHint = graph?.statusBanner?.detail
-            ?: graph?.statusBanner?.headline
-        Text(
-            when {
-                instance.status == DeploymentStatus.RUNNING && runningHint != null -> runningHint
-                instance.status == DeploymentStatus.RUNNING ->
-                    "Session is running — follow the pipeline for bar close, liquidity, and orders."
-                run != null -> "Session ended — review each pipeline step above."
-                else -> "Deployment stopped. Start a session to begin the next run."
-            },
+            ui.headline,
             fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
             color = Color.White
         )
-        startedAt?.let { time ->
-            Text("Started $time", fontSize = 11.sp, color = TextSecondary)
+        ui.detail?.let { detail ->
+            Text(detail, fontSize = 11.sp, color = TextSecondary, lineHeight = 14.sp)
         }
-        stoppedAt?.let { time ->
-            Text("Stopped $time", fontSize = 11.sp, color = TextSecondary)
+        TouchTurnSessionStartFactsCard(ui = ui)
+        if (ui.prepareChecks.isNotEmpty()) {
+            TouchTurnPrepareChecksCard(
+                checks = ui.prepareChecks,
+                overallLabel = ui.prepareOverallLabel,
+                preparedAtLabel = ui.preparePreparedAtLabel
+            )
+        } else {
+            Text(
+                "Prepare was not run before Start — bootstrap loads when the session begins.",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                lineHeight = 13.sp,
+                modifier = Modifier.testTag("TouchTurnSessionStartNoPrepare")
+            )
         }
-        Text(
-            "Tap a pipeline step above to inspect that phase of the run.",
-            fontSize = 10.sp,
-            color = TextSecondary.copy(alpha = 0.85f)
-        )
+        ui.bootstrapPathLabel?.let { path ->
+            Text(path, fontSize = 10.sp, color = TextSecondary, lineHeight = 13.sp)
+        }
     }
+}
+
+@Composable
+private fun TouchTurnSessionStartFactsCard(ui: TouchTurnSessionStartUi) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnSessionStartFactsCard"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Session facts",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        ui.startedAtLabel?.let { DataCaptureRow(label = "Started", value = it) }
+        ui.stoppedAtLabel?.let { DataCaptureRow(label = "Stopped", value = it) }
+        ui.startedByLabel?.let { DataCaptureRow(label = "Start mode", value = it) }
+        ui.brokerLabel?.let { DataCaptureRow(label = "Broker", value = it) }
+        ui.marketLabel?.let { DataCaptureRow(label = "Market", value = it) }
+        ui.sessionDateLabel?.let { DataCaptureRow(label = "Session date", value = it) }
+        DataCaptureRow(label = "Max risk", value = ui.maxRiskLabel, emphasize = true)
+    }
+}
+
+@Composable
+fun TouchTurnPrepareChecksCard(
+    checks: List<TouchTurnPrepareCheckRowUi>,
+    overallLabel: String?,
+    preparedAtLabel: String?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnPrepareChecksCard"),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Pre-flight checks",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextSecondary
+            )
+            overallLabel?.let { label ->
+                Text(
+                    label,
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+        preparedAtLabel?.let { at ->
+            Text("Prepare run $at (market local)", fontSize = 10.sp, color = TextSecondary)
+        }
+        checks.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    touchTurnPrepareStatusGlyph(row.status),
+                    fontSize = 11.sp,
+                    color = touchTurnPrepareCheckColor(row.status),
+                    modifier = Modifier.width(14.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(row.label, fontSize = 10.sp, color = Color.White)
+                    row.detail?.let { detail ->
+                        Text(detail, fontSize = 9.sp, color = TextSecondary, lineHeight = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun touchTurnPrepareStatusGlyph(status: TouchTurnPrepareStatus): String = when (status) {
+    TouchTurnPrepareStatus.PASS -> "✓"
+    TouchTurnPrepareStatus.WARN -> "!"
+    TouchTurnPrepareStatus.FAIL -> "✗"
+}
+
+private fun touchTurnPrepareCheckColor(status: TouchTurnPrepareStatus): Color = when (status) {
+    TouchTurnPrepareStatus.PASS -> GainGreen
+    TouchTurnPrepareStatus.WARN -> Color(0xFFFFB74D)
+    TouchTurnPrepareStatus.FAIL -> LossRed
 }
 
 @Composable

@@ -373,6 +373,14 @@ private fun SessionHistoryExpandedSections(
                         graph = graph
                     ) { nodeId ->
                         when (nodeId) {
+                            TouchTurnPipelineNodeId.Readiness ->
+                                row.touchTurnSessionStart?.let { startUi ->
+                                    TouchTurnSessionStartDetail(ui = startUi)
+                                } ?: Text(
+                                    "Session start details were not recorded for this run.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
+                                )
                             TouchTurnPipelineNodeId.Orders,
                             TouchTurnPipelineNodeId.Position ->
                                 tradeDetail?.let { detail ->

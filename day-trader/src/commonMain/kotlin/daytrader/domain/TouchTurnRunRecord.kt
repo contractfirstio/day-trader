@@ -59,7 +59,9 @@ data class TouchTurnRunContext(
     val startedBy: TouchTurnSessionStartedBy,
     val brokerId: BrokerId,
     /** Startup broker mode (e.g. paper-live vs pure emulator); null on legacy rows. */
-    val brokerKind: BrokerKind? = null
+    val brokerKind: BrokerKind? = null,
+    /** Pre-flight checks snapshotted when the session was started; null on legacy rows. */
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
 )
 
 @Serializable
@@ -219,7 +221,8 @@ fun buildTouchTurnRunRecord(
             maxDollars = session.maxAtRisk,
             startedBy = session.touchTurnStartedBy ?: TouchTurnSessionStartedBy.MANUAL,
             brokerId = brokerId,
-            brokerKind = brokerKind
+            brokerKind = brokerKind,
+            prepareSnapshot = touchTurnSession.prepareSnapshot
         ),
         marketInputs = TouchTurnRunMarketInputs(
             openingBar = touchTurnSession.candle,

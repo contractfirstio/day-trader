@@ -1955,7 +1955,8 @@ private fun TouchTurnLivePipelineDetailHost(
                 TouchTurnPipelineSectionStart(
                     instance = instance,
                     graph = pipelineGraph,
-                    lastClosedRun = lastClosedRun
+                    lastClosedRun = lastClosedRun,
+                    session = analysisSession
                 )
             TouchTurnPipelineNodeId.Data ->
                 TouchTurnPipelineSectionData(

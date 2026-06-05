@@ -36,7 +36,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
             instance = deployment(touchTurnSession = null),
             hasOpenPosition = false
         )
-        assertEquals("Readiness", steps[0].label)
+        assertEquals("Start", steps[0].label)
         assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[0].state)
         assertEquals("Close", steps[5].label)
         assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[5].state)

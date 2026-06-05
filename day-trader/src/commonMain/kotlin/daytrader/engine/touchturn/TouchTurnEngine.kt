@@ -623,7 +623,8 @@ class TouchTurnEngine(
                         volumeSma20 = ctx.volumeSma20,
                         adr14 = ctx.atr14,
                         currencyCode = currency,
-                        marketZoneId = zoneId
+                        marketZoneId = zoneId,
+                        bootstrapReusedFromPrepare = true
                     )
                 }
                 SessionTrace.touchTurnData(
@@ -656,7 +657,8 @@ class TouchTurnEngine(
                                 volumeSma20 = context.volumeSma20,
                                 adr14 = context.atr14,
                                 currencyCode = currency,
-                                marketZoneId = zoneId
+                                marketZoneId = zoneId,
+                                bootstrapReusedFromPrepare = false
                             )
                         },
                         onFailure = { error ->

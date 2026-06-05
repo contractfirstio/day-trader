@@ -73,7 +73,7 @@ fun TouchTurnPipelineNode.isSelectable(): Boolean =
         state != TouchTurnBreadcrumbStepState.UPCOMING
 
 fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
-    TouchTurnPipelineNodeId.Readiness -> "Readiness"
+    TouchTurnPipelineNodeId.Readiness -> "Session start"
     TouchTurnPipelineNodeId.Data -> "Market data"
     TouchTurnPipelineNodeId.Rules -> "Entry rules"
     TouchTurnPipelineNodeId.Orders -> "Orders"
