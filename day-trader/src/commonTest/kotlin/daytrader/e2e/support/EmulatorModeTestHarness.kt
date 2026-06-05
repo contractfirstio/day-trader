@@ -54,7 +54,15 @@ class EmulatorModeTestHarness(
         repository: StrategyDeploymentRepository,
         nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS }
     ): TouchTurnEngine {
-        val marketData = BrokerGatewayMarketDataProvider(gateway)
+        val marketData = BrokerGatewayMarketDataProvider(
+            gateway = gateway,
+            ensureLiveMarketData = { symbol, instrument ->
+                adapter.ensureStreamingMarketData(symbol, instrument)
+            },
+            releaseLiveMarketData = { symbol, instrument ->
+                adapter.releaseStreamingMarketData(symbol, instrument)
+            }
+        )
         return TouchTurnEngine(
             marketData = marketData,
             execution = BrokerGatewayExecutionManager(gateway),

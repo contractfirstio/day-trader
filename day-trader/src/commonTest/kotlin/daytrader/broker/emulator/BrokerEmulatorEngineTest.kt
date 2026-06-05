@@ -73,7 +73,7 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
-    fun marketTick_withNoPositions_publishesEmptySnapshot() = runBlocking {
+    fun marketTick_withoutStreamingSubscription_isNoOp() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig(connectDelayMs = 1),
@@ -85,8 +85,29 @@ class BrokerEmulatorEngineTest {
 
         engine.runMarketTick()
 
-        val snapshot = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
-        assertTrue(snapshot.isEmpty())
+        assertTrue(events.filterIsInstance<GatewayEvent.QuotesSnapshot>().isEmpty())
+        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().isEmpty())
+    }
+
+    @Test
+    fun streamingLifecycle_ensurePublishesQuotes_releaseClearsSymbol() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+        events.clear()
+
+        engine.ensureStreamingMarketData("AAPL")
+        val subscribed = events.filterIsInstance<GatewayEvent.QuotesSnapshot>().last().quotes
+        assertTrue(subscribed.containsKey("AAPL"))
+
+        events.clear()
+        engine.releaseStreamingMarketData("AAPL")
+        val released = events.filterIsInstance<GatewayEvent.QuotesSnapshot>().last().quotes
+        assertTrue(!released.containsKey("AAPL"))
     }
 
     @Test
@@ -285,6 +306,7 @@ class BrokerEmulatorEngineTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val setup = TouchTurnBracketSetup(
             range = 2.0,

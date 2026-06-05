@@ -29,6 +29,7 @@ class BrokerEmulatorBracketTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val setup = TouchTurnBracketSetup(
             range = 2.0,
@@ -78,6 +79,7 @@ class BrokerEmulatorBracketTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val setup = TouchTurnBracketSetup(
             range = 2.0,
@@ -136,6 +138,7 @@ class BrokerEmulatorBracketTest {
             )
             engine.handleConnect()
             engine.finishConnect()
+            engine.ensureStreamingMarketData("AAPL")
 
             val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
             engine.placeTouchTurnBracket(plan)

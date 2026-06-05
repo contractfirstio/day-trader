@@ -487,6 +487,39 @@ class BrokerModeSteps {
         assertTrue(calls.any { it.equals(symbol, ignoreCase = true) }, "expected IB subscribe for $symbol")
     }
 
+    @When("synthetic quote streaming is ensured for {string}")
+    fun ensureSyntheticQuoteStreaming(symbol: String) {
+        world.activeEmulatorHarness().adapter.ensureStreamingMarketData(symbol)
+    }
+
+    @Then("the emulator should be streaming quotes for {string}")
+    fun emulatorStreamingQuotes(symbol: String) = runBlocking {
+        val gateway = world.activeEmulatorHarness().gateway
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            if (gateway.quotes.value.containsKey(symbol.uppercase())) return@runBlocking
+            delay(50)
+        }
+        assertTrue(
+            gateway.quotes.value.containsKey(symbol.uppercase()),
+            "expected streaming quotes for $symbol, had ${gateway.quotes.value.keys}"
+        )
+    }
+
+    @Then("the emulator should have released quotes for {string}")
+    fun emulatorReleasedQuotes(symbol: String) = runBlocking {
+        val gateway = world.activeEmulatorHarness().gateway
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            if (!gateway.quotes.value.containsKey(symbol.uppercase())) return@runBlocking
+            delay(50)
+        }
+        assertTrue(
+            !gateway.quotes.value.containsKey(symbol.uppercase()),
+            "expected quotes released for $symbol, still had ${gateway.quotes.value.keys}"
+        )
+    }
+
     @Then("the mocked IB gateway should remain market-data-only")
     fun mockedIbRemainsMarketDataOnly() {
         mockedIbRejectsOrders()

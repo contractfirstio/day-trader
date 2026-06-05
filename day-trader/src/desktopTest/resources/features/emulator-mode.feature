@@ -34,6 +34,13 @@ Feature: Broker Emulator mode end-to-end
     And the session is stopped manually
     Then the emulator should have flattened "AAPL"
 
+  Scenario: Manual session stop releases synthetic quote streaming
+    When the Touch Turn engine starts
+    And synthetic quote streaming is ensured for "AAPL"
+    Then the emulator should be streaming quotes for "AAPL"
+    When the session is stopped manually
+    Then the emulator should have released quotes for "AAPL"
+
   Scenario: Synthetic pricing ignores external IB-style quotes
     Given the emulator uses synthetic pricing
     When an external quote is published for "AAPL"

@@ -94,6 +94,7 @@ data class BrokerRuntime(
             val quoteBus = MarketQuoteBus()
             val queues = BlockingGatewayQueues()
             val brokerId = BrokerId.from(kind)
+            lateinit var emulatorAdapter: EmulatorBrokerAdapter
             val adapter: BrokerAdapter = when (kind) {
                 BrokerKind.INTERACTIVE_BROKERS -> DesktopIbGatewayConnection(queues = queues, scope = scope)
                 BrokerKind.EMULATOR -> EmulatorBrokerAdapter(
@@ -102,7 +103,7 @@ data class BrokerRuntime(
                     config = BrokerEmulatorConfig.fromEnvironment(),
                     quoteBus = quoteBus,
                     scope = scope
-                )
+                ).also { emulatorAdapter = it }
                 BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> error("use createHybrid")
                 BrokerKind.REPLAY -> error("use createReplay")
             }
@@ -113,10 +114,24 @@ data class BrokerRuntime(
                 scope = scope
             )
             val ibConnection = adapter as? DesktopIbGatewayConnection
+            val emulatorEnsureRelease = if (kind == BrokerKind.EMULATOR) {
+                Pair(
+                    { symbol: String, instrument: daytrader.domain.InstrumentIdentity? ->
+                        emulatorAdapter.ensureStreamingMarketData(symbol, instrument)
+                    },
+                    { symbol: String, instrument: daytrader.domain.InstrumentIdentity? ->
+                        emulatorAdapter.releaseStreamingMarketData(symbol, instrument)
+                    }
+                )
+            } else {
+                null to null
+            }
             return BrokerRuntime(
                 kind = kind,
                 gateway = gateway,
                 quoteBus = quoteBus,
+                ensureLiveMarketData = emulatorEnsureRelease.first,
+                releaseLiveMarketData = emulatorEnsureRelease.second,
                 getStreamingMarketDataType = ibConnection?.let { ib -> { ib.currentStreamingMarketDataType() } },
                 setStreamingMarketDataType = ibConnection?.let { ib -> { type -> ib.setStreamingMarketDataType(type) } },
                 adapters = listOf(adapter),

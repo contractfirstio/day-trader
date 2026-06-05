@@ -394,7 +394,10 @@ class TouchTurnEngine(
 
     private fun handleStopSession(command: TouchTurnCommand.StopSession) {
         val instance = repository.deployments.value.find { it.id == command.instanceId } ?: return
-        if (instance.status != DeploymentStatus.RUNNING) return
+        if (instance.status != DeploymentStatus.RUNNING) {
+            maybeReleaseLiveMarketData(instance)
+            return
+        }
         TouchTurnDecisionLog.sessionStopping(
             instanceId = command.instanceId,
             symbol = instance.symbol,
@@ -622,7 +625,9 @@ class TouchTurnEngine(
                     nowEpochMillis = nowEpochMillis()
                 )
             val signalResult: Result<TouchTurnSignalContext> = if (reusePrepare && prepared != null) {
-                marketData.ensureStreaming(symbol, instrument)
+                if (instance.status == DeploymentStatus.RUNNING) {
+                    marketData.ensureStreaming(symbol, instrument)
+                }
                 val ctx = prepared.signalContext
                 repository.update(instanceId) { current ->
                     VolumeExhaustionSignalEngine.logSignalContext(instanceId, symbol, ctx)
@@ -648,7 +653,9 @@ class TouchTurnEngine(
                 )
                 Result.success(prepared.signalContext)
             } else {
-                marketData.ensureStreaming(symbol, instrument)
+                if (instance.status == DeploymentStatus.RUNNING) {
+                    marketData.ensureStreaming(symbol, instrument)
+                }
                 val fetched = marketData.fetchTouchTurnSignalContext(
                     symbol = symbol,
                     instrument = instrument,
@@ -737,6 +744,11 @@ class TouchTurnEngine(
                     deploymentMarketZoneId = zoneId,
                     session = loadedSession
                 )
+            }
+            repository.deployments.value.find { it.id == instanceId }?.let { current ->
+                if (current.status != DeploymentStatus.RUNNING) {
+                    maybeReleaseLiveMarketData(current)
+                }
             }
             watchLiquidity(instanceId, sessionDate)
         }

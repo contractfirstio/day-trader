@@ -1,6 +1,7 @@
 package daytrader.broker.emulator
 
 import daytrader.domain.DeploymentMarket
+import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerAdapter
 import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayCommand
@@ -19,6 +20,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
@@ -298,6 +300,15 @@ class EmulatorBrokerAdapter(
 
     fun ingestLiveQuote(symbol: String, quote: LiveQuote, priorClose: Double?) =
         ingestExternalQuote(symbol, quote, priorClose)
+
+    /** Session-scoped synthetic quote streaming (pure emulator mode; mirrors IB hybrid lifecycle). */
+    fun ensureStreamingMarketData(symbol: String, instrument: InstrumentIdentity? = null) {
+        runBlocking { withEngine { engine.ensureStreamingMarketData(symbol, instrument) } }
+    }
+
+    fun releaseStreamingMarketData(symbol: String, instrument: InstrumentIdentity? = null) {
+        runBlocking { withEngine { engine.releaseStreamingMarketData(symbol, instrument) } }
+    }
 
     override fun shutdown() {
         engine.handleShutdown()

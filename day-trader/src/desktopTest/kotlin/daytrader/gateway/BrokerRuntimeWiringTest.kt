@@ -24,6 +24,8 @@ class BrokerRuntimeWiringTest {
         assertEquals(BrokerKind.EMULATOR, runtime.kind)
         assertEquals(BrokerId.EMULATOR, runtime.gateway.brokerId)
         assertEquals(null, runtime.marketDataGateway)
+        assertNotNull(runtime.ensureLiveMarketData)
+        assertNotNull(runtime.releaseLiveMarketData)
         runtime.shutdown()
     }
 

@@ -50,6 +50,8 @@ class BrokerEmulatorEngine(
     /** Bootstrap fetch index per symbol; refetch reuses without incrementing. */
     private val lockedCandleFetchIndexBySymbol = mutableMapOf<String, Int>()
     private val externalFeedReadyLogged = mutableSetOf<String>()
+    /** Per-symbol holders for synthetic streaming quotes (session-scoped, like IB hybrid). */
+    private val streamSubscriptionRefCount = mutableMapOf<String, Int>()
 
     fun handleConnect() {
         if (connected) return
@@ -65,14 +67,52 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.ConnectionStateChanged(GatewayConnectionState.Connected))
         publishPositions()
         finishEmulatedOpenOrdersLoad()
-        publishQuotes()
+        if (!config.pricingSource.isSynthetic || hasActiveStreamingSubscriptions()) {
+            publishQuotes()
+        }
         startMarketSimulation()
         startOrderSimulation()
+    }
+
+    /**
+     * Arms synthetic quote streaming for [symbol]. Refcounted so multiple sessions can share one symbol.
+     * No-op in [EmulatorPricingSource.LIVE_EXCHANGE] mode (hybrid uses IB for live marks).
+     */
+    fun ensureStreamingMarketData(
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity? = null
+    ) {
+        if (!config.pricingSource.isSynthetic) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank()) return
+        if (!incrementStreamRefCount(norm)) return
+        seedSymbolQuote(norm)
+        publishQuotes()
+    }
+
+    /**
+     * Drops synthetic streaming for [symbol] when the last holder releases it
+     * (e.g. when no deployment session is running for that symbol).
+     */
+    fun releaseStreamingMarketData(
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity? = null
+    ) {
+        if (!config.pricingSource.isSynthetic) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank()) return
+        if (!decrementStreamRefCount(norm)) return
+        quoteBook.removeSymbol(norm)
+        bracketPriceWalks.remove(norm)
+        bracketEntryPending.remove(norm)
+        pendingBracketWalks.remove(norm)
+        publishQuotes()
     }
 
     fun handleDisconnect() {
         connected = false
         ticksRunning = false
+        streamSubscriptionRefCount.clear()
         orderSimRunning = false
         EmulatorLog.connectionState("disconnected", config.pricingSource.name)
         positions.clear()
@@ -534,7 +574,7 @@ class BrokerEmulatorEngine(
     }
 
     suspend fun runMarketTick() {
-        if (!connected || !ticksRunning) return
+        if (!shouldRunMarketTicks()) return
         evaluateOrderFillsOnTick()
         if (config.pricingSource.isSynthetic) {
             tickSymbolsForMarketData().forEach { symbol ->
@@ -596,31 +636,49 @@ class BrokerEmulatorEngine(
 
     private fun seedBooks() {
         if (config.pricingSource.isSynthetic) {
-            seedDefaultSymbolQuotes()
+            quoteBook.clear()
         }
         positions = mutableListOf()
         orders = mutableMapOf()
     }
 
-    private fun seedDefaultSymbolQuotes() {
-        quoteBook.clear()
-        catalog.forEach { (sym, instrument) ->
-            val ref = instrument.referencePrice
-            val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
-                range = ref * 0.02,
-                referencePrice = ref,
-                spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
+    private fun seedSymbolQuote(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val instrument = resolveInstrument(norm) ?: return
+        val ref = instrument.referencePrice
+        val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
+            range = ref * 0.02,
+            referencePrice = ref,
+            spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
+        )
+        quoteBook.seedSymbol(
+            norm,
+            EmulatorMarketQuote(
+                last = ref,
+                bid = ref - spread / 2.0,
+                ask = ref + spread / 2.0,
+                halfSpread = spread / 2.0
             )
-            quoteBook.seedSymbol(
-                sym,
-                EmulatorMarketQuote(
-                    last = ref,
-                    bid = ref - spread / 2.0,
-                    ask = ref + spread / 2.0,
-                    halfSpread = spread / 2.0
-                )
-            )
+        )
+    }
+
+    private fun hasActiveStreamingSubscriptions(): Boolean =
+        streamSubscriptionRefCount.values.any { it > 0 }
+
+    private fun incrementStreamRefCount(symbol: String): Boolean {
+        val next = (streamSubscriptionRefCount[symbol] ?: 0) + 1
+        streamSubscriptionRefCount[symbol] = next
+        return next == 1
+    }
+
+    private fun decrementStreamRefCount(symbol: String): Boolean {
+        val current = streamSubscriptionRefCount[symbol] ?: return false
+        if (current <= 1) {
+            streamSubscriptionRefCount.remove(symbol)
+            return true
         }
+        streamSubscriptionRefCount[symbol] = current - 1
+        return false
     }
 
     private fun allocateOrderId(): Int = nextOrderId++
@@ -716,8 +774,12 @@ class BrokerEmulatorEngine(
     }
 
     private fun tickSymbolsForMarketData(): Set<String> =
-        (catalog.keys + dynamicInstruments.keys + orders.values.map { SymbolMarkets.normalizeSymbol(it.symbol) })
-            .toSet()
+        if (config.pricingSource.isSynthetic) {
+            streamSubscriptionRefCount.filterValues { it > 0 }.keys.toSet()
+        } else {
+            (catalog.keys + dynamicInstruments.keys + orders.values.map { SymbolMarkets.normalizeSymbol(it.symbol) })
+                .toSet()
+        }
 
     private fun evaluateOrderFillsOnTick() {
         orders.values.toList().forEach { order ->
@@ -843,7 +905,6 @@ class BrokerEmulatorEngine(
     }
 
     private fun publishQuotes() {
-        if (quoteBook.isEmpty) return
         val snapshot = quoteBook.toLiveQuoteSnapshot()
         EmulatorPriceLog.recordSnapshot(snapshot, config.pricingSource.name)
         emit(GatewayEvent.QuotesSnapshot(snapshot))
@@ -1160,7 +1221,11 @@ class BrokerEmulatorEngine(
         orderSimRunning = config.simulateOrderProgress
     }
 
-    fun shouldRunMarketTicks(): Boolean = connected && ticksRunning
+    fun shouldRunMarketTicks(): Boolean = when {
+        !connected || !ticksRunning -> false
+        config.pricingSource.isSynthetic -> hasActiveStreamingSubscriptions()
+        else -> true
+    }
 
     fun shouldRunOrderSim(): Boolean = connected && orderSimRunning && config.simulateOrderProgress
 

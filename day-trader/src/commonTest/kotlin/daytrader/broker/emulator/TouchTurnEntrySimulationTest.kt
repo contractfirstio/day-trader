@@ -27,6 +27,7 @@ class TouchTurnEntrySimulationTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val plan = touchTurnPlan()
         engine.placeTouchTurnBracket(plan)
@@ -62,6 +63,7 @@ class TouchTurnEntrySimulationTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         engine.placeTouchTurnBracket(touchTurnPlan())
         repeat(20) { engine.runMarketTick() }
