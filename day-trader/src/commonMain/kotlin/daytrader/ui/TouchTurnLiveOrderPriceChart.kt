@@ -151,8 +151,8 @@ fun TouchTurnLiveOrderPriceChart(
             val labelColumnWidth = TouchTurnChartDimensions.orderLevelLabelColumnWidth
             val chartWidth = (maxWidth - labelColumnWidth).coerceAtLeast(80.dp)
             val chartHeight = maxHeight
-            fun yFraction(price: Double): Float =
-                ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
+            val priceMin = priceRange.priceMin
+            val priceMax = priceRange.priceMax
 
             Box(
                 modifier = Modifier
@@ -165,21 +165,15 @@ fun TouchTurnLiveOrderPriceChart(
                         .fillMaxHeight()
                         .testTag("TouchTurnLiveOrderPriceChartCanvas")
                 ) {
-                val labelPadLeft = 44f
-                val labelPadRight = 4f
-                val labelPadTop = 6f
-                val labelPadBottom = 14f
-                val plotLeft = labelPadLeft
-                val plotRight = size.width - labelPadRight
-                val plotTop = labelPadTop
-                val plotBottom = size.height - labelPadBottom
-                val plotWidth = (plotRight - plotLeft).coerceAtLeast(1f)
-                val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
+                val plot = TouchTurnChartDimensions.plotBounds(size.width, size.height, density)
+                val plotLeft = plot.left
+                val plotRight = plot.right
+                val plotTop = plot.top
+                val plotBottom = plot.bottom
+                val plotWidth = plot.width
+                val plotHeight = plot.height
 
-                fun yFor(price: Double): Float {
-                    val fraction = ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
-                    return plotTop + fraction * plotHeight
-                }
+                fun yFor(price: Double): Float = plot.yForPrice(price, priceMin, priceMax)
 
                 fun xFor(index: Int, count: Int): Float {
                     if (count <= 1) return plotRight
@@ -273,20 +267,11 @@ fun TouchTurnLiveOrderPriceChart(
                             .fillMaxHeight()
                             .testTag("TouchTurnLiveOrderPriceChartThrob")
                     ) {
-                    val labelPadLeft = 44f
-                    val labelPadRight = 8f
-                    val labelPadTop = 6f
-                    val labelPadBottom = 14f
-                    val plotLeft = labelPadLeft
-                    val plotRight = size.width - labelPadRight
-                    val plotTop = labelPadTop
-                    val plotBottom = size.height - labelPadBottom
-                    val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
+                    val plot = TouchTurnChartDimensions.plotBounds(size.width, size.height, density)
+                    val plotLeft = plot.left
+                    val plotRight = plot.right
 
-                    fun yFor(price: Double): Float {
-                        val fraction = ((priceRange.priceMax - price) / priceRange.priceSpan).toFloat().coerceIn(0f, 1f)
-                        return plotTop + fraction * plotHeight
-                    }
+                    fun yFor(price: Double): Float = plot.yForPrice(price, priceMin, priceMax)
 
                     chart.levels
                         .filter { it.kind in chart.executedLevels }
@@ -314,8 +299,8 @@ fun TouchTurnLiveOrderPriceChart(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 chart.levels.sortedByDescending { it.price }.forEach { level ->
-                    val fraction = yFraction(level.price)
-                    val yOffset = TouchTurnChartDimensions.levelLabelYOffset(chartHeight, fraction)
+                    val lineY = TouchTurnChartDimensions.yForPrice(level.price, priceMin, priceMax, chartHeight)
+                    val yOffset = TouchTurnChartDimensions.levelLabelYOffset(lineY, chartHeight)
                     val color = levelColor(level.kind)
                     val executed = level.kind in chart.executedLevels
                     val labelColor = when {

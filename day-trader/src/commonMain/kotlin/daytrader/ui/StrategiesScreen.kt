@@ -1285,9 +1285,7 @@ internal fun TouchTurnOrderPreviewChart(
     val pad = candle.range * 0.15
     val priceTop = prices.max() + pad
     val priceBottom = prices.min() - pad
-    val span = (priceTop - priceBottom).coerceAtLeast(0.0001)
-    fun yFraction(price: Double): Float =
-        ((priceTop - price) / span).toFloat().coerceIn(0f, 1f)
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     val levels = buildList {
         add(TouchTurnPriceLevel(candle.high, "High", TextSecondary.copy(alpha = 0.55f), 1f))
@@ -1335,13 +1333,16 @@ internal fun TouchTurnOrderPreviewChart(
                 .width(chartWidth)
                 .fillMaxHeight()
         ) {
+            val plot = TouchTurnChartDimensions.plotBounds(
+                canvasWidth = size.width,
+                canvasHeight = size.height,
+                density = density,
+                includeHorizontalPadding = false
+            )
             val candleLeft = size.width * 0.34f
             val candleWidth = size.width * 0.28f
             val centerX = candleLeft + candleWidth / 2f
-            fun y(price: Double): Float {
-                val fraction = ((priceTop - price) / span).toFloat()
-                return (fraction * size.height).coerceIn(0f, size.height)
-            }
+            fun y(price: Double): Float = plot.yForPrice(price, priceBottom, priceTop)
 
             drawRect(
                 color = TableHeaderBg.copy(alpha = 0.4f),
@@ -1386,10 +1387,13 @@ internal fun TouchTurnOrderPreviewChart(
                     .fillMaxHeight()
                     .testTag("TouchTurnOrderPreviewChartThrob")
             ) {
-                fun y(price: Double): Float {
-                    val fraction = ((priceTop - price) / span).toFloat()
-                    return (fraction * size.height).coerceIn(0f, size.height)
-                }
+                val plot = TouchTurnChartDimensions.plotBounds(
+                    canvasWidth = size.width,
+                    canvasHeight = size.height,
+                    density = density,
+                    includeHorizontalPadding = false
+                )
+                fun y(price: Double): Float = plot.yForPrice(price, priceBottom, priceTop)
                 val baseLevels = levels.filter { it.kind != null && it.kind in executedLevels }
                 baseLevels.forEach { level ->
                     val yPos = y(level.price)
@@ -1413,10 +1417,8 @@ internal fun TouchTurnOrderPreviewChart(
 
         Box(modifier = Modifier.fillMaxSize()) {
             levels.sortedByDescending { it.price }.forEach { level ->
-                val yOffset = TouchTurnChartDimensions.levelLabelYOffset(
-                    chartHeight = chartHeight,
-                    yFraction = yFraction(level.price)
-                )
+                val lineY = TouchTurnChartDimensions.yForPrice(level.price, priceBottom, priceTop, chartHeight)
+                val yOffset = TouchTurnChartDimensions.levelLabelYOffset(lineY, chartHeight)
                 val executed = level.kind != null && level.kind in executedLevels
                 val labelColor = when {
                     executed -> level.color.copy(alpha = throbAlpha)
