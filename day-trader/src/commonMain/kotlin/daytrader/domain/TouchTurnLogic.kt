@@ -1227,10 +1227,11 @@ object TouchTurnLogic {
         val color = firstCandleColor(bar)
         val liquidity = isLiquidityCandle(bar, rangeThreshold)
         val minStopDistance = rules.minStopDistance
+        val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
         return when (color) {
             FirstCandleColor.GREEN -> {
                 val tpDistance = range * rules.takeProfitFibRatioGreen
-                val entry = bar.high
+                val entry = bar.high - entryInwardOffset
                 val takeProfit = entry - tpDistance
                 val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
                 TouchTurnBracketSetup(
@@ -1246,7 +1247,7 @@ object TouchTurnLogic {
             }
             FirstCandleColor.RED -> {
                 val tpDistance = range * rules.takeProfitFibRatioRed
-                val entry = bar.low
+                val entry = bar.low + entryInwardOffset
                 val takeProfit = entry + tpDistance
                 val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
                 TouchTurnBracketSetup(
@@ -1289,9 +1290,9 @@ object TouchTurnLogic {
         val fibPct = takeProfitFibLabel(setup.candleColor)
         return when (setup.candleColor) {
             FirstCandleColor.GREEN ->
-                "Green liquidity bar → $action at bar high, take profit at $fibPct of range below entry, stop half that distance above high."
+                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct of range below entry, stop half that distance above entry."
             FirstCandleColor.RED ->
-                "Red liquidity bar → $action at bar low, take profit at $fibPct of range above entry, stop half that distance below low."
+                "Red liquidity bar → $action above bar low (inward offset), take profit at $fibPct of range above entry, stop half that distance below entry."
             FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."
         }
     }

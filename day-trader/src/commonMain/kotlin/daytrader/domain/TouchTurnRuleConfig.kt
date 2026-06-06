@@ -48,6 +48,8 @@ data class TouchTurnRuleConfig(
         TouchTurnDefaults.BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE,
     /** How far live price may blow through entry before entry is not touchable (fraction of bar range). */
     val entryTouchBufferRatioOfRange: Double = TouchTurnDefaults.ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE,
+    /** Nudge entry limit inward from bar extreme — long up from low, short down from high (fraction of bar range). */
+    val entryInwardOffsetRatioOfRange: Double = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
     /** Minimum absolute entry-to-stop distance (spread / noise floor). */
     val minStopDistance: Double = TouchTurnDefaults.MIN_STOP_DISTANCE,
     /** Green liquidity bar: take-profit distance as a fraction of bar range. */
@@ -176,6 +178,13 @@ data class TouchTurnRuleConfig(
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
+                key = "entryInwardOffsetRatioOfRange",
+                label = "Entry inward offset (× range)",
+                description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
+                    "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme.",
+                kind = TouchTurnRuleFieldKind.RATIO
+            ),
+            TouchTurnRuleFieldDefinition(
                 key = "minStopDistance",
                 label = "Min stop distance",
                 description = "Minimum absolute distance from entry to stop loss when building the bracket (noise / " +
@@ -226,6 +235,7 @@ data class TouchTurnRuleConfig(
             "closePositionLongMin" -> config.closePositionLongMin.toString()
             "barLiveDivergenceMaxRatioOfRange" -> config.barLiveDivergenceMaxRatioOfRange.toString()
             "entryTouchBufferRatioOfRange" -> config.entryTouchBufferRatioOfRange.toString()
+            "entryInwardOffsetRatioOfRange" -> config.entryInwardOffsetRatioOfRange.toString()
             "minStopDistance" -> config.minStopDistance.toString()
             "takeProfitFibRatioGreen" -> config.takeProfitFibRatioGreen.toString()
             "takeProfitFibRatioRed" -> config.takeProfitFibRatioRed.toString()
@@ -259,19 +269,28 @@ data class TouchTurnRuleConfig(
                 }
                 TouchTurnRuleFieldKind.RATIO, TouchTurnRuleFieldKind.PRICE -> {
                     val doubleValue = raw.trim().toDoubleOrNull() ?: return null
-                    if (doubleValue <= 0.0) return null
                     when (key) {
-                        "atrLiquidityRatio" -> config.copy(atrLiquidityRatio = doubleValue)
-                        "volumeExhaustionRatio" -> config.copy(volumeExhaustionRatio = doubleValue)
-                        "closePositionShortMax" -> config.copy(closePositionShortMax = doubleValue)
-                        "closePositionLongMin" -> config.copy(closePositionLongMin = doubleValue)
-                        "barLiveDivergenceMaxRatioOfRange" ->
-                            config.copy(barLiveDivergenceMaxRatioOfRange = doubleValue)
-                        "entryTouchBufferRatioOfRange" -> config.copy(entryTouchBufferRatioOfRange = doubleValue)
-                        "minStopDistance" -> config.copy(minStopDistance = doubleValue)
-                        "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
-                        "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
-                        else -> null
+                        "entryInwardOffsetRatioOfRange" -> {
+                            if (doubleValue < 0.0) return null
+                            config.copy(entryInwardOffsetRatioOfRange = doubleValue)
+                        }
+                        else -> {
+                            if (doubleValue <= 0.0) return null
+                            when (key) {
+                                "atrLiquidityRatio" -> config.copy(atrLiquidityRatio = doubleValue)
+                                "volumeExhaustionRatio" -> config.copy(volumeExhaustionRatio = doubleValue)
+                                "closePositionShortMax" -> config.copy(closePositionShortMax = doubleValue)
+                                "closePositionLongMin" -> config.copy(closePositionLongMin = doubleValue)
+                                "barLiveDivergenceMaxRatioOfRange" ->
+                                    config.copy(barLiveDivergenceMaxRatioOfRange = doubleValue)
+                                "entryTouchBufferRatioOfRange" ->
+                                    config.copy(entryTouchBufferRatioOfRange = doubleValue)
+                                "minStopDistance" -> config.copy(minStopDistance = doubleValue)
+                                "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
+                                "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
+                                else -> null
+                            }
+                        }
                     }
                 }
                 null -> null

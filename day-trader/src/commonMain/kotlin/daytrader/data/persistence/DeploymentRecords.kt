@@ -109,6 +109,7 @@ data class TouchTurnRuleConfigRecord(
     val closePositionLongMin: Double = 0.65,
     val barLiveDivergenceMaxRatioOfRange: Double = 0.25,
     val entryTouchBufferRatioOfRange: Double = 0.05,
+    val entryInwardOffsetRatioOfRange: Double = 0.10,
     val minStopDistance: Double = 0.05,
     val takeProfitFibRatioGreen: Double = 0.382,
     val takeProfitFibRatioRed: Double = 0.382,

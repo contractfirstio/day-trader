@@ -26,6 +26,8 @@ object TouchTurnDefaults {
     const val CLOSED_BAR_REFETCH_SETTLE_MS = 3_000L
     /** Long: skip entry when ask is more than this fraction of bar range below entry (and vice versa for short). */
     const val ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE = 0.05
+    /** Nudge entry limit inward from bar extreme: long up from low, short down from high (fraction of bar range). */
+    const val ENTRY_INWARD_OFFSET_RATIO_OF_RANGE = 0.10
     /** Max |bar.close − liveMid| as a fraction of bar range before hybrid mode rejects the setup. */
     const val BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE = 0.25
     /** For short setups (green liquidity candle), require close in the lower X of range. */
