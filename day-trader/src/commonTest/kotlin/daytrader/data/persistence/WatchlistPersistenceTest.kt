@@ -7,6 +7,8 @@ import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistLabel
 import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistTradePlan
+import daytrader.domain.defaultWatchlistForBrokerKind
+import daytrader.gateway.BrokerKind
 import daytrader.domain.defaultWatchlist
 import daytrader.domain.newWatchlistEntry
 import kotlin.test.Test
@@ -136,6 +138,23 @@ class WatchlistPersistenceTest {
         assertEquals("Wait for pullback", restored.body)
         assertEquals("2026-06-01", restored.notifyOnDate)
         assertFalse(restored.notificationDismissed)
+    }
+
+    @Test
+    fun tradePlansRoundTrip_persistsStrategyLinks() {
+        val entry = newWatchlistEntry(
+            symbol = "AAPL",
+            marketZoneId = "America/New_York",
+            currencyCode = "USD",
+            companyName = "Apple Inc.",
+            instrument = null
+        ).copy(strategyDeploymentIds = listOf("dep-a", "dep-b"))
+
+        val restored = WatchlistPersistence.toDomain(
+            WatchlistPersistence.toRecord(defaultWatchlistForBrokerKind(BrokerKind.EMULATOR).copy(entries = listOf(entry)))
+        ).entries.first()
+
+        assertEquals(listOf("dep-a", "dep-b"), restored.strategyDeploymentIds)
     }
 
     @Test

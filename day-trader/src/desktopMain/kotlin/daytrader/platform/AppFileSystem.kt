@@ -21,6 +21,7 @@ actual object AppFileSystem {
     actual fun configureDataScope(kind: BrokerKind) {
         dataScope = kind
         migrateLegacyRootDataIfNeeded(kind)
+        migrateLegacyWatchlistsToEmulatorIfNeeded(kind)
     }
 
     actual fun currentDataScope(): BrokerKind =
@@ -84,6 +85,27 @@ actual object AppFileSystem {
         toMove.forEach { source ->
             Files.move(source, targetDir.resolve(source.fileName), StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    /**
+     * Pre-scope installs stored one shared watchlists file at the app root (from emulator use).
+     * Move it into the emulator scope once; hybrid and IB keep their own empty or existing files.
+     */
+    private fun migrateLegacyWatchlistsToEmulatorIfNeeded(kind: BrokerKind) {
+        if (kind != BrokerKind.EMULATOR) return
+        val base = stableBaseDataDirectory()
+        val legacyRoot = base.resolve(AppDataFiles.WATCHLISTS)
+        val emulatorDir = base.resolve(BrokerKind.EMULATOR.dataDirectorySegment)
+        val emulatorTarget = emulatorDir.resolve(AppDataFiles.WATCHLISTS)
+        if (Files.exists(emulatorTarget)) {
+            if (Files.exists(legacyRoot)) {
+                Files.deleteIfExists(legacyRoot)
+            }
+            return
+        }
+        if (!Files.exists(legacyRoot)) return
+        Files.createDirectories(emulatorDir)
+        Files.move(legacyRoot, emulatorTarget, StandardCopyOption.REPLACE_EXISTING)
     }
 
     actual fun ensureAppDataDirectory() {

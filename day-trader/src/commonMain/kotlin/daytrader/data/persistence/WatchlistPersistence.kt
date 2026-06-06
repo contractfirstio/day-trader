@@ -71,6 +71,7 @@ object WatchlistPersistence {
             addedAtEpochMs = record.addedAtEpochMs,
             notes = record.notes,
             labelIds = labelIds,
+            strategyDeploymentIds = record.strategyDeploymentIds,
             tradePlans = record.tradePlans
                 .map(::toPlanDomain)
                 .ifEmpty { defaultWatchlistTradePlans() },
@@ -90,6 +91,7 @@ object WatchlistPersistence {
             addedAtEpochMs = entry.addedAtEpochMs,
             notes = entry.notes,
             labelIds = entry.labelIds,
+            strategyDeploymentIds = entry.strategyDeploymentIds,
             tradePlans = entry.tradePlans.map(::toPlanRecord),
             lastScannedPrice = entry.lastScannedPrice,
             lastScannedAtEpochMs = entry.lastScannedAtEpochMs

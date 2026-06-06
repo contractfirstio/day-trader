@@ -62,6 +62,15 @@ fun App(
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
     val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
 
+    SideEffect {
+        dependencies.watchlistStrategyCreateBridge.navigateToStrategies = {
+            currentScreen = AppScreen.STRATEGIES
+        }
+        dependencies.watchlistStrategyCreateBridge.showStrategyAddDialog = { prefill ->
+            dependencies.strategiesViewModel.onShowAddDialog(prefill)
+        }
+    }
+
     val viewModel = dependencies.strategiesViewModel
     DisposableEffect(viewModel) {
         onRegisterApplicationQuit?.invoke(

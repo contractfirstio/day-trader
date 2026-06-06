@@ -34,9 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
+import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistLabels
 import daytrader.presentation.watchlist.WatchlistLabelUi
+import daytrader.presentation.watchlist.WatchlistStrategyUi
 import daytrader.presentation.watchlist.WatchlistPlanEditorUi
 import daytrader.presentation.watchlist.WatchlistPlanField
 import daytrader.presentation.watchlist.WatchlistPlanOutcomeUi
@@ -57,6 +59,8 @@ internal fun WatchlistTradePlansDialog(
     onGroupInputChange: (String) -> Unit,
     onAddGroup: (String?) -> Unit,
     onRemoveGroup: (String) -> Unit,
+    onCreateStrategyDeployment: (StrategyType) -> Unit,
+    onRemoveStrategy: (String) -> Unit,
     onPlaceBracket: (String) -> Unit,
     onReactivatePlan: (String) -> Unit,
     onOpenDiary: (String) -> Unit
@@ -98,6 +102,12 @@ internal fun WatchlistTradePlansDialog(
                     onQuickAddGroup = { onAddGroup(it) },
                     onRemoveGroup = onRemoveGroup
                 )
+                WatchlistStrategiesEditor(
+                    symbol = editor.symbol,
+                    assignedStrategies = editor.assignedStrategies,
+                    onCreateStrategyDeployment = onCreateStrategyDeployment,
+                    onRemoveStrategy = onRemoveStrategy
+                )
                 editor.plans.forEach { plan ->
                     TradePlanCard(
                         plan = plan,
@@ -131,6 +141,89 @@ internal fun WatchlistTradePlansDialog(
             }
         }
     )
+}
+
+@Composable
+private fun WatchlistStrategiesEditor(
+    symbol: String,
+    assignedStrategies: List<WatchlistStrategyUi>,
+    onCreateStrategyDeployment: (StrategyType) -> Unit,
+    onRemoveStrategy: (String) -> Unit
+) {
+    val assignedTypes = assignedStrategies.map { it.strategyType }.toSet()
+    val linkableTypes = StrategyType.entries.filter { it !in assignedTypes }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(12.dp)
+            .testTag("WatchlistStrategiesEditor"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("Strategies", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Text(
+            "Pick a strategy to deploy for $symbol. Symbol and market are filled in automatically. Removing a link deletes that deployment.",
+            color = TextSecondary,
+            fontSize = 12.sp,
+            lineHeight = 16.sp
+        )
+
+        if (assignedStrategies.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                assignedStrategies.forEach { strategy ->
+                    AssignedStrategyChip(
+                        strategy = strategy,
+                        onRemove = { onRemoveStrategy(strategy.deploymentId) }
+                    )
+                }
+            }
+        }
+
+        when {
+            linkableTypes.isEmpty() -> {
+                Text(
+                    "All available strategies are linked to this symbol.",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+            else -> {
+                Text("Link strategy", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                linkableTypes.forEach { strategyType ->
+                    StrategyTypePickerCard(
+                        strategyType = strategyType,
+                        selected = false,
+                        onSelect = { onCreateStrategyDeployment(strategyType) },
+                        modifier = Modifier.testTag("LinkWatchlistStrategy-${strategyType.name}")
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssignedStrategyChip(strategy: WatchlistStrategyUi, onRemove: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .background(GainGreen.copy(alpha = 0.18f), RoundedCornerShape(10.dp))
+            .border(1.dp, GainGreen.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+            .padding(start = 8.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(strategy.label, color = Color.White, fontSize = 12.sp, maxLines = 1)
+        IconButton(onClick = onRemove, modifier = Modifier.size(20.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Remove strategy", tint = TextSecondary, modifier = Modifier.size(14.dp))
+        }
+    }
 }
 
 @Composable

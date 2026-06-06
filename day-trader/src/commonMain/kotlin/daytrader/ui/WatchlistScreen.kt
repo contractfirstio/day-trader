@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.watchlist.WatchlistLabelUi
 import daytrader.presentation.watchlist.WatchlistGroupFilter
+import daytrader.domain.StrategyType
+import daytrader.presentation.watchlist.WatchlistStrategyFilter
+import daytrader.presentation.watchlist.WatchlistStrategyUi
 import daytrader.presentation.watchlist.WatchlistRowUi
 import daytrader.presentation.watchlist.WatchlistSortColumn
 import daytrader.presentation.watchlist.WatchlistSortDirection
@@ -58,6 +61,8 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             onGroupInputChange = viewModel::onEditorGroupInputChange,
             onAddGroup = viewModel::onAddEditorGroup,
             onRemoveGroup = viewModel::onRemoveEditorGroup,
+            onCreateStrategyDeployment = viewModel::onCreateStrategyDeployment,
+            onRemoveStrategy = viewModel::onRemoveStrategy,
             onPlaceBracket = viewModel::onOpenBracketOrder,
             onReactivatePlan = viewModel::onReactivatePlan,
             onOpenDiary = viewModel::onOpenPlanDiary
@@ -98,7 +103,10 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                val countLabel = if (uiState.activeGroupFilter is WatchlistGroupFilter.All) {
+                val countLabel = if (
+                    uiState.activeGroupFilter is WatchlistGroupFilter.All &&
+                    uiState.activeStrategyFilter is WatchlistStrategyFilter.All
+                ) {
                     "${uiState.totalEntryCount}"
                 } else {
                     "${uiState.rows.size} of ${uiState.totalEntryCount}"
@@ -114,6 +122,14 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
+                if (uiState.storageScopeLabel.isNotBlank()) {
+                    Text(
+                        "Watchlist for ${uiState.storageScopeLabel} — separate from other broker modes",
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        lineHeight = 14.sp
+                    )
+                }
                 Text(
                     "Prices refresh only when you run a scan (historical requests, no streaming lines).",
                     fontSize = 11.sp,
@@ -167,6 +183,13 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                 chips = uiState.groupFilterChips,
                 onFilterSelected = viewModel::onGroupFilterSelected
             )
+            if (uiState.strategyFilterChips.size > 1) {
+                Spacer(modifier = Modifier.height(6.dp))
+                WatchlistStrategyFilterBar(
+                    chips = uiState.strategyFilterChips,
+                    onFilterSelected = viewModel::onStrategyFilterSelected
+                )
+            }
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -200,7 +223,7 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No symbols in this group.",
+                        text = "No symbols match the current filters.",
                         color = TextSecondary,
                         fontSize = 14.sp,
                         textAlign = TextAlign.Center
@@ -218,6 +241,9 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                             onRemove = { viewModel.onRemoveEntry(uiState.rows[index].entryId) },
                             onGroupClick = { labelId ->
                                 viewModel.onGroupFilterSelected(WatchlistGroupFilter.Group(labelId))
+                            },
+                            onStrategyClick = { strategyType ->
+                                viewModel.onStrategyFilterSelected(WatchlistStrategyFilter.Strategy(strategyType))
                             }
                         )
                         if (index < uiState.rows.size - 1) {
@@ -288,7 +314,8 @@ private fun WatchlistHeader(
         WatchlistHeaderCell("Company", WatchlistSortColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(1.8f), onHeaderClick)
         WatchlistHeaderCell("Symbol", WatchlistSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.8f), onHeaderClick)
         WatchlistHeaderCell("Market", WatchlistSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.7f), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Groups", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.0f), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Groups", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Strategies", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.1f), onHeaderClick, sortable = false)
         WatchlistHeaderCell("Last Price", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(0.8f).padding(end = 12.dp), onHeaderClick, alignEnd = true)
         WatchlistHeaderCell("Last Price At", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(1.3f).padding(start = 12.dp), onHeaderClick, sortable = false)
         WatchlistHeaderCell("Status", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick, sortable = false)
@@ -340,7 +367,8 @@ private fun WatchlistRow(
     row: WatchlistRowUi,
     onOpenPlans: () -> Unit,
     onRemove: () -> Unit,
-    onGroupClick: (String) -> Unit
+    onGroupClick: (String) -> Unit,
+    onStrategyClick: (StrategyType) -> Unit
 ) {
     val rowColor = if (row.isNearEntry) TradeBlueSurface.copy(alpha = 0.85f) else Color.Transparent
     Row(
@@ -357,8 +385,13 @@ private fun WatchlistRow(
         Text(row.marketLabel, modifier = Modifier.weight(0.7f), color = TextSecondary, fontSize = 13.sp)
         WatchlistRowGroups(
             groups = row.groups,
-            modifier = Modifier.weight(1.0f),
+            modifier = Modifier.weight(0.9f),
             onGroupClick = onGroupClick
+        )
+        WatchlistRowStrategies(
+            strategies = row.strategies,
+            modifier = Modifier.weight(1.1f),
+            onStrategyClick = onStrategyClick
         )
         Text(
             row.formattedLast,
@@ -441,6 +474,75 @@ private fun GroupTagChip(label: String, onClick: () -> Unit) {
             .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp),
         color = TextSecondary,
+        fontSize = 10.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun WatchlistStrategyFilterBar(
+    chips: List<daytrader.presentation.watchlist.WatchlistStrategyFilterChipUi>,
+    onFilterSelected: (WatchlistStrategyFilter) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .testTag("WatchlistStrategyFilterBar"),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        chips.forEach { chip ->
+            WatchlistFilterChip(
+                label = chip.label,
+                selected = chip.selected,
+                onClick = { onFilterSelected(chip.filter) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun WatchlistRowStrategies(
+    strategies: List<WatchlistStrategyUi>,
+    modifier: Modifier = Modifier,
+    onStrategyClick: (StrategyType) -> Unit
+) {
+    val uniqueStrategies = strategies.distinctBy { it.strategyType }
+    if (uniqueStrategies.isEmpty()) {
+        Text(
+            "—",
+            modifier = modifier,
+            color = TextSecondary.copy(alpha = 0.5f),
+            fontSize = 12.sp
+        )
+        return
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        uniqueStrategies.take(2).forEach { strategy ->
+            StrategyTagChip(label = strategy.label, onClick = { onStrategyClick(strategy.strategyType) })
+        }
+        if (uniqueStrategies.size > 2) {
+            Text("+${uniqueStrategies.size - 2}", color = TextSecondary, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun StrategyTagChip(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .background(GainGreen.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+            .border(1.dp, GainGreen.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        color = GainGreen,
         fontSize = 10.sp,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis

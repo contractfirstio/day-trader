@@ -7,6 +7,7 @@ object AppDataFiles {
     const val DEPLOYMENTS = "deployments.json"
     const val DEPLOYMENTS_BACKUP = "deployments.json.bak"
     const val STRATEGIES_SCREEN = "strategies-screen.json"
+    /** Broker-scoped: `{broker-scope}/watchlists.json` (separate file per emulator / hybrid / IB / replay). */
     const val WATCHLISTS = "watchlists.json"
 
     /**

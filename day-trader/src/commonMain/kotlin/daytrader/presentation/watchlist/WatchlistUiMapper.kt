@@ -12,8 +12,11 @@ import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistPlanDiaryNotifications
 import daytrader.domain.WatchlistPlanOutcome
 import daytrader.domain.WatchlistProximityStatus
+import daytrader.domain.StrategyDeployment
+import daytrader.domain.WatchlistStrategyLinks
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.WatchlistTradePlanCalculator
+import daytrader.data.StrategyCatalog
 import daytrader.presentation.Formatters
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.platform.currentSessionDateIso
@@ -28,6 +31,7 @@ object WatchlistUiMapper {
     fun toRowUi(
         entry: WatchlistEntry,
         watchlist: Watchlist,
+        deployments: List<StrategyDeployment> = emptyList(),
         nearEntrySummary: String? = null
     ): WatchlistRowUi {
         val status = WatchlistEntryProximityEvaluator.entryStatus(entry, entry.lastScannedPrice)
@@ -43,12 +47,18 @@ object WatchlistUiMapper {
             notesPreview = entry.notes?.trim()?.takeIf { it.isNotBlank() },
             planSummary = planSummary(entry),
             nearEntrySummary = nearEntrySummary,
-            groups = toLabelUi(WatchlistLabels.resolveLabels(entry.labelIds, watchlist.labels))
+            groups = toLabelUi(WatchlistLabels.resolveLabels(entry.labelIds, watchlist.labels)),
+            strategies = toStrategyUi(WatchlistStrategyLinks.resolve(entry.strategyDeploymentIds, deployments))
         )
     }
 
-    fun toEditorUi(entry: WatchlistEntry, watchlist: Watchlist): WatchlistTradePlansEditorUi {
+    fun toEditorUi(
+        entry: WatchlistEntry,
+        watchlist: Watchlist,
+        deployments: List<StrategyDeployment> = emptyList()
+    ): WatchlistTradePlansEditorUi {
         val assigned = WatchlistLabels.resolveLabels(entry.labelIds, watchlist.labels)
+        val assignedStrategyIds = entry.strategyDeploymentIds
         return WatchlistTradePlansEditorUi(
             entryId = entry.id,
             symbol = entry.symbol,
@@ -59,11 +69,25 @@ object WatchlistUiMapper {
             assignedLabels = toLabelUi(assigned),
             availableLabels = toLabelUi(WatchlistLabels.availableLabels(watchlist.labels, entry.labelIds)),
             assignedLabelIds = entry.labelIds,
+            assignedStrategies = toStrategyUi(WatchlistStrategyLinks.resolve(assignedStrategyIds, deployments)),
+            availableStrategies = toStrategyUi(
+                WatchlistStrategyLinks.available(deployments, assignedStrategyIds)
+            ),
+            assignedStrategyDeploymentIds = assignedStrategyIds,
             plans = entry.tradePlans.map { plan ->
                 toPlanEditorUi(plan, entry.currencyCode, entry.lastScannedPrice)
             }
         )
     }
+
+    fun toStrategyUi(deployments: List<StrategyDeployment>): List<WatchlistStrategyUi> =
+        deployments.map { deployment ->
+            WatchlistStrategyUi(
+                deploymentId = deployment.id,
+                strategyType = deployment.strategyType,
+                label = StrategyCatalog.displayName(deployment.strategyType)
+            )
+        }
 
     fun toLabelUi(labels: List<WatchlistLabel>): List<WatchlistLabelUi> =
         labels.map { WatchlistLabelUi(id = it.id, name = it.name) }

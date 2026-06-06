@@ -34,6 +34,7 @@ data class WatchlistEntryRecord(
     val addedAtEpochMs: Long,
     val notes: String? = null,
     val labelIds: List<String> = emptyList(),
+    val strategyDeploymentIds: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
     val tradePlans: List<WatchlistTradePlanRecord> = emptyList(),
     val lastScannedPrice: Double? = null,

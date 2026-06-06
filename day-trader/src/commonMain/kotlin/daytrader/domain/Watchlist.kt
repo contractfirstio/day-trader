@@ -1,5 +1,7 @@
 package daytrader.domain
 
+import daytrader.gateway.BrokerKind
+
 data class WatchlistEntry(
     val id: String,
     val symbol: String,
@@ -10,6 +12,8 @@ data class WatchlistEntry(
     val addedAtEpochMs: Long,
     val notes: String? = null,
     val labelIds: List<String> = emptyList(),
+    /** Strategy deployment ids this watchlist symbol is linked to (many-to-many). */
+    val strategyDeploymentIds: List<String> = emptyList(),
     val tradePlans: List<WatchlistTradePlan> = defaultWatchlistTradePlans(),
     val lastScannedPrice: Double? = null,
     val lastScannedAtEpochMs: Long? = null
@@ -30,12 +34,25 @@ fun newWatchlistEntryId(): String = "wle-${kotlin.random.Random.nextLong().toULo
 const val DEFAULT_WATCHLIST_ID = "default-watchlist"
 
 fun defaultWatchlist(nowEpochMs: Long = System.currentTimeMillis()): Watchlist =
+    defaultWatchlistForBrokerKind(BrokerKind.EMULATOR, nowEpochMs)
+
+fun defaultWatchlistForBrokerKind(
+    kind: BrokerKind,
+    nowEpochMs: Long = System.currentTimeMillis()
+): Watchlist =
     Watchlist(
         id = DEFAULT_WATCHLIST_ID,
-        name = "Watchlist",
+        name = watchlistNameForBrokerKind(kind),
         entries = emptyList(),
         createdAtEpochMs = nowEpochMs
     )
+
+fun watchlistNameForBrokerKind(kind: BrokerKind): String = when (kind) {
+    BrokerKind.EMULATOR -> "Watchlist (Emulator)"
+    BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> "Watchlist (Paper · Live IB)"
+    BrokerKind.INTERACTIVE_BROKERS -> "Watchlist (Interactive Brokers)"
+    BrokerKind.REPLAY -> "Watchlist (Replay)"
+}
 
 fun newWatchlistEntry(
     symbol: String,

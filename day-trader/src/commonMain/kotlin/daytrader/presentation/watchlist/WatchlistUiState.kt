@@ -2,6 +2,7 @@ package daytrader.presentation.watchlist
 
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
+import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistProximityStatus
 
@@ -24,6 +25,25 @@ data class WatchlistLabelUi(
     val name: String
 )
 
+data class WatchlistStrategyUi(
+    val deploymentId: String,
+    val strategyType: StrategyType,
+    val label: String
+)
+
+sealed class WatchlistStrategyFilter {
+    data object All : WatchlistStrategyFilter()
+    data object Unassigned : WatchlistStrategyFilter()
+    data class Strategy(val strategyType: StrategyType) : WatchlistStrategyFilter()
+}
+
+data class WatchlistStrategyFilterChipUi(
+    val filter: WatchlistStrategyFilter,
+    val label: String,
+    val count: Int,
+    val selected: Boolean
+)
+
 data class WatchlistGroupFilterChipUi(
     val filter: WatchlistGroupFilter,
     val label: String,
@@ -43,7 +63,8 @@ data class WatchlistRowUi(
     val notesPreview: String?,
     val planSummary: String? = null,
     val nearEntrySummary: String? = null,
-    val groups: List<WatchlistLabelUi> = emptyList()
+    val groups: List<WatchlistLabelUi> = emptyList(),
+    val strategies: List<WatchlistStrategyUi> = emptyList()
 )
 
 data class WatchlistPlanEditorUi(
@@ -88,6 +109,9 @@ data class WatchlistTradePlansEditorUi(
     val assignedLabelIds: List<String> = emptyList(),
     val pendingLabels: List<WatchlistLabelUi> = emptyList(),
     val newGroupInput: String = "",
+    val assignedStrategies: List<WatchlistStrategyUi> = emptyList(),
+    val availableStrategies: List<WatchlistStrategyUi> = emptyList(),
+    val assignedStrategyDeploymentIds: List<String> = emptyList(),
     val plans: List<WatchlistPlanEditorUi>
 )
 
@@ -165,6 +189,8 @@ data class WatchlistUiState(
     val rows: List<WatchlistRowUi> = emptyList(),
     val groupFilterChips: List<WatchlistGroupFilterChipUi> = emptyList(),
     val activeGroupFilter: WatchlistGroupFilter = WatchlistGroupFilter.All,
+    val strategyFilterChips: List<WatchlistStrategyFilterChipUi> = emptyList(),
+    val activeStrategyFilter: WatchlistStrategyFilter = WatchlistStrategyFilter.All,
     val sortColumn: WatchlistSortColumn = WatchlistSortColumn.SYMBOL,
     val sortDirection: WatchlistSortDirection = WatchlistSortDirection.ASCENDING,
     val showAddDialog: Boolean = false,
@@ -176,5 +202,7 @@ data class WatchlistUiState(
     val scanInProgress: Boolean = false,
     val scanProgressLabel: String? = null,
     val scanSummary: String? = null,
-    val nearHits: List<WatchlistNearHitUi> = emptyList()
+    val nearHits: List<WatchlistNearHitUi> = emptyList(),
+    /** Broker mode this watchlist file belongs to (separate persistence per mode). */
+    val storageScopeLabel: String = ""
 )

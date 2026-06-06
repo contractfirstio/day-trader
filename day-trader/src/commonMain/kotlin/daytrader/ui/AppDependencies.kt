@@ -40,6 +40,7 @@ data class AppDependencies(
     val positionsViewModel: PositionsViewModel,
     val ordersViewModel: OrdersViewModel,
     val watchlistViewModel: WatchlistViewModel,
+    val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
     val replayBundle: SessionBundle? = null
@@ -58,7 +59,7 @@ fun rememberAppDependencies(
     replayBundle: SessionBundle? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
-    val watchlistRepository = remember { FileWatchlistRepository() }
+    val watchlistRepository = remember(brokerKind) { FileWatchlistRepository(brokerKind = brokerKind) }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
     val engineScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
@@ -131,6 +132,7 @@ fun rememberAppDependencies(
                 engine
             }
         }
+        val watchlistStrategyCreateBridge = WatchlistStrategyCreateBridge()
         val viewModel = StrategiesViewModel(
             repository = strategyRepository,
             appStateRepository = appStateRepository,
@@ -140,15 +142,22 @@ fun rememberAppDependencies(
             brokerKind = brokerKind,
             touchTurnEngine = touchTurnEngine,
             ensureLiveMarketData = ensureLiveMarketData,
-            releaseLiveMarketData = releaseLiveMarketData
+            releaseLiveMarketData = releaseLiveMarketData,
+            onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
+            watchlistRepository = watchlistRepository
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,
+            strategyDeploymentRepository = strategyRepository,
             brokerGateway = brokerGateway,
             touchTurnSessionGateway = touchTurnSessionGateway,
             brokerKind = brokerKind,
-            ensureLiveMarketData = ensureLiveMarketData
+            ensureLiveMarketData = ensureLiveMarketData,
+            onRequestStrategyDeploymentCreate = watchlistStrategyCreateBridge::requestCreate,
+            onDeleteLinkedDeployment = viewModel::deleteDeploymentById
         )
+        watchlistStrategyCreateBridge.linkDeploymentToWatchlistEntry =
+            watchlistViewModel::linkStrategyDeploymentToEntry
         touchTurnEngine?.let { engine ->
             if (TouchTurnEngineConfig.useEngine()) {
                 engine.start()
@@ -175,6 +184,7 @@ fun rememberAppDependencies(
                 brokerKind = brokerKind
             ),
             watchlistViewModel = watchlistViewModel,
+            watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
             replayBundle = replayBundle

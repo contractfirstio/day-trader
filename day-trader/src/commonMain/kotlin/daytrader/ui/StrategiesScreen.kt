@@ -86,6 +86,7 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             onDismiss = viewModel::onDismissAddDialog,
             defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
             onResolveSymbol = viewModel::resolveInstrumentForSymbol,
+            prefill = uiState.addDialogPrefill,
             onCreate = viewModel::onCreateDeployment
         )
     }

@@ -4,6 +4,8 @@ import daytrader.broker.SymbolMarkets
 import daytrader.data.WatchlistPriceScanService
 import daytrader.data.WatchlistRepository
 import daytrader.data.WatchlistScanResult
+import daytrader.data.StrategyDeploymentRepository
+import daytrader.data.StrategyCatalog
 import daytrader.domain.DEFAULT_WATCHLIST_ID
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.InstrumentIdentity
@@ -12,11 +14,13 @@ import daytrader.domain.InstrumentResolution
 import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
+import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
 import daytrader.domain.WatchlistBracketOrderPlanner
 import daytrader.domain.WatchlistLabels
+import daytrader.domain.WatchlistStrategyLinks
 import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistPlanDiaryNotifications
 import daytrader.domain.WatchlistTradePlan
@@ -46,17 +50,21 @@ import kotlinx.coroutines.withContext
 
 class WatchlistViewModel(
     private val repository: WatchlistRepository,
+    private val strategyDeploymentRepository: StrategyDeploymentRepository? = null,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
-    private val scanService: WatchlistPriceScanService = WatchlistPriceScanService()
+    private val scanService: WatchlistPriceScanService = WatchlistPriceScanService(),
+    private val onRequestStrategyDeploymentCreate: ((WatchlistStrategyCreateRequest) -> Unit)? = null,
+    private val onDeleteLinkedDeployment: ((String) -> Unit)? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val executionGateway = brokerGateway
     private val marketDataGateway = touchTurnSessionGateway ?: brokerGateway
 
     private var watchlists: List<Watchlist> = emptyList()
+    private var strategyDeployments: List<daytrader.domain.StrategyDeployment> = emptyList()
     private var selectedWatchlistId: String = DEFAULT_WATCHLIST_ID
     private var executionConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
@@ -71,6 +79,7 @@ class WatchlistViewModel(
     private var sortColumn = WatchlistSortColumn.SYMBOL
     private var sortDirection = WatchlistSortDirection.ASCENDING
     private var activeGroupFilter: WatchlistGroupFilter = WatchlistGroupFilter.All
+    private var activeStrategyFilter: WatchlistStrategyFilter = WatchlistStrategyFilter.All
     private var scanInProgress = false
     private var scanProgressLabel: String? = null
     private var lastScanResult: WatchlistScanResult? = null
@@ -89,6 +98,16 @@ class WatchlistViewModel(
                 emitUiState()
             }
             .launchIn(scope)
+
+        strategyDeploymentRepository?.deployments
+            ?.onEach { deployments ->
+                strategyDeployments = deployments
+                tradePlansEditorDraft?.let { draft ->
+                    tradePlansEditorDraft = refreshEditorStrategies(draft, draft.assignedStrategyDeploymentIds)
+                }
+                emitUiState()
+            }
+            ?.launchIn(scope)
 
         executionGateway?.connectionState
             ?.onEach { state ->
@@ -161,7 +180,7 @@ class WatchlistViewModel(
         val updatedWatchlist = repository.watchlists.value.find { it.id == watchlist.id } ?: return
         val entry = updatedWatchlist.entries.find { it.id == entryId } ?: return
         if (tradePlansEditorDraft?.entryId == entryId) {
-            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist)
+            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist, strategyDeployments)
         }
     }
 
@@ -329,7 +348,7 @@ class WatchlistViewModel(
             val entry = watchlists.flatMap { it.entries }.find { it.id == notification.entryId } ?: return
             val wl = watchlists.find { w -> w.entries.any { it.id == entry.id } } ?: return
             tradePlansEditorDraft = refreshEditorLabels(
-                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = wl)
+                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = wl, deployments = strategyDeployments)
             )
         }
         openPlanDiary(
@@ -418,7 +437,7 @@ class WatchlistViewModel(
         }
         if (tradePlansEditorDraft?.entryId == entryId) {
             tradePlansEditorDraft = refreshEditorLabels(
-                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist)
+                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist, deployments = strategyDeployments)
             )
         }
     }
@@ -454,7 +473,7 @@ class WatchlistViewModel(
         val updatedWatchlist = repository.watchlists.value.find { it.id == watchlist.id } ?: return
         val entry = updatedWatchlist.entries.find { it.id == entryId } ?: return
         if (tradePlansEditorDraft?.entryId == entryId) {
-            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist)
+            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist, strategyDeployments)
         }
     }
 
@@ -604,8 +623,8 @@ class WatchlistViewModel(
     fun onOpenTradePlans(entryId: String) {
         val entry = findEntry(entryId) ?: return
         val watchlist = selectedWatchlist() ?: return
-        tradePlansEditorDraft = refreshEditorLabels(
-            WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist)
+        tradePlansEditorDraft = refreshEditorDraft(
+            WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist, deployments = strategyDeployments)
         )
         emitUiState()
     }
@@ -702,6 +721,93 @@ class WatchlistViewModel(
             draft.copy(assignedLabelIds = WatchlistLabels.removeLabelId(draft.assignedLabelIds, labelId))
         )
         emitUiState()
+    }
+
+    fun onCreateStrategyDeployment(strategyType: StrategyType) {
+        val draft = tradePlansEditorDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        onRequestStrategyDeploymentCreate?.invoke(
+            WatchlistStrategyCreateRequest(
+                entryId = draft.entryId,
+                symbol = entry.symbol,
+                marketZoneId = entry.marketZoneId,
+                currencyCode = entry.currencyCode,
+                companyName = entry.companyName,
+                instrument = entry.instrument,
+                strategyType = strategyType
+            )
+        )
+    }
+
+    fun linkStrategyDeploymentToEntry(entryId: String, deploymentId: String) {
+        val watchlist = selectedWatchlist() ?: return
+        repository.updateWatchlist(watchlist.id) { current ->
+            current.copy(
+                entries = current.entries.map { entry ->
+                    if (entry.id == entryId) {
+                        entry.copy(
+                            strategyDeploymentIds = WatchlistStrategyLinks.mergeDeploymentId(
+                                entry.strategyDeploymentIds,
+                                deploymentId
+                            )
+                        )
+                    } else {
+                        entry
+                    }
+                }
+            )
+        }
+        tradePlansEditorDraft?.takeIf { it.entryId == entryId }?.let { draft ->
+            tradePlansEditorDraft = refreshEditorStrategies(
+                draft,
+                WatchlistStrategyLinks.mergeDeploymentId(draft.assignedStrategyDeploymentIds, deploymentId)
+            )
+        }
+        emitUiState()
+    }
+
+    fun onRemoveStrategy(deploymentId: String) {
+        val draft = tradePlansEditorDraft ?: return
+        if (onDeleteLinkedDeployment != null) {
+            onDeleteLinkedDeployment.invoke(deploymentId)
+            val updatedWatchlist = repository.watchlists.value.find { it.id == selectedWatchlistId }
+            val updatedEntry = updatedWatchlist?.entries?.find { it.id == draft.entryId }
+            tradePlansEditorDraft = if (updatedEntry != null) {
+                WatchlistUiMapper.toEditorUi(updatedEntry, updatedWatchlist!!, strategyDeployments)
+            } else {
+                refreshEditorStrategies(
+                    draft,
+                    WatchlistStrategyLinks.removeDeploymentId(draft.assignedStrategyDeploymentIds, deploymentId)
+                )
+            }
+        } else {
+            tradePlansEditorDraft = refreshEditorStrategies(
+                draft,
+                WatchlistStrategyLinks.removeDeploymentId(draft.assignedStrategyDeploymentIds, deploymentId)
+            )
+        }
+        emitUiState()
+    }
+
+    fun onStrategyFilterSelected(filter: WatchlistStrategyFilter) {
+        activeStrategyFilter = filter
+        emitUiState()
+    }
+
+    private fun refreshEditorDraft(draft: WatchlistTradePlansEditorUi): WatchlistTradePlansEditorUi =
+        refreshEditorStrategies(refreshEditorLabels(draft), draft.assignedStrategyDeploymentIds)
+
+    private fun refreshEditorStrategies(
+        draft: WatchlistTradePlansEditorUi,
+        assignedIds: List<String>
+    ): WatchlistTradePlansEditorUi {
+        val assigned = WatchlistStrategyLinks.resolve(assignedIds, strategyDeployments)
+        val available = WatchlistStrategyLinks.available(strategyDeployments, assignedIds)
+        return draft.copy(
+            assignedStrategyDeploymentIds = assignedIds,
+            assignedStrategies = WatchlistUiMapper.toStrategyUi(assigned),
+            availableStrategies = WatchlistUiMapper.toStrategyUi(available)
+        )
     }
 
     private fun refreshEditorLabels(draft: WatchlistTradePlansEditorUi): WatchlistTradePlansEditorUi {
@@ -917,11 +1023,19 @@ class WatchlistViewModel(
                 watchlistLabels = current.labels,
                 pendingLabels = pendingDomain
             )
+            val strategyIds = WatchlistStrategyLinks.remapAssignedIds(
+                assignedIds = draft.assignedStrategyDeploymentIds,
+                deployments = strategyDeployments
+            )
             current.copy(
                 labels = mergedLabels,
                 entries = current.entries.map { entry ->
                     if (entry.id == draft.entryId) {
-                        entry.copy(tradePlans = updatedPlans, labelIds = labelIds)
+                        entry.copy(
+                            tradePlans = updatedPlans,
+                            labelIds = labelIds,
+                            strategyDeploymentIds = strategyIds
+                        )
                     } else {
                         entry
                     }
@@ -987,7 +1101,13 @@ class WatchlistViewModel(
         ) {
             activeGroupFilter = WatchlistGroupFilter.All
         }
-        val filteredEntries = entries.filter(::matchesGroupFilter)
+        if (activeStrategyFilter is WatchlistStrategyFilter.Strategy) {
+            val strategyType = (activeStrategyFilter as WatchlistStrategyFilter.Strategy).strategyType
+            if (WatchlistStrategyLinks.countForStrategyType(entries, strategyType, strategyDeployments) == 0) {
+                activeStrategyFilter = WatchlistStrategyFilter.All
+            }
+        }
+        val filteredEntries = entries.filter { matchesGroupFilter(it) && matchesStrategyFilter(it) }
         val nearSummaries = nearHitSummaries()
         val comparator = when (sortColumn) {
             WatchlistSortColumn.COMPANY -> compareBy<WatchlistEntry> {
@@ -1003,6 +1123,7 @@ class WatchlistViewModel(
             filteredEntries.sortedWith(comparator)
         }
         val groupFilterChips = buildGroupFilterChips(entries, labels)
+        val strategyFilterChips = buildStrategyFilterChips(entries, strategyDeployments)
         val placedPlanIdsByEntry = entries.associate { entry ->
             entry.id to entry.tradePlans.filter { it.hasPlacedOrder }.map { it.id }.toSet()
         }
@@ -1038,12 +1159,15 @@ class WatchlistViewModel(
                         WatchlistUiMapper.toRowUi(
                             entry = entry,
                             watchlist = list,
+                            deployments = strategyDeployments,
                             nearEntrySummary = nearSummaries[entry.id]
                         )
                     }
                 }.orEmpty(),
                 groupFilterChips = groupFilterChips,
                 activeGroupFilter = activeGroupFilter,
+                strategyFilterChips = strategyFilterChips,
+                activeStrategyFilter = activeStrategyFilter,
                 sortColumn = sortColumn,
                 sortDirection = sortDirection,
                 showAddDialog = showAddDialog,
@@ -1057,7 +1181,8 @@ class WatchlistViewModel(
                 scanInProgress = scanInProgress,
                 scanProgressLabel = scanProgressLabel,
                 scanSummary = scanSummary,
-                nearHits = nearHits
+                nearHits = nearHits,
+                storageScopeLabel = brokerKind.displayName
             )
         }
     }
@@ -1096,6 +1221,45 @@ class WatchlistViewModel(
         WatchlistGroupFilter.All -> true
         WatchlistGroupFilter.Ungrouped -> entry.labelIds.isEmpty()
         is WatchlistGroupFilter.Group -> WatchlistLabels.entryHasLabel(entry, filter.labelId)
+    }
+
+    private fun matchesStrategyFilter(entry: WatchlistEntry): Boolean = when (val filter = activeStrategyFilter) {
+        WatchlistStrategyFilter.All -> true
+        WatchlistStrategyFilter.Unassigned -> entry.strategyDeploymentIds.isEmpty()
+        is WatchlistStrategyFilter.Strategy ->
+            WatchlistStrategyLinks.entryHasStrategyType(entry, filter.strategyType, strategyDeployments)
+    }
+
+    private fun buildStrategyFilterChips(
+        entries: List<WatchlistEntry>,
+        deployments: List<daytrader.domain.StrategyDeployment>
+    ): List<WatchlistStrategyFilterChipUi> {
+        val chips = mutableListOf(
+            WatchlistStrategyFilterChipUi(
+                filter = WatchlistStrategyFilter.All,
+                label = "All strategies (${entries.size})",
+                count = entries.size,
+                selected = activeStrategyFilter is WatchlistStrategyFilter.All
+            )
+        )
+        WatchlistStrategyLinks.linkedStrategyTypes(entries, deployments)
+            .sortedBy { StrategyCatalog.displayName(it).lowercase() }
+            .forEach { strategyType ->
+                val count = WatchlistStrategyLinks.countForStrategyType(entries, strategyType, deployments)
+                chips += WatchlistStrategyFilterChipUi(
+                    filter = WatchlistStrategyFilter.Strategy(strategyType),
+                    label = "${StrategyCatalog.displayName(strategyType)} ($count)",
+                    count = count,
+                    selected = activeStrategyFilter == WatchlistStrategyFilter.Strategy(strategyType)
+                )
+            }
+        chips += WatchlistStrategyFilterChipUi(
+            filter = WatchlistStrategyFilter.Unassigned,
+            label = "No strategy (${WatchlistStrategyLinks.countUnassigned(entries)})",
+            count = WatchlistStrategyLinks.countUnassigned(entries),
+            selected = activeStrategyFilter is WatchlistStrategyFilter.Unassigned
+        )
+        return chips
     }
 
     private fun buildGroupFilterChips(

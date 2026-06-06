@@ -6,8 +6,10 @@ import daytrader.data.persistence.WatchlistPersistence
 import daytrader.data.persistence.WatchlistsDocument
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
-import daytrader.domain.defaultWatchlist
+import daytrader.domain.defaultWatchlistForBrokerKind
 import daytrader.domain.newWatchlistId
+import daytrader.domain.watchlistNameForBrokerKind
+import daytrader.gateway.BrokerKind
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 class FileWatchlistRepository(
+    private val brokerKind: BrokerKind,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) : WatchlistRepository {
     private val writer = DebouncedFileWriter<List<Watchlist>>(scope) { watchlists ->
@@ -84,9 +87,9 @@ class FileWatchlistRepository(
     }
 
     override fun createWatchlist(name: String): Watchlist {
-        val watchlist = defaultWatchlist().copy(
+        val watchlist = defaultWatchlistForBrokerKind(brokerKind).copy(
             id = newWatchlistId(),
-            name = name.trim().ifBlank { "Watchlist" }
+            name = name.trim().ifBlank { watchlistNameForBrokerKind(brokerKind) }
         )
         _watchlists.update { it + watchlist }
         writer.schedule(_watchlists.value)
@@ -108,9 +111,9 @@ class FileWatchlistRepository(
             ?.watchlists
             ?.map(WatchlistPersistence::toDomain)
         if (fromDisk != null) {
-            return fromDisk.ifEmpty { listOf(defaultWatchlist()) }
+            return fromDisk.ifEmpty { listOf(defaultWatchlistForBrokerKind(brokerKind)) }
         }
-        return listOf(defaultWatchlist())
+        return listOf(defaultWatchlistForBrokerKind(brokerKind))
     }
 
     private fun persistWatchlists(watchlists: List<Watchlist>) {
