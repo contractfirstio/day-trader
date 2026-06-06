@@ -15,6 +15,7 @@ import java.awt.desktop.QuitResponse
 import javax.swing.SwingUtilities
 import daytrader.broker.IbGatewayConfig
 import daytrader.broker.IbGatewaySettingsStore
+import daytrader.data.GatewayOpenOrderRepository
 import daytrader.data.GatewayPositionRepository
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
@@ -181,9 +182,13 @@ fun main() {
                         val positionRepository = remember(current.runtime) {
                             GatewayPositionRepository(current.runtime.gateway)
                         }
+                        val openOrderRepository = remember(current.runtime) {
+                            GatewayOpenOrderRepository(current.runtime.gateway)
+                        }
                         App(
                             brokerGateway = current.runtime.gateway,
                             positionRepository = positionRepository,
+                            openOrderRepository = openOrderRepository,
                             brokerKind = current.runtime.kind,
                             touchTurnSessionGateway = current.runtime.marketDataGateway
                                 ?: current.runtime.gateway,

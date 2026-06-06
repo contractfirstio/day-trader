@@ -196,6 +196,38 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.FourteenDayAdrReady(requestId, result))
     }
 
+    suspend fun fetchLatestDailyClose(
+        requestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
+        delay(config.historicalDelayMs)
+        val trimmed = symbol.trim().uppercase()
+        val norm = SymbolMarkets.normalizeSymbol(trimmed)
+        val quote = quoteBook.quoteOrNull(norm)
+        val fromQuote = quote?.last?.takeIf { it > 0.0 }
+            ?: quote?.let { q ->
+                val bid = q.bid?.takeIf { it > 0.0 }
+                val ask = q.ask?.takeIf { it > 0.0 }
+                if (bid != null && ask != null) (bid + ask) / 2.0 else null
+            }
+        if (fromQuote != null) {
+            emit(GatewayEvent.LatestDailyCloseReady(requestId, Result.success(fromQuote)))
+            return
+        }
+        val resolved = resolveInstrument(trimmed)
+        val result = if (resolved == null) {
+            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+        } else {
+            val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(resolved.marketZoneId, System.currentTimeMillis())
+            val bars = EmulatorHistoricalData.buildDailyBars(trimmed, resolved, sessionDay)
+            bars.lastOrNull()?.close?.takeIf { it > 0.0 }
+                ?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("No emulator daily close for $symbol"))
+        }
+        emit(GatewayEvent.LatestDailyCloseReady(requestId, result))
+    }
+
     suspend fun fetchTouchTurnSignalContext(
         requestId: Long,
         symbol: String,
@@ -276,6 +308,9 @@ class BrokerEmulatorEngine(
             spreadWidenFactor = config.bracketExitSpreadWidenFactor
         )
         val symbol = SymbolMarkets.normalizeSymbol(adjustedPlan.symbol)
+        if (config.pricingSource.isSynthetic) {
+            ensureStreamingMarketData(symbol, adjustedPlan.instrument)
+        }
         val entryLeg = adjustedPlan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: run {
             val failure = TouchTurnBracketAck(
                 symbol = symbolForAck,

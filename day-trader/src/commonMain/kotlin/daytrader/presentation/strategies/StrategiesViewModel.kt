@@ -18,6 +18,8 @@ import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.RunningSessionShutdown
 import daytrader.data.TouchTurnManualStopHandler
+import daytrader.data.WatchlistRepository
+import daytrader.data.WatchlistStrategyLinkSync
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
@@ -80,7 +82,9 @@ class StrategiesViewModel(
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val touchTurnEngine: TouchTurnEnginePort? = null,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
-    private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null
+    private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+    private val onDeploymentCreated: ((String) -> Unit)? = null,
+    private val watchlistRepository: WatchlistRepository? = null
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
@@ -91,6 +95,7 @@ class StrategiesViewModel(
 
     private var appState = StrategiesAppState()
     private var showAddDialog = false
+    private var addDialogPrefill: StrategyDeploymentAddPrefill? = null
     private var deployments: List<StrategyDeployment> = emptyList()
     private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
@@ -522,13 +527,15 @@ class StrategiesViewModel(
         }
     }
 
-    fun onShowAddDialog() {
+    fun onShowAddDialog(prefill: StrategyDeploymentAddPrefill? = null) {
         showAddDialog = true
+        addDialogPrefill = prefill
         emitUiState()
     }
 
     fun onDismissAddDialog() {
         showAddDialog = false
+        addDialogPrefill = null
         emitUiState()
     }
 
@@ -611,6 +618,7 @@ class StrategiesViewModel(
             )
         )
         repository.add(instance)
+        onDeploymentCreated?.invoke(instance.id)
         appStateRepository.update {
             it.copy(
                 selectedDeploymentId = instance.id,
@@ -618,6 +626,7 @@ class StrategiesViewModel(
             )
         }
         showAddDialog = false
+        addDialogPrefill = null
         emitUiState()
     }
 
@@ -749,6 +758,10 @@ class StrategiesViewModel(
 
     fun onDeleteSelected() {
         val id = appState.selectedDeploymentId ?: return
+        deleteDeploymentById(id)
+    }
+
+    fun deleteDeploymentById(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
         UiActionLog.forDeployment(
             deployment = existing,
@@ -771,9 +784,12 @@ class StrategiesViewModel(
         }
         prepareInProgressIds.remove(id)
         repository.remove(id)
+        watchlistRepository?.let { WatchlistStrategyLinkSync.removeDeploymentFromAllWatchlists(it, id) }
         repository.flushPersistence()
-        val nextId = repository.deployments.value.firstOrNull()?.id
-        appStateRepository.update { it.copy(selectedDeploymentId = nextId) }
+        if (appState.selectedDeploymentId == id) {
+            val nextId = repository.deployments.value.firstOrNull()?.id
+            appStateRepository.update { it.copy(selectedDeploymentId = nextId) }
+        }
         syncDeploymentsFromRepository()
         emitUiState()
     }
@@ -959,6 +975,7 @@ class StrategiesViewModel(
                 strategyTypeFilter = state.strategyTypeFilter,
                 detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
+                addDialogPrefill = addDialogPrefill,
                 selectedDeploymentId = selected?.id,
                 sessionHistory = sessionHistory,
                 liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState),

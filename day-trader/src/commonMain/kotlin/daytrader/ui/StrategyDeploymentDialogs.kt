@@ -64,6 +64,7 @@ internal fun AddStrategyDeploymentDialog(
     onDismiss: () -> Unit,
     defaultMaxDollarsFor: (StrategyType) -> Int,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
+    prefill: StrategyDeploymentAddPrefill? = null,
     onCreate: (
         StrategyType,
         String,
@@ -76,18 +77,27 @@ internal fun AddStrategyDeploymentDialog(
         Boolean
     ) -> Unit
 ) {
-    var selectedStrategyType by remember { mutableStateOf(StrategyType.TOUCH_AND_TURN_SCALPER) }
-    var symbol by remember { mutableStateOf("") }
-    var maxDollarsText by remember {
-        mutableStateOf(defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString())
+    var selectedStrategyType by remember(prefill) {
+        mutableStateOf(prefill?.strategyType ?: StrategyType.TOUCH_AND_TURN_SCALPER)
     }
-    var autoStartOnMarketOpen by remember { mutableStateOf(false) }
-    var resolving by remember { mutableStateOf(false) }
-    var candidates by remember { mutableStateOf<List<ResolvedInstrument>>(emptyList()) }
-    var selectedResolved by remember { mutableStateOf<ResolvedInstrument?>(null) }
-    var selectedMarketZoneId by remember { mutableStateOf<String?>(null) }
-    var marketSource by remember { mutableStateOf(MarketSource.SYMBOL_INFERRED) }
-    var userEditedMarket by remember { mutableStateOf(false) }
+    var symbol by remember(prefill) { mutableStateOf(prefill?.symbol.orEmpty()) }
+    var maxDollarsText by remember(prefill) {
+        mutableStateOf(
+            defaultMaxDollarsFor(prefill?.strategyType ?: StrategyType.TOUCH_AND_TURN_SCALPER).toString()
+        )
+    }
+    var autoStartOnMarketOpen by remember(prefill) { mutableStateOf(false) }
+    var resolving by remember(prefill) { mutableStateOf(false) }
+    val prefillResolved = remember(prefill) { prefill?.toResolvedInstrument() }
+    var candidates by remember(prefill) {
+        mutableStateOf(prefillResolved?.let { listOf(it) } ?: emptyList())
+    }
+    var selectedResolved by remember(prefill) { mutableStateOf(prefillResolved) }
+    var selectedMarketZoneId by remember(prefill) { mutableStateOf(prefill?.marketZoneId) }
+    var marketSource by remember(prefill) {
+        mutableStateOf(prefill?.marketSource ?: MarketSource.SYMBOL_INFERRED)
+    }
+    var userEditedMarket by remember(prefill) { mutableStateOf(prefill?.marketZoneId != null) }
 
     LaunchedEffect(symbol) {
         val trimmed = symbol.trim()
@@ -140,6 +150,7 @@ internal fun AddStrategyDeploymentDialog(
     }
 
     val resolved = selectedResolved
+    val strategyTypeLocked = prefill?.strategyType != null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -149,16 +160,32 @@ internal fun AddStrategyDeploymentDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Choose strategy", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-                StrategyType.entries.forEach { type ->
-                    StrategyTypePickerCard(
-                        strategyType = type,
-                        selected = selectedStrategyType == type,
-                        onSelect = {
-                            selectedStrategyType = type
-                            maxDollarsText = defaultMaxDollarsFor(type).toString()
-                        }
+                if (strategyTypeLocked) {
+                    Text(
+                        StrategyCatalog.displayName(selectedStrategyType),
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        modifier = Modifier.testTag("PrefilledStrategyType")
                     )
+                    Text(
+                        StrategyCatalog.description(selectedStrategyType),
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                } else {
+                    Text("Choose strategy", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                    StrategyType.entries.forEach { type ->
+                        StrategyTypePickerCard(
+                            strategyType = type,
+                            selected = selectedStrategyType == type,
+                            onSelect = {
+                                selectedStrategyType = type
+                                maxDollarsText = defaultMaxDollarsFor(type).toString()
+                            }
+                        )
+                    }
                 }
                 HorizontalDivider(color = TableHeaderBg)
                 ConfigField(
@@ -430,12 +457,13 @@ internal fun DeploymentMarketSection(
 internal fun StrategyTypePickerCard(
     strategyType: StrategyType,
     selected: Boolean,
-    onSelect: () -> Unit
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val borderColor = if (selected) BrandRed else TableHeaderBg
     val backgroundColor = if (selected) BrandRed.copy(alpha = 0.12f) else DarkBackground
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onSelect)
             .border(1.dp, borderColor, RoundedCornerShape(8.dp))

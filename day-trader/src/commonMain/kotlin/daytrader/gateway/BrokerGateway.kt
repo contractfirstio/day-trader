@@ -93,4 +93,10 @@ interface BrokerGateway {
 
     /** Ask the broker adapter to reload execution reports into [fills]. */
     fun refreshFills()
+
+    /** Latest daily bar close via historical request (no streaming subscription). */
+    suspend fun fetchLatestDailyClose(
+        symbol: String,
+        instrument: InstrumentIdentity? = null
+    ): Result<Double>
 }

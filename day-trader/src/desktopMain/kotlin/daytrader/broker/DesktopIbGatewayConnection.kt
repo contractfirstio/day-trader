@@ -205,6 +205,10 @@ class DesktopIbGatewayConnection(
                         scope.launch {
                             requestFourteenDayAdr(command.requestId, command.symbol, command.instrument)
                         }
+                    is GatewayCommand.FetchLatestDailyClose ->
+                        scope.launch {
+                            requestLatestDailyClose(command.requestId, command.symbol, command.instrument)
+                        }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch {
                             requestFirstFifteenMinuteCandle(
@@ -239,6 +243,18 @@ class DesktopIbGatewayConnection(
                         if (marketDataOnly) {
                             IbGatewayLog.touchTurnBracketSkipped(
                                 "Market-data-only IB connection (use emulator for orders)"
+                            )
+                            emit(
+                                GatewayEvent.TouchTurnBracketPlaced(
+                                    daytrader.gateway.TouchTurnBracketAck(
+                                        symbol = SymbolMarkets.normalizeSymbol(command.plan.symbol),
+                                        orderIds = emptyList(),
+                                        result = Result.failure(
+                                            IllegalStateException("market_data_only_connection")
+                                        ),
+                                        plan = command.plan
+                                    )
+                                )
                             )
                         } else {
                             placeTouchTurnBracket(command.plan)
@@ -889,6 +905,14 @@ class DesktopIbGatewayConnection(
         }
 
         historicalReqIdToKey[reqId]?.let { key ->
+            if (key.startsWith(WATCHLIST_HISTORICAL_KEY_PREFIX) && errorCode !in HISTORICAL_BENIGN_ERROR_CODES) {
+                key.removePrefix(WATCHLIST_HISTORICAL_KEY_PREFIX).toLongOrNull()?.let { gatewayRequestId ->
+                    deliverLatestDailyCloseReady(
+                        gatewayRequestId,
+                        Result.failure(IllegalStateException(errorMsg))
+                    )
+                }
+            }
             historicalReqIdToKey.remove(reqId)
             historicalLastBarClose.remove(reqId)
             historicalPendingKeys.remove(key)
@@ -2325,8 +2349,18 @@ class DesktopIbGatewayConnection(
     private fun applyHistoricalClose(reqId: Int) {
         val key = historicalReqIdToKey.remove(reqId) ?: return
         historicalPendingKeys.remove(key)
-        val close = historicalLastBarClose.remove(reqId) ?: return
-        if (close <= 0.0) return
+        val close = historicalLastBarClose.remove(reqId)
+        if (key.startsWith(WATCHLIST_HISTORICAL_KEY_PREFIX)) {
+            val gatewayRequestId = key.removePrefix(WATCHLIST_HISTORICAL_KEY_PREFIX).toLongOrNull()
+            if (gatewayRequestId != null) {
+                val result = close?.takeIf { it > 0.0 }
+                    ?.let { Result.success(it) }
+                    ?: Result.failure(IllegalStateException("No historical close received for watchlist scan"))
+                deliverLatestDailyCloseReady(gatewayRequestId, result)
+            }
+            return
+        }
+        if (close == null || close <= 0.0) return
         historicalPrices[key] = close
         if (key.startsWith("STREAM:")) {
             applyStreamingHistoricalClose(key, close)
@@ -2337,6 +2371,78 @@ class DesktopIbGatewayConnection(
             logPositionDiag(open, "historical")
         }
         publishPositions(immediate = true)
+    }
+
+    private fun requestLatestDailyClose(
+        gatewayRequestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
+        if (!client.isConnected) {
+            deliverLatestDailyCloseReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Not connected to IB Gateway"))
+            )
+            return
+        }
+        val trimmed = symbol.trim().uppercase()
+        if (trimmed.isBlank()) {
+            deliverLatestDailyCloseReady(
+                gatewayRequestId,
+                Result.failure(IllegalArgumentException("Symbol is blank"))
+            )
+            return
+        }
+        val key = "$WATCHLIST_HISTORICAL_KEY_PREFIX$gatewayRequestId"
+        if (!historicalPendingKeys.add(key)) {
+            deliverLatestDailyCloseReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Watchlist price request already pending for $trimmed"))
+            )
+            return
+        }
+        val reqId = nextHistoricalReqId.getAndIncrement()
+        historicalReqIdToKey[reqId] = key
+        scheduleHistoricalRequestTimeout(reqId, QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) {
+            historicalReqIdToKey.remove(reqId)
+            historicalLastBarClose.remove(reqId)
+            historicalPendingKeys.remove(key)
+            deliverLatestDailyCloseReady(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Watchlist price request timed out"))
+            )
+        }
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                clearHistoricalRequestTimeout(reqId)
+                historicalReqIdToKey.remove(reqId)
+                historicalPendingKeys.remove(key)
+                deliverLatestDailyCloseReady(
+                    gatewayRequestId,
+                    Result.failure(IllegalStateException("Disconnected before watchlist price request"))
+                )
+                return@enqueue
+            }
+            val contract = IbContractMapper.forDataRequest(
+                IbContractMapper.contractForSymbol(trimmed, instrument)
+            )
+            client.reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                HISTORICAL_DURATION,
+                HISTORICAL_BAR_SIZE,
+                HISTORICAL_WHAT_TO_SHOW,
+                1,
+                1,
+                false,
+                null
+            )
+        }
+    }
+
+    private fun deliverLatestDailyCloseReady(gatewayRequestId: Long, result: Result<Double>) {
+        emit(GatewayEvent.LatestDailyCloseReady(gatewayRequestId, result))
     }
 
     private fun applyStreamingHistoricalClose(key: String, close: Double) {
@@ -2678,6 +2784,7 @@ class DesktopIbGatewayConnection(
         const val HISTORICAL_DURATION = "2 D"
         const val HISTORICAL_BAR_SIZE = "1 day"
         const val HISTORICAL_WHAT_TO_SHOW = "TRADES"
+        const val WATCHLIST_HISTORICAL_KEY_PREFIX = "WATCHLIST:"
         const val TICK_DIAG_MIN_INTERVAL_MS = 5_000L
         /** Delayed data; when the market is closed, shows the last delayed quote (not zero). */
         const val MARKET_DATA_TYPE_DELAYED_FROZEN = 4

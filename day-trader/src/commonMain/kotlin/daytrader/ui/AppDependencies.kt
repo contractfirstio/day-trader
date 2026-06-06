@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
+import daytrader.data.FileWatchlistRepository
+import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
@@ -20,8 +22,10 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.presentation.markets.MarketFilterState
+import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
+import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.SessionBundle
@@ -34,6 +38,9 @@ data class AppDependencies(
     val marketFilter: MarketFilterState,
     val strategiesViewModel: StrategiesViewModel,
     val positionsViewModel: PositionsViewModel,
+    val ordersViewModel: OrdersViewModel,
+    val watchlistViewModel: WatchlistViewModel,
+    val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
     val replayBundle: SessionBundle? = null
@@ -42,6 +49,7 @@ data class AppDependencies(
 @Composable
 fun rememberAppDependencies(
     positionRepository: PositionRepository,
+    openOrderRepository: OpenOrderRepository,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
     brokerKind: BrokerKind = BrokerKind.EMULATOR,
@@ -51,15 +59,18 @@ fun rememberAppDependencies(
     replayBundle: SessionBundle? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
+    val watchlistRepository = remember(brokerKind) { FileWatchlistRepository(brokerKind = brokerKind) }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
     val engineScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     SessionPriceLog.install { strategyRepository.deployments.value }
     return remember(
         strategyRepository,
+        watchlistRepository,
         appStateRepository,
         marketFilter,
         positionRepository,
+        openOrderRepository,
         brokerGateway,
         touchTurnSessionGateway,
         brokerKind,
@@ -121,6 +132,7 @@ fun rememberAppDependencies(
                 engine
             }
         }
+        val watchlistStrategyCreateBridge = WatchlistStrategyCreateBridge()
         val viewModel = StrategiesViewModel(
             repository = strategyRepository,
             appStateRepository = appStateRepository,
@@ -130,8 +142,22 @@ fun rememberAppDependencies(
             brokerKind = brokerKind,
             touchTurnEngine = touchTurnEngine,
             ensureLiveMarketData = ensureLiveMarketData,
-            releaseLiveMarketData = releaseLiveMarketData
+            releaseLiveMarketData = releaseLiveMarketData,
+            onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
+            watchlistRepository = watchlistRepository
         )
+        val watchlistViewModel = WatchlistViewModel(
+            repository = watchlistRepository,
+            strategyDeploymentRepository = strategyRepository,
+            brokerGateway = brokerGateway,
+            touchTurnSessionGateway = touchTurnSessionGateway,
+            brokerKind = brokerKind,
+            ensureLiveMarketData = ensureLiveMarketData,
+            onRequestStrategyDeploymentCreate = watchlistStrategyCreateBridge::requestCreate,
+            onDeleteLinkedDeployment = viewModel::deleteDeploymentById
+        )
+        watchlistStrategyCreateBridge.linkDeploymentToWatchlistEntry =
+            watchlistViewModel::linkStrategyDeploymentToEntry
         touchTurnEngine?.let { engine ->
             if (TouchTurnEngineConfig.useEngine()) {
                 engine.start()
@@ -152,6 +178,13 @@ fun rememberAppDependencies(
             marketFilter = marketFilter,
             strategiesViewModel = viewModel,
             positionsViewModel = PositionsViewModel(positionRepository),
+            ordersViewModel = OrdersViewModel(
+                repository = openOrderRepository,
+                watchlistRepository = watchlistRepository,
+                brokerKind = brokerKind
+            ),
+            watchlistViewModel = watchlistViewModel,
+            watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
             replayBundle = replayBundle

@@ -128,6 +128,16 @@ class ReplayMarketDataGateway(
 
     override fun refreshFills() = Unit
 
+    override suspend fun fetchLatestDailyClose(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<Double> {
+        val quote = _quotes.value[SymbolMarkets.normalizeSymbol(symbol)]
+        val last = quote?.last?.takeIf { it > 0.0 }
+        return last?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException("No replay quote for $symbol"))
+    }
+
     private fun resolveBootstrapContext(): TouchTurnSignalContext? =
         bundle.bootstrapContext ?: bundle.groundTruth?.runRecord?.marketInputs?.let { inputs ->
             val bar = inputs.openingBar ?: return null

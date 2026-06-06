@@ -38,6 +38,13 @@ object JsonFileStore {
         write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
 
+    fun readWatchlists(): WatchlistsDocument? =
+        read<WatchlistsDocument>(AppDataFiles.WATCHLISTS)
+
+    fun writeWatchlists(document: WatchlistsDocument) {
+        write(AppDataFiles.WATCHLISTS, document)
+    }
+
     fun appendSessionTraceLine(relativePath: String, line: String) {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }

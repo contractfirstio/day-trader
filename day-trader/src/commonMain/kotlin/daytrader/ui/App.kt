@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,7 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.IbStreamingMarketDataType
+import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
 import daytrader.marketdata.MarketQuoteBus
@@ -30,6 +33,7 @@ import daytrader.ui.theme.SurfaceDark
 fun App(
     brokerGateway: BrokerGateway,
     positionRepository: PositionRepository,
+    openOrderRepository: OpenOrderRepository,
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
@@ -43,6 +47,7 @@ fun App(
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
+        openOrderRepository = openOrderRepository,
         brokerGateway = brokerGateway,
         touchTurnSessionGateway = touchTurnSessionGateway,
         brokerKind = brokerKind,
@@ -55,6 +60,16 @@ fun App(
     var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
+    val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
+
+    SideEffect {
+        dependencies.watchlistStrategyCreateBridge.navigateToStrategies = {
+            currentScreen = AppScreen.STRATEGIES
+        }
+        dependencies.watchlistStrategyCreateBridge.showStrategyAddDialog = { prefill ->
+            dependencies.strategiesViewModel.onShowAddDialog(prefill)
+        }
+    }
 
     val viewModel = dependencies.strategiesViewModel
     DisposableEffect(viewModel) {
@@ -102,6 +117,16 @@ fun App(
                         onDismiss = { showPriceFeedTester = false }
                     )
                 }
+                watchlistUi.pendingDiaryNotification?.let { notification ->
+                    WatchlistPlanDiaryNotificationDialog(
+                        notification = notification,
+                        onView = {
+                            currentScreen = AppScreen.WATCHLIST
+                            dependencies.watchlistViewModel.onViewDiaryNotification()
+                        },
+                        onDismissReminder = dependencies.watchlistViewModel::onDismissDiaryNotification
+                    )
+                }
                 val replayController = dependencies.replayController
                 val replaySessionBundle = dependencies.replayBundle
                 if (replayController != null && replaySessionBundle != null) {
@@ -144,6 +169,28 @@ fun App(
                             )
                         )
                         NavigationRailItem(
+                            selected = currentScreen == AppScreen.WATCHLIST,
+                            onClick = { currentScreen = AppScreen.WATCHLIST },
+                            icon = { Icon(Icons.Default.Star, "Watchlist") },
+                            label = { Text("Watchlist") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
+                            selected = currentScreen == AppScreen.ORDERS,
+                            onClick = { currentScreen = AppScreen.ORDERS },
+                            icon = { Icon(Icons.Default.List, "Orders") },
+                            label = { Text("Orders") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
                             selected = currentScreen == AppScreen.POSITIONS,
                             onClick = { currentScreen = AppScreen.POSITIONS },
                             icon = { Icon(Icons.Default.Wallet, "Positions") },
@@ -162,7 +209,13 @@ fun App(
                             viewModel = dependencies.positionsViewModel,
                             connectionState = connectionState
                         )
+                        AppScreen.ORDERS -> OrdersScreen(
+                            viewModel = dependencies.ordersViewModel,
+                            connectionState = connectionState,
+                            brokerKind = brokerKind
+                        )
                         AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
+                        AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)
                     }
                 }
             }

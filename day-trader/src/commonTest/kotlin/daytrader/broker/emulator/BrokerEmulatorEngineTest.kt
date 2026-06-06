@@ -331,4 +331,52 @@ class BrokerEmulatorEngineTest {
         assertTrue(flat.none { SymbolMarkets.symbolsMatch("AAPL", it.symbol) && it.quantity != 0 })
     }
 
+    @Test
+    fun placeWatchlistStyleBracket_withoutPriorSubscription_enablesSyntheticTicks() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.APPROACH_AND_FILL,
+                touchTurnEntryMinApproachTicks = 1,
+                touchTurnEntryStepPctOfRange = 0.25
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val plan = daytrader.domain.WatchlistBracketOrderPlanner.buildTouchTurnPlan(
+            symbol = "AAPL",
+            currencyCode = "USD",
+            instrument = null,
+            side = daytrader.domain.TradeSide.LONG,
+            entryPrice = 100.0,
+            stopPrice = 95.0,
+            targetPrice = 110.0,
+            quantity = 10
+        ).getOrThrow()
+
+        engine.placeTouchTurnBracket(plan)
+        assertTrue(
+            events.filterIsInstance<GatewayEvent.TouchTurnBracketPlaced>().last().ack.result.isSuccess,
+            "expected bracket ack"
+        )
+        assertTrue(engine.shouldRunMarketTicks(), "expected synthetic ticks after bracket placement")
+
+        var filled = false
+        repeat(24) {
+            engine.runMarketTick()
+            val hasPosition = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().lastOrNull()
+                ?.positions
+                ?.any { SymbolMarkets.symbolsMatch("AAPL", it.symbol) && it.quantity != 0 } == true
+            if (hasPosition) {
+                filled = true
+                return@repeat
+            }
+        }
+        assertTrue(filled, "expected entry to fill after synthetic market ticks")
+    }
+
 }
