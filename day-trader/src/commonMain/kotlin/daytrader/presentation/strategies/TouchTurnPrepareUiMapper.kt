@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnPrepareStatus
@@ -32,7 +33,7 @@ object TouchTurnPrepareUiMapper {
         prepareInProgress: Boolean,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnPrepareUiState? {
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return null
+        if (!instance.isTouchTurn) return null
         if (instance.status == DeploymentStatus.RUNNING) return null
         val sessionDate = DeploymentMarket.sessionDateIso(instance)
         val prepare = instance.touchTurnPrepare

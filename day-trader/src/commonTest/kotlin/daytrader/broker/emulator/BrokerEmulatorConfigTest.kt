@@ -19,6 +19,8 @@ class BrokerEmulatorConfigTest {
         assertEquals(false, config.simulateOrderProgress)
         assertEquals(1.0, config.bracketExitSpreadWidenFactor)
         assertEquals(0.0, config.touchTurnEntryNeverFillProbability)
+        assertEquals(false, config.touchTurnEntryFillImmediately)
+        assertEquals(null, config.touchTurnEntryScenarioOverride)
         assertEquals(false, config.alternateFirstCandleColor)
     }
 }

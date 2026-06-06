@@ -301,8 +301,6 @@ object TouchTurnDecisionLog {
     }
 
     private fun closeConfirmationRule(setup: TouchTurnBracketSetup, close: Double): String {
-        val minDistance = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup)
-        val bufferPct = (TouchTurnDefaults.CLOSE_CONFIRMATION_MIN_DISTANCE_RATIO_OF_RANGE * 100).toInt()
         val zoneRule = when (setup.candleColor) {
             FirstCandleColor.GREEN ->
                 "close in lower ≤${(TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX * 100).toInt()}% of bar range"
@@ -311,12 +309,9 @@ object TouchTurnDecisionLog {
             FirstCandleColor.DOJI -> "DOJI not actionable"
         }
         return when (setup.candleColor) {
-            FirstCandleColor.RED ->
-                "(rule: RED requires close > entry by ≥${bufferPct}% of range (≥$minDistance), $zoneRule; " +
-                    "close=$close, entry=${setup.entry})"
+            FirstCandleColor.RED,
             FirstCandleColor.GREEN ->
-                "(rule: GREEN requires close < entry by ≥${bufferPct}% of range (≥$minDistance), $zoneRule; " +
-                    "close=$close, entry=${setup.entry})"
+                "(rule: $zoneRule; close=$close, entry=${setup.entry})"
             FirstCandleColor.DOJI -> "(rule: DOJI not actionable)"
         }
     }

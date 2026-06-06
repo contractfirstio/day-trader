@@ -28,6 +28,7 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.TouchTurnQuoteStripUi
 import daytrader.ui.theme.CandleGreen
 import daytrader.ui.theme.CandleRed
 import daytrader.ui.theme.DarkBackground
@@ -45,6 +46,7 @@ fun TouchTurnOpeningBarChart(
     rangeThreshold: Double? = null,
     livePriceHistory: List<Double> = emptyList(),
     currentPrice: Double? = null,
+    quoteStrip: TouchTurnQuoteStripUi? = null,
     modifier: Modifier = Modifier
 ) {
     val bodyColor = when (candleColor) {
@@ -58,7 +60,11 @@ fun TouchTurnOpeningBarChart(
     val priceRange = remember(candle, priceSeries) {
         openingBarChartPriceRange(candle, priceSeries)
     }
-    val chartHeight = if (closeStatus == FirstCandleCloseStatus.CLOSED) 168.dp else 148.dp
+    val chartHeight = if (closeStatus == FirstCandleCloseStatus.CLOSED) {
+        TouchTurnChartDimensions.openingBarClosedHeight
+    } else {
+        TouchTurnChartDimensions.openingBarFormingHeight
+    }
     val textMeasurer = rememberTextMeasurer()
     val labelStyle = androidx.compose.ui.text.TextStyle(color = TextSecondary, fontSize = 9.sp)
     val density = LocalDensity.current
@@ -244,6 +250,13 @@ fun TouchTurnOpeningBarChart(
                     )
                 )
             }
+        }
+
+        quoteStrip?.let { strip ->
+            TouchTurnQuoteStrip(
+                strip = strip,
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
 
         if (closeStatus == FirstCandleCloseStatus.FORMING && priceSeries.isNotEmpty()) {

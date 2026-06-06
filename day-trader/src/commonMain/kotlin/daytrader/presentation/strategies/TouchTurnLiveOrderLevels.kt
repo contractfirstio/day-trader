@@ -1,7 +1,6 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.TouchTurnBracketSetup
-import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.gateway.WorkingOrder
 import kotlin.math.abs
@@ -11,8 +10,6 @@ enum class TouchTurnOrderLevelKind {
     ENTRY,
     TAKE_PROFIT,
     STOP_LOSS,
-    /** Min/max close for confirmation — 15% of bar range from entry. */
-    CLOSE_CONFIRMATION_BUFFER,
     OTHER
 }
 
@@ -28,19 +25,16 @@ object TouchTurnLiveOrderLevels {
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?
     ): List<TouchTurnOrderLevelUi> {
-        val levels = fromWorkingOrders(openOrders, plannedBracket, bracketSetup).toMutableList()
-        confirmationBufferLevel(bracketSetup)?.let { levels += it }
-        return levels
+        plannedBracket?.let { return levelsFromPlannedBracket(it) }
+        return fromWorkingOrders(openOrders, plannedBracket, bracketSetup)
     }
 
-    fun confirmationBufferLevel(setup: TouchTurnBracketSetup?): TouchTurnOrderLevelUi? {
-        val price = setup?.let { TouchTurnLogic.closeConfirmationBufferPrice(it) } ?: return null
-        return TouchTurnOrderLevelUi(
-            price = price,
-            label = "Close buffer",
-            kind = TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER
+    fun levelsFromPlannedBracket(bracket: TouchTurnPlannedBracket): List<TouchTurnOrderLevelUi> =
+        listOf(
+            TouchTurnOrderLevelUi(bracket.entry, "Entry", TouchTurnOrderLevelKind.ENTRY),
+            TouchTurnOrderLevelUi(bracket.takeProfit, "Take profit", TouchTurnOrderLevelKind.TAKE_PROFIT),
+            TouchTurnOrderLevelUi(bracket.stopLoss, "Stop loss", TouchTurnOrderLevelKind.STOP_LOSS)
         )
-    }
 
     fun fromWorkingOrders(
         openOrders: List<WorkingOrder>,
@@ -93,7 +87,6 @@ object TouchTurnLiveOrderLevels {
         TouchTurnOrderLevelKind.ENTRY -> "Entry"
         TouchTurnOrderLevelKind.TAKE_PROFIT -> "Take profit"
         TouchTurnOrderLevelKind.STOP_LOSS -> "Stop loss"
-        TouchTurnOrderLevelKind.CLOSE_CONFIRMATION_BUFFER -> "Close buffer"
         TouchTurnOrderLevelKind.OTHER -> "${order.action} ${order.orderType}"
     }
 

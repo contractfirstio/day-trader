@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 
 class TouchTurnPipelineDetailUiMapperTest {
     @Test
-    fun sessionDataCapture_includesAdrAndOpeningBar() {
+    fun sessionDataCapture_includesAtrAndOpeningBar() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-22",
             status = TouchTurnCandleStatus.READY,
@@ -37,11 +37,11 @@ class TouchTurnPipelineDetailUiMapperTest {
         )
         val capture = TouchTurnPipelineDetailUiMapper.sessionDataCapture(session)
         assertTrue(capture.isReady)
-        assertEquals(10.0, capture.adr14)
+        assertEquals(10.0, capture.atr14)
         assertEquals(2.5, capture.rangeThreshold)
         assertEquals("20260522  09:30:00", capture.candle?.time)
         assertEquals("2026-05-22T09:30:12", capture.dataReadyAt)
-        assertEquals(25, capture.adrRatioPercent)
+        assertEquals(25, capture.atrRatioPercent)
     }
 
     @Test

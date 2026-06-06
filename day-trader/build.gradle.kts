@@ -32,13 +32,12 @@ kotlin {
             dependencies {
                 implementation("org.jetbrains.kotlin:kotlin-stdlib")
                 implementation(compose.foundation)
-                implementation(compose.material3)
+                implementation(libs.compose.material3)
                 implementation(compose.runtime)
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
 
                 // UI Component & Icon packs
-                implementation(libs.compose.material3)
                 implementation(libs.compose.icons.core)
                 implementation(libs.compose.icons.extended)
             }
@@ -61,17 +60,37 @@ kotlin {
                 implementation("org.jetbrains.compose.ui:ui-test:1.8.1")
             }
         }
+
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.junit)
+                implementation("io.cucumber:cucumber-java:7.20.1")
+                implementation("io.cucumber:cucumber-junit:7.20.1")
+            }
+        }
     }
+}
+
+tasks.named<Test>("desktopTest") {
+    useJUnit()
 }
 
 compose.desktop {
     application {
         mainClass = "MainKt"
+        jvmArgs += listOf(
+            "-Dapple.awt.application.name=Day Trader",
+            "-Dapple.laf.useScreenMenuBar=true",
+        )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "DayTrader"
+            packageName = "Day Trader"
             packageVersion = "1.0.0"
+            macOS {
+                dockName = "Day Trader"
+            }
         }
     }
 }

@@ -30,7 +30,8 @@ import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnDecisionLog
 import daytrader.domain.inProgressSession
 import daytrader.domain.beginTouchTurnSession
-import daytrader.domain.onSessionStarted
+import daytrader.domain.isTouchTurn
+import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withOpeningBarClosedMilestone
 import daytrader.domain.withFirstFifteenMinuteCandle
@@ -47,7 +48,7 @@ import daytrader.domain.withTouchTurnDecisionOutcome
 import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
 import daytrader.data.StrategyCatalog
 import daytrader.domain.withClosedPosition
-import daytrader.data.withDemoLiveExecutionOnStart
+import daytrader.data.DeploymentSessionController
 import daytrader.domain.withStopPrice
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
@@ -360,12 +361,11 @@ class TouchTurnEngine(
             return
         }
         repository.update(command.instanceId) { current ->
-            val started = current
-                .onSessionStarted(command.sessionDate, touchTurnStartedBy = command.startedBy)
-                .beginTouchTurnSession(command.sessionDate)
-                .copy(lastAutoStartSessionDate = command.sessionDate)
-            started.inProgressSession()?.let { SessionTrace.sessionStarted(started, it) }
-            started
+            DeploymentSessionController.start(
+                instance = current,
+                sessionDate = command.sessionDate,
+                markAutoStarted = command.startedBy == TouchTurnSessionStartedBy.AUTO_MARKET_OPEN,
+            )
         }
         tracedFillExecIdsByInstance.remove(command.instanceId)
         repository.flushPersistence()
@@ -387,16 +387,17 @@ class TouchTurnEngine(
             emit(TouchTurnEvent.UiNavigate(command.instanceId, tab))
             uiEffects.selectDeployment(command.instanceId, tab)
         }
-        if (updated.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER) {
+        if (updated.isTouchTurn) {
             dispatch(TouchTurnCommand.LoadFirstCandle(command.instanceId, command.sessionDate))
-        } else if (updated.strategyType == StrategyType.QUICK_FLIP_SCALPER) {
-            repository.update(command.instanceId) { it.withDemoLiveExecutionOnStart(command.sessionDate) }
         }
     }
 
     private fun handleStopSession(command: TouchTurnCommand.StopSession) {
         val instance = repository.deployments.value.find { it.id == command.instanceId } ?: return
-        if (instance.status != DeploymentStatus.RUNNING) return
+        if (instance.status != DeploymentStatus.RUNNING) {
+            maybeReleaseLiveMarketData(instance)
+            return
+        }
         TouchTurnDecisionLog.sessionStopping(
             instanceId = command.instanceId,
             symbol = instance.symbol,
@@ -468,7 +469,7 @@ class TouchTurnEngine(
     private fun recordTouchTurnPositionMilestones(positions: List<daytrader.gateway.AccountPosition>) {
         for (instance in repository.deployments.value) {
             if (instance.status != DeploymentStatus.RUNNING) continue
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) continue
+            if (!instance.isTouchTurn) continue
             if (!SymbolMarkets.hasOpenPosition(instance.symbol, positions)) continue
             if (instance.touchTurnSession?.milestones?.positionOpenedAt != null) continue
             repository.update(instance.id) { it.withTouchTurnPositionOpenedIfNeeded() }
@@ -495,6 +496,10 @@ class TouchTurnEngine(
         }
     }
 
+    /** Replay drives virtual time via [nowEpochMillis]; live modes keep wall clock for open-deadline stops. */
+    private fun stopRulesNowEpochMillis(): Long =
+        if (brokerKind == BrokerKind.REPLAY) nowEpochMillis() else System.currentTimeMillis()
+
     private fun handlePollStopRules(snapshot: TouchTurnCommand.BrokerSnapshot? = null) {
         val positions = snapshot?.positions ?: brokerPositions.value
         val openOrders = snapshot?.openOrders ?: brokerOpenOrders.value
@@ -509,7 +514,8 @@ class TouchTurnEngine(
             deployments = repository.deployments.value,
             positions = positions,
             openOrders = openOrders,
-            fills = fills
+            fills = fills,
+            nowEpochMillis = stopRulesNowEpochMillis()
         )
         for (candidate in candidates) {
             val instance = repository.deployments.value.find { it.id == candidate.instanceId } ?: continue
@@ -529,7 +535,7 @@ class TouchTurnEngine(
         repository.deployments.value
             .asSequence()
             .filter { it.status == DeploymentStatus.RUNNING }
-            .filter { it.strategyType == StrategyType.TOUCH_AND_TURN_SCALPER }
+            .filter { it.isTouchTurn }
             .forEach { instance ->
                 val session = instance.touchTurnSession ?: return@forEach
                 val sessionDate = instance.inProgressSession()?.date ?: session.sessionDate
@@ -555,7 +561,7 @@ class TouchTurnEngine(
         prepareJobs[instanceId]?.cancel()
         prepareJobs[instanceId] = scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
+            if (!instance.isTouchTurn) return@launch
             if (instance.status == DeploymentStatus.RUNNING) return@launch
             emit(TouchTurnEvent.PrepareStarted(instanceId))
             val sessionDate = DeploymentMarket.sessionDateIso(instance)
@@ -604,7 +610,7 @@ class TouchTurnEngine(
         loadJobs[instanceId]?.cancel()
         loadJobs[instanceId] = scope.launch {
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
-            if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return@launch
+            if (!instance.isTouchTurn) return@launch
             val symbol = instance.symbol
             val zoneId = DeploymentMarket.effectiveZoneId(instance)
             val instrument = DeploymentMarket.effectiveInstrument(instance)
@@ -619,7 +625,9 @@ class TouchTurnEngine(
                     nowEpochMillis = nowEpochMillis()
                 )
             val signalResult: Result<TouchTurnSignalContext> = if (reusePrepare && prepared != null) {
-                marketData.ensureStreaming(symbol, instrument)
+                if (instance.status == DeploymentStatus.RUNNING) {
+                    marketData.ensureStreaming(symbol, instrument)
+                }
                 val ctx = prepared.signalContext
                 repository.update(instanceId) { current ->
                     VolumeExhaustionSignalEngine.logSignalContext(instanceId, symbol, ctx)
@@ -645,7 +653,9 @@ class TouchTurnEngine(
                 )
                 Result.success(prepared.signalContext)
             } else {
-                marketData.ensureStreaming(symbol, instrument)
+                if (instance.status == DeploymentStatus.RUNNING) {
+                    marketData.ensureStreaming(symbol, instrument)
+                }
                 val fetched = marketData.fetchTouchTurnSignalContext(
                     symbol = symbol,
                     instrument = instrument,
@@ -734,6 +744,11 @@ class TouchTurnEngine(
                     deploymentMarketZoneId = zoneId,
                     session = loadedSession
                 )
+            }
+            repository.deployments.value.find { it.id == instanceId }?.let { current ->
+                if (current.status != DeploymentStatus.RUNNING) {
+                    maybeReleaseLiveMarketData(current)
+                }
             }
             watchLiquidity(instanceId, sessionDate)
         }
@@ -1462,7 +1477,8 @@ class TouchTurnEngine(
             deployments = deployments,
             positions = positions,
             openOrders = openOrders,
-            fills = fills
+            fills = fills,
+            nowEpochMillis = stopRulesNowEpochMillis()
         )
         val candidateIds = candidates.map { it.instanceId }.toSet()
         for (instance in deployments) {

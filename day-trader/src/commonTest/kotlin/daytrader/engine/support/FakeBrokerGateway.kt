@@ -45,6 +45,8 @@ class FakeBrokerGateway(
                 volumeSma20 = 30_000.0
             )
         )
+    var refetchSignalContexts: List<TouchTurnSignalContext> = emptyList()
+    private val refetchIndex = java.util.concurrent.atomic.AtomicInteger(0)
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
     val flattenedSymbols = mutableListOf<String>()
 
@@ -106,7 +108,18 @@ class FakeBrokerGateway(
         marketZoneId: String?,
         allowMissingTodayOpeningBar: Boolean,
         rules: daytrader.domain.TouchTurnRuleConfig
-    ): Result<TouchTurnSignalContext> = signalContextFetchResult
+    ): Result<TouchTurnSignalContext> {
+        if (isClosedBarRefetch && refetchSignalContexts.isNotEmpty()) {
+            val index = refetchIndex.getAndIncrement()
+            val context = refetchSignalContexts.getOrNull(index) ?: refetchSignalContexts.last()
+            return Result.success(context)
+        }
+        return signalContextFetchResult
+    }
+
+    fun resetRefetchIndex() {
+        refetchIndex.set(0)
+    }
 
     override fun cancelOrder(orderId: Int) = Unit
 

@@ -2,6 +2,7 @@ package daytrader.marketdata
 
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.BrokerEmulatorEngine
+import daytrader.broker.emulator.TouchTurnEntryScenario
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnOrderPlanner
@@ -27,7 +28,10 @@ class MarketQuoteBusConcurrentFillTest {
         val events = mutableListOf<GatewayEvent>()
         val bus = MarketQuoteBus()
         val engine = BrokerEmulatorEngine(
-            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE
+            ),
             emit = { events.add(it) }
         )
         val quoteChannel = bus.subscribeUnlimited(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)

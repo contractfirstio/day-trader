@@ -129,7 +129,10 @@ class TouchTurnLogicTest {
         val setup = TouchTurnLogic.computeBracketSetup(
             bar,
             rangeThreshold = 1.0,
-            rules = TouchTurnRuleConfig.DEFAULT.copy(minStopDistance = 0.05)
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                minStopDistance = 0.05,
+                entryInwardOffsetRatioOfRange = 0.0
+            )
         )
         assertEquals(TouchTurnTradeSide.LONG, setup.side)
         assertEquals(10.0, setup.entry, 0.001)
@@ -143,10 +146,12 @@ class TouchTurnLogicTest {
         assertTrue(setup.isLiquidityCandle)
         assertEquals(FirstCandleColor.GREEN, setup.candleColor)
         assertEquals(TouchTurnTradeSide.SHORT, setup.side)
-        assertEquals(410.0, setup.entry, 0.001)
+        val entryOffset = 10.0 * TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
+        val entry = 410.0 - entryOffset
+        assertEquals(entry, setup.entry, 0.001)
         val tpDistance = 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
-        assertEquals(410.0 - tpDistance, setup.takeProfit, 0.001)
-        assertEquals(410.0 + tpDistance / 2.0, setup.stopLoss, 0.001)
+        assertEquals(entry - tpDistance, setup.takeProfit, 0.001)
+        assertEquals(entry + tpDistance / 2.0, setup.stopLoss, 0.001)
     }
 
     @Test
@@ -156,10 +161,30 @@ class TouchTurnLogicTest {
         assertTrue(setup.isLiquidityCandle)
         assertEquals(FirstCandleColor.RED, setup.candleColor)
         assertEquals(TouchTurnTradeSide.LONG, setup.side)
-        assertEquals(400.0, setup.entry, 0.001)
+        val entryOffset = 10.0 * TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
+        val entry = 400.0 + entryOffset
+        assertEquals(entry, setup.entry, 0.001)
         val tpDistance = 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_RED
-        assertEquals(400.0 + tpDistance, setup.takeProfit, 0.001)
-        assertEquals(400.0 - tpDistance / 2.0, setup.stopLoss, 0.001)
+        assertEquals(entry + tpDistance, setup.takeProfit, 0.001)
+        assertEquals(entry - tpDistance / 2.0, setup.stopLoss, 0.001)
+    }
+
+    @Test
+    fun entryInwardOffset_movesLongUpAndShortDown() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val atExtreme = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
+        )
+        assertEquals(410.0, atExtreme.entry, 0.001)
+
+        val inward = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.15)
+        )
+        assertEquals(408.5, inward.entry, 0.001)
     }
 
     @Test
@@ -489,7 +514,7 @@ class TouchTurnLogicTest {
         assertEquals(3, plan.orders.size)
         assertEquals("SELL", plan.orders[0].action)
         assertEquals("LMT", plan.orders[0].orderType)
-        assertEquals(410.0, plan.orders[0].price, 0.001)
+        assertEquals(409.0, plan.orders[0].price, 0.001)
         assertEquals(TouchTurnOrderRole.TAKE_PROFIT, plan.orders[1].role)
         assertEquals("BUY", plan.orders[1].action)
         assertEquals(TouchTurnOrderRole.STOP_LOSS, plan.orders[2].role)
@@ -504,9 +529,9 @@ class TouchTurnLogicTest {
         val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup, maxDollars = 4000)!!
-        assertEquals(10, plan.quantity)
+        assertEquals(9, plan.quantity)
         assertEquals("BUY", plan.orders[0].action)
-        assertEquals(400.0, plan.orders[0].price, 0.001)
+        assertEquals(401.0, plan.orders[0].price, 0.001)
         assertEquals("SELL", plan.orders[1].action)
         assertEquals("STP", plan.orders[2].orderType)
     }
@@ -1019,10 +1044,9 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun closeConfirmsTurn_failsWhenGreenCloseSeparatesButNotInLowerRange() {
+    fun closeConfirmsTurn_failsWhenGreenCloseNotInLowerRange() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        assertTrue(TouchTurnLogic.closeSeparatesFromEntry(setup, bar.close))
         assertFalse(TouchTurnLogic.closePositionInTurnZone(setup, bar, bar.close))
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
     }
@@ -1053,27 +1077,15 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun closeConfirmsTurn_failsWhenRedCloseSeparatesButNotInUpperRange() {
+    fun closeConfirmsTurn_failsWhenRedCloseNotInUpperRange() {
         val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 405.0)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        assertTrue(TouchTurnLogic.closeSeparatesFromEntry(setup, bar.close))
         assertFalse(TouchTurnLogic.closePositionInTurnZone(setup, bar, bar.close))
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
     }
 
     @Test
-    fun closeConfirmationBufferPrice_isBelowEntryForShortAndAboveForLong() {
-        val greenBar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 405.0)
-        val greenSetup = TouchTurnLogic.computeBracketSetup(greenBar, rangeThreshold = 5.0)
-        assertEquals(408.5, TouchTurnLogic.closeConfirmationBufferPrice(greenSetup))
-
-        val redBar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 405.0)
-        val redSetup = TouchTurnLogic.computeBracketSetup(redBar, rangeThreshold = 5.0)
-        assertEquals(401.5, TouchTurnLogic.closeConfirmationBufferPrice(redSetup))
-    }
-
-    @Test
-    fun closeConfirmation_failsWhenGreenCloseTooCloseToEntry() {
+    fun closeConfirmation_failsWhenGreenCloseOutsideTurnZone() {
         val bar = OhlcBar(
             open = 400.0,
             high = 410.0,
@@ -1082,8 +1094,6 @@ class TouchTurnLogicTest {
             time = "20250522  09:30:00"
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val minDistance = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup)
-        assertEquals(1.5, minDistance, absoluteTolerance = 1e-9)
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
         assertEquals(
@@ -1093,7 +1103,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun closeConfirmation_failsWhenRedCloseTooCloseToEntry() {
+    fun closeConfirmation_failsWhenRedCloseOutsideTurnZone() {
         val bar = OhlcBar(
             open = 410.0,
             high = 410.0,

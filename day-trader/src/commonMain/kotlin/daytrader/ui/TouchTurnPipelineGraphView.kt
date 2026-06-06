@@ -55,18 +55,19 @@ fun TouchTurnPipelineGraphView(
     selectedNodeId: TouchTurnPipelineNodeId? = null,
     onNodeSelected: ((TouchTurnPipelineNodeId) -> Unit)? = null
 ) {
-    val graphHeight = if (compact) 88.dp else 104.dp
+    val graphHeight = if (compact) 50.dp else 68.dp
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val nodeRadiusPx = with(density) { (if (compact) 7.dp else 8.dp).toPx() }
-    val hitSize = if (compact) 36.dp else 40.dp
+    val nodeRadiusPx = with(density) { (if (compact) 5.dp else 6.dp).toPx() }
+    val hitSize = if (compact) 28.dp else 32.dp
+    val nodeCenterY = if (compact) 0.36f else 0.40f
     val labelStyle = TextStyle(
-        fontSize = if (compact) 8.sp else 9.sp,
+        fontSize = if (compact) 7.sp else 8.sp,
         fontWeight = FontWeight.Medium,
         color = TextSecondary
     )
     val edgeLabelStyle = TextStyle(
-        fontSize = 7.sp,
+        fontSize = 6.sp,
         color = TextSecondary.copy(alpha = 0.85f)
     )
 
@@ -74,7 +75,7 @@ fun TouchTurnPipelineGraphView(
         modifier = modifier
             .fillMaxWidth()
             .testTag("TouchTurnPipelineGraph"),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)
     ) {
         if (showTitle) {
             Text(
@@ -94,7 +95,7 @@ fun TouchTurnPipelineGraphView(
             val canvasModifier = Modifier.fillMaxSize()
             Canvas(modifier = canvasModifier) {
                 val nodeCenters = graph.nodes.associate { node ->
-                    node.id to Offset(node.x * size.width, node.y * size.height)
+                    node.id to Offset(node.x * size.width, nodeCenterY * size.height)
                 }
                 graph.edges.forEach { edge ->
                     val from = nodeCenters[edge.from] ?: return@forEach
@@ -103,7 +104,7 @@ fun TouchTurnPipelineGraphView(
                         from = from,
                         to = to,
                         state = edge.state,
-                        label = edge.label,
+                        label = if (compact) null else edge.label,
                         textMeasurer = textMeasurer,
                         edgeLabelStyle = edgeLabelStyle
                     )
@@ -121,7 +122,7 @@ fun TouchTurnPipelineGraphView(
                 graph.nodes.forEach { node ->
                     val center = nodeCenters[node.id] ?: return@forEach
                     val labelResult = textMeasurer.measure(node.shortLabel, labelStyle)
-                    val labelY = center.y + nodeRadiusPx + with(density) { 4.dp.toPx() }
+                    val labelY = center.y + nodeRadiusPx + with(density) { (if (compact) 2.dp else 3.dp).toPx() }
                     drawText(
                         textLayoutResult = labelResult,
                         topLeft = Offset(
@@ -138,7 +139,7 @@ fun TouchTurnPipelineGraphView(
                             .align(Alignment.TopStart)
                             .offset(
                                 x = maxWidth * node.x - hitSize / 2,
-                                y = maxHeight * node.y - hitSize / 2
+                                y = maxHeight * nodeCenterY - hitSize / 2
                             )
                             .size(hitSize)
                             .clickable(
@@ -152,10 +153,26 @@ fun TouchTurnPipelineGraphView(
         }
         val detailHint = selectedNodeId?.detailTitle()
         when {
+            graph.statusBanner != null -> {
+                Text(
+                    graph.statusBanner.headline,
+                    fontSize = if (compact) 9.sp else 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when (graph.statusBanner.severity) {
+                        TouchTurnReasonSeverity.Error -> LossRed
+                        TouchTurnReasonSeverity.Warning -> Color(0xFFFFB74D)
+                        TouchTurnReasonSeverity.Info -> TextSecondary
+                    },
+                    maxLines = if (compact) 1 else 2,
+                    modifier = Modifier
+                        .padding(start = 2.dp)
+                        .testTag("TouchTurnPipelineGraphStatusBanner")
+                )
+            }
             detailHint != null -> {
                 Text(
                     detailHint,
-                    fontSize = if (compact) 10.sp else 11.sp,
+                    fontSize = if (compact) 9.sp else 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                     maxLines = 1,
@@ -164,27 +181,12 @@ fun TouchTurnPipelineGraphView(
                         .testTag("TouchTurnPipelineGraphSelectedLabel")
                 )
             }
-            graph.statusBanner != null -> {
-                Text(
-                    graph.statusBanner.headline,
-                    fontSize = if (compact) 10.sp else 11.sp,
-                    color = when (graph.statusBanner.severity) {
-                        TouchTurnReasonSeverity.Error -> LossRed
-                        TouchTurnReasonSeverity.Warning -> Color(0xFFFFB74D)
-                        TouchTurnReasonSeverity.Info -> TextSecondary
-                    },
-                    maxLines = 2,
-                    modifier = Modifier
-                        .padding(start = 2.dp)
-                        .testTag("TouchTurnPipelineGraphStatusBanner")
-                )
-            }
             graph.caption.isNotBlank() -> {
                 Text(
                     graph.caption,
-                    fontSize = if (compact) 10.sp else 11.sp,
+                    fontSize = if (compact) 9.sp else 10.sp,
                     color = TextSecondary,
-                    maxLines = 2,
+                    maxLines = if (compact) 1 else 2,
                     modifier = Modifier
                         .padding(start = 2.dp)
                         .testTag("TouchTurnPipelineGraphCaption")
@@ -270,10 +272,10 @@ private fun DrawScope.drawPipelineNode(
         else -> TextSecondary.copy(alpha = 0.45f)
     }
     val borderWidth = when {
-        isSelected -> if (compact) 3f else 3.5f
-        node.state == TouchTurnBreadcrumbStepState.CURRENT -> if (compact) 2.5f else 3f
-        node.state == TouchTurnBreadcrumbStepState.FAILED -> 2.5f
-        else -> 1.5f
+        isSelected -> if (compact) 2.5f else 3f
+        node.state == TouchTurnBreadcrumbStepState.CURRENT -> if (compact) 2f else 2.5f
+        node.state == TouchTurnBreadcrumbStepState.FAILED -> 2f
+        else -> 1.25f
     }
     if (node.isDecision && node.state != TouchTurnBreadcrumbStepState.SKIPPED) {
         val diamond = Path().apply {
@@ -299,18 +301,4 @@ private fun DrawScope.drawPipelineNode(
     if (node.state == TouchTurnBreadcrumbStepState.COMPLETED) {
         drawCircle(color = GainGreen, radius = radius * 0.35f, center = center)
     }
-}
-
-/** @deprecated Use [TouchTurnPipelineGraphView] */
-@Composable
-fun TouchTurnStatusBreadcrumbRow(
-    steps: List<TouchTurnBreadcrumbStep>,
-    modifier: Modifier = Modifier
-) {
-    TouchTurnPipelineGraphView(
-        graph = daytrader.presentation.strategies.TouchTurnStatusBreadcrumbMapper.buildGraph(steps),
-        modifier = modifier,
-        compact = true,
-        showTitle = false
-    )
 }

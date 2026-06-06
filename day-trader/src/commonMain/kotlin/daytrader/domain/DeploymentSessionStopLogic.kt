@@ -19,7 +19,7 @@ object DeploymentSessionStopLogic {
      * This is market-zone agnostic because it keys off the resolved decision outcome only.
      */
     fun shouldStopAfterNoTradeDecision(instance: StrategyDeployment): Boolean {
-        if (instance.strategyType != StrategyType.TOUCH_AND_TURN_SCALPER) return false
+        if (!instance.isTouchTurn) return false
         return when (instance.touchTurnSession?.decisionOutcome) {
             TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,

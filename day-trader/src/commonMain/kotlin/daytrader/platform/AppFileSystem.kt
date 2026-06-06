@@ -19,4 +19,8 @@ expect object AppFileSystem {
     fun deleteIfExists(fileName: String)
     /** Absolute path for a relative app-data file (e.g. diagnostics). */
     fun dataFilePath(fileName: String): String
+    /** Reads a file from the app data root (not broker-scoped). Safe before [configureDataScope]. */
+    fun readApplicationRootText(fileName: String): String?
+    /** Writes a file to the app data root (not broker-scoped). Safe before [configureDataScope]. */
+    fun writeApplicationRootTextAtomic(fileName: String, content: String)
 }

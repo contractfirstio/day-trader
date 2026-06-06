@@ -1,6 +1,9 @@
 package daytrader.data.persistence
 
 object AppDataFiles {
+    /** Global IB Gateway connection settings (app data root, not broker-scoped). */
+    const val IB_GATEWAY_SETTINGS = "ib-gateway.json"
+
     const val DEPLOYMENTS = "deployments.json"
     const val DEPLOYMENTS_BACKUP = "deployments.json.bak"
     const val STRATEGIES_SCREEN = "strategies-screen.json"

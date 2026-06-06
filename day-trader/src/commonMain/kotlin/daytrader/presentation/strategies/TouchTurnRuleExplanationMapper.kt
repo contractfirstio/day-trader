@@ -252,8 +252,6 @@ object TouchTurnRuleExplanationMapper {
     ): RuleCheckUi {
         val closeConfirmation = session.pipelineCloseConfirmation(evaluationInstant)
         val closeRatio = TouchTurnLogic.closePositionRatio(candle)
-        val minSep = TouchTurnLogic.closeConfirmationMinDistanceFromEntry(setup, rules)
-        val separates = TouchTurnLogic.closeSeparatesFromEntry(setup, candle.close, rules)
         val inZone = TouchTurnLogic.closePositionInTurnZone(setup, candle, candle.close, rules)
         val passed = when {
             !enabled -> null
@@ -273,14 +271,6 @@ object TouchTurnRuleExplanationMapper {
             add(
                 "${TouchTurnLogic.tradeSideLabel(setup.side)} entry at ${fmt(setup.entry, currency)} " +
                     "(${setup.candleColor.name.lowercase()} liquidity bar)."
-            )
-            add(
-                "Close must separate from entry by at least ${fmt(minSep, currency)} " +
-                    "(${rules.closeConfirmationMinDistanceRatioOfRange}× bar range)."
-            )
-            add(
-                "Bar close ${fmt(candle.close, currency)} is " +
-                    if (separates) "far enough from entry." else "too close to entry."
             )
             closeRatio?.let { ratio ->
                 add(
@@ -477,7 +467,7 @@ object TouchTurnRuleExplanationMapper {
             requireLivePriceChecks = requireLivePriceChecks,
             ruleName = "Live turn confirmation",
             applicableDetail =
-                "Live mid must confirm the turn zone on the tape (same separation + zone rules as bar close).",
+                "Live mid must confirm the turn zone on the tape (same zone rules as bar close).",
             notApplicableDetail = "Emulator / historical path — live turn confirmation not enforced.",
             outcome = session.decisionOutcome,
             failedOutcome = TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,

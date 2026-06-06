@@ -34,6 +34,7 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val candle = OhlcBar(open = 100.0, high = 102.0, low = 99.0, close = 101.5, time = "20260522  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 0.5)
@@ -87,6 +88,7 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
         )
         engine.handleConnect()
         engine.finishConnect()
+        engine.ensureStreamingMarketData("AAPL")
 
         val candle = OhlcBar(open = 100.0, high = 102.0, low = 99.0, close = 101.5, time = "20260522  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 0.5)

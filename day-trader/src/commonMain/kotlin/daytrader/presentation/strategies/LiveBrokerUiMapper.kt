@@ -33,6 +33,9 @@ data class LiveBrokerUiState(
     val symbol: String,
     val isConnected: Boolean,
     val statusMessage: String?,
+    val bid: Double?,
+    val ask: Double?,
+    val last: Double?,
     val formattedBid: String?,
     val formattedAsk: String?,
     val formattedLast: String?,
@@ -75,28 +78,28 @@ object LiveBrokerUiMapper {
         }
 
         val currency = accountPosition?.currency ?: SymbolMarkets.currencyCode(symbol)
-        val formattedBid = if (includeMarketQuotes) {
+        val bid = if (includeMarketQuotes) {
             accountPosition?.bidPrice?.takeIf { it > 0.0 }
-                ?.let { Formatters.moneyPlain(it, currency) }
-                ?: quote?.bid?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+                ?: quote?.bid?.takeIf { it > 0.0 }
         } else {
             null
         }
-        val formattedAsk = if (includeMarketQuotes) {
+        val ask = if (includeMarketQuotes) {
             accountPosition?.askPrice?.takeIf { it > 0.0 }
-                ?.let { Formatters.moneyPlain(it, currency) }
-                ?: quote?.ask?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+                ?: quote?.ask?.takeIf { it > 0.0 }
         } else {
             null
         }
-        val formattedLast = if (includeMarketQuotes) {
+        val last = if (includeMarketQuotes) {
             accountPosition?.lastTradePrice?.takeIf { it > 0.0 }
-                ?.let { Formatters.moneyPlain(it, currency) }
-                ?: accountPosition?.marketPrice?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
-                ?: quote?.last?.takeIf { it > 0.0 }?.let { Formatters.moneyPlain(it, currency) }
+                ?: accountPosition?.marketPrice?.takeIf { it > 0.0 }
+                ?: quote?.last?.takeIf { it > 0.0 }
         } else {
             null
         }
+        val formattedBid = bid?.let { Formatters.moneyPlain(it, currency) }
+        val formattedAsk = ask?.let { Formatters.moneyPlain(it, currency) }
+        val formattedLast = last?.let { Formatters.moneyPlain(it, currency) }
 
         if (livePriceUiLogsEnabled) {
             TimestampedConsoleLog.line(
@@ -113,6 +116,9 @@ object LiveBrokerUiMapper {
             symbol = symbol,
             isConnected = isConnected,
             statusMessage = statusMessage,
+            bid = bid,
+            ask = ask,
+            last = last,
             formattedBid = formattedBid,
             formattedAsk = formattedAsk,
             formattedLast = formattedLast,
