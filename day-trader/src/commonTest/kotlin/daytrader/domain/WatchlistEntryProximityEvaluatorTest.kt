@@ -52,4 +52,20 @@ class WatchlistEntryProximityEvaluatorTest {
 
         assertEquals(null, WatchlistEntryProximityEvaluator.evaluatePlan(plan, 100.1))
     }
+
+    @Test
+    fun placedOrderPlan_isIgnored() {
+        val plan = WatchlistTradePlan(
+            id = "p1",
+            label = "Plan A",
+            entryPrice = 100.0,
+            proximityAlertEnabled = true,
+            proximityThresholdMode = ProximityThresholdMode.PERCENT,
+            proximityThresholdValue = 1.0,
+            orderPlacedAtEpochMs = 1_700_000_000_000L,
+            placedOrderIds = listOf(100, 101, 102)
+        )
+
+        assertEquals(null, WatchlistEntryProximityEvaluator.evaluatePlan(plan, 100.5))
+    }
 }

@@ -57,7 +57,20 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             onFieldChange = viewModel::onUpdatePlanField,
             onGroupInputChange = viewModel::onEditorGroupInputChange,
             onAddGroup = viewModel::onAddEditorGroup,
-            onRemoveGroup = viewModel::onRemoveEditorGroup
+            onRemoveGroup = viewModel::onRemoveEditorGroup,
+            onPlaceBracket = viewModel::onOpenBracketOrder,
+            onReactivatePlan = viewModel::onReactivatePlan
+        )
+    }
+
+    uiState.bracketOrderEditor?.let { order ->
+        WatchlistBracketOrderDialog(
+            order = order,
+            connectionLabel = uiState.connectionLabel,
+            onDismiss = viewModel::onDismissBracketOrder,
+            onSideChange = viewModel::onUpdateBracketOrderSide,
+            onFieldChange = viewModel::onUpdateBracketOrderField,
+            onSubmit = viewModel::onSubmitBracketOrder
         )
     }
 
@@ -124,7 +137,7 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 summary,
-                color = if (uiState.nearHits.isNotEmpty()) GainGreen else TextSecondary,
+                color = if (uiState.nearHits.isNotEmpty()) TradeBlueBorder else TextSecondary,
                 fontSize = 13.sp,
                 fontWeight = if (uiState.nearHits.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal
             )
@@ -312,7 +325,7 @@ private fun WatchlistRow(
     onRemove: () -> Unit,
     onGroupClick: (String) -> Unit
 ) {
-    val rowColor = if (row.isNearEntry) Color(0xFF2A2418) else Color.Transparent
+    val rowColor = if (row.isNearEntry) TradeBlueSurface.copy(alpha = 0.85f) else Color.Transparent
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -349,14 +362,14 @@ private fun WatchlistRow(
         Text(
             row.proximityStatusLabel,
             modifier = Modifier.weight(0.9f),
-            color = if (row.isNearEntry) GainGreen else TextSecondary,
+            color = if (row.isNearEntry) TradeBlueBorder else TextSecondary,
             fontSize = 12.sp,
             fontWeight = if (row.isNearEntry) FontWeight.SemiBold else FontWeight.Normal
         )
         Text(
             row.nearEntrySummary ?: row.planSummary.orEmpty(),
             modifier = Modifier.weight(1.1f),
-            color = if (row.isNearEntry) GainGreen else TextSecondary,
+            color = if (row.isNearEntry) TradeBlueBorder else TextSecondary,
             fontSize = 12.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis

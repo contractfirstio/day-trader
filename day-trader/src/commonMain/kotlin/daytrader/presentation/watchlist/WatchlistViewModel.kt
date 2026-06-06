@@ -1,5 +1,6 @@
 package daytrader.presentation.watchlist
 
+import daytrader.broker.SymbolMarkets
 import daytrader.data.WatchlistPriceScanService
 import daytrader.data.WatchlistRepository
 import daytrader.data.WatchlistScanResult
@@ -14,18 +15,22 @@ import daytrader.domain.ProximityThresholdMode
 import daytrader.domain.TradeSide
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
+import daytrader.domain.WatchlistBracketOrderPlanner
 import daytrader.domain.WatchlistLabels
 import daytrader.domain.WatchlistTradePlan
+import daytrader.domain.WatchlistTradePlanCalculator
 import daytrader.domain.newWatchlistLabel
 import daytrader.domain.newWatchlistEntry
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
+import daytrader.gateway.TouchTurnBracketAck
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,17 +42,25 @@ import kotlinx.coroutines.withContext
 
 class WatchlistViewModel(
     private val repository: WatchlistRepository,
-    private val brokerGateway: BrokerGateway? = null,
+    brokerGateway: BrokerGateway? = null,
+    touchTurnSessionGateway: BrokerGateway? = null,
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
+    private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val scanService: WatchlistPriceScanService = WatchlistPriceScanService()
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val executionGateway = brokerGateway
+    private val marketDataGateway = touchTurnSessionGateway ?: brokerGateway
 
     private var watchlists: List<Watchlist> = emptyList()
     private var selectedWatchlistId: String = DEFAULT_WATCHLIST_ID
-    private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
+    private var executionConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
+    private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var showAddDialog = false
     private var tradePlansEditorDraft: WatchlistTradePlansEditorUi? = null
+    private var bracketOrderDraft: WatchlistBracketOrderUi? = null
+    private var pendingBracketSymbol: String? = null
+    private var bracketSubmitGeneration = 0
     private var sortColumn = WatchlistSortColumn.SYMBOL
     private var sortDirection = WatchlistSortDirection.ASCENDING
     private var activeGroupFilter: WatchlistGroupFilter = WatchlistGroupFilter.All
@@ -69,12 +82,106 @@ class WatchlistViewModel(
             }
             .launchIn(scope)
 
-        brokerGateway?.connectionState
+        executionGateway?.connectionState
             ?.onEach { state ->
-                connectionState = state
+                executionConnection = state
+                if (marketDataGateway === executionGateway) {
+                    marketDataConnection = state
+                }
                 emitUiState()
             }
             ?.launchIn(scope)
+
+        executionGateway?.touchTurnBracketPlacements
+            ?.onEach(::handleBracketPlacementAck)
+            ?.launchIn(scope)
+
+        if (marketDataGateway != null && marketDataGateway !== executionGateway) {
+            marketDataGateway.connectionState
+                .onEach { state ->
+                    marketDataConnection = state
+                    emitUiState()
+                }
+                .launchIn(scope)
+        }
+    }
+
+    private fun handleBracketPlacementAck(ack: TouchTurnBracketAck) {
+        val draft = bracketOrderDraft ?: return
+        val pending = pendingBracketSymbol ?: return
+        if (!SymbolMarkets.symbolsMatch(draft.symbol, ack.symbol)) return
+        if (!SymbolMarkets.symbolsMatch(pending, ack.symbol)) return
+        pendingBracketSymbol = null
+        if (ack.result.isSuccess) {
+            recordPlanOrderPlacement(
+                entryId = draft.entryId,
+                planId = draft.planId,
+                orderIds = ack.orderIds
+            )
+        }
+        bracketOrderDraft = draft.copy(
+            submitInProgress = false,
+            submitResultMessage = if (ack.result.isSuccess) {
+                val ids = ack.orderIds.joinToString(", ")
+                if (ids.isBlank()) "Bracket submitted." else "Bracket submitted (order ids: $ids)."
+            } else {
+                "Bracket failed: ${ack.result.exceptionOrNull()?.message ?: "unknown error"}"
+            }
+        )
+        emitUiState()
+    }
+
+    private fun recordPlanOrderPlacement(entryId: String, planId: String, orderIds: List<Int>) {
+        val watchlist = selectedWatchlist() ?: return
+        val placedAt = System.currentTimeMillis()
+        repository.updateWatchlist(watchlist.id) { current ->
+            current.copy(
+                entries = current.entries.map { entry ->
+                    if (entry.id != entryId) entry
+                    else entry.copy(
+                        tradePlans = entry.tradePlans.map { plan ->
+                            if (plan.id != planId) plan
+                            else plan.copy(
+                                orderPlacedAtEpochMs = placedAt,
+                                placedOrderIds = orderIds
+                            )
+                        }
+                    )
+                }
+            )
+        }
+        val updatedWatchlist = repository.watchlists.value.find { it.id == watchlist.id } ?: return
+        val entry = updatedWatchlist.entries.find { it.id == entryId } ?: return
+        if (tradePlansEditorDraft?.entryId == entryId) {
+            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist)
+        }
+    }
+
+    fun onReactivatePlan(planId: String) {
+        val draft = tradePlansEditorDraft ?: return
+        clearPlanOrderPlacement(draft.entryId, planId)
+        emitUiState()
+    }
+
+    private fun clearPlanOrderPlacement(entryId: String, planId: String) {
+        val watchlist = selectedWatchlist() ?: return
+        repository.updateWatchlist(watchlist.id) { current ->
+            current.copy(
+                entries = current.entries.map { entry ->
+                    if (entry.id != entryId) entry
+                    else entry.copy(
+                        tradePlans = entry.tradePlans.map { plan ->
+                            if (plan.id != planId) plan else plan.withoutOrderPlacement()
+                        }
+                    )
+                }
+            )
+        }
+        val updatedWatchlist = repository.watchlists.value.find { it.id == watchlist.id } ?: return
+        val entry = updatedWatchlist.entries.find { it.id == entryId } ?: return
+        if (tradePlansEditorDraft?.entryId == entryId) {
+            tradePlansEditorDraft = WatchlistUiMapper.toEditorUi(entry, updatedWatchlist)
+        }
     }
 
     fun onShowAddDialog() {
@@ -107,7 +214,7 @@ class WatchlistViewModel(
     }
 
     fun onCheckEntryProximity() {
-        val gateway = brokerGateway ?: return
+        val gateway = marketDataGateway ?: executionGateway ?: return
         val watchlist = selectedWatchlist() ?: return
         if (scanInProgress || watchlist.entries.isEmpty()) return
         scope.launch {
@@ -147,7 +254,7 @@ class WatchlistViewModel(
             return
         }
         scope.launch {
-            val resolveGateway = brokerGateway
+            val resolveGateway = marketDataGateway ?: executionGateway
             val connected = resolveGateway?.connectionState?.value == GatewayConnectionState.Connected
             val source = when {
                 resolveGateway == null -> "no_gateway"
@@ -230,6 +337,8 @@ class WatchlistViewModel(
 
     fun onDismissTradePlans() {
         tradePlansEditorDraft = null
+        bracketOrderDraft = null
+        pendingBracketSymbol = null
         emitUiState()
     }
 
@@ -331,6 +440,179 @@ class WatchlistViewModel(
         )
     }
 
+    fun onOpenBracketOrder(planId: String) {
+        val plansDraft = tradePlansEditorDraft ?: return
+        val entry = findEntry(plansDraft.entryId) ?: return
+        val planEditor = plansDraft.plans.find { it.planId == planId } ?: return
+        val base = entry.tradePlans.find { it.id == planId }
+            ?: WatchlistTradePlan(id = planId, label = planEditor.label)
+        val plan = planFromEditor(planEditor, base)
+        val outcome = WatchlistTradePlanCalculator.compute(plan)
+        bracketOrderDraft = recomputeBracketOrder(
+            WatchlistBracketOrderUi(
+                entryId = plansDraft.entryId,
+                planId = planId,
+                symbol = plansDraft.symbol,
+                companyName = plansDraft.companyName,
+                planLabel = planEditor.label,
+                currencyCode = plansDraft.currencyCode,
+                side = planEditor.side,
+                entryPriceText = planEditor.entryPriceText,
+                stopPriceText = planEditor.stopPriceText,
+                targetPriceText = planEditor.targetPriceText,
+                quantityText = outcome.quantity?.toString().orEmpty()
+            ),
+            entry
+        )
+        emitUiState()
+    }
+
+    fun onDismissBracketOrder() {
+        bracketOrderDraft = null
+        pendingBracketSymbol = null
+        emitUiState()
+    }
+
+    fun onUpdateBracketOrderSide(side: TradeSide) {
+        val draft = bracketOrderDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        bracketOrderDraft = recomputeBracketOrder(draft.copy(side = side), entry)
+        emitUiState()
+    }
+
+    fun onUpdateBracketOrderField(field: WatchlistBracketOrderField, value: String) {
+        val draft = bracketOrderDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        val updated = when (field) {
+            WatchlistBracketOrderField.ENTRY -> draft.copy(entryPriceText = value)
+            WatchlistBracketOrderField.STOP -> draft.copy(stopPriceText = value)
+            WatchlistBracketOrderField.TARGET -> draft.copy(targetPriceText = value)
+            WatchlistBracketOrderField.QUANTITY -> draft.copy(quantityText = value)
+        }
+        bracketOrderDraft = recomputeBracketOrder(updated, entry)
+        emitUiState()
+    }
+
+    fun onSubmitBracketOrder() {
+        val draft = bracketOrderDraft ?: return
+        val gateway = executionGateway ?: return
+        if (executionConnection != GatewayConnectionState.Connected || !draft.canSubmit) return
+        val entry = findEntry(draft.entryId) ?: return
+        val planResult = buildTouchTurnPlanFromBracketDraft(draft, entry)
+        if (planResult.isFailure) {
+            bracketOrderDraft = draft.copy(
+                validationErrors = listOf(planResult.exceptionOrNull()?.message ?: "Invalid bracket"),
+                canSubmit = false
+            )
+            emitUiState()
+            return
+        }
+        pendingBracketSymbol = draft.symbol
+        ensureLiveMarketData?.invoke(entry.symbol, entry.instrument)
+        val submitGeneration = ++bracketSubmitGeneration
+        bracketOrderDraft = draft.copy(submitInProgress = true, submitResultMessage = null)
+        emitUiState()
+        gateway.placeTouchTurnBracket(planResult.getOrThrow())
+        scheduleBracketAckTimeout(submitGeneration)
+    }
+
+    private fun scheduleBracketAckTimeout(submitGeneration: Int) {
+        scope.launch {
+            delay(BRACKET_ACK_TIMEOUT_MS)
+            if (bracketSubmitGeneration != submitGeneration) return@launch
+            if (bracketOrderDraft?.submitInProgress != true) return@launch
+            pendingBracketSymbol = null
+            bracketOrderDraft = bracketOrderDraft?.copy(
+                submitInProgress = false,
+                submitResultMessage = "Bracket timed out waiting for broker acknowledgment."
+            )
+            emitUiState()
+        }
+    }
+
+    private fun planFromEditor(planEditor: WatchlistPlanEditorUi, base: WatchlistTradePlan): WatchlistTradePlan =
+        WatchlistUiMapper.planFromEditorFields(
+            plan = base.copy(label = planEditor.label),
+            side = planEditor.side,
+            entryPriceText = planEditor.entryPriceText,
+            stopPriceText = planEditor.stopPriceText,
+            targetPriceText = planEditor.targetPriceText,
+            investmentAmountText = planEditor.investmentAmountText,
+            sizingMode = planEditor.sizingMode,
+            proximityAlertEnabled = planEditor.proximityAlertEnabled,
+            proximityThresholdMode = planEditor.proximityThresholdMode,
+            proximityThresholdValueText = planEditor.proximityThresholdValueText
+        )
+
+    private fun buildTouchTurnPlanFromBracketDraft(
+        draft: WatchlistBracketOrderUi,
+        entry: WatchlistEntry
+    ): Result<daytrader.domain.TouchTurnOrderPlan> {
+        val entryPrice = draft.entryPriceText.toDoubleOrNull()
+            ?: return Result.failure(IllegalArgumentException("Entry price required"))
+        val stopPrice = draft.stopPriceText.toDoubleOrNull()
+            ?: return Result.failure(IllegalArgumentException("Stop price required"))
+        val targetPrice = draft.targetPriceText.toDoubleOrNull()
+            ?: return Result.failure(IllegalArgumentException("Target price required"))
+        val quantity = draft.quantityText.toIntOrNull()
+            ?: return Result.failure(IllegalArgumentException("Quantity required"))
+        return WatchlistBracketOrderPlanner.buildTouchTurnPlan(
+            symbol = SymbolMarkets.normalizeSymbol(entry.symbol),
+            currencyCode = entry.currencyCode,
+            instrument = entry.instrument,
+            side = draft.side,
+            entryPrice = entryPrice,
+            stopPrice = stopPrice,
+            targetPrice = targetPrice,
+            quantity = quantity
+        )
+    }
+
+    private fun recomputeBracketOrder(draft: WatchlistBracketOrderUi, entry: WatchlistEntry): WatchlistBracketOrderUi {
+        val entryPrice = draft.entryPriceText.toDoubleOrNull()
+        val stopPrice = draft.stopPriceText.toDoubleOrNull()
+        val targetPrice = draft.targetPriceText.toDoubleOrNull()
+        val quantity = draft.quantityText.toIntOrNull()
+        val previewPlan = WatchlistTradePlan(
+            id = draft.planId,
+            label = draft.planLabel,
+            side = draft.side,
+            entryPrice = entryPrice,
+            stopPrice = stopPrice,
+            targetPrice = targetPrice,
+            investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } }
+        )
+        val calculatorOutcome = WatchlistTradePlanCalculator.compute(previewPlan)
+        val bracketResult = if (entryPrice != null && stopPrice != null && targetPrice != null && quantity != null) {
+            WatchlistBracketOrderPlanner.buildTouchTurnPlan(
+                symbol = entry.symbol,
+                currencyCode = entry.currencyCode,
+                instrument = entry.instrument,
+                side = draft.side,
+                entryPrice = entryPrice,
+                stopPrice = stopPrice,
+                targetPrice = targetPrice,
+                quantity = quantity
+            )
+        } else {
+            Result.failure(IllegalArgumentException("Complete all bracket fields"))
+        }
+        val errors = buildList {
+            addAll(calculatorOutcome.errors)
+            bracketResult.exceptionOrNull()?.message?.let { add(it) }
+        }.distinct()
+        val connected = executionConnection == GatewayConnectionState.Connected && executionGateway != null
+        return draft.copy(
+            outcome = if (calculatorOutcome.isComplete) {
+                WatchlistUiMapper.outcomeUi(calculatorOutcome, draft.currencyCode)
+            } else {
+                null
+            },
+            validationErrors = errors,
+            canSubmit = connected && errors.isEmpty() && !draft.submitInProgress
+        )
+    }
+
     fun onSaveTradePlans() {
         val draft = tradePlansEditorDraft ?: return
         val watchlist = selectedWatchlist() ?: return
@@ -387,7 +669,8 @@ class WatchlistViewModel(
                     WatchlistUiMapper.recomputeEditorPlan(
                         editor = transform(editor),
                         base = base,
-                        currencyCode = draft.currencyCode
+                        currencyCode = draft.currencyCode,
+                        scannedPrice = draft.scannedPrice
                     )
                 }
             }
@@ -405,7 +688,9 @@ class WatchlistViewModel(
         val result = lastScanResult ?: return emptyMap()
         return result.entryResults
             .mapNotNull { entryResult ->
-                val nearPlans = entryResult.proximityHits.filter { it.isNear }
+                val entry = findEntry(entryResult.entryId) ?: return@mapNotNull null
+                val placedPlanIds = entry.tradePlans.filter { it.hasPlacedOrder }.map { it.id }.toSet()
+                val nearPlans = entryResult.proximityHits.filter { it.isNear && it.planId !in placedPlanIds }
                 if (nearPlans.isEmpty()) return@mapNotNull null
                 val summary = nearPlans.joinToString { hit ->
                     "${hit.planLabel} (${Formatters.price(hit.scannedPrice)} vs ${Formatters.price(hit.entryPrice)})"
@@ -416,6 +701,8 @@ class WatchlistViewModel(
     }
 
     private fun emitUiState() {
+        refreshTradePlansEditorProximity()
+        refreshBracketOrderState()
         val watchlist = selectedWatchlist()
         val entries = watchlist?.entries.orEmpty()
         val labels = watchlist?.labels.orEmpty()
@@ -440,10 +727,14 @@ class WatchlistViewModel(
             filteredEntries.sortedWith(comparator)
         }
         val groupFilterChips = buildGroupFilterChips(entries, labels)
+        val placedPlanIdsByEntry = entries.associate { entry ->
+            entry.id to entry.tradePlans.filter { it.hasPlacedOrder }.map { it.id }.toSet()
+        }
         val nearHits = lastScanResult?.entryResults.orEmpty()
             .flatMap { entryResult ->
+                val placedPlanIds = placedPlanIdsByEntry[entryResult.entryId].orEmpty()
                 entryResult.proximityHits
-                    .filter { it.isNear }
+                    .filter { it.isNear && it.planId !in placedPlanIds }
                     .map { hit ->
                         WatchlistNearHitUi(
                             entryId = entryResult.entryId,
@@ -481,13 +772,44 @@ class WatchlistViewModel(
                 sortDirection = sortDirection,
                 showAddDialog = showAddDialog,
                 tradePlansEditor = tradePlansEditorDraft,
-                connectionLabel = connectionLabel(connectionState),
+                bracketOrderEditor = bracketOrderDraft,
+                connectionLabel = connectionLabel(executionConnection, marketDataConnection),
                 scanInProgress = scanInProgress,
                 scanProgressLabel = scanProgressLabel,
                 scanSummary = scanSummary,
                 nearHits = nearHits
             )
         }
+    }
+
+    private fun refreshBracketOrderState() {
+        val draft = bracketOrderDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        bracketOrderDraft = recomputeBracketOrder(draft, entry).copy(
+            submitInProgress = draft.submitInProgress,
+            submitResultMessage = draft.submitResultMessage
+        )
+    }
+
+    private fun refreshTradePlansEditorProximity() {
+        val draft = tradePlansEditorDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        val scannedPrice = entry.lastScannedPrice
+        if (draft.scannedPrice == scannedPrice) return
+        tradePlansEditorDraft = draft.copy(
+            scannedPrice = scannedPrice,
+            formattedLast = Formatters.price(scannedPrice?.takeIf { it > 0.0 }),
+            plans = draft.plans.map { planEditor ->
+                val base = entry.tradePlans.find { it.id == planEditor.planId }
+                    ?: WatchlistTradePlan(id = planEditor.planId, label = planEditor.label)
+                WatchlistUiMapper.recomputeEditorPlan(
+                    editor = planEditor,
+                    base = base,
+                    currencyCode = draft.currencyCode,
+                    scannedPrice = scannedPrice
+                )
+            }
+        )
     }
 
     private fun matchesGroupFilter(entry: WatchlistEntry): Boolean = when (val filter = activeGroupFilter) {
@@ -529,10 +851,26 @@ class WatchlistViewModel(
         return chips
     }
 
-    private fun connectionLabel(state: GatewayConnectionState): String = when (state) {
-        GatewayConnectionState.Connected -> "${brokerKind.displayName} connected"
-        GatewayConnectionState.Connecting -> "Connecting…"
-        is GatewayConnectionState.Error -> "Connection error"
-        GatewayConnectionState.Disconnected -> "Disconnected"
+    private fun connectionLabel(
+        execution: GatewayConnectionState,
+        marketData: GatewayConnectionState
+    ): String = when (brokerKind) {
+        BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA, BrokerKind.REPLAY -> {
+            val exec = gatewayConnectionPhrase(execution, "Paper execution")
+            val md = gatewayConnectionPhrase(marketData, "IB market data")
+            "$exec · $md"
+        }
+        else -> gatewayConnectionPhrase(execution, brokerKind.displayName)
+    }
+
+    private fun gatewayConnectionPhrase(state: GatewayConnectionState, label: String): String = when (state) {
+        GatewayConnectionState.Connected -> "$label connected"
+        GatewayConnectionState.Connecting -> "$label connecting…"
+        is GatewayConnectionState.Error -> "$label connection error"
+        GatewayConnectionState.Disconnected -> "$label disconnected"
+    }
+
+    companion object {
+        private const val BRACKET_ACK_TIMEOUT_MS = 30_000L
     }
 }

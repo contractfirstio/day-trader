@@ -1,5 +1,10 @@
 package daytrader.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,7 +56,9 @@ internal fun WatchlistTradePlansDialog(
     onFieldChange: (String, WatchlistPlanField, String) -> Unit,
     onGroupInputChange: (String) -> Unit,
     onAddGroup: (String?) -> Unit,
-    onRemoveGroup: (String) -> Unit
+    onRemoveGroup: (String) -> Unit,
+    onPlaceBracket: (String) -> Unit,
+    onReactivatePlan: (String) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -93,11 +100,16 @@ internal fun WatchlistTradePlansDialog(
                 editor.plans.forEach { plan ->
                     TradePlanCard(
                         plan = plan,
+                        isNearEntry = plan.isNearEntry,
+                        canPlaceBracket = plan.orderPlacedLabel == null &&
+                            plan.outcome?.let { it.errors.isEmpty() && it.quantityLabel != null } == true,
+                        onPlaceBracket = { onPlaceBracket(plan.planId) },
                         onSideChange = { onSideChange(plan.planId, it) },
                         onSizingModeChange = { onSizingModeChange(plan.planId, it) },
                         onProximityEnabledChange = { onProximityEnabledChange(plan.planId, it) },
                         onProximityModeChange = { onProximityModeChange(plan.planId, it) },
-                        onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) }
+                        onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) },
+                        onReactivatePlan = { onReactivatePlan(plan.planId) }
                     )
                 }
             }
@@ -294,21 +306,82 @@ private fun AssignedGroupChip(label: WatchlistLabelUi, onRemove: () -> Unit) {
 @Composable
 private fun TradePlanCard(
     plan: WatchlistPlanEditorUi,
+    isNearEntry: Boolean,
+    canPlaceBracket: Boolean,
+    onPlaceBracket: () -> Unit,
     onSideChange: (TradeSide) -> Unit,
     onSizingModeChange: (PlanSizingMode) -> Unit,
     onProximityEnabledChange: (Boolean) -> Unit,
     onProximityModeChange: (ProximityThresholdMode) -> Unit,
-    onFieldChange: (WatchlistPlanField, String) -> Unit
+    onFieldChange: (WatchlistPlanField, String) -> Unit,
+    onReactivatePlan: () -> Unit
 ) {
+    val cardShape = RoundedCornerShape(8.dp)
+    val pulseTransition = rememberInfiniteTransition(label = "watchlistPlanNearEntryPulse")
+    val pulseAlpha by pulseTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(750), repeatMode = RepeatMode.Reverse),
+        label = "watchlistPlanNearEntryPulseAlpha"
+    )
+    val borderColor = if (isNearEntry) {
+        TradeBlueBorder.copy(alpha = pulseAlpha)
+    } else {
+        TableHeaderBg
+    }
+    val borderWidth = if (isNearEntry) 2.dp else 1.dp
+    val backgroundColor = if (isNearEntry) TradeBlueSurface.copy(alpha = 0.65f) else DarkBackground
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
-            .background(DarkBackground, RoundedCornerShape(8.dp))
-            .padding(12.dp),
+            .border(borderWidth, borderColor, cardShape)
+            .background(backgroundColor, cardShape)
+            .padding(12.dp)
+            .testTag(if (isNearEntry) "WatchlistTradePlanNearEntry-${plan.planId}" else "WatchlistTradePlan-${plan.planId}"),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(plan.label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(plan.label, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            when {
+                plan.orderPlacedLabel != null -> {
+                    Text(
+                        "Order placed",
+                        color = GainGreen,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                isNearEntry -> {
+                    Text(
+                        "Near entry",
+                        color = TradeBlueBorder,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        plan.orderPlacedLabel?.let { label ->
+            Text(label, color = GainGreen, fontSize = 12.sp)
+            Text(
+                "Clears the link to placed orders so entry alerts can resume. Open orders are not cancelled.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.sp
+            )
+            TextButton(
+                onClick = onReactivatePlan,
+                modifier = Modifier.testTag("ReactivateWatchlistPlan-${plan.planId}")
+            ) {
+                Text("Reactivate plan", color = BrandRed, fontSize = 13.sp)
+            }
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -401,6 +474,28 @@ private fun TradePlanCard(
 
         plan.outcome?.let { outcome ->
             TradePlanOutcomePanel(outcome)
+        }
+
+        Button(
+            onClick = onPlaceBracket,
+            enabled = canPlaceBracket,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("PlaceWatchlistBracket-${plan.planId}"),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = TradeBlueBorder,
+                disabledContainerColor = TableHeaderBg
+            )
+        ) {
+            Text(
+                when {
+                    plan.orderPlacedLabel != null -> "Order placed for this plan"
+                    canPlaceBracket -> "Place bracket order…"
+                    else -> "Complete plan to place bracket"
+                },
+                color = if (canPlaceBracket) Color.White else TextSecondary,
+                fontSize = 13.sp
+            )
         }
     }
 }

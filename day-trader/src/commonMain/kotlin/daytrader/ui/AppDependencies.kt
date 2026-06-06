@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
+import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
@@ -21,6 +22,7 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.presentation.markets.MarketFilterState
+import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.presentation.watchlist.WatchlistViewModel
@@ -36,6 +38,7 @@ data class AppDependencies(
     val marketFilter: MarketFilterState,
     val strategiesViewModel: StrategiesViewModel,
     val positionsViewModel: PositionsViewModel,
+    val ordersViewModel: OrdersViewModel,
     val watchlistViewModel: WatchlistViewModel,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
@@ -45,6 +48,7 @@ data class AppDependencies(
 @Composable
 fun rememberAppDependencies(
     positionRepository: PositionRepository,
+    openOrderRepository: OpenOrderRepository,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
     brokerKind: BrokerKind = BrokerKind.EMULATOR,
@@ -65,6 +69,7 @@ fun rememberAppDependencies(
         appStateRepository,
         marketFilter,
         positionRepository,
+        openOrderRepository,
         brokerGateway,
         touchTurnSessionGateway,
         brokerKind,
@@ -139,8 +144,10 @@ fun rememberAppDependencies(
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,
-            brokerGateway = brokerGateway ?: touchTurnSessionGateway,
-            brokerKind = brokerKind
+            brokerGateway = brokerGateway,
+            touchTurnSessionGateway = touchTurnSessionGateway,
+            brokerKind = brokerKind,
+            ensureLiveMarketData = ensureLiveMarketData
         )
         touchTurnEngine?.let { engine ->
             if (TouchTurnEngineConfig.useEngine()) {
@@ -162,6 +169,11 @@ fun rememberAppDependencies(
             marketFilter = marketFilter,
             strategiesViewModel = viewModel,
             positionsViewModel = PositionsViewModel(positionRepository),
+            ordersViewModel = OrdersViewModel(
+                repository = openOrderRepository,
+                watchlistRepository = watchlistRepository,
+                brokerKind = brokerKind
+            ),
             watchlistViewModel = watchlistViewModel,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,

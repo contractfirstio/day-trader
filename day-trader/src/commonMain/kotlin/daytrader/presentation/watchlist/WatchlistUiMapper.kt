@@ -50,11 +50,14 @@ object WatchlistUiMapper {
             symbol = entry.symbol,
             companyName = entry.companyName?.takeIf { it.isNotBlank() } ?: entry.symbol,
             formattedLast = Formatters.price(entry.lastScannedPrice?.takeIf { it > 0.0 }),
+            scannedPrice = entry.lastScannedPrice,
             currencyCode = entry.currencyCode,
             assignedLabels = toLabelUi(assigned),
             availableLabels = toLabelUi(WatchlistLabels.availableLabels(watchlist.labels, entry.labelIds)),
             assignedLabelIds = entry.labelIds,
-            plans = entry.tradePlans.map { plan -> toPlanEditorUi(plan, entry.currencyCode) }
+            plans = entry.tradePlans.map { plan ->
+                toPlanEditorUi(plan, entry.currencyCode, entry.lastScannedPrice)
+            }
         )
     }
 
@@ -64,7 +67,11 @@ object WatchlistUiMapper {
     fun toDomainLabels(pending: List<WatchlistLabelUi>): List<WatchlistLabel> =
         pending.map { WatchlistLabel(id = it.id, name = it.name, createdAtEpochMs = System.currentTimeMillis()) }
 
-    fun toPlanEditorUi(plan: WatchlistTradePlan, currencyCode: String): WatchlistPlanEditorUi {
+    fun toPlanEditorUi(
+        plan: WatchlistTradePlan,
+        currencyCode: String,
+        scannedPrice: Double? = null
+    ): WatchlistPlanEditorUi {
         val draft = planFromEditorFields(
             plan = plan,
             side = plan.side,
@@ -89,14 +96,17 @@ object WatchlistUiMapper {
             proximityAlertEnabled = plan.proximityAlertEnabled,
             proximityThresholdMode = plan.proximityThresholdMode,
             proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty(),
-            outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode)
+            outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
+            isNearEntry = isPlanNearEntry(draft, scannedPrice),
+            orderPlacedLabel = orderPlacedLabel(plan)
         )
     }
 
     fun recomputeEditorPlan(
         editor: WatchlistPlanEditorUi,
         base: WatchlistTradePlan,
-        currencyCode: String
+        currencyCode: String,
+        scannedPrice: Double? = null
     ): WatchlistPlanEditorUi {
         val draft = planFromEditorFields(
             plan = base.copy(label = editor.label),
@@ -110,7 +120,11 @@ object WatchlistUiMapper {
             proximityThresholdMode = editor.proximityThresholdMode,
             proximityThresholdValueText = editor.proximityThresholdValueText
         )
-        return editor.copy(outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode))
+        return editor.copy(
+            outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
+            isNearEntry = isPlanNearEntry(draft, scannedPrice),
+            orderPlacedLabel = orderPlacedLabel(base)
+        )
     }
 
     fun planFromEditorFields(
@@ -163,6 +177,22 @@ object WatchlistUiMapper {
         val profit = Formatters.money(outcome.profitAtTarget ?: 0.0, entry.currencyCode, showSign = true)
         val loss = Formatters.money(outcome.lossAtStop ?: 0.0, entry.currencyCode, showSign = true)
         return "${plan.label}: $profit / $loss"
+    }
+
+    private fun isPlanNearEntry(plan: WatchlistTradePlan, scannedPrice: Double?): Boolean {
+        if (plan.hasPlacedOrder) return false
+        if (scannedPrice == null || scannedPrice <= 0.0) return false
+        return WatchlistEntryProximityEvaluator.evaluatePlan(plan, scannedPrice)?.isNear == true
+    }
+
+    fun orderPlacedLabel(plan: WatchlistTradePlan): String? {
+        if (!plan.hasPlacedOrder) return null
+        val ids = plan.placedOrderIds.joinToString(", ")
+        return if (ids.isBlank()) {
+            "Order placed for this plan"
+        } else {
+            "Order placed (ids: $ids)"
+        }
     }
 
     private fun proximityStatusLabel(status: WatchlistProximityStatus): String = when (status) {

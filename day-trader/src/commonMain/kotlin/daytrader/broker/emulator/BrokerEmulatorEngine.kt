@@ -308,6 +308,9 @@ class BrokerEmulatorEngine(
             spreadWidenFactor = config.bracketExitSpreadWidenFactor
         )
         val symbol = SymbolMarkets.normalizeSymbol(adjustedPlan.symbol)
+        if (config.pricingSource.isSynthetic) {
+            ensureStreamingMarketData(symbol, adjustedPlan.instrument)
+        }
         val entryLeg = adjustedPlan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: run {
             val failure = TouchTurnBracketAck(
                 symbol = symbolForAck,

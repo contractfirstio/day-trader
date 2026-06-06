@@ -107,7 +107,9 @@ object WatchlistPersistence {
             sizingMode = parseSizingMode(record.sizingMode),
             proximityAlertEnabled = record.proximityAlertEnabled,
             proximityThresholdMode = parseProximityThresholdMode(record.proximityThresholdMode),
-            proximityThresholdValue = record.proximityThresholdValue
+            proximityThresholdValue = record.proximityThresholdValue,
+            orderPlacedAtEpochMs = record.orderPlacedAtEpochMs,
+            placedOrderIds = record.placedOrderIds
         )
 
     private fun toPlanRecord(plan: WatchlistTradePlan): WatchlistTradePlanRecord =
@@ -123,7 +125,9 @@ object WatchlistPersistence {
             sizingMode = sizingModeLabel(plan.sizingMode),
             proximityAlertEnabled = plan.proximityAlertEnabled,
             proximityThresholdMode = proximityThresholdModeLabel(plan.proximityThresholdMode),
-            proximityThresholdValue = plan.proximityThresholdValue
+            proximityThresholdValue = plan.proximityThresholdValue,
+            orderPlacedAtEpochMs = plan.orderPlacedAtEpochMs,
+            placedOrderIds = plan.placedOrderIds
         )
 
     private fun parsePlanKind(value: String): WatchlistPlanKind =

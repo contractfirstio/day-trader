@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.IbStreamingMarketDataType
+import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
 import daytrader.marketdata.MarketQuoteBus
@@ -31,6 +33,7 @@ import daytrader.ui.theme.SurfaceDark
 fun App(
     brokerGateway: BrokerGateway,
     positionRepository: PositionRepository,
+    openOrderRepository: OpenOrderRepository,
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
@@ -44,6 +47,7 @@ fun App(
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
+        openOrderRepository = openOrderRepository,
         brokerGateway = brokerGateway,
         touchTurnSessionGateway = touchTurnSessionGateway,
         brokerKind = brokerKind,
@@ -156,6 +160,17 @@ fun App(
                             )
                         )
                         NavigationRailItem(
+                            selected = currentScreen == AppScreen.ORDERS,
+                            onClick = { currentScreen = AppScreen.ORDERS },
+                            icon = { Icon(Icons.Default.List, "Orders") },
+                            label = { Text("Orders") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
                             selected = currentScreen == AppScreen.POSITIONS,
                             onClick = { currentScreen = AppScreen.POSITIONS },
                             icon = { Icon(Icons.Default.Wallet, "Positions") },
@@ -173,6 +188,11 @@ fun App(
                         AppScreen.POSITIONS -> PositionsScreen(
                             viewModel = dependencies.positionsViewModel,
                             connectionState = connectionState
+                        )
+                        AppScreen.ORDERS -> OrdersScreen(
+                            viewModel = dependencies.ordersViewModel,
+                            connectionState = connectionState,
+                            brokerKind = brokerKind
                         )
                         AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
                         AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)

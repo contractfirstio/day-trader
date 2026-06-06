@@ -10,6 +10,7 @@ import daytrader.domain.defaultWatchlist
 import daytrader.domain.newWatchlistEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class WatchlistPersistenceTest {
     @Test
@@ -76,6 +77,31 @@ class WatchlistPersistenceTest {
         assertEquals(200.0, restored.tradePlans.first().targetPrice)
         assertEquals(10_000.0, restored.tradePlans.first().investmentAmount)
         assertEquals(PlanSizingMode.NOTIONAL, restored.tradePlans.first().sizingMode)
+    }
+
+    @Test
+    fun tradePlansRoundTrip_persistsOrderPlacement() {
+        val plan = WatchlistTradePlan(
+            id = "plan-a",
+            label = "Plan A",
+            orderPlacedAtEpochMs = 1_700_000_000_000L,
+            placedOrderIds = listOf(100, 101, 102)
+        )
+        val entry = newWatchlistEntry(
+            symbol = "AAPL",
+            marketZoneId = "America/New_York",
+            currencyCode = "USD",
+            companyName = "Apple Inc.",
+            instrument = null
+        ).copy(tradePlans = listOf(plan))
+
+        val restored = WatchlistPersistence.toDomain(
+            WatchlistPersistence.toRecord(defaultWatchlist().copy(entries = listOf(entry)))
+        ).entries.first().tradePlans.first()
+
+        assertEquals(1_700_000_000_000L, restored.orderPlacedAtEpochMs)
+        assertEquals(listOf(100, 101, 102), restored.placedOrderIds)
+        assertTrue(restored.hasPlacedOrder)
     }
 
     @Test

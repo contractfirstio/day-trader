@@ -30,8 +30,16 @@ data class WatchlistTradePlan(
     val sizingMode: PlanSizingMode = PlanSizingMode.NOTIONAL,
     val proximityAlertEnabled: Boolean = false,
     val proximityThresholdMode: ProximityThresholdMode = ProximityThresholdMode.PERCENT,
-    val proximityThresholdValue: Double? = null
-)
+    val proximityThresholdValue: Double? = null,
+    /** Set when a bracket order was submitted for this plan from the watchlist. */
+    val orderPlacedAtEpochMs: Long? = null,
+    val placedOrderIds: List<Int> = emptyList()
+) {
+    val hasPlacedOrder: Boolean get() = orderPlacedAtEpochMs != null
+
+    fun withoutOrderPlacement(): WatchlistTradePlan =
+        copy(orderPlacedAtEpochMs = null, placedOrderIds = emptyList())
+}
 
 data class WatchlistPlanOutcome(
     val quantity: Int? = null,

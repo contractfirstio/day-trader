@@ -244,6 +244,18 @@ class DesktopIbGatewayConnection(
                             IbGatewayLog.touchTurnBracketSkipped(
                                 "Market-data-only IB connection (use emulator for orders)"
                             )
+                            emit(
+                                GatewayEvent.TouchTurnBracketPlaced(
+                                    daytrader.gateway.TouchTurnBracketAck(
+                                        symbol = SymbolMarkets.normalizeSymbol(command.plan.symbol),
+                                        orderIds = emptyList(),
+                                        result = Result.failure(
+                                            IllegalStateException("market_data_only_connection")
+                                        ),
+                                        plan = command.plan
+                                    )
+                                )
+                            )
                         } else {
                             placeTouchTurnBracket(command.plan)
                         }

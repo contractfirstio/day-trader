@@ -53,5 +53,7 @@ data class WatchlistTradePlanRecord(
     val sizingMode: String = "notional",
     val proximityAlertEnabled: Boolean = false,
     val proximityThresholdMode: String = "percent",
-    val proximityThresholdValue: Double? = null
+    val proximityThresholdValue: Double? = null,
+    val orderPlacedAtEpochMs: Long? = null,
+    val placedOrderIds: List<Int> = emptyList()
 )

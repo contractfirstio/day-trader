@@ -38,6 +38,7 @@ object WatchlistEntryProximityEvaluator {
     }
 
     fun evaluatePlan(plan: WatchlistTradePlan, scannedPrice: Double): WatchlistProximityEvaluation? {
+        if (plan.hasPlacedOrder) return null
         if (!plan.proximityAlertEnabled) return null
         val entry = plan.entryPrice ?: return null
         if (entry <= 0.0 || scannedPrice <= 0.0) return null
