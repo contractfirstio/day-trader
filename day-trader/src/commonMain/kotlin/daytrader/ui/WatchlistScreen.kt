@@ -59,7 +59,24 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             onAddGroup = viewModel::onAddEditorGroup,
             onRemoveGroup = viewModel::onRemoveEditorGroup,
             onPlaceBracket = viewModel::onOpenBracketOrder,
-            onReactivatePlan = viewModel::onReactivatePlan
+            onReactivatePlan = viewModel::onReactivatePlan,
+            onOpenDiary = viewModel::onOpenPlanDiary
+        )
+    }
+
+    uiState.planDiaryEditor?.let { editor ->
+        WatchlistPlanDiaryDialog(
+            editor = editor,
+            onDismiss = viewModel::onDismissPlanDiary,
+            onStartAdd = viewModel::onStartAddDiaryEntry,
+            onStartEdit = viewModel::onStartEditDiaryEntry,
+            onCancelDraft = viewModel::onCancelDiaryDraft,
+            onDraftBodyChange = viewModel::onDiaryDraftBodyChange,
+            onDraftNotifyEnabledChange = viewModel::onDiaryDraftNotifyEnabledChange,
+            onDraftNotifyDateChange = viewModel::onDiaryDraftNotifyDateChange,
+            onSaveEntry = viewModel::onSaveDiaryEntry,
+            onDeleteEntry = viewModel::onDeleteDiaryEntry,
+            onDismissReminder = viewModel::onDismissDiaryReminder
         )
     }
 

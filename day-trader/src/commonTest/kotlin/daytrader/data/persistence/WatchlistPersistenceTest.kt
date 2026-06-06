@@ -5,11 +5,13 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistLabel
+import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.defaultWatchlist
 import daytrader.domain.newWatchlistEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WatchlistPersistenceTest {
@@ -102,6 +104,38 @@ class WatchlistPersistenceTest {
         assertEquals(1_700_000_000_000L, restored.orderPlacedAtEpochMs)
         assertEquals(listOf(100, 101, 102), restored.placedOrderIds)
         assertTrue(restored.hasPlacedOrder)
+    }
+
+    @Test
+    fun tradePlansRoundTrip_persistsDiaryEntries() {
+        val plan = WatchlistTradePlan(
+            id = "plan-a",
+            label = "Plan A",
+            diaryEntries = listOf(
+                WatchlistPlanDiaryEntry(
+                    id = "d1",
+                    body = "Wait for pullback",
+                    createdAtEpochMs = 1_700_000_000_000L,
+                    notifyOnDate = "2026-06-01",
+                    notificationDismissed = false
+                )
+            )
+        )
+        val entry = newWatchlistEntry(
+            symbol = "AAPL",
+            marketZoneId = "America/New_York",
+            currencyCode = "USD",
+            companyName = "Apple Inc.",
+            instrument = null
+        ).copy(tradePlans = listOf(plan))
+
+        val restored = WatchlistPersistence.toDomain(
+            WatchlistPersistence.toRecord(defaultWatchlist().copy(entries = listOf(entry)))
+        ).entries.first().tradePlans.first().diaryEntries.single()
+
+        assertEquals("Wait for pullback", restored.body)
+        assertEquals("2026-06-01", restored.notifyOnDate)
+        assertFalse(restored.notificationDismissed)
     }
 
     @Test

@@ -60,7 +60,9 @@ data class WatchlistPlanEditorUi(
     val proximityThresholdValueText: String,
     val outcome: WatchlistPlanOutcomeUi? = null,
     val isNearEntry: Boolean = false,
-    val orderPlacedLabel: String? = null
+    val orderPlacedLabel: String? = null,
+    val diaryEntryCount: Int = 0,
+    val pendingDiaryReminderCount: Int = 0
 )
 
 data class WatchlistPlanOutcomeUi(
@@ -100,10 +102,6 @@ enum class WatchlistPlanField {
     ENTRY, STOP, TARGET, INVESTMENT, PROXIMITY_THRESHOLD
 }
 
-enum class WatchlistBracketOrderField {
-    ENTRY, STOP, TARGET, QUANTITY
-}
-
 data class WatchlistBracketOrderUi(
     val entryId: String,
     val planId: String,
@@ -123,6 +121,44 @@ data class WatchlistBracketOrderUi(
     val submitResultMessage: String? = null
 )
 
+enum class WatchlistBracketOrderField {
+    ENTRY, STOP, TARGET, QUANTITY
+}
+
+data class WatchlistPlanDiaryEntryUi(
+    val id: String,
+    val body: String,
+    val formattedCreatedAt: String,
+    val notifyOnDateLabel: String?,
+    val reminderActive: Boolean
+)
+
+data class WatchlistPlanDiaryEditorUi(
+    val entryId: String,
+    val planId: String,
+    val symbol: String,
+    val companyName: String,
+    val planLabel: String,
+    val entries: List<WatchlistPlanDiaryEntryUi>,
+    val focusedEntryId: String? = null,
+    val composingEntry: Boolean = false,
+    val editingEntryId: String? = null,
+    val draftBody: String = "",
+    val draftNotifyOnDate: String = "",
+    val draftNotifyEnabled: Boolean = false
+)
+
+data class WatchlistDiaryNotificationUi(
+    val entryId: String,
+    val planId: String,
+    val diaryEntryId: String,
+    val symbol: String,
+    val companyName: String,
+    val planLabel: String,
+    val bodyPreview: String,
+    val notifyOnDateLabel: String
+)
+
 data class WatchlistUiState(
     val watchlistName: String = "Watchlist",
     val totalEntryCount: Int = 0,
@@ -133,6 +169,8 @@ data class WatchlistUiState(
     val sortDirection: WatchlistSortDirection = WatchlistSortDirection.ASCENDING,
     val showAddDialog: Boolean = false,
     val tradePlansEditor: WatchlistTradePlansEditorUi? = null,
+    val planDiaryEditor: WatchlistPlanDiaryEditorUi? = null,
+    val pendingDiaryNotification: WatchlistDiaryNotificationUi? = null,
     val bracketOrderEditor: WatchlistBracketOrderUi? = null,
     val connectionLabel: String = "Disconnected",
     val scanInProgress: Boolean = false,

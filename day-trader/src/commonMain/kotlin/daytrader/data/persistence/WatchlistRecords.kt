@@ -41,6 +41,15 @@ data class WatchlistEntryRecord(
 )
 
 @Serializable
+data class WatchlistPlanDiaryEntryRecord(
+    val id: String,
+    val body: String,
+    val createdAtEpochMs: Long,
+    val notifyOnDate: String? = null,
+    val notificationDismissed: Boolean = false
+)
+
+@Serializable
 data class WatchlistTradePlanRecord(
     val id: String,
     val label: String,
@@ -55,5 +64,6 @@ data class WatchlistTradePlanRecord(
     val proximityThresholdMode: String = "percent",
     val proximityThresholdValue: Double? = null,
     val orderPlacedAtEpochMs: Long? = null,
-    val placedOrderIds: List<Int> = emptyList()
+    val placedOrderIds: List<Int> = emptyList(),
+    val diaryEntries: List<WatchlistPlanDiaryEntryRecord> = emptyList()
 )

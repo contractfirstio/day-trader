@@ -7,6 +7,7 @@ import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
 import daytrader.domain.WatchlistLabel
 import daytrader.domain.WatchlistLabels
+import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistPlanKind
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.defaultWatchlistTradePlans
@@ -109,7 +110,26 @@ object WatchlistPersistence {
             proximityThresholdMode = parseProximityThresholdMode(record.proximityThresholdMode),
             proximityThresholdValue = record.proximityThresholdValue,
             orderPlacedAtEpochMs = record.orderPlacedAtEpochMs,
-            placedOrderIds = record.placedOrderIds
+            placedOrderIds = record.placedOrderIds,
+            diaryEntries = record.diaryEntries.map(::toDiaryDomain)
+        )
+
+    private fun toDiaryDomain(record: WatchlistPlanDiaryEntryRecord): WatchlistPlanDiaryEntry =
+        WatchlistPlanDiaryEntry(
+            id = record.id,
+            body = record.body,
+            createdAtEpochMs = record.createdAtEpochMs,
+            notifyOnDate = record.notifyOnDate,
+            notificationDismissed = record.notificationDismissed
+        )
+
+    private fun toDiaryRecord(entry: WatchlistPlanDiaryEntry): WatchlistPlanDiaryEntryRecord =
+        WatchlistPlanDiaryEntryRecord(
+            id = entry.id,
+            body = entry.body,
+            createdAtEpochMs = entry.createdAtEpochMs,
+            notifyOnDate = entry.notifyOnDate,
+            notificationDismissed = entry.notificationDismissed
         )
 
     private fun toPlanRecord(plan: WatchlistTradePlan): WatchlistTradePlanRecord =
@@ -127,7 +147,8 @@ object WatchlistPersistence {
             proximityThresholdMode = proximityThresholdModeLabel(plan.proximityThresholdMode),
             proximityThresholdValue = plan.proximityThresholdValue,
             orderPlacedAtEpochMs = plan.orderPlacedAtEpochMs,
-            placedOrderIds = plan.placedOrderIds
+            placedOrderIds = plan.placedOrderIds,
+            diaryEntries = plan.diaryEntries.map(::toDiaryRecord)
         )
 
     private fun parsePlanKind(value: String): WatchlistPlanKind =

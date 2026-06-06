@@ -17,15 +17,19 @@ import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
 import daytrader.domain.WatchlistBracketOrderPlanner
 import daytrader.domain.WatchlistLabels
+import daytrader.domain.WatchlistPlanDiaryEntry
+import daytrader.domain.WatchlistPlanDiaryNotifications
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.WatchlistTradePlanCalculator
 import daytrader.domain.newWatchlistLabel
 import daytrader.domain.newWatchlistEntry
+import daytrader.domain.newWatchlistPlanDiaryEntryId
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.TouchTurnBracketAck
 import daytrader.presentation.Formatters
+import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,6 +62,9 @@ class WatchlistViewModel(
     private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var showAddDialog = false
     private var tradePlansEditorDraft: WatchlistTradePlansEditorUi? = null
+    private var planDiaryEditorDraft: WatchlistPlanDiaryEditorUi? = null
+    private var dueDiaryNotificationQueue: List<WatchlistPlanDiaryNotifications.DueNotification> = emptyList()
+    private var diaryNotificationSnoozedForView: String? = null
     private var bracketOrderDraft: WatchlistBracketOrderUi? = null
     private var pendingBracketSymbol: String? = null
     private var bracketSubmitGeneration = 0
@@ -78,6 +85,7 @@ class WatchlistViewModel(
                 if (lists.none { it.id == selectedWatchlistId }) {
                     selectedWatchlistId = lists.firstOrNull()?.id ?: DEFAULT_WATCHLIST_ID
                 }
+                refreshDueDiaryNotifications()
                 emitUiState()
             }
             .launchIn(scope)
@@ -161,6 +169,272 @@ class WatchlistViewModel(
         val draft = tradePlansEditorDraft ?: return
         clearPlanOrderPlacement(draft.entryId, planId)
         emitUiState()
+    }
+
+    fun onOpenPlanDiary(planId: String) {
+        val entryId = tradePlansEditorDraft?.entryId ?: return
+        openPlanDiary(entryId = entryId, planId = planId)
+    }
+
+    fun onDismissPlanDiary() {
+        planDiaryEditorDraft = null
+        diaryNotificationSnoozedForView = null
+        emitUiState()
+    }
+
+    fun onStartAddDiaryEntry() {
+        val draft = planDiaryEditorDraft ?: return
+        planDiaryEditorDraft = draft.copy(
+            composingEntry = true,
+            editingEntryId = null,
+            draftBody = "",
+            draftNotifyOnDate = currentSessionDateIso(),
+            draftNotifyEnabled = false
+        )
+        emitUiState()
+    }
+
+    fun onStartEditDiaryEntry(diaryEntryId: String) {
+        val draft = planDiaryEditorDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        val plan = entry.tradePlans.find { it.id == draft.planId } ?: return
+        val diaryEntry = plan.diaryEntries.find { it.id == diaryEntryId } ?: return
+        planDiaryEditorDraft = draft.copy(
+            composingEntry = false,
+            editingEntryId = diaryEntryId,
+            draftBody = diaryEntry.body,
+            draftNotifyOnDate = diaryEntry.notifyOnDate.orEmpty(),
+            draftNotifyEnabled = diaryEntry.notifyOnDate != null,
+            focusedEntryId = diaryEntryId
+        )
+        emitUiState()
+    }
+
+    fun onCancelDiaryDraft() {
+        val draft = planDiaryEditorDraft ?: return
+        planDiaryEditorDraft = draft.copy(
+            composingEntry = false,
+            editingEntryId = null,
+            draftBody = "",
+            draftNotifyOnDate = "",
+            draftNotifyEnabled = false
+        )
+        emitUiState()
+    }
+
+    fun onDiaryDraftBodyChange(value: String) {
+        val draft = planDiaryEditorDraft ?: return
+        planDiaryEditorDraft = draft.copy(draftBody = value)
+        emitUiState()
+    }
+
+    fun onDiaryDraftNotifyEnabledChange(enabled: Boolean) {
+        val draft = planDiaryEditorDraft ?: return
+        planDiaryEditorDraft = draft.copy(
+            draftNotifyEnabled = enabled,
+            draftNotifyOnDate = when {
+                enabled && draft.draftNotifyOnDate.isBlank() -> currentSessionDateIso()
+                else -> draft.draftNotifyOnDate
+            }
+        )
+        emitUiState()
+    }
+
+    fun onDiaryDraftNotifyDateChange(value: String) {
+        val draft = planDiaryEditorDraft ?: return
+        planDiaryEditorDraft = draft.copy(draftNotifyOnDate = value)
+        emitUiState()
+    }
+
+    fun onSaveDiaryEntry() {
+        val draft = planDiaryEditorDraft ?: return
+        val body = draft.draftBody.trim()
+        if (body.isEmpty()) return
+        val notifyOnDate = if (draft.draftNotifyEnabled) {
+            normalizeNotifyOnDate(draft.draftNotifyOnDate) ?: return
+        } else {
+            null
+        }
+        if (draft.editingEntryId != null) {
+            mutatePlanDiaryEntries(draft.entryId, draft.planId) { entries ->
+                entries.map { entry ->
+                    if (entry.id != draft.editingEntryId) entry
+                    else entry.copy(
+                        body = body,
+                        notifyOnDate = notifyOnDate,
+                        notificationDismissed = false
+                    )
+                }
+            }
+        } else {
+            val diaryEntry = WatchlistPlanDiaryEntry(
+                id = newWatchlistPlanDiaryEntryId(),
+                body = body,
+                createdAtEpochMs = System.currentTimeMillis(),
+                notifyOnDate = notifyOnDate
+            )
+            mutatePlanDiaryEntries(draft.entryId, draft.planId) { it + diaryEntry }
+        }
+        planDiaryEditorDraft = planDiaryEditorDraft?.copy(
+            composingEntry = false,
+            editingEntryId = null,
+            draftBody = "",
+            draftNotifyOnDate = "",
+            draftNotifyEnabled = false
+        )
+        refreshDueDiaryNotifications()
+        emitUiState()
+    }
+
+    fun onDeleteDiaryEntry(diaryEntryId: String) {
+        val draft = planDiaryEditorDraft ?: return
+        mutatePlanDiaryEntries(draft.entryId, draft.planId) { entries ->
+            entries.filterNot { it.id == diaryEntryId }
+        }
+        if (diaryNotificationSnoozedForView == diaryEntryId) {
+            diaryNotificationSnoozedForView = null
+        }
+        planDiaryEditorDraft = planDiaryEditorDraft?.let { current ->
+            val wasEditing = current.editingEntryId == diaryEntryId
+            current.copy(
+                composingEntry = false,
+                editingEntryId = current.editingEntryId?.takeUnless { it == diaryEntryId },
+                focusedEntryId = current.focusedEntryId?.takeUnless { it == diaryEntryId },
+                draftBody = if (wasEditing) "" else current.draftBody,
+                draftNotifyOnDate = if (wasEditing) "" else current.draftNotifyOnDate,
+                draftNotifyEnabled = if (wasEditing) false else current.draftNotifyEnabled
+            )
+        }
+        refreshDueDiaryNotifications()
+        emitUiState()
+    }
+
+    fun onDismissDiaryReminder(diaryEntryId: String) {
+        val draft = planDiaryEditorDraft ?: return
+        dismissDiaryReminder(draft.entryId, draft.planId, diaryEntryId)
+        if (diaryNotificationSnoozedForView == diaryEntryId) {
+            diaryNotificationSnoozedForView = null
+        }
+        refreshDueDiaryNotifications()
+        emitUiState()
+    }
+
+    fun onViewDiaryNotification() {
+        val notification = dueDiaryNotificationQueue.firstOrNull() ?: return
+        val watchlist = watchlists.find { wl -> wl.entries.any { it.id == notification.entryId } }
+        if (watchlist != null) {
+            selectedWatchlistId = watchlist.id
+        }
+        if (tradePlansEditorDraft?.entryId != notification.entryId) {
+            val entry = watchlists.flatMap { it.entries }.find { it.id == notification.entryId } ?: return
+            val wl = watchlists.find { w -> w.entries.any { it.id == entry.id } } ?: return
+            tradePlansEditorDraft = refreshEditorLabels(
+                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = wl)
+            )
+        }
+        openPlanDiary(
+            entryId = notification.entryId,
+            planId = notification.planId,
+            focusedEntryId = notification.diaryEntry.id
+        )
+        diaryNotificationSnoozedForView = notification.diaryEntry.id
+    }
+
+    fun onDismissDiaryNotification() {
+        val notification = dueDiaryNotificationQueue.firstOrNull() ?: return
+        if (diaryNotificationSnoozedForView == notification.diaryEntry.id) {
+            diaryNotificationSnoozedForView = null
+        }
+        dismissDiaryReminder(
+            entryId = notification.entryId,
+            planId = notification.planId,
+            diaryEntryId = notification.diaryEntry.id
+        )
+        refreshDueDiaryNotifications()
+        emitUiState()
+    }
+
+    private fun openPlanDiary(entryId: String, planId: String, focusedEntryId: String? = null) {
+        val entry = findEntry(entryId) ?: return
+        val plan = entry.tradePlans.find { it.id == planId } ?: return
+        planDiaryEditorDraft = WatchlistUiMapper.toDiaryEditorUi(
+            entry = entry,
+            plan = plan,
+            focusedEntryId = focusedEntryId
+        )
+        emitUiState()
+    }
+
+    private fun dismissDiaryReminder(entryId: String, planId: String, diaryEntryId: String) {
+        mutatePlanDiaryEntries(entryId, planId) { entries ->
+            entries.map { entry ->
+                if (entry.id != diaryEntryId) entry
+                else entry.copy(notificationDismissed = true)
+            }
+        }
+    }
+
+    private fun mutatePlanDiaryEntries(
+        entryId: String,
+        planId: String,
+        transform: (List<WatchlistPlanDiaryEntry>) -> List<WatchlistPlanDiaryEntry>
+    ) {
+        val watchlist = selectedWatchlist() ?: return
+        repository.updateWatchlist(watchlist.id) { current ->
+            current.copy(
+                entries = current.entries.map { entry ->
+                    if (entry.id != entryId) entry
+                    else entry.copy(
+                        tradePlans = entry.tradePlans.map { plan ->
+                            if (plan.id != planId) plan
+                            else plan.copy(diaryEntries = transform(plan.diaryEntries))
+                        }
+                    )
+                }
+            )
+        }
+        watchlists = repository.watchlists.value
+        refreshDiaryRelatedEditors(entryId, planId)
+    }
+
+    private fun refreshDiaryRelatedEditors(entryId: String, planId: String) {
+        val watchlist = selectedWatchlist() ?: return
+        val entry = watchlist.entries.find { it.id == entryId } ?: return
+        val plan = entry.tradePlans.find { it.id == planId } ?: return
+        planDiaryEditorDraft?.let { draft ->
+            if (draft.entryId == entryId && draft.planId == planId) {
+                val entryIds = plan.diaryEntries.map { it.id }.toSet()
+                planDiaryEditorDraft = WatchlistUiMapper.toDiaryEditorUi(
+                    entry = entry,
+                    plan = plan,
+                    focusedEntryId = draft.focusedEntryId?.takeIf { it in entryIds },
+                    composingEntry = draft.composingEntry && draft.editingEntryId == null,
+                    editingEntryId = draft.editingEntryId?.takeIf { it in entryIds },
+                    draftBody = draft.draftBody,
+                    draftNotifyOnDate = draft.draftNotifyOnDate,
+                    draftNotifyEnabled = draft.draftNotifyEnabled
+                )
+            }
+        }
+        if (tradePlansEditorDraft?.entryId == entryId) {
+            tradePlansEditorDraft = refreshEditorLabels(
+                WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist)
+            )
+        }
+    }
+
+    private fun refreshDueDiaryNotifications() {
+        dueDiaryNotificationQueue = WatchlistPlanDiaryNotifications.findDue(
+            watchlists = watchlists,
+            todayIso = currentSessionDateIso()
+        )
+    }
+
+    private fun normalizeNotifyOnDate(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        if (!trimmed.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) return null
+        return trimmed
     }
 
     private fun clearPlanOrderPlacement(entryId: String, planId: String) {
@@ -321,6 +595,7 @@ class WatchlistViewModel(
         val watchlist = selectedWatchlist() ?: return
         if (tradePlansEditorDraft?.entryId == entryId) {
             tradePlansEditorDraft = null
+            planDiaryEditorDraft = null
         }
         repository.removeEntry(watchlist.id, entryId)
         emitUiState()
@@ -337,6 +612,7 @@ class WatchlistViewModel(
 
     fun onDismissTradePlans() {
         tradePlansEditorDraft = null
+        planDiaryEditorDraft = null
         bracketOrderDraft = null
         pendingBracketSymbol = null
         emitUiState()
@@ -772,6 +1048,10 @@ class WatchlistViewModel(
                 sortDirection = sortDirection,
                 showAddDialog = showAddDialog,
                 tradePlansEditor = tradePlansEditorDraft,
+                planDiaryEditor = planDiaryEditorDraft,
+                pendingDiaryNotification = dueDiaryNotificationQueue.firstOrNull()
+                    ?.takeIf { it.diaryEntry.id != diaryNotificationSnoozedForView }
+                    ?.let(WatchlistUiMapper::toDiaryNotificationUi),
                 bracketOrderEditor = bracketOrderDraft,
                 connectionLabel = connectionLabel(executionConnection, marketDataConnection),
                 scanInProgress = scanInProgress,

@@ -58,7 +58,8 @@ internal fun WatchlistTradePlansDialog(
     onAddGroup: (String?) -> Unit,
     onRemoveGroup: (String) -> Unit,
     onPlaceBracket: (String) -> Unit,
-    onReactivatePlan: (String) -> Unit
+    onReactivatePlan: (String) -> Unit,
+    onOpenDiary: (String) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -109,7 +110,8 @@ internal fun WatchlistTradePlansDialog(
                         onProximityEnabledChange = { onProximityEnabledChange(plan.planId, it) },
                         onProximityModeChange = { onProximityModeChange(plan.planId, it) },
                         onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) },
-                        onReactivatePlan = { onReactivatePlan(plan.planId) }
+                        onReactivatePlan = { onReactivatePlan(plan.planId) },
+                        onOpenDiary = { onOpenDiary(plan.planId) }
                     )
                 }
             }
@@ -314,7 +316,8 @@ private fun TradePlanCard(
     onProximityEnabledChange: (Boolean) -> Unit,
     onProximityModeChange: (ProximityThresholdMode) -> Unit,
     onFieldChange: (WatchlistPlanField, String) -> Unit,
-    onReactivatePlan: () -> Unit
+    onReactivatePlan: () -> Unit,
+    onOpenDiary: () -> Unit
 ) {
     val cardShape = RoundedCornerShape(8.dp)
     val pulseTransition = rememberInfiniteTransition(label = "watchlistPlanNearEntryPulse")
@@ -474,6 +477,24 @@ private fun TradePlanCard(
 
         plan.outcome?.let { outcome ->
             TradePlanOutcomePanel(outcome)
+        }
+
+        OutlinedButton(
+            onClick = onOpenDiary,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("OpenWatchlistPlanDiary-${plan.planId}"),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+        ) {
+            val diaryLabel = buildString {
+                append("Diary")
+                if (plan.diaryEntryCount > 0) append(" (${plan.diaryEntryCount})")
+                if (plan.pendingDiaryReminderCount > 0) {
+                    append(" · ${plan.pendingDiaryReminderCount} reminder")
+                    if (plan.pendingDiaryReminderCount > 1) append("s")
+                }
+            }
+            Text(diaryLabel, fontSize = 13.sp)
         }
 
         Button(

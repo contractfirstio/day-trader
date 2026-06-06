@@ -8,18 +8,22 @@ import daytrader.domain.WatchlistEntry
 import daytrader.domain.WatchlistEntryProximityEvaluator
 import daytrader.domain.WatchlistLabel
 import daytrader.domain.WatchlistLabels
+import daytrader.domain.WatchlistPlanDiaryEntry
+import daytrader.domain.WatchlistPlanDiaryNotifications
 import daytrader.domain.WatchlistPlanOutcome
 import daytrader.domain.WatchlistProximityStatus
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.WatchlistTradePlanCalculator
 import daytrader.presentation.Formatters
 import daytrader.presentation.markets.marketLabelForZone
+import daytrader.platform.currentSessionDateIso
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 object WatchlistUiMapper {
     private val lastPriceAtFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm:ss")
+    private val diaryCreatedAtFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy HH:mm")
 
     fun toRowUi(
         entry: WatchlistEntry,
@@ -70,7 +74,8 @@ object WatchlistUiMapper {
     fun toPlanEditorUi(
         plan: WatchlistTradePlan,
         currencyCode: String,
-        scannedPrice: Double? = null
+        scannedPrice: Double? = null,
+        todayIso: String = currentSessionDateIso()
     ): WatchlistPlanEditorUi {
         val draft = planFromEditorFields(
             plan = plan,
@@ -98,9 +103,64 @@ object WatchlistUiMapper {
             proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty(),
             outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
             isNearEntry = isPlanNearEntry(draft, scannedPrice),
-            orderPlacedLabel = orderPlacedLabel(plan)
+            orderPlacedLabel = orderPlacedLabel(plan),
+            diaryEntryCount = plan.diaryEntries.size,
+            pendingDiaryReminderCount = WatchlistPlanDiaryNotifications.pendingReminderCount(plan, todayIso)
         )
     }
+
+    fun toDiaryEditorUi(
+        entry: WatchlistEntry,
+        plan: WatchlistTradePlan,
+        focusedEntryId: String? = null,
+        composingEntry: Boolean = false,
+        editingEntryId: String? = null,
+        draftBody: String = "",
+        draftNotifyOnDate: String = "",
+        draftNotifyEnabled: Boolean = false,
+        todayIso: String = currentSessionDateIso()
+    ): WatchlistPlanDiaryEditorUi =
+        WatchlistPlanDiaryEditorUi(
+            entryId = entry.id,
+            planId = plan.id,
+            symbol = entry.symbol,
+            companyName = entry.companyName?.takeIf { it.isNotBlank() } ?: entry.symbol,
+            planLabel = plan.label,
+            entries = plan.diaryEntries
+                .sortedByDescending { it.createdAtEpochMs }
+                .map { toDiaryEntryUi(it, todayIso) },
+            focusedEntryId = focusedEntryId,
+            composingEntry = composingEntry,
+            editingEntryId = editingEntryId,
+            draftBody = draftBody,
+            draftNotifyOnDate = draftNotifyOnDate,
+            draftNotifyEnabled = draftNotifyEnabled
+        )
+
+    fun toDiaryEntryUi(entry: WatchlistPlanDiaryEntry, todayIso: String = currentSessionDateIso()): WatchlistPlanDiaryEntryUi =
+        WatchlistPlanDiaryEntryUi(
+            id = entry.id,
+            body = entry.body,
+            formattedCreatedAt = diaryCreatedAtFormatter.format(
+                Instant.ofEpochMilli(entry.createdAtEpochMs).atZone(ZoneId.systemDefault())
+            ),
+            notifyOnDateLabel = entry.notifyOnDate?.let { "Reminder from $it" },
+            reminderActive = WatchlistPlanDiaryNotifications.isDue(entry, todayIso)
+        )
+
+    fun toDiaryNotificationUi(
+        notification: WatchlistPlanDiaryNotifications.DueNotification
+    ): WatchlistDiaryNotificationUi =
+        WatchlistDiaryNotificationUi(
+            entryId = notification.entryId,
+            planId = notification.planId,
+            diaryEntryId = notification.diaryEntry.id,
+            symbol = notification.symbol,
+            companyName = notification.companyName,
+            planLabel = notification.planLabel,
+            bodyPreview = notification.diaryEntry.body.lineSequence().firstOrNull().orEmpty(),
+            notifyOnDateLabel = notification.diaryEntry.notifyOnDate.orEmpty()
+        )
 
     fun recomputeEditorPlan(
         editor: WatchlistPlanEditorUi,
@@ -123,7 +183,12 @@ object WatchlistUiMapper {
         return editor.copy(
             outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
             isNearEntry = isPlanNearEntry(draft, scannedPrice),
-            orderPlacedLabel = orderPlacedLabel(base)
+            orderPlacedLabel = orderPlacedLabel(base),
+            diaryEntryCount = base.diaryEntries.size,
+            pendingDiaryReminderCount = WatchlistPlanDiaryNotifications.pendingReminderCount(
+                base,
+                currentSessionDateIso()
+            )
         )
     }
 

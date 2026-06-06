@@ -33,7 +33,8 @@ data class WatchlistTradePlan(
     val proximityThresholdValue: Double? = null,
     /** Set when a bracket order was submitted for this plan from the watchlist. */
     val orderPlacedAtEpochMs: Long? = null,
-    val placedOrderIds: List<Int> = emptyList()
+    val placedOrderIds: List<Int> = emptyList(),
+    val diaryEntries: List<WatchlistPlanDiaryEntry> = emptyList()
 ) {
     val hasPlacedOrder: Boolean get() = orderPlacedAtEpochMs != null
 

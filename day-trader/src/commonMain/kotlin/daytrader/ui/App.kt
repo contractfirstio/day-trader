@@ -60,6 +60,7 @@ fun App(
     var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
+    val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
 
     val viewModel = dependencies.strategiesViewModel
     DisposableEffect(viewModel) {
@@ -105,6 +106,16 @@ fun App(
                         getStreamingMarketDataType = getStreamingMarketDataType,
                         setStreamingMarketDataType = setStreamingMarketDataType,
                         onDismiss = { showPriceFeedTester = false }
+                    )
+                }
+                watchlistUi.pendingDiaryNotification?.let { notification ->
+                    WatchlistPlanDiaryNotificationDialog(
+                        notification = notification,
+                        onView = {
+                            currentScreen = AppScreen.WATCHLIST
+                            dependencies.watchlistViewModel.onViewDiaryNotification()
+                        },
+                        onDismissReminder = dependencies.watchlistViewModel::onDismissDiaryNotification
                     )
                 }
                 val replayController = dependencies.replayController
