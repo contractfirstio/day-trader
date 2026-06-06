@@ -124,6 +124,11 @@ class ProgrammableIbMarketDataGateway(
 
     override fun refreshFills() = Unit
 
+    override suspend fun fetchLatestDailyClose(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<Double> = Result.success(bootstrapContext.firstCandle.close)
+
     fun ensureStreaming(symbol: String) {
         ensureLiveMarketDataCalls.add(symbol)
         subscribedSymbols.add(symbol)

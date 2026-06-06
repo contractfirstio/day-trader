@@ -58,4 +58,11 @@ sealed interface GatewayCommand {
 
     /** Reload executions/fills from the broker (IB: [reqExecutions]). */
     data object RequestExecutions : GatewayCommand
+
+    /** One-shot latest daily bar close — does not hold a streaming market data line. */
+    data class FetchLatestDailyClose(
+        val requestId: Long,
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null
+    ) : GatewayCommand
 }

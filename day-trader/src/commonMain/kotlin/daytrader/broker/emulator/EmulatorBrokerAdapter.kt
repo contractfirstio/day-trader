@@ -96,6 +96,16 @@ class EmulatorBrokerAdapter(
                                 engine.fetchFourteenDayAdr(command.requestId, command.symbol)
                             }
                         }
+                    is GatewayCommand.FetchLatestDailyClose ->
+                        launch {
+                            withEngine {
+                                engine.fetchLatestDailyClose(
+                                    command.requestId,
+                                    command.symbol,
+                                    command.instrument
+                                )
+                            }
+                        }
                     is GatewayCommand.FetchTouchTurnSignalContext ->
                         launch {
                             withEngine {

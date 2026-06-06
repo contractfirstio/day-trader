@@ -54,6 +54,7 @@ class QueuedBrokerGateway(
     private val pendingAdr = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
     private val pendingSignalContext = mutableMapOf<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
     private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<InstrumentResolution>>>()
+    private val pendingLatestDailyClose = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -179,6 +180,22 @@ class QueuedBrokerGateway(
         }
     }
 
+    override suspend fun fetchLatestDailyClose(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<Double> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<Double>>()
+        pendingLatestDailyClose[requestId] = deferred
+        sendCommand(GatewayCommand.FetchLatestDailyClose(requestId, symbol, instrument))
+        return try {
+            withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingLatestDailyClose.remove(requestId)
+            Result.failure(e)
+        }
+    }
+
     private fun apply(event: GatewayEvent) {
         when (event) {
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
@@ -208,6 +225,9 @@ class QueuedBrokerGateway(
             }
             is GatewayEvent.InstrumentResolved -> {
                 pendingInstrument.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.LatestDailyCloseReady -> {
+                pendingLatestDailyClose.remove(event.requestId)?.complete(event.result)
             }
         }
     }

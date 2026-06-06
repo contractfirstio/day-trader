@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AutoGraph
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -144,6 +145,17 @@ fun App(
                             )
                         )
                         NavigationRailItem(
+                            selected = currentScreen == AppScreen.WATCHLIST,
+                            onClick = { currentScreen = AppScreen.WATCHLIST },
+                            icon = { Icon(Icons.Default.Star, "Watchlist") },
+                            label = { Text("Watchlist") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
                             selected = currentScreen == AppScreen.POSITIONS,
                             onClick = { currentScreen = AppScreen.POSITIONS },
                             icon = { Icon(Icons.Default.Wallet, "Positions") },
@@ -163,6 +175,7 @@ fun App(
                             connectionState = connectionState
                         )
                         AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
+                        AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)
                     }
                 }
             }

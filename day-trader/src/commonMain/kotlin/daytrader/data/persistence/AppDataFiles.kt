@@ -7,6 +7,7 @@ object AppDataFiles {
     const val DEPLOYMENTS = "deployments.json"
     const val DEPLOYMENTS_BACKUP = "deployments.json.bak"
     const val STRATEGIES_SCREEN = "strategies-screen.json"
+    const val WATCHLISTS = "watchlists.json"
 
     /**
      * Per-session log root (paired application + price logs).

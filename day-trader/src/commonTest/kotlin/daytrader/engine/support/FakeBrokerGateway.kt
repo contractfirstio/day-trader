@@ -36,6 +36,7 @@ class FakeBrokerGateway(
     signalContextResult: Result<TouchTurnSignalContext>? = null
 ) : BrokerGateway {
     var adrFetchResult: Result<Double> = adrResult
+    var latestDailyCloseFetchResult: Result<Double> = Result.success(108.0)
     var candleFetchResult: Result<OhlcBar> = candleResult
     var signalContextFetchResult: Result<TouchTurnSignalContext> = signalContextResult
         ?: Result.success(
@@ -100,6 +101,11 @@ class FakeBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<Double> = adrFetchResult
+
+    override suspend fun fetchLatestDailyClose(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<Double> = latestDailyCloseFetchResult
 
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
+import daytrader.data.FileWatchlistRepository
 import daytrader.data.PositionRepository
 import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
@@ -22,6 +23,7 @@ import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
+import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.SessionBundle
@@ -34,6 +36,7 @@ data class AppDependencies(
     val marketFilter: MarketFilterState,
     val strategiesViewModel: StrategiesViewModel,
     val positionsViewModel: PositionsViewModel,
+    val watchlistViewModel: WatchlistViewModel,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
     val replayBundle: SessionBundle? = null
@@ -51,12 +54,14 @@ fun rememberAppDependencies(
     replayBundle: SessionBundle? = null
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
+    val watchlistRepository = remember { FileWatchlistRepository() }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
     val engineScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     SessionPriceLog.install { strategyRepository.deployments.value }
     return remember(
         strategyRepository,
+        watchlistRepository,
         appStateRepository,
         marketFilter,
         positionRepository,
@@ -132,6 +137,11 @@ fun rememberAppDependencies(
             ensureLiveMarketData = ensureLiveMarketData,
             releaseLiveMarketData = releaseLiveMarketData
         )
+        val watchlistViewModel = WatchlistViewModel(
+            repository = watchlistRepository,
+            brokerGateway = brokerGateway ?: touchTurnSessionGateway,
+            brokerKind = brokerKind
+        )
         touchTurnEngine?.let { engine ->
             if (TouchTurnEngineConfig.useEngine()) {
                 engine.start()
@@ -152,6 +162,7 @@ fun rememberAppDependencies(
             marketFilter = marketFilter,
             strategiesViewModel = viewModel,
             positionsViewModel = PositionsViewModel(positionRepository),
+            watchlistViewModel = watchlistViewModel,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
             replayBundle = replayBundle

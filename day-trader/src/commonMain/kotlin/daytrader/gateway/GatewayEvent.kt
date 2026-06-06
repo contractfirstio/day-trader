@@ -41,4 +41,9 @@ sealed interface GatewayEvent {
         val requestId: Long,
         val result: Result<InstrumentResolution>
     ) : GatewayEvent
+
+    data class LatestDailyCloseReady(
+        val requestId: Long,
+        val result: Result<Double>
+    ) : GatewayEvent
 }
