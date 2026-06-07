@@ -32,7 +32,8 @@ object WatchlistUiMapper {
         entry: WatchlistEntry,
         watchlist: Watchlist,
         deployments: List<StrategyDeployment> = emptyList(),
-        nearEntrySummary: String? = null
+        nearEntrySummary: String? = null,
+        reversalScoreLoading: Boolean = false
     ): WatchlistRowUi {
         val status = WatchlistEntryProximityEvaluator.entryStatus(entry, entry.lastScannedPrice)
         return WatchlistRowUi(
@@ -41,12 +42,22 @@ object WatchlistUiMapper {
             symbol = entry.symbol,
             marketLabel = marketLabelForZone(entry.marketZoneId),
             formattedLast = Formatters.price(entry.lastScannedPrice?.takeIf { it > 0.0 }),
+            lastPriceSublabel = WatchlistStatusUiMapper.formatPriceSublabel(entry.lastScannedAtEpochMs),
             lastPriceAtLabel = entry.lastScannedAtEpochMs?.let(::formatLastPriceAt),
             proximityStatusLabel = proximityStatusLabel(status),
             isNearEntry = status == WatchlistProximityStatus.NEAR,
             notesPreview = entry.notes?.trim()?.takeIf { it.isNotBlank() },
             planSummary = planSummary(entry),
             nearEntrySummary = nearEntrySummary,
+            reversalScoreLabel = entry.reversalScore?.toString(),
+            reversalScore = entry.reversalScore,
+            reversalScoreStale = WatchlistStatusUiMapper.isReversalScoreStale(entry.reversalScoreAtEpochMs),
+            reversalScoreCalculatedAtLabel = WatchlistStatusUiMapper.formatReversalScoreSublabel(
+                entry.reversalScoreAtEpochMs
+            ),
+            reversalScoreAlignmentBadgeLabel = entry.reversalScoreAlignmentBadge?.label,
+            reversalScoreHasInsight = !entry.reversalScoreInsightText.isNullOrBlank(),
+            reversalScoreLoading = reversalScoreLoading,
             groups = toLabelUi(WatchlistLabels.resolveLabels(entry.labelIds, watchlist.labels)),
             strategies = toStrategyUi(WatchlistStrategyLinks.resolve(entry.strategyDeploymentIds, deployments))
         )

@@ -228,6 +228,62 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.LatestDailyCloseReady(requestId, result))
     }
 
+    suspend fun fetchReversalScoreSymbolSnapshot(
+        requestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?
+    ) {
+        delay(config.historicalDelayMs)
+        val trimmed = symbol.trim().uppercase()
+        val resolved = resolveInstrument(trimmed)
+        val result = if (resolved == null) {
+            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+        } else {
+            val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(resolved.marketZoneId, System.currentTimeMillis())
+            val bars = EmulatorHistoricalData.buildDailyBars(trimmed, resolved, sessionDay)
+            val lastPrice = bars.lastOrNull()?.close?.takeIf { it > 0.0 }
+            if (lastPrice == null) {
+                Result.failure(IllegalStateException("No emulator daily bars for $symbol"))
+            } else {
+                Result.success(
+                    daytrader.data.ReversalScoreService.syntheticSymbolSnapshot(lastPrice).copy(
+                        historical = daytrader.domain.ReversalScoreHistoricalSnapshot(
+                            dailyCloses = bars.map { it.close },
+                            dailyVolumes = bars.map { it.close * 10_000.0 },
+                            historicalIvValues = bars.map { 0.15 + (it.close.toInt() % 7) * 0.005 }
+                        )
+                    )
+                )
+            }
+        }
+        emit(GatewayEvent.ReversalScoreSymbolSnapshotReady(requestId, result))
+    }
+
+    suspend fun fetchReversalScoreMacroVolatility(requestId: Long) {
+        delay(config.historicalDelayMs)
+        emit(
+            GatewayEvent.ReversalScoreMacroVolatilityReady(
+                requestId,
+                Result.success(daytrader.data.ReversalScoreService.syntheticMacroVolSnapshot())
+            )
+        )
+    }
+
+    suspend fun fetchSpyRegimeSnapshot(requestId: Long) {
+        delay(config.historicalDelayMs)
+        val result = runCatching {
+            val resolved = resolveInstrument("SPY")
+                ?: error("Unknown symbol: SPY")
+            val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(resolved.marketZoneId, System.currentTimeMillis())
+            val bars = EmulatorHistoricalData.buildDailyBars("SPY", resolved, sessionDay)
+            val lastPrice = bars.lastOrNull()?.close?.takeIf { it > 0.0 }
+                ?: error("No emulator daily bars for SPY")
+            val closes = bars.map { it.close }
+            daytrader.domain.SpyRegimeEvaluator.buildSnapshot(lastPrice, closes).getOrThrow()
+        }
+        emit(GatewayEvent.SpyRegimeSnapshotReady(requestId, result))
+    }
+
     suspend fun fetchTouchTurnSignalContext(
         requestId: Long,
         symbol: String,

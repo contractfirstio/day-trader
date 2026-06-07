@@ -65,4 +65,18 @@ sealed interface GatewayCommand {
         val symbol: String,
         val instrument: InstrumentIdentity? = null
     ) : GatewayCommand
+
+    data class FetchReversalScoreSymbolSnapshot(
+        val requestId: Long,
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null
+    ) : GatewayCommand
+
+    data class FetchReversalScoreMacroVolatility(
+        val requestId: Long
+    ) : GatewayCommand
+
+    data class FetchSpyRegimeSnapshot(
+        val requestId: Long
+    ) : GatewayCommand
 }

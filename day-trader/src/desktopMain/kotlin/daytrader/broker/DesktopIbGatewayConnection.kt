@@ -170,10 +170,21 @@ class DesktopIbGatewayConnection(
     private val nextHistoricalReqId = AtomicInteger(HISTORICAL_REQ_ID_START)
     private val nextTouchTurnHistoricalReqId = AtomicInteger(TOUCH_TURN_HISTORICAL_REQ_ID_START)
     private val nextAdrHistoricalReqId = AtomicInteger(ADR_HISTORICAL_REQ_ID_START)
+    private val nextReversalScoreMktDataReqId = AtomicInteger(REVERSAL_SCORE_MKT_DATA_REQ_ID_START)
     private val nextOneShotGatewayRequestId = AtomicLong(9_000_000_000L)
     private val oneShotFirstCandle = ConcurrentHashMap<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val oneShotAdr = ConcurrentHashMap<Long, CompletableDeferred<Result<Double>>>()
     private val oneShotSignalContext = ConcurrentHashMap<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
+
+    private val reversalScoreHandler = ReversalScoreIbHandler(
+        scope = scope,
+        requestPacer = requestPacer,
+        clientProvider = { client },
+        isConnected = { client.isConnected },
+        nextHistoricalReqId = { nextHistoricalReqId.getAndIncrement() },
+        nextMktDataReqId = { nextReversalScoreMktDataReqId.getAndIncrement() },
+        emit = ::emit
+    )
 
     private var publishDebounceJob: Job? = null
     private var historicalFallbackJob: Job? = null
@@ -208,6 +219,22 @@ class DesktopIbGatewayConnection(
                     is GatewayCommand.FetchLatestDailyClose ->
                         scope.launch {
                             requestLatestDailyClose(command.requestId, command.symbol, command.instrument)
+                        }
+                    is GatewayCommand.FetchReversalScoreSymbolSnapshot ->
+                        scope.launch {
+                            reversalScoreHandler.requestSymbolSnapshot(
+                                command.requestId,
+                                command.symbol,
+                                command.instrument
+                            )
+                        }
+                    is GatewayCommand.FetchReversalScoreMacroVolatility ->
+                        scope.launch {
+                            reversalScoreHandler.requestMacroVolatility(command.requestId)
+                        }
+                    is GatewayCommand.FetchSpyRegimeSnapshot ->
+                        scope.launch {
+                            reversalScoreHandler.requestSpyRegime(command.requestId)
                         }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch {
@@ -721,6 +748,7 @@ class DesktopIbGatewayConnection(
 
     override fun tickSize(tickerId: Int, field: Int, size: Decimal) {
         try {
+            reversalScoreHandler.onTickSize(tickerId, field, size)
             applyTickSize(tickerId, field, size)
         } catch (e: Exception) {
             logCallbackFailure("tickSize", e)
@@ -730,7 +758,9 @@ class DesktopIbGatewayConnection(
     override fun tickSizeProtoBuf(tickSize: TickSizeProto.TickSize) {
         try {
             if (!tickSize.hasReqId() || !tickSize.hasTickType() || !tickSize.hasSize()) return
-            applyTickSize(tickSize.reqId, tickSize.tickType, Decimal.parse(tickSize.size))
+            val size = Decimal.parse(tickSize.size)
+            reversalScoreHandler.onTickSize(tickSize.reqId, tickSize.tickType, size)
+            applyTickSize(tickSize.reqId, tickSize.tickType, size)
         } catch (e: Exception) {
             logCallbackFailure("tickSizeProtoBuf", e)
         }
@@ -755,6 +785,7 @@ class DesktopIbGatewayConnection(
 
     override fun tickPrice(tickerId: Int, field: Int, price: Double, attribs: TickAttrib?) {
         try {
+            reversalScoreHandler.onTickPrice(tickerId, field, price)
             applyTickPrice(tickerId, field, price)
         } catch (e: Exception) {
             logCallbackFailure("tickPrice", e)
@@ -764,6 +795,7 @@ class DesktopIbGatewayConnection(
     override fun tickPriceProtoBuf(tickPrice: TickPriceProto.TickPrice) {
         try {
             if (!tickPrice.hasReqId() || !tickPrice.hasTickType() || !tickPrice.hasPrice()) return
+            reversalScoreHandler.onTickPrice(tickPrice.reqId, tickPrice.tickType, tickPrice.price)
             applyTickPrice(tickPrice.reqId, tickPrice.tickType, tickPrice.price)
         } catch (e: Exception) {
             logCallbackFailure("tickPriceProtoBuf", e)
@@ -771,6 +803,7 @@ class DesktopIbGatewayConnection(
     }
 
     override fun tickSnapshotEnd(tickerId: Int) {
+        reversalScoreHandler.onSnapshotEnd(tickerId)
         IbGatewayLog.marketDataSnapshotComplete(tickerId)
     }
 
@@ -816,6 +849,7 @@ class DesktopIbGatewayConnection(
 
     override fun historicalData(reqId: Int, bar: Bar) {
         try {
+            if (reversalScoreHandler.onHistoricalData(reqId, bar)) return
             if (adrGatewayRequestId.containsKey(reqId)) {
                 if (bar.high() > 0.0 && bar.low() > 0.0) {
                     adrHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
@@ -838,6 +872,7 @@ class DesktopIbGatewayConnection(
 
     override fun historicalDataEnd(reqId: Int, start: String?, end: String?) {
         try {
+            if (reversalScoreHandler.onHistoricalDataEnd(reqId)) return
             if (adrGatewayRequestId.containsKey(reqId)) {
                 completeAdrHistorical(reqId)
                 return
@@ -856,6 +891,7 @@ class DesktopIbGatewayConnection(
         try {
             if (!historicalData.hasReqId()) return
             val reqId = historicalData.reqId
+            if (reversalScoreHandler.onHistoricalDataProtoBuf(reqId, historicalData)) return
             for (i in historicalData.historicalDataBarsCount - 1 downTo 0) {
                 val bar = historicalData.getHistoricalDataBars(i)
                 if (bar.hasClose() && bar.close > 0.0) {
@@ -871,7 +907,9 @@ class DesktopIbGatewayConnection(
     override fun historicalDataEndProtoBuf(historicalDataEnd: HistoricalDataEndProto.HistoricalDataEnd) {
         try {
             if (historicalDataEnd.hasReqId()) {
-                applyHistoricalClose(historicalDataEnd.reqId)
+                val reqId = historicalDataEnd.reqId
+                if (reversalScoreHandler.onHistoricalDataEnd(reqId)) return
+                applyHistoricalClose(reqId)
             }
         } catch (e: Exception) {
             logCallbackFailure("historicalDataEndProtoBuf", e)
@@ -902,6 +940,10 @@ class DesktopIbGatewayConnection(
         when {
             errorCode in INFO_ERROR_CODES -> return
             else -> IbGatewayLog.apiError(reqId, errorCode, errorMsg)
+        }
+
+        if (reversalScoreHandler.onIbError(reqId, errorCode, errorMsg ?: "")) {
+            return
         }
 
         historicalReqIdToKey[reqId]?.let { key ->
@@ -2775,6 +2817,7 @@ class DesktopIbGatewayConnection(
         /** RT Volume generic tick for live trade-size updates (volume buffer). */
         const val MARKET_DATA_GENERIC_TICKS = "233"
         const val ADR_HISTORICAL_REQ_ID_START = 55_000
+        const val REVERSAL_SCORE_MKT_DATA_REQ_ID_START = 70_000
         const val ADR_HISTORICAL_DURATION = "20 D"
         const val ADR_HISTORICAL_BAR_SIZE = "1 day"
         const val ADR_HISTORICAL_TIMEOUT_MS = 45_000L

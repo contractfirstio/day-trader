@@ -16,7 +16,12 @@ data class WatchlistEntry(
     val strategyDeploymentIds: List<String> = emptyList(),
     val tradePlans: List<WatchlistTradePlan> = defaultWatchlistTradePlans(),
     val lastScannedPrice: Double? = null,
-    val lastScannedAtEpochMs: Long? = null
+    val lastScannedAtEpochMs: Long? = null,
+    val reversalScore: Int? = null,
+    val reversalScoreAtEpochMs: Long? = null,
+    val reversalScoreAlignmentBadge: ReversalScoreAlignmentBadge? = null,
+    val reversalScoreInsightText: String? = null,
+    val reversalScoreRecommendationText: String? = null
 )
 
 data class Watchlist(
@@ -24,7 +29,10 @@ data class Watchlist(
     val name: String,
     val entries: List<WatchlistEntry>,
     val labels: List<WatchlistLabel> = emptyList(),
-    val createdAtEpochMs: Long
+    val createdAtEpochMs: Long,
+    val lastReversalScoreMacroTrend: MacroTrendState? = null,
+    val lastReversalScoreSpyLastPrice: Double? = null,
+    val lastReversalScoreSpySma200: Double? = null
 )
 
 fun newWatchlistId(): String = "wl-${kotlin.random.Random.nextLong().toULong().toString(16)}"

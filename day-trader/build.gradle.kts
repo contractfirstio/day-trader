@@ -64,6 +64,7 @@ kotlin {
         val desktopTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+                implementation("org.junit.jupiter:junit-jupiter:5.11.4")
                 implementation(libs.junit)
                 implementation("io.cucumber:cucumber-java:7.20.1")
                 implementation("io.cucumber:cucumber-junit:7.20.1")
@@ -73,7 +74,7 @@ kotlin {
 }
 
 tasks.named<Test>("desktopTest") {
-    useJUnit()
+    useJUnitPlatform()
 }
 
 compose.desktop {

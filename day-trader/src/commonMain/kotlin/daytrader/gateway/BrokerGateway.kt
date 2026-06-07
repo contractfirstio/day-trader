@@ -1,9 +1,14 @@
 package daytrader.gateway
 
 import daytrader.broker.SymbolMarkets
+import daytrader.data.ReversalScoreService
 import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.ReversalScoreMacroVolSnapshot
+import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.SpyRegimeSnapshot
+import daytrader.domain.SpyRegimeEvaluator
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
@@ -99,4 +104,23 @@ interface BrokerGateway {
         symbol: String,
         instrument: InstrumentIdentity? = null
     ): Result<Double>
+
+    /** Live + historical symbol inputs for reversal score (IB reqMktData + reqHistoricalData). */
+    suspend fun fetchReversalScoreSymbolSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity? = null
+    ): Result<ReversalScoreSymbolSnapshot> {
+        val close = fetchLatestDailyClose(symbol, instrument).getOrElse { return Result.failure(it) }
+        return Result.success(ReversalScoreService.syntheticSymbolSnapshot(close))
+    }
+
+    /** VIX / VIX1D / VVIX live and historical inputs for reversal score. */
+    suspend fun fetchReversalScoreMacroVolatility(): Result<ReversalScoreMacroVolSnapshot> =
+        Result.success(ReversalScoreService.syntheticMacroVolSnapshot())
+
+    /** SPY last price and 200-day SMA for macro trend filter (once per batch). */
+    suspend fun fetchSpyRegimeSnapshot(): Result<SpyRegimeSnapshot> {
+        val close = fetchLatestDailyClose("SPY").getOrElse { return Result.failure(it) }
+        return ReversalScoreService.syntheticSpyRegimeSnapshot(close)
+    }
 }

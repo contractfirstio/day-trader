@@ -2,12 +2,13 @@ package daytrader.presentation.watchlist
 
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
+import daytrader.domain.MacroTrendState
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistProximityStatus
 
 enum class WatchlistSortColumn {
-    COMPANY, SYMBOL, LAST, NOTES
+    COMPANY, SYMBOL, LAST, REVERSAL_SCORE, NOTES
 }
 
 enum class WatchlistSortDirection {
@@ -51,18 +52,85 @@ data class WatchlistGroupFilterChipUi(
     val selected: Boolean
 )
 
+enum class WatchlistConnectionChipTone {
+    CONNECTED,
+    CONNECTING,
+    DISCONNECTED,
+    ERROR
+}
+
+data class WatchlistConnectionChipUi(
+    val label: String,
+    val tone: WatchlistConnectionChipTone
+)
+
+data class WatchlistStatusStripUi(
+    val connectionChips: List<WatchlistConnectionChipUi> = emptyList(),
+    val priceModeLabel: String = "On-demand prices",
+    val priceModeTooltip: String =
+        "Last prices refresh when you run Check proximity (IB historical requests, not streaming).",
+    val macroChipLabel: String? = null,
+    val macroChipTone: WatchlistConnectionChipTone? = null
+)
+
+data class WatchlistMacroRegimeCardUi(
+    val trend: MacroTrendState?,
+    val trendLabel: String,
+    val spyPriceLabel: String,
+    val distanceFromSmaLabel: String,
+    val actionHint: String,
+    val scoredLabel: String,
+    val calculatedAtLabel: String
+)
+
+data class WatchlistActivitySummaryUi(
+    val proximityLabel: String?,
+    val proximityHighlighted: Boolean = false,
+    val reversalLabel: String? = null
+)
+
+enum class ReversalScoreProgressStepStatus {
+    PENDING,
+    ACTIVE,
+    COMPLETE
+}
+
+data class ReversalScoreProgressStepUi(
+    val label: String,
+    val status: ReversalScoreProgressStepStatus
+)
+
+data class ReversalScoreProgressUi(
+    val steps: List<ReversalScoreProgressStepUi>,
+    val detailLabel: String?
+)
+
+data class WatchlistScanProgressUi(
+    val completed: Int,
+    val total: Int,
+    val symbol: String
+)
+
 data class WatchlistRowUi(
     val entryId: String,
     val companyName: String,
     val symbol: String,
     val marketLabel: String,
     val formattedLast: String,
-    val lastPriceAtLabel: String?,
+    val lastPriceSublabel: String? = null,
+    val lastPriceAtLabel: String? = null,
     val proximityStatusLabel: String,
     val isNearEntry: Boolean,
     val notesPreview: String?,
     val planSummary: String? = null,
     val nearEntrySummary: String? = null,
+    val reversalScoreLabel: String? = null,
+    val reversalScore: Int? = null,
+    val reversalScoreStale: Boolean = false,
+    val reversalScoreCalculatedAtLabel: String? = null,
+    val reversalScoreAlignmentBadgeLabel: String? = null,
+    val reversalScoreHasInsight: Boolean = false,
+    val reversalScoreLoading: Boolean = false,
     val groups: List<WatchlistLabelUi> = emptyList(),
     val strategies: List<WatchlistStrategyUi> = emptyList()
 )
@@ -183,6 +251,16 @@ data class WatchlistDiaryNotificationUi(
     val notifyOnDateLabel: String
 )
 
+data class WatchlistReversalScoreInsightUi(
+    val entryId: String,
+    val symbol: String,
+    val companyName: String,
+    val compositeScore: Int,
+    val contextBadgeLabel: String?,
+    val insightText: String,
+    val recommendationText: String
+)
+
 data class WatchlistUiState(
     val watchlistName: String = "Watchlist",
     val totalEntryCount: Int = 0,
@@ -199,9 +277,18 @@ data class WatchlistUiState(
     val pendingDiaryNotification: WatchlistDiaryNotificationUi? = null,
     val bracketOrderEditor: WatchlistBracketOrderUi? = null,
     val connectionLabel: String = "Disconnected",
+    val statusStrip: WatchlistStatusStripUi = WatchlistStatusStripUi(),
+    val macroRegimeCard: WatchlistMacroRegimeCardUi? = null,
+    val activitySummary: WatchlistActivitySummaryUi? = null,
     val scanInProgress: Boolean = false,
-    val scanProgressLabel: String? = null,
+    val scanProgress: WatchlistScanProgressUi? = null,
     val scanSummary: String? = null,
+    val reversalScoreInProgress: Boolean = false,
+    val reversalScoreProgress: ReversalScoreProgressUi? = null,
+    val reversalScoreProgressLabel: String? = null,
+    val reversalScoreSummary: String? = null,
+    val reversalScoreLoadingEntryId: String? = null,
+    val reversalScoreInsight: WatchlistReversalScoreInsightUi? = null,
     val nearHits: List<WatchlistNearHitUi> = emptyList(),
     /** Broker mode this watchlist file belongs to (separate persistence per mode). */
     val storageScopeLabel: String = ""

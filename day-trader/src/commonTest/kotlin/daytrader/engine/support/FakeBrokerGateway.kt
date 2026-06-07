@@ -3,6 +3,9 @@ package daytrader.engine.support
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.OhlcBar
+import daytrader.domain.ReversalScoreMacroVolSnapshot
+import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.AccountPosition
@@ -12,6 +15,7 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
+import daytrader.data.ReversalScoreService
 import daytrader.gateway.TouchTurnBracketAck
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +41,12 @@ class FakeBrokerGateway(
 ) : BrokerGateway {
     var adrFetchResult: Result<Double> = adrResult
     var latestDailyCloseFetchResult: Result<Double> = Result.success(108.0)
+    var reversalScoreSymbolResult: Result<ReversalScoreSymbolSnapshot> =
+        Result.success(ReversalScoreService.syntheticSymbolSnapshot(108.0))
+    var reversalScoreMacroResult: Result<ReversalScoreMacroVolSnapshot> =
+        Result.success(ReversalScoreService.syntheticMacroVolSnapshot())
+    var spyRegimeResult: Result<SpyRegimeSnapshot> =
+        ReversalScoreService.syntheticSpyRegimeSnapshot(510.0)
     var candleFetchResult: Result<OhlcBar> = candleResult
     var signalContextFetchResult: Result<TouchTurnSignalContext> = signalContextResult
         ?: Result.success(
@@ -106,6 +116,16 @@ class FakeBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<Double> = latestDailyCloseFetchResult
+
+    override suspend fun fetchReversalScoreSymbolSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<ReversalScoreSymbolSnapshot> = reversalScoreSymbolResult
+
+    override suspend fun fetchReversalScoreMacroVolatility(): Result<ReversalScoreMacroVolSnapshot> =
+        reversalScoreMacroResult
+
+    override suspend fun fetchSpyRegimeSnapshot(): Result<SpyRegimeSnapshot> = spyRegimeResult
 
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,

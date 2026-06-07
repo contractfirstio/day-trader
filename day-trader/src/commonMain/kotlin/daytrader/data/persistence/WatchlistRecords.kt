@@ -13,7 +13,10 @@ data class WatchlistRecord(
     val name: String,
     val entries: List<WatchlistEntryRecord> = emptyList(),
     val labels: List<WatchlistLabelRecord> = emptyList(),
-    val createdAtEpochMs: Long
+    val createdAtEpochMs: Long,
+    val lastReversalScoreMacroTrend: String? = null,
+    val lastReversalScoreSpyLastPrice: Double? = null,
+    val lastReversalScoreSpySma200: Double? = null
 )
 
 @Serializable
@@ -38,7 +41,12 @@ data class WatchlistEntryRecord(
     val tags: List<String> = emptyList(),
     val tradePlans: List<WatchlistTradePlanRecord> = emptyList(),
     val lastScannedPrice: Double? = null,
-    val lastScannedAtEpochMs: Long? = null
+    val lastScannedAtEpochMs: Long? = null,
+    val reversalScore: Int? = null,
+    val reversalScoreAtEpochMs: Long? = null,
+    val reversalScoreAlignmentBadge: String? = null,
+    val reversalScoreInsightText: String? = null,
+    val reversalScoreRecommendationText: String? = null
 )
 
 @Serializable

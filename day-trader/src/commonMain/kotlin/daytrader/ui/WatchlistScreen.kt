@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,6 +97,13 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
         )
     }
 
+    uiState.reversalScoreInsight?.let { insight ->
+        WatchlistReversalScoreInsightSheet(
+            insight = insight,
+            onDismiss = viewModel::onDismissReversalScoreInsight
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -117,36 +125,37 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White
                 )
-                Text(
-                    uiState.connectionLabel,
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
                 if (uiState.storageScopeLabel.isNotBlank()) {
                     Text(
-                        "Watchlist for ${uiState.storageScopeLabel} — separate from other broker modes",
+                        uiState.storageScopeLabel,
                         fontSize = 11.sp,
                         color = TextSecondary,
-                        lineHeight = 14.sp
+                        modifier = Modifier.padding(top = 2.dp)
                     )
                 }
-                Text(
-                    "Prices refresh only when you run a scan (historical requests, no streaming lines).",
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    lineHeight = 14.sp
-                )
+                Spacer(modifier = Modifier.height(8.dp))
+                WatchlistStatusStrip(strip = uiState.statusStrip)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = viewModel::onCheckEntryProximity,
-                    enabled = !uiState.scanInProgress && uiState.totalEntryCount > 0,
+                    enabled = !uiState.scanInProgress && !uiState.reversalScoreInProgress && uiState.totalEntryCount > 0,
                     colors = ButtonDefaults.buttonColors(containerColor = GainGreen),
                     modifier = Modifier.testTag("CheckEntryProximityButton")
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = "Check entry proximity")
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(if (uiState.scanInProgress) "Scanning…" else "Check proximity")
+                }
+                Button(
+                    onClick = viewModel::onCalculateReversalScores,
+                    enabled = !uiState.reversalScoreInProgress && !uiState.scanInProgress && uiState.rows.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = TradeBlueBorder),
+                    modifier = Modifier.testTag("CalculateReversalScoreButton")
+                ) {
+                    Icon(Icons.Default.ShowChart, contentDescription = "Calculate reversal score")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (uiState.reversalScoreInProgress) "Calculating…" else "Calculate Reversal Score")
                 }
                 Button(
                     onClick = viewModel::onShowAddDialog,
@@ -160,25 +169,35 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             }
         }
 
-        uiState.scanProgressLabel?.let { progress ->
-            Spacer(modifier = Modifier.height(8.dp))
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text(progress, color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-        }
-
-        uiState.scanSummary?.let { summary ->
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                summary,
-                color = if (uiState.nearHits.isNotEmpty()) TradeBlueBorder else TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = if (uiState.nearHits.isNotEmpty()) FontWeight.SemiBold else FontWeight.Normal
+        uiState.macroRegimeCard?.let { card ->
+            Spacer(modifier = Modifier.height(10.dp))
+            WatchlistMacroRegimeCard(
+                card = card,
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        uiState.activitySummary?.let { summary ->
+            Spacer(modifier = Modifier.height(8.dp))
+            WatchlistActivitySummaryBar(summary = summary)
+        }
+
+        if (uiState.scanInProgress) {
+            uiState.scanProgress?.let { progress ->
+                Spacer(modifier = Modifier.height(8.dp))
+                WatchlistScanProgressPanel(progress = progress)
+            }
+        }
+
+        if (uiState.reversalScoreInProgress) {
+            uiState.reversalScoreProgress?.let { progress ->
+                Spacer(modifier = Modifier.height(8.dp))
+                WatchlistReversalScoreProgressPanel(progress = progress)
+            }
+        }
 
         if (uiState.totalEntryCount > 0) {
+            Spacer(modifier = Modifier.height(8.dp))
             WatchlistGroupFilterBar(
                 chips = uiState.groupFilterChips,
                 onFilterSelected = viewModel::onGroupFilterSelected
@@ -195,7 +214,8 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .border(1.dp, SurfaceDark, RoundedCornerShape(8.dp))
                 .background(SurfaceDark, RoundedCornerShape(8.dp))
         ) {
@@ -238,6 +258,9 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
                         WatchlistRow(
                             row = uiState.rows[index],
                             onOpenPlans = { viewModel.onOpenTradePlans(uiState.rows[index].entryId) },
+                            onOpenReversalScoreInsight = {
+                                viewModel.onOpenReversalScoreInsight(uiState.rows[index].entryId)
+                            },
                             onRemove = { viewModel.onRemoveEntry(uiState.rows[index].entryId) },
                             onGroupClick = { labelId ->
                                 viewModel.onGroupFilterSelected(WatchlistGroupFilter.Group(labelId))
@@ -316,10 +339,10 @@ private fun WatchlistHeader(
         WatchlistHeaderCell("Market", WatchlistSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.7f), onHeaderClick, sortable = false)
         WatchlistHeaderCell("Groups", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick, sortable = false)
         WatchlistHeaderCell("Strategies", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.1f), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Last Price", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(0.8f).padding(end = 12.dp), onHeaderClick, alignEnd = true)
-        WatchlistHeaderCell("Last Price At", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(1.3f).padding(start = 12.dp), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Status", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Plans", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.1f), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Last Price", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(1.0f).padding(end = 12.dp), onHeaderClick, alignEnd = true)
+        WatchlistHeaderCell("Rev Score", WatchlistSortColumn.REVERSAL_SCORE, activeSortColumn, sortDirection, Modifier.weight(0.95f).padding(end = 16.dp), onHeaderClick, alignEnd = true)
+        WatchlistHeaderCell("Status", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f).padding(start = 4.dp), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Plans", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.2f), onHeaderClick, sortable = false)
         Spacer(modifier = Modifier.width(40.dp))
     }
 }
@@ -366,6 +389,7 @@ private fun RowScope.WatchlistHeaderCell(
 private fun WatchlistRow(
     row: WatchlistRowUi,
     onOpenPlans: () -> Unit,
+    onOpenReversalScoreInsight: () -> Unit,
     onRemove: () -> Unit,
     onGroupClick: (String) -> Unit,
     onStrategyClick: (StrategyType) -> Unit
@@ -393,32 +417,90 @@ private fun WatchlistRow(
             modifier = Modifier.weight(1.1f),
             onStrategyClick = onStrategyClick
         )
-        Text(
-            row.formattedLast,
-            modifier = Modifier.weight(0.8f).padding(end = 12.dp),
-            color = Color.White,
-            fontWeight = FontWeight.Medium,
-            fontSize = 14.sp,
-            textAlign = TextAlign.End
-        )
-        Text(
-            row.lastPriceAtLabel.orEmpty(),
-            modifier = Modifier.weight(1.3f).padding(start = 12.dp),
-            color = TextSecondary,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier.weight(1.0f).padding(end = 12.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            Text(
+                row.formattedLast,
+                color = Color.White,
+                fontWeight = FontWeight.Medium,
+                fontSize = 14.sp,
+                textAlign = TextAlign.End
+            )
+            row.lastPriceSublabel?.let { sublabel ->
+                Text(
+                    sublabel,
+                    color = TextSecondary,
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(0.95f)
+                .padding(end = 16.dp)
+                .then(
+                    if (row.reversalScoreHasInsight) {
+                        Modifier.clickable(onClick = onOpenReversalScoreInsight)
+                    } else {
+                        Modifier
+                    }
+                ),
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            when {
+                row.reversalScoreLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = TradeBlueBorder
+                    )
+                }
+                row.reversalScoreLabel != null && row.reversalScore != null -> {
+                    Column(horizontalAlignment = Alignment.End) {
+                        ReversalScorePill(
+                            score = row.reversalScore,
+                            stale = row.reversalScoreStale
+                        )
+                        row.reversalScoreAlignmentBadgeLabel?.let { badgeLabel ->
+                            AlignmentBadgeChip(
+                                label = badgeLabel,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        row.reversalScoreCalculatedAtLabel?.let { scoredAt ->
+                            Text(
+                                scoredAt,
+                                color = TextSecondary,
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.End,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    Text("—", color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.End)
+                }
+            }
+        }
         Text(
             row.proximityStatusLabel,
-            modifier = Modifier.weight(0.9f),
+            modifier = Modifier.weight(0.9f).padding(start = 4.dp),
             color = if (row.isNearEntry) TradeBlueBorder else TextSecondary,
             fontSize = 12.sp,
             fontWeight = if (row.isNearEntry) FontWeight.SemiBold else FontWeight.Normal
         )
         Text(
             row.nearEntrySummary ?: row.planSummary.orEmpty(),
-            modifier = Modifier.weight(1.1f),
+            modifier = Modifier.weight(1.2f),
             color = if (row.isNearEntry) TradeBlueBorder else TextSecondary,
             fontSize = 12.sp,
             maxLines = 2,
