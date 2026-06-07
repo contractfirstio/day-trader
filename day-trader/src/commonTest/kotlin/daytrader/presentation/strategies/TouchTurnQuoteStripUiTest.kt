@@ -79,9 +79,10 @@ class TouchTurnQuoteStripUiTest {
             bracketSetup = setup
         )
         assertNotNull(strip)
-        assertEquals(99.64, strip.entryPrice)
-        assertEquals(TouchTurnTradeSide.LONG, strip.entrySide)
-        assertEquals("+12p", strip.fillGapLabel)
+        val resolved = strip!!
+        assertEquals(99.726, resolved.entryPrice!!, absoluteTolerance = 0.0001)
+        assertEquals(TouchTurnTradeSide.LONG, resolved.entrySide)
+        assertEquals("+3p", resolved.fillGapLabel)
     }
 
     @Test

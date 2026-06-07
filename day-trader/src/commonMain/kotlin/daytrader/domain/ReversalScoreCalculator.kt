@@ -66,12 +66,16 @@ object ReversalScoreCalculator {
             standardDeviation(yield.spreadHistory)
         )
 
-        val rawComposite = WEIGHT_PRICE * priceZ +
-            WEIGHT_IV_RANK * ivRankZ +
-            WEIGHT_RVOL * rvolZ +
-            WEIGHT_HF_MACRO_FEAR * hfMacroFearZ +
-            WEIGHT_STRUCTURAL_VIX * vixZ +
-            WEIGHT_YIELD_CURVE * yieldCurveZ
+        val rawComposite = computeWeightedComposite(
+            ReversalScoreComponents(
+                priceZ = priceZ,
+                ivRankZ = ivRankZ,
+                rvolZ = rvolZ,
+                hfMacroFearZ = hfMacroFearZ,
+                structuralVixZ = vixZ,
+                yieldCurveZ = yieldCurveZ
+            )
+        )
 
         val score = normalizeToScore(rawComposite)
         return ReversalScoreResult(
@@ -112,6 +116,31 @@ object ReversalScoreCalculator {
             val window = ivHistory.take(index + 1).filter { it > 0.0 }
             if (window.size < 2) null else ivPercentileRank(ivHistory[index], window)
         }
+
+    /** Weighted sum of aligned component z-scores (Step 4 in the reversal score pipeline). */
+    fun computeWeightedComposite(components: ReversalScoreComponents): Double =
+        WEIGHT_PRICE * components.priceZ +
+            WEIGHT_IV_RANK * components.ivRankZ +
+            WEIGHT_RVOL * components.rvolZ +
+            WEIGHT_HF_MACRO_FEAR * components.hfMacroFearZ +
+            WEIGHT_STRUCTURAL_VIX * components.structuralVixZ +
+            WEIGHT_YIELD_CURVE * components.yieldCurveZ
+
+    /**
+     * Builds a score from pre-aligned z-scores (Steps 4–5).
+     * Used when validating the composite formula independent of market-data ingestion.
+     */
+    fun resultFromAlignedComponents(components: ReversalScoreComponents): ReversalScoreResult {
+        val rawComposite = computeWeightedComposite(components)
+        return ReversalScoreResult(
+            compositeScore = normalizeToScore(rawComposite),
+            rawComposite = rawComposite,
+            priceZScore = components.priceZ,
+            rvol = 0.0,
+            ivRank = 0.0,
+            components = components
+        )
+    }
 
     fun normalizeToScore(rawComposite: Double): Int {
         val normalized = ((rawComposite + 3.0) / 6.0) * 100.0
