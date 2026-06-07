@@ -36,15 +36,15 @@ object ReversalScoreCalculator {
         val currentIv = live.impliedVolatility
             ?: ivHistory.lastOrNull()
             ?: estimateIvFromPriceVolatility(closes)
-        val ivRankZ = invert(zScore(currentIv, ivHistory.average(), standardDeviation(ivHistory)))
+        val ivRank = ivPercentileRank(currentIv, ivHistory)
+        val ivRankZ = ivRankAlignedZ(currentIv, ivHistory)
 
         val avgVolume30 = volumes.takeLast(RVOL_AVG_WINDOW).average().takeIf { it > 0.0 }
             ?: volumes.average().takeIf { it > 0.0 }
             ?: live.volume.coerceAtLeast(1.0)
         val rvol = live.volume / avgVolume30
         val historicalRvol = alignSeries(closes, volumes).map { (_, vol) -> vol / avgVolume30 }
-        val rvolZ = alignRvolZ(priceZ, zScore(rvol, historicalRvol.average(), standardDeviation(historicalRvol)))
-        val ivRank = ivPercentileRank(currentIv, ivHistory)
+        val rvolZ = invert(zScore(rvol, historicalRvol.average(), standardDeviation(historicalRvol)))
 
         val macro = inputs.macroVol
         val vixZ = invert(zScore(macro.vix, macro.vixHistory.average(), standardDeviation(macro.vixHistory)))
@@ -54,7 +54,10 @@ object ReversalScoreCalculator {
         val vvixZ = macro.vvix?.let { value ->
             invert(zScore(value, macro.vvixHistory.average(), standardDeviation(macro.vvixHistory)))
         }
-        val hfMacroFearZ = listOfNotNull(vix1dZ, vvixZ).average().takeIf { !it.isNaN() } ?: vixZ
+        val hfMacroFearZ = listOfNotNull(vix1dZ, vvixZ)
+            .average()
+            .takeIf { !it.isNaN() }
+            ?: 0.0
 
         val yield = inputs.yieldCurve
         val yieldCurveZ = zScore(
@@ -96,6 +99,20 @@ object ReversalScoreCalculator {
         return (rank * 100.0).coerceIn(0.0, 100.0)
     }
 
+    /** Inverted z-score of IV Rank vs its expanding-window historical distribution. */
+    fun ivRankAlignedZ(currentIv: Double, ivHistory: List<Double>): Double {
+        val ivRank = ivPercentileRank(currentIv, ivHistory)
+        val rankHistory = historicalIvRankSeries(ivHistory)
+        return invert(zScore(ivRank, rankHistory.average(), standardDeviation(rankHistory)))
+    }
+
+    /** Expanding-window IV Rank at each historical observation (baseline for IV Rank z-score). */
+    fun historicalIvRankSeries(ivHistory: List<Double>): List<Double> =
+        ivHistory.indices.mapNotNull { index ->
+            val window = ivHistory.take(index + 1).filter { it > 0.0 }
+            if (window.size < 2) null else ivPercentileRank(ivHistory[index], window)
+        }
+
     fun normalizeToScore(rawComposite: Double): Int {
         val normalized = ((rawComposite + 3.0) / 6.0) * 100.0
         return min(100, max(0, normalized.toInt()))
@@ -112,10 +129,6 @@ object ReversalScoreCalculator {
     }
 
     private fun invert(z: Double): Double = -z
-
-    /** RVOL spikes during selloffs are capitulation (bullish); during rallies they signal exhaustion. */
-    private fun alignRvolZ(priceZ: Double, rawRvolZ: Double): Double =
-        if (priceZ < 0.0) -rawRvolZ else rawRvolZ
 
     private fun estimateIvFromPriceVolatility(closes: List<Double>): Double {
         if (closes.size < 2) return 0.20

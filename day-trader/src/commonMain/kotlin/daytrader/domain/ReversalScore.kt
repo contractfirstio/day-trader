@@ -54,7 +54,9 @@ data class ReversalScoreInputs(
 
 data class ReversalScoreComponents(
     val priceZ: Double,
+    /** Inverted z-score of IV Rank percentile (0–100), not raw IV. */
     val ivRankZ: Double,
+    /** Inverted z-score of relative volume. */
     val rvolZ: Double,
     val hfMacroFearZ: Double,
     val structuralVixZ: Double,
