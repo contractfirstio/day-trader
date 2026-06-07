@@ -44,6 +44,16 @@ object AppDataFiles {
     fun executionGatewayLogFileName(): String =
         "$EXECUTION_DIR/$EXECUTION_GATEWAY_LOG"
 
+    /**
+     * Watchlist reversal score batch diagnostics.
+     * macOS: `~/Library/Application Support/Day Trader/{broker-scope}/watchlist/reversal-score.jsonl`
+     */
+    const val WATCHLIST_DIR = "watchlist"
+    const val REVERSAL_SCORE_LOG = "reversal-score.jsonl"
+
+    fun reversalScoreLogFileName(): String =
+        "$WATCHLIST_DIR/$REVERSAL_SCORE_LOG"
+
     fun emulatorPricesLogFileName(): String =
         "$EMULATOR_DIR/$EMULATOR_PRICES_LOG"
 

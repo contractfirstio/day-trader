@@ -7,6 +7,7 @@ import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
+import daytrader.data.ReversalScoreService
 import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
 import daytrader.domain.InstrumentIdentity
@@ -29,6 +30,7 @@ import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.SessionBundle
+import daytrader.platform.defaultMacroYieldDataProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -154,7 +156,8 @@ fun rememberAppDependencies(
             brokerKind = brokerKind,
             ensureLiveMarketData = ensureLiveMarketData,
             onRequestStrategyDeploymentCreate = watchlistStrategyCreateBridge::requestCreate,
-            onDeleteLinkedDeployment = viewModel::deleteDeploymentById
+            onDeleteLinkedDeployment = viewModel::deleteDeploymentById,
+            reversalScoreService = ReversalScoreService(defaultMacroYieldDataProvider())
         )
         watchlistStrategyCreateBridge.linkDeploymentToWatchlistEntry =
             watchlistViewModel::linkStrategyDeploymentToEntry

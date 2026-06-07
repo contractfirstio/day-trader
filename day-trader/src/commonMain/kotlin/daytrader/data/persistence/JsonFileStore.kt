@@ -77,6 +77,10 @@ object JsonFileStore {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }
 
+    fun appendReversalScoreLine(relativePath: String, line: String) {
+        AppFileSystem.appendLine(relativePath, "$line\n")
+    }
+
     fun encodeSessionTradesForTrace(trades: List<SessionTrade>): JsonElement =
         json.encodeToJsonElement(
             trades.map { trade ->

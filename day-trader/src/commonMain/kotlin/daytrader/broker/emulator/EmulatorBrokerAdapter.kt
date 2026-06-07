@@ -106,6 +106,28 @@ class EmulatorBrokerAdapter(
                                 )
                             }
                         }
+                    is GatewayCommand.FetchReversalScoreSymbolSnapshot ->
+                        launch {
+                            withEngine {
+                                engine.fetchReversalScoreSymbolSnapshot(
+                                    command.requestId,
+                                    command.symbol,
+                                    command.instrument
+                                )
+                            }
+                        }
+                    is GatewayCommand.FetchReversalScoreMacroVolatility ->
+                        launch {
+                            withEngine {
+                                engine.fetchReversalScoreMacroVolatility(command.requestId)
+                            }
+                        }
+                    is GatewayCommand.FetchSpyRegimeSnapshot ->
+                        launch {
+                            withEngine {
+                                engine.fetchSpyRegimeSnapshot(command.requestId)
+                            }
+                        }
                     is GatewayCommand.FetchTouchTurnSignalContext ->
                         launch {
                             withEngine {

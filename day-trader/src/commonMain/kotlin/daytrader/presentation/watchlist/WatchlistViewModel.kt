@@ -4,6 +4,9 @@ import daytrader.broker.SymbolMarkets
 import daytrader.data.WatchlistPriceScanService
 import daytrader.data.WatchlistRepository
 import daytrader.data.WatchlistScanResult
+import daytrader.data.ReversalScoreBatchResult
+import daytrader.data.ReversalScoreCalculationStage
+import daytrader.data.ReversalScoreService
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.StrategyCatalog
 import daytrader.domain.DEFAULT_WATCHLIST_ID
@@ -56,6 +59,7 @@ class WatchlistViewModel(
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val scanService: WatchlistPriceScanService = WatchlistPriceScanService(),
+    private val reversalScoreService: ReversalScoreService = ReversalScoreService(),
     private val onRequestStrategyDeploymentCreate: ((WatchlistStrategyCreateRequest) -> Unit)? = null,
     private val onDeleteLinkedDeployment: ((String) -> Unit)? = null
 ) {
@@ -81,8 +85,13 @@ class WatchlistViewModel(
     private var activeGroupFilter: WatchlistGroupFilter = WatchlistGroupFilter.All
     private var activeStrategyFilter: WatchlistStrategyFilter = WatchlistStrategyFilter.All
     private var scanInProgress = false
-    private var scanProgressLabel: String? = null
+    private var scanProgress: WatchlistScanProgressUi? = null
     private var lastScanResult: WatchlistScanResult? = null
+    private var reversalScoreInProgress = false
+    private var reversalScoreProgress: ReversalScoreProgressUi? = null
+    private var reversalScoreLoadingEntryId: String? = null
+    private var lastReversalScoreResult: ReversalScoreBatchResult? = null
+    private var reversalScoreInsight: WatchlistReversalScoreInsightUi? = null
 
     private val _uiState = MutableStateFlow(WatchlistUiState())
     val uiState: StateFlow<WatchlistUiState> = _uiState.asStateFlow()
@@ -509,16 +518,20 @@ class WatchlistViewModel(
     fun onCheckEntryProximity() {
         val gateway = marketDataGateway ?: executionGateway ?: return
         val watchlist = selectedWatchlist() ?: return
-        if (scanInProgress || watchlist.entries.isEmpty()) return
+        if (scanInProgress || reversalScoreInProgress || watchlist.entries.isEmpty()) return
         scope.launch {
             scanInProgress = true
-            scanProgressLabel = "Starting scan…"
+            scanProgress = WatchlistScanProgressUi(completed = 0, total = watchlist.entries.size, symbol = "")
             emitUiState()
             val result = scanService.scan(
                 entries = watchlist.entries,
                 gateway = gateway
             ) { progress ->
-                scanProgressLabel = "Checking ${progress.completed}/${progress.total} — ${progress.symbol}"
+                scanProgress = WatchlistScanProgressUi(
+                    completed = progress.completed,
+                    total = progress.total,
+                    symbol = progress.symbol
+                )
                 emitUiState()
             }
             val activeWatchlist = selectedWatchlist() ?: return@launch
@@ -532,9 +545,80 @@ class WatchlistViewModel(
             }
             lastScanResult = result
             scanInProgress = false
-            scanProgressLabel = null
+            scanProgress = null
             emitUiState()
         }
+    }
+
+    fun onCalculateReversalScores() {
+        val gateway = marketDataGateway ?: executionGateway ?: return
+        val watchlist = selectedWatchlist() ?: return
+        val entriesToScore = entriesMatchingFilters(watchlist.entries)
+        if (reversalScoreInProgress || scanInProgress || entriesToScore.isEmpty()) return
+        scope.launch {
+            reversalScoreInProgress = true
+            reversalScoreProgress = null
+            reversalScoreLoadingEntryId = null
+            emitUiState()
+            val result = reversalScoreService.calculateScores(
+                entries = entriesToScore,
+                gateway = gateway
+            ) { progress ->
+                reversalScoreProgress = WatchlistStatusUiMapper.buildReversalScoreProgress(progress)
+                if (progress.stage == ReversalScoreCalculationStage.SYMBOLS) {
+                    reversalScoreLoadingEntryId = progress.entryId
+                }
+                emitUiState()
+            }
+            val activeWatchlist = selectedWatchlist() ?: return@launch
+            result.entryResults.forEach { entryResult ->
+                val computed = entryResult.result ?: return@forEach
+                val scoredAtEpochMs = System.currentTimeMillis()
+                repository.updateEntry(activeWatchlist.id, entryResult.entryId) { entry ->
+                    entry.copy(
+                        reversalScore = computed.compositeScore,
+                        reversalScoreAtEpochMs = scoredAtEpochMs,
+                        reversalScoreAlignmentBadge = entryResult.alignmentBadge,
+                        reversalScoreInsightText = computed.insightText,
+                        reversalScoreRecommendationText = computed.recommendationText
+                    )
+                }
+            }
+            repository.updateWatchlist(activeWatchlist.id) { current ->
+                current.copy(
+                    lastReversalScoreMacroTrend = result.macroTrendState,
+                    lastReversalScoreSpyLastPrice = result.spyLastPrice,
+                    lastReversalScoreSpySma200 = result.spySma200
+                )
+            }
+            lastReversalScoreResult = result
+            reversalScoreInProgress = false
+            reversalScoreProgress = null
+            reversalScoreLoadingEntryId = null
+            emitUiState()
+        }
+    }
+
+    fun onOpenReversalScoreInsight(entryId: String) {
+        val entry = selectedWatchlist()?.entries?.firstOrNull { it.id == entryId } ?: return
+        val score = entry.reversalScore ?: return
+        val insightText = entry.reversalScoreInsightText?.takeIf { it.isNotBlank() } ?: return
+        val recommendationText = entry.reversalScoreRecommendationText?.takeIf { it.isNotBlank() } ?: return
+        reversalScoreInsight = WatchlistReversalScoreInsightUi(
+            entryId = entry.id,
+            symbol = entry.symbol,
+            companyName = entry.companyName?.takeIf { it.isNotBlank() } ?: entry.symbol,
+            compositeScore = score,
+            contextBadgeLabel = entry.reversalScoreAlignmentBadge?.label,
+            insightText = insightText,
+            recommendationText = recommendationText
+        )
+        emitUiState()
+    }
+
+    fun onDismissReversalScoreInsight() {
+        reversalScoreInsight = null
+        emitUiState()
     }
 
     fun resolveInstrumentForSymbol(
@@ -1107,7 +1191,7 @@ class WatchlistViewModel(
                 activeStrategyFilter = WatchlistStrategyFilter.All
             }
         }
-        val filteredEntries = entries.filter { matchesGroupFilter(it) && matchesStrategyFilter(it) }
+        val visibleEntries = entriesMatchingFilters(entries)
         val nearSummaries = nearHitSummaries()
         val comparator = when (sortColumn) {
             WatchlistSortColumn.COMPANY -> compareBy<WatchlistEntry> {
@@ -1115,12 +1199,13 @@ class WatchlistViewModel(
             }
             WatchlistSortColumn.SYMBOL -> compareBy { it.symbol }
             WatchlistSortColumn.LAST -> compareBy { it.lastScannedPrice ?: Double.NEGATIVE_INFINITY }
+            WatchlistSortColumn.REVERSAL_SCORE -> compareBy { it.reversalScore ?: Double.NEGATIVE_INFINITY }
             WatchlistSortColumn.NOTES -> compareBy { it.notes.orEmpty() }
         }
         val sorted = if (sortDirection == WatchlistSortDirection.DESCENDING) {
-            filteredEntries.sortedWith(comparator.reversed())
+            visibleEntries.sortedWith(comparator.reversed())
         } else {
-            filteredEntries.sortedWith(comparator)
+            visibleEntries.sortedWith(comparator)
         }
         val groupFilterChips = buildGroupFilterChips(entries, labels)
         val strategyFilterChips = buildStrategyFilterChips(entries, strategyDeployments)
@@ -1141,15 +1226,23 @@ class WatchlistViewModel(
                         )
                     }
             }
-        val scanSummary = lastScanResult?.let { result ->
-            when {
-                result.entryResults.isEmpty() -> null
-                result.nearHits.isEmpty() ->
-                    "Scanned ${result.entryResults.size} symbols — none near entry${if (result.failedCount > 0) " (${result.failedCount} failed)" else ""}."
-                else ->
-                    "${result.nearHits.size} symbol(s) near entry${if (result.failedCount > 0) " (${result.failedCount} failed)" else ""}."
-            }
-        }
+        val scanSummary = null
+        val reversalScoreSummary = null
+        val resolvedReversalBatch = WatchlistStatusUiMapper.resolvedReversalBatch(
+            inMemory = lastReversalScoreResult,
+            watchlist = watchlist
+        )
+        val statusStrip = WatchlistStatusUiMapper.buildStatusStrip(
+            execution = executionConnection,
+            marketData = marketDataConnection,
+            brokerKind = brokerKind,
+            lastReversalResult = resolvedReversalBatch
+        )
+        val macroRegimeCard = resolvedReversalBatch?.let(WatchlistStatusUiMapper::buildMacroRegimeCard)
+        val activitySummary = WatchlistStatusUiMapper.buildActivitySummary(
+            scanResult = lastScanResult,
+            reversalResult = resolvedReversalBatch
+        )
         _uiState.update {
             WatchlistUiState(
                 watchlistName = watchlist?.name ?: "Watchlist",
@@ -1160,7 +1253,8 @@ class WatchlistViewModel(
                             entry = entry,
                             watchlist = list,
                             deployments = strategyDeployments,
-                            nearEntrySummary = nearSummaries[entry.id]
+                            nearEntrySummary = nearSummaries[entry.id],
+                            reversalScoreLoading = reversalScoreInProgress && entry.id == reversalScoreLoadingEntryId
                         )
                     }
                 }.orEmpty(),
@@ -1178,9 +1272,18 @@ class WatchlistViewModel(
                     ?.let(WatchlistUiMapper::toDiaryNotificationUi),
                 bracketOrderEditor = bracketOrderDraft,
                 connectionLabel = connectionLabel(executionConnection, marketDataConnection),
+                statusStrip = statusStrip,
+                macroRegimeCard = macroRegimeCard,
+                activitySummary = activitySummary,
                 scanInProgress = scanInProgress,
-                scanProgressLabel = scanProgressLabel,
+                scanProgress = scanProgress,
                 scanSummary = scanSummary,
+                reversalScoreInProgress = reversalScoreInProgress,
+                reversalScoreProgress = reversalScoreProgress,
+                reversalScoreProgressLabel = null,
+                reversalScoreSummary = reversalScoreSummary,
+                reversalScoreLoadingEntryId = reversalScoreLoadingEntryId,
+                reversalScoreInsight = reversalScoreInsight,
                 nearHits = nearHits,
                 storageScopeLabel = brokerKind.displayName
             )
@@ -1216,6 +1319,9 @@ class WatchlistViewModel(
             }
         )
     }
+
+    private fun entriesMatchingFilters(entries: List<WatchlistEntry>): List<WatchlistEntry> =
+        entries.filter { matchesGroupFilter(it) && matchesStrategyFilter(it) }
 
     private fun matchesGroupFilter(entry: WatchlistEntry): Boolean = when (val filter = activeGroupFilter) {
         WatchlistGroupFilter.All -> true

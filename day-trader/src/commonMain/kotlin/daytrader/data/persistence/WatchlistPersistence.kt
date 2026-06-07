@@ -2,6 +2,8 @@ package daytrader.data.persistence
 
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
+import daytrader.domain.ReversalScoreAlignmentBadge
+import daytrader.domain.MacroTrendState
 import daytrader.domain.TradeSide
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
@@ -23,7 +25,11 @@ object WatchlistPersistence {
             name = record.name,
             entries = entries,
             labels = WatchlistLabels.sorted(labels),
-            createdAtEpochMs = record.createdAtEpochMs
+            createdAtEpochMs = record.createdAtEpochMs,
+            lastReversalScoreMacroTrend = record.lastReversalScoreMacroTrend
+                ?.let { runCatching { MacroTrendState.valueOf(it) }.getOrNull() },
+            lastReversalScoreSpyLastPrice = record.lastReversalScoreSpyLastPrice,
+            lastReversalScoreSpySma200 = record.lastReversalScoreSpySma200
         )
     }
 
@@ -33,7 +39,10 @@ object WatchlistPersistence {
             name = watchlist.name,
             entries = watchlist.entries.map(::toEntryRecord),
             labels = watchlist.labels.map(::toLabelRecord),
-            createdAtEpochMs = watchlist.createdAtEpochMs
+            createdAtEpochMs = watchlist.createdAtEpochMs,
+            lastReversalScoreMacroTrend = watchlist.lastReversalScoreMacroTrend?.name,
+            lastReversalScoreSpyLastPrice = watchlist.lastReversalScoreSpyLastPrice,
+            lastReversalScoreSpySma200 = watchlist.lastReversalScoreSpySma200
         )
 
     private fun toLabelDomain(record: WatchlistLabelRecord): WatchlistLabel =
@@ -76,7 +85,13 @@ object WatchlistPersistence {
                 .map(::toPlanDomain)
                 .ifEmpty { defaultWatchlistTradePlans() },
             lastScannedPrice = record.lastScannedPrice,
-            lastScannedAtEpochMs = record.lastScannedAtEpochMs
+            lastScannedAtEpochMs = record.lastScannedAtEpochMs,
+            reversalScore = record.reversalScore,
+            reversalScoreAtEpochMs = record.reversalScoreAtEpochMs,
+            reversalScoreAlignmentBadge = record.reversalScoreAlignmentBadge
+                ?.let { runCatching { ReversalScoreAlignmentBadge.valueOf(it) }.getOrNull() },
+            reversalScoreInsightText = record.reversalScoreInsightText,
+            reversalScoreRecommendationText = record.reversalScoreRecommendationText
         )
     }
 
@@ -94,7 +109,12 @@ object WatchlistPersistence {
             strategyDeploymentIds = entry.strategyDeploymentIds,
             tradePlans = entry.tradePlans.map(::toPlanRecord),
             lastScannedPrice = entry.lastScannedPrice,
-            lastScannedAtEpochMs = entry.lastScannedAtEpochMs
+            lastScannedAtEpochMs = entry.lastScannedAtEpochMs,
+            reversalScore = entry.reversalScore,
+            reversalScoreAtEpochMs = entry.reversalScoreAtEpochMs,
+            reversalScoreAlignmentBadge = entry.reversalScoreAlignmentBadge?.name,
+            reversalScoreInsightText = entry.reversalScoreInsightText,
+            reversalScoreRecommendationText = entry.reversalScoreRecommendationText
         )
 
     private fun toPlanDomain(record: WatchlistTradePlanRecord): WatchlistTradePlan =

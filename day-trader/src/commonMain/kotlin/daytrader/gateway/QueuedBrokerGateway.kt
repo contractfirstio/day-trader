@@ -3,9 +3,13 @@ package daytrader.gateway
 import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.ReversalScoreMacroVolSnapshot
+import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.diagnostics.ExecutionGatewayLog
+import daytrader.diagnostics.ReversalScoreLog
 import daytrader.diagnostics.SessionPriceLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +59,9 @@ class QueuedBrokerGateway(
     private val pendingSignalContext = mutableMapOf<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
     private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<InstrumentResolution>>>()
     private val pendingLatestDailyClose = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
+    private val pendingReversalScoreSymbol = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreSymbolSnapshot>>>()
+    private val pendingReversalScoreMacro = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreMacroVolSnapshot>>>()
+    private val pendingSpyRegime = mutableMapOf<Long, CompletableDeferred<Result<SpyRegimeSnapshot>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -196,6 +203,51 @@ class QueuedBrokerGateway(
         }
     }
 
+    override suspend fun fetchReversalScoreSymbolSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<ReversalScoreSymbolSnapshot> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<ReversalScoreSymbolSnapshot>>()
+        pendingReversalScoreSymbol[requestId] = deferred
+        sendCommand(GatewayCommand.FetchReversalScoreSymbolSnapshot(requestId, symbol, instrument))
+        return try {
+            withTimeout(REVERSAL_SCORE_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingReversalScoreSymbol.remove(requestId)
+            ReversalScoreLog.gatewayRequestFailed("symbol_snapshot", symbol, requestId, e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun fetchReversalScoreMacroVolatility(): Result<ReversalScoreMacroVolSnapshot> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<ReversalScoreMacroVolSnapshot>>()
+        pendingReversalScoreMacro[requestId] = deferred
+        sendCommand(GatewayCommand.FetchReversalScoreMacroVolatility(requestId))
+        return try {
+            withTimeout(REVERSAL_SCORE_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingReversalScoreMacro.remove(requestId)
+            ReversalScoreLog.gatewayRequestFailed("macro_volatility", symbol = null, requestId, e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun fetchSpyRegimeSnapshot(): Result<SpyRegimeSnapshot> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<SpyRegimeSnapshot>>()
+        pendingSpyRegime[requestId] = deferred
+        sendCommand(GatewayCommand.FetchSpyRegimeSnapshot(requestId))
+        return try {
+            withTimeout(REVERSAL_SCORE_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingSpyRegime.remove(requestId)
+            ReversalScoreLog.gatewayRequestFailed("spy_regime", symbol = "SPY", requestId, e)
+            Result.failure(e)
+        }
+    }
+
     private fun apply(event: GatewayEvent) {
         when (event) {
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
@@ -229,10 +281,20 @@ class QueuedBrokerGateway(
             is GatewayEvent.LatestDailyCloseReady -> {
                 pendingLatestDailyClose.remove(event.requestId)?.complete(event.result)
             }
+            is GatewayEvent.ReversalScoreSymbolSnapshotReady -> {
+                pendingReversalScoreSymbol.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.ReversalScoreMacroVolatilityReady -> {
+                pendingReversalScoreMacro.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.SpyRegimeSnapshotReady -> {
+                pendingSpyRegime.remove(event.requestId)?.complete(event.result)
+            }
         }
     }
 
     companion object {
         const val HISTORICAL_REQUEST_TIMEOUT_MS = 30_000L
+        const val REVERSAL_SCORE_REQUEST_TIMEOUT_MS = 45_000L
     }
 }

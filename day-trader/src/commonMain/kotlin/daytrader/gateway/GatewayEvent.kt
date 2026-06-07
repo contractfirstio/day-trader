@@ -2,6 +2,9 @@ package daytrader.gateway
 
 import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.ReversalScoreMacroVolSnapshot
+import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnSignalContext
 
 sealed interface GatewayEvent {
@@ -45,5 +48,20 @@ sealed interface GatewayEvent {
     data class LatestDailyCloseReady(
         val requestId: Long,
         val result: Result<Double>
+    ) : GatewayEvent
+
+    data class ReversalScoreSymbolSnapshotReady(
+        val requestId: Long,
+        val result: Result<ReversalScoreSymbolSnapshot>
+    ) : GatewayEvent
+
+    data class ReversalScoreMacroVolatilityReady(
+        val requestId: Long,
+        val result: Result<ReversalScoreMacroVolSnapshot>
+    ) : GatewayEvent
+
+    data class SpyRegimeSnapshotReady(
+        val requestId: Long,
+        val result: Result<SpyRegimeSnapshot>
     ) : GatewayEvent
 }
