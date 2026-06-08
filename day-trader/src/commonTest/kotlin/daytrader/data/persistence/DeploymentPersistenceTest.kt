@@ -6,6 +6,7 @@ import daytrader.domain.MarketSource
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
+import daytrader.domain.withNewConfigurableRulesDisabled
 import daytrader.domain.defaultStrategyDeployment
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -102,6 +103,37 @@ class DeploymentPersistenceTest {
         assertEquals(false, restored.touchTurnRules?.enables?.liquidityRange)
         assertEquals(false, restored.touchTurnRules?.enables?.volumeExhaustion)
         assertEquals(false, restored.touchTurnRules?.enables?.postEntryVolumeBuffer)
+        assertEquals(false, restored.touchTurnRules?.enables?.notDoji)
+        assertEquals(false, restored.touchTurnRules?.enables?.openDeadline)
         assertEquals(true, restored.touchTurnRules?.enables?.barCloseTurn)
+    }
+
+    @Test
+    fun configurationRoundTrip_migratesLegacyEnableNotDojiTrue() {
+        val legacyRecord = TouchTurnRuleConfigRecord(
+            enableNotDoji = true,
+            enableOpenDeadline = true
+        )
+        val restored = TouchTurnRuleConfigPersistence.toDomain(legacyRecord)
+        assertEquals(true, restored.enables.notDoji)
+        assertEquals(true, restored.enables.openDeadline)
+
+        val migrated = restored.withNewConfigurableRulesDisabled()
+        assertEquals(false, migrated.enables.notDoji)
+        assertEquals(false, migrated.enables.openDeadline)
+    }
+
+    @Test
+    fun configurationRoundTrip_defaultTouchTurnRulesPersistNewRuleDefaults() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500,
+            brokerKind = daytrader.gateway.BrokerKind.EMULATOR
+        )
+        val record = DeploymentPersistence.toRecord(original).configuration.touchTurnRules
+        assertEquals(false, record?.enableNotDoji)
+        assertEquals(false, record?.enableOpenDeadline)
+        assertEquals(90, record?.stopAfterOpenMinutes)
     }
 }

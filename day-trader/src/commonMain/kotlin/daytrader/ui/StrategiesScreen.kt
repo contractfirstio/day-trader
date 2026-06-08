@@ -1126,7 +1126,7 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                             color = TextSecondary,
                             lineHeight = 13.sp
                         )
-                        if (orderSetup.isActionable) {
+                        if (TouchTurnLogic.setupActionableForEntry(orderSetup, session.rules)) {
                             TouchTurnOrderPreviewChart(
                                 candle = candle,
                                 setup = orderSetup,

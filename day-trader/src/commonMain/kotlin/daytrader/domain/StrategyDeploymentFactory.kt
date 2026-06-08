@@ -1,5 +1,7 @@
 package daytrader.domain
 
+import daytrader.gateway.BrokerKind
+
 fun newStrategyDeploymentId(): String = "inst-${kotlin.random.Random.nextLong().toULong().toString(16)}"
 
 fun instanceDisplayName(strategyType: StrategyType, symbol: String): String = when (strategyType) {
@@ -16,7 +18,8 @@ fun defaultStrategyDeployment(
     marketSource: MarketSource = MarketSource.LEGACY_INFERRED,
     companyName: String? = null,
     instrument: InstrumentIdentity? = null,
-    status: DeploymentStatus = DeploymentStatus.STOPPED
+    status: DeploymentStatus = DeploymentStatus.STOPPED,
+    brokerKind: BrokerKind? = null
 ): StrategyDeployment {
     val symbolUpper = symbol.trim().uppercase()
     return StrategyDeployment(
@@ -31,7 +34,9 @@ fun defaultStrategyDeployment(
         instrument = instrument,
         maxDollars = maxDollars,
         sessionHistory = emptyList(),
-        live = ActiveExecution.flat()
+        live = ActiveExecution.flat(),
+        touchTurnRules = brokerKind?.let(TouchTurnRuleConfig::defaultForBrokerKind)
+            ?: TouchTurnRuleConfig.DEFAULT
     )
 }
 

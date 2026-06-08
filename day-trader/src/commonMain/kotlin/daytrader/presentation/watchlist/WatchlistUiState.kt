@@ -8,7 +8,15 @@ import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistProximityStatus
 
 enum class WatchlistSortColumn {
-    COMPANY, SYMBOL, LAST, REVERSAL_SCORE, NOTES
+    COMPANY,
+    SYMBOL,
+    MARKET,
+    GROUPS,
+    STRATEGIES,
+    LAST,
+    REVERSAL_SCORE,
+    STATUS,
+    PLANS
 }
 
 enum class WatchlistSortDirection {

@@ -5,6 +5,7 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.defaultStrategyDeployment
+import daytrader.gateway.BrokerKind
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
@@ -46,7 +47,8 @@ class ReplaySessionController(
             marketZoneId = marketInputs.marketZoneId,
             currencyCode = marketInputs.currencyCode,
             instrument = bundle.manifest?.instrument,
-            status = DeploymentStatus.STOPPED
+            status = DeploymentStatus.STOPPED,
+            brokerKind = BrokerKind.REPLAY
         ).copy(id = bundle.deploymentId)
         repository.add(deployment)
     }

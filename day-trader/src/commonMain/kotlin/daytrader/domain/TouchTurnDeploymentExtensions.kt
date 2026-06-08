@@ -383,7 +383,8 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> false
-            else -> hadLiquidityCandle == true && setup?.isActionable == true
+            else -> hadLiquidityCandle == true &&
+                setup?.let { TouchTurnLogic.setupActionableForEntry(it, rules) } == true
         },
         ordersPlacedForSession = ordersPlacedForCandle == true ||
             outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,

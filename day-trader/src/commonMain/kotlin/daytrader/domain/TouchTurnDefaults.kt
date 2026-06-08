@@ -28,12 +28,16 @@ object TouchTurnDefaults {
     const val ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE = 0.05
     /** Nudge entry limit inward from bar extreme: long up from low, short down from high (fraction of bar range). */
     const val ENTRY_INWARD_OFFSET_RATIO_OF_RANGE = 0.10
+    /** Paper / emulator / replay: entry at bar extreme (no inward nudge). */
+    const val ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED = 0.0
     /** Max |bar.close − liveMid| as a fraction of bar range before hybrid mode rejects the setup. */
     const val BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE = 0.25
     /** For short setups (green liquidity candle), require close in the lower X of range. */
     const val CLOSE_POSITION_SHORT_MAX = 0.35
     /** For long setups (red liquidity candle), require close in the upper X of range. */
     const val CLOSE_POSITION_LONG_MIN = 0.65
+    /** Maximum minutes after RTH open before auto-stop when [openDeadline] is enabled. */
+    const val STOP_AFTER_OPEN_MINUTES = 90
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
 }

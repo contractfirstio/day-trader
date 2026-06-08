@@ -8,6 +8,8 @@ import daytrader.data.persistence.LegacyDataCleanup
 import daytrader.data.persistence.LegacyDeploymentPersistence
 import daytrader.data.persistence.LegacyInstancesJsonPersistence
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.withNewConfigurableTouchTurnRulesDisabled
+import daytrader.domain.withSimulatedBrokerEntryInwardOffset
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,18 +59,30 @@ class FileStrategyDeploymentRepository(
             if (fromNew.isNotEmpty()) {
                 LegacyDataCleanup.removeOrphanedLegacyFiles()
             }
-            return fromNew
+            return normalizeDeployments(fromNew)
         }
 
         val fromLegacy = LegacyDeploymentPersistence.load()
             ?: LegacyInstancesJsonPersistence.load()
         if (fromLegacy != null) {
-            writer.persistNow(fromLegacy)
+            val normalized = normalizeDeployments(fromLegacy)
+            writer.persistNow(normalized)
             LegacyDataCleanup.removeOrphanedLegacyFiles()
-            return fromLegacy
+            return normalized
         }
 
         return emptyList()
+    }
+
+    private fun normalizeDeployments(deployments: List<StrategyDeployment>): List<StrategyDeployment> {
+        var updated = deployments.map { it.withNewConfigurableTouchTurnRulesDisabled() }
+        if (AppFileSystem.currentDataScope().usesEmulatorExecution) {
+            updated = updated.map { it.withSimulatedBrokerEntryInwardOffset() }
+        }
+        if (updated != deployments) {
+            writer.persistNow(updated)
+        }
+        return updated
     }
 
     private fun persistDeployments(deployments: List<StrategyDeployment>) {

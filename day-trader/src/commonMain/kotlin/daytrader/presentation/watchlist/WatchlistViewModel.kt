@@ -1193,20 +1193,14 @@ class WatchlistViewModel(
         }
         val visibleEntries = entriesMatchingFilters(entries)
         val nearSummaries = nearHitSummaries()
-        val comparator = when (sortColumn) {
-            WatchlistSortColumn.COMPANY -> compareBy<WatchlistEntry> {
-                it.companyName?.takeIf { name -> name.isNotBlank() } ?: it.symbol
-            }
-            WatchlistSortColumn.SYMBOL -> compareBy { it.symbol }
-            WatchlistSortColumn.LAST -> compareBy { it.lastScannedPrice ?: Double.NEGATIVE_INFINITY }
-            WatchlistSortColumn.REVERSAL_SCORE -> compareBy { it.reversalScore ?: Double.NEGATIVE_INFINITY }
-            WatchlistSortColumn.NOTES -> compareBy { it.notes.orEmpty() }
-        }
-        val sorted = if (sortDirection == WatchlistSortDirection.DESCENDING) {
-            visibleEntries.sortedWith(comparator.reversed())
-        } else {
-            visibleEntries.sortedWith(comparator)
-        }
+        val sorted = WatchlistEntrySorter.sortedEntries(
+            entries = visibleEntries,
+            column = sortColumn,
+            direction = sortDirection,
+            watchlist = watchlist,
+            deployments = strategyDeployments,
+            nearSummaries = nearSummaries
+        )
         val groupFilterChips = buildGroupFilterChips(entries, labels)
         val strategyFilterChips = buildStrategyFilterChips(entries, strategyDeployments)
         val placedPlanIdsByEntry = entries.associate { entry ->

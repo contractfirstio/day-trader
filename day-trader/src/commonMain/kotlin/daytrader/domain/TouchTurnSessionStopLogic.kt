@@ -4,8 +4,7 @@ import daytrader.domain.DeploymentMarket
 import daytrader.data.StrategyCatalog
 
 /**
- * Touch Turn–specific run lifecycle rules (e.g. auto-stop [StrategyCatalog.stopAfterMinOpen]
- * minutes after RTH open using the first 15-minute candle anchor).
+ * Touch Turn–specific run lifecycle rules (e.g. configurable RTH open deadline auto-stop).
  */
 object TouchTurnSessionStopLogic {
     fun sessionOpenEpochMillis(instance: StrategyDeployment, sessionDateIso: String): Long? {
@@ -19,10 +18,12 @@ object TouchTurnSessionStopLogic {
         instance: StrategyDeployment,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): DeploymentSessionStopAction? {
-        val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(instance.strategyType) ?: return null
+        if (StrategyCatalog.stopAfterMinOpen(instance.strategyType) == null) return null
+        val rules = instance.effectiveTouchTurnRules()
+        if (!rules.enables.openDeadline) return DeploymentSessionStopAction.CONTINUE
         val sessionDate = DeploymentSessionStopLogic.sessionDateForRunningInstance(instance) ?: return null
         val open = sessionOpenEpochMillis(instance, sessionDate) ?: return null
-        val stopDeadline = open + stopAfterMinOpen * 60_000L
+        val stopDeadline = open + rules.stopAfterOpenMinutes * 60_000L
         return if (nowEpochMillis < stopDeadline) {
             DeploymentSessionStopAction.CONTINUE
         } else {
@@ -32,18 +33,18 @@ object TouchTurnSessionStopLogic {
 
     fun millisUntilStopAfterOpen(
         sessionOpenEpochMillis: Long,
+        rules: TouchTurnRuleConfig,
         nowEpochMillis: Long = System.currentTimeMillis()
-    ): Long {
-        val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER)!!
-        val deadline = sessionOpenEpochMillis + stopAfterMinOpen * 60_000L
+    ): Long? {
+        if (!rules.enables.openDeadline) return null
+        val deadline = sessionOpenEpochMillis + rules.stopAfterOpenMinutes * 60_000L
         return (deadline - nowEpochMillis).coerceAtLeast(0)
     }
 
-    fun pendingStopAfterOpenLabel(millisRemaining: Long): String {
-        val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER)!!
+    fun pendingStopAfterOpenLabel(millisRemaining: Long, stopAfterOpenMinutes: Int): String {
         val minutes = (millisRemaining / 60_000).toInt()
         val seconds = ((millisRemaining % 60_000) / 1000).toInt()
         val timing = if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
-        return "Auto-stop in $timing (${stopAfterMinOpen}m after open)"
+        return "Auto-stop in $timing (${stopAfterOpenMinutes}m after open)"
     }
 }

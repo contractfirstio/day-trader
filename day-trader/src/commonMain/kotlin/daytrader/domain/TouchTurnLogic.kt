@@ -362,11 +362,13 @@ object TouchTurnLogic {
         requireLivePriceChecks: Boolean,
         liveBid: Double?,
         liveAsk: Double?,
-        entryWindowStatus: TouchTurnEntryWindowStatus
+        entryWindowStatus: TouchTurnEntryWindowStatus,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Boolean =
-        requireLivePriceChecks &&
+        rules.enables.liveQuoteRequired &&
+            requireLivePriceChecks &&
             (liveBid == null || liveAsk == null) &&
-            entryWindowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW
+            (!rules.enables.entryWindow || entryWindowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW)
 
     fun closeConfirmation(
         candle: OhlcBar?,
@@ -383,9 +385,18 @@ object TouchTurnLogic {
             return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         }
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
-        if (!bracket.isLiquidityCandle || !bracket.isActionable) return TouchTurnCloseConfirmation.FAILED                 
-        if (!closeConfirmationWithinDeadline(bar, marketZoneId, nowEpochMillis, rules)) {
+        if ((rules.enables.liquidityRange && !bracket.isLiquidityCandle) ||
+            (rules.enables.notDoji && !bracket.isActionable)
+        ) {
+            return TouchTurnCloseConfirmation.FAILED
+        }
+        if (rules.enables.entryWindow &&
+            !closeConfirmationWithinDeadline(bar, marketZoneId, nowEpochMillis, rules)
+        ) {
             return TouchTurnCloseConfirmation.EXPIRED
+        }
+        if (!rules.enables.barCloseTurn) {
+            return TouchTurnCloseConfirmation.PASSED
         }
         val passes = closeConfirmsTurn(bracket, bar, rules)
         return if (passes) TouchTurnCloseConfirmation.PASSED else TouchTurnCloseConfirmation.FAILED
@@ -509,11 +520,12 @@ object TouchTurnLogic {
         return kotlin.math.abs(bar.close - liveMid) <= maxGap
     }
 
-    /** First blocking bar/volume outcome, or null when the opening bar qualifies for entry. */
+    /** True when the opening bar qualifies for bracket entry under [rules]. */
     fun setupActionableForEntry(
         setup: TouchTurnBracketSetup,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = setup.isActionable || !rules.enables.notDoji
+    ): Boolean = (setup.isLiquidityCandle || !rules.enables.liquidityRange) &&
+        (setup.candleColor != FirstCandleColor.DOJI || !rules.enables.notDoji)
 
     fun barSetupBlockOutcome(
         setup: TouchTurnBracketSetup,

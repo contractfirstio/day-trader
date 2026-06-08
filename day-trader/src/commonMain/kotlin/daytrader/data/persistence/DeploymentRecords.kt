@@ -117,7 +117,7 @@ data class TouchTurnRuleConfigRecord(
     val closedBarRefetchSettleMs: Long = 3_000L,
     val volumeBufferObservationMs: Long = 60_000L,
     val enableLiquidityRange: Boolean = true,
-    val enableNotDoji: Boolean = true,
+    val enableNotDoji: Boolean = false,
     val enableVolumeExhaustion: Boolean = true,
     val enableBarCloseTurn: Boolean = true,
     val enableEntryWindow: Boolean = true,
@@ -125,7 +125,9 @@ data class TouchTurnRuleConfigRecord(
     val enableLiveBarAgreement: Boolean = true,
     val enableLiveTurnConfirmation: Boolean = true,
     val enableLiveEntryTouchable: Boolean = true,
-    val enablePostEntryVolumeBuffer: Boolean = true
+    val enablePostEntryVolumeBuffer: Boolean = true,
+    val enableOpenDeadline: Boolean = false,
+    val stopAfterOpenMinutes: Int = 90
 )
 
 @Serializable

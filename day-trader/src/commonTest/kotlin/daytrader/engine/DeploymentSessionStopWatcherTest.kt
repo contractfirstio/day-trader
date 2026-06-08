@@ -5,6 +5,8 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopLogic
@@ -37,7 +39,13 @@ class DeploymentSessionStopWatcherTest {
 
     @Test
     fun evaluate_openDeadlineStop() {
-        val instance = runningTouchTurn()
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(openDeadline = true)
+        )
+        val instance = runningTouchTurn().copy(
+            touchTurnRules = rules,
+            touchTurnSession = runningTouchTurn().touchTurnSession?.copy(rules = rules)
+        )
         val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2026-05-22")!!
         val candidates = DeploymentSessionStopEvaluator.evaluate(
             deployments = listOf(instance),

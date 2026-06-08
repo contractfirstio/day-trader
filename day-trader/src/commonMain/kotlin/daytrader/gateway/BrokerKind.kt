@@ -22,8 +22,14 @@ enum class BrokerKind {
     val usesEmulatorExecution: Boolean
         get() = this == EMULATOR || this == EMULATOR_LIVE_IB_MARKET_DATA || this == REPLAY
 
+    /**
+     * Live IB quotes and Touch Turn entry gates (1m post-close window, live turn/quote checks).
+     * True for real IB, paper-with-live-IB-data, and replay of those captures — not offline emulator.
+     */
     val usesLiveIbMarketData: Boolean
-        get() = this == EMULATOR_LIVE_IB_MARKET_DATA || this == REPLAY
+        get() = this == INTERACTIVE_BROKERS ||
+            this == EMULATOR_LIVE_IB_MARKET_DATA ||
+            this == REPLAY
 
     /** Subdirectory under the app data root — one folder per startup choice. */
     val dataDirectorySegment: String
