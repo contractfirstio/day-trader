@@ -1,12 +1,13 @@
 package daytrader.domain
 
+import daytrader.gateway.BrokerKind
 import kotlinx.serialization.Serializable
 
-/** Per-deployment enable flags for Touch Turn entry-gate rules (all enabled by default). */
+/** Per-deployment enable flags for Touch Turn entry-gate rules ([notDoji] and [openDeadline] off by default). */
 @Serializable
 data class TouchTurnRuleEnables(
     val liquidityRange: Boolean = true,
-    val notDoji: Boolean = true,
+    val notDoji: Boolean = false,
     val volumeExhaustion: Boolean = true,
     val barCloseTurn: Boolean = true,
     val entryWindow: Boolean = true,
@@ -14,7 +15,9 @@ data class TouchTurnRuleEnables(
     val liveBarAgreement: Boolean = true,
     val liveTurnConfirmation: Boolean = true,
     val liveEntryTouchable: Boolean = true,
-    val postEntryVolumeBuffer: Boolean = true
+    val postEntryVolumeBuffer: Boolean = true,
+    /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
+    val openDeadline: Boolean = false
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
@@ -62,11 +65,16 @@ data class TouchTurnRuleConfig(
     val closedBarRefetchSettleMs: Long = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS,
     /** Post-entry window: cancel entry if live volume exceeds exhaustion threshold before this elapses. */
     val volumeBufferObservationMs: Long = TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS,
+    /** Minutes after RTH open before auto-stop when [TouchTurnRuleEnables.openDeadline] is enabled. */
+    val stopAfterOpenMinutes: Int = TouchTurnDefaults.STOP_AFTER_OPEN_MINUTES,
     /** Which entry-gate rules are enforced for this deployment. */
     val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleConfig = TouchTurnRuleConfig()
+
+        fun defaultForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig =
+            DEFAULT.copy(entryInwardOffsetRatioOfRange = kind.entryInwardOffsetRatioOfRangeDefault())
 
         val toggleDefinitions: List<TouchTurnRuleToggleDefinition> = listOf(
             TouchTurnRuleToggleDefinition(
@@ -119,6 +127,12 @@ data class TouchTurnRuleConfig(
                 label = "Post-entry volume buffer",
                 description = "After entry is working, cancel if live volume exceeds exhaustion threshold " +
                     "during the observation window."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "openDeadline",
+                label = "RTH open deadline",
+                description = "Stop the session and flatten working orders/position after the configured maximum " +
+                    "minutes from regular-hours open."
             )
         )
 
@@ -223,6 +237,13 @@ data class TouchTurnRuleConfig(
                 description = "After entry order is working, live volume is watched for this duration. If " +
                     "accumulated volume exceeds the exhaustion threshold, the entry order is cancelled.",
                 kind = TouchTurnRuleFieldKind.MILLISECONDS
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "stopAfterOpenMinutes",
+                label = "Max minutes after RTH open",
+                description = "When RTH open deadline is enabled, the session auto-stops and flattens broker " +
+                    "orders/position this many minutes after the session's RTH open anchor.",
+                kind = TouchTurnRuleFieldKind.INTEGER
             )
         )
 
@@ -242,6 +263,7 @@ data class TouchTurnRuleConfig(
             "closeConfirmationAfterCloseMs" -> config.closeConfirmationAfterCloseMs.toString()
             "closedBarRefetchSettleMs" -> config.closedBarRefetchSettleMs.toString()
             "volumeBufferObservationMs" -> config.volumeBufferObservationMs.toString()
+            "stopAfterOpenMinutes" -> config.stopAfterOpenMinutes.toString()
             else -> ""
         }
 
@@ -253,6 +275,7 @@ data class TouchTurnRuleConfig(
                     when (key) {
                         "atrLookbackPeriods" -> config.copy(atrLookbackPeriods = intValue)
                         "volumeSmaPeriods" -> config.copy(volumeSmaPeriods = intValue)
+                        "stopAfterOpenMinutes" -> config.copy(stopAfterOpenMinutes = intValue)
                         else -> null
                     }
                 }
@@ -308,6 +331,7 @@ data class TouchTurnRuleConfig(
             "liveTurnConfirmation" -> config.enables.liveTurnConfirmation
             "liveEntryTouchable" -> config.enables.liveEntryTouchable
             "postEntryVolumeBuffer" -> config.enables.postEntryVolumeBuffer
+            "openDeadline" -> config.enables.openDeadline
             else -> true
         }
 
@@ -323,6 +347,7 @@ data class TouchTurnRuleConfig(
                 "liveTurnConfirmation" -> config.enables.copy(liveTurnConfirmation = enabled)
                 "liveEntryTouchable" -> config.enables.copy(liveEntryTouchable = enabled)
                 "postEntryVolumeBuffer" -> config.enables.copy(postEntryVolumeBuffer = enabled)
+                "openDeadline" -> config.enables.copy(openDeadline = enabled)
                 else -> config.enables
             }
             return config.copy(enables = enables)
@@ -346,4 +371,60 @@ data class TouchTurnRuleFieldDefinition(
     val kind: TouchTurnRuleFieldKind
 )
 
-fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig = touchTurnRules
+fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig =
+    touchTurnSession?.rules ?: touchTurnRules
+
+/** True when bar-close / entry-window / live tape gates should be enforced for this config. */
+fun TouchTurnRuleConfig.enforcesCloseConfirmation(requireLivePriceChecks: Boolean): Boolean =
+    enables.barCloseTurn ||
+        enables.entryWindow ||
+        (requireLivePriceChecks && (
+            enables.liveTurnConfirmation ||
+                enables.liveBarAgreement ||
+                enables.liveEntryTouchable
+            ))
+
+fun BrokerKind.entryInwardOffsetRatioOfRangeDefault(): Double =
+    if (usesEmulatorExecution) {
+        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+    } else {
+        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
+    }
+
+fun TouchTurnRuleConfig.withSimulatedBrokerEntryInwardOffset(): TouchTurnRuleConfig {
+    val target = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+    return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
+}
+
+/** Ensures newly added rule toggles stay off (legacy persisted configs may still have [notDoji] enabled). */
+fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
+    val normalizedEnables = enables.copy(notDoji = false, openDeadline = false)
+    return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
+}
+
+fun StrategyDeployment.withSimulatedBrokerEntryInwardOffset(): StrategyDeployment {
+    val rules = touchTurnRules.withSimulatedBrokerEntryInwardOffset()
+    val session = touchTurnSession?.let { ctx ->
+        val patchedRules = ctx.rules.withSimulatedBrokerEntryInwardOffset()
+        if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
+    }
+    val history = sessionHistory.map { day ->
+        val record = day.touchTurnRunRecord ?: return@map day
+        val runRules = record.rules ?: return@map day
+        val patchedRules = runRules.withSimulatedBrokerEntryInwardOffset()
+        if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
+    }
+    if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
+}
+
+/** Patches deployment and in-flight session rules so new toggles ([notDoji], [openDeadline]) stay disabled. */
+fun StrategyDeployment.withNewConfigurableTouchTurnRulesDisabled(): StrategyDeployment {
+    val rules = touchTurnRules.withNewConfigurableRulesDisabled()
+    val session = touchTurnSession?.let { ctx ->
+        val sessionRules = ctx.rules.withNewConfigurableRulesDisabled()
+        if (sessionRules == ctx.rules) ctx else ctx.copy(rules = sessionRules)
+    }
+    if (rules == touchTurnRules && session == touchTurnSession) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session)
+}

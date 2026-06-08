@@ -14,8 +14,21 @@ class TouchTurnSessionStopLogicTest {
     }
 
     @Test
-    fun evaluateOpenDeadline_continuesBeforeDeadline() {
+    fun evaluateOpenDeadline_disabledByDefault() {
         val instance = touchTurnRunningInstance()
+        val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2025-05-22")!!
+        assertEquals(
+            DeploymentSessionStopAction.CONTINUE,
+            TouchTurnSessionStopLogic.evaluateOpenDeadline(
+                instance = instance,
+                nowEpochMillis = open + 90 * 60_000
+            )
+        )
+    }
+
+    @Test
+    fun evaluateOpenDeadline_continuesBeforeDeadline() {
+        val instance = touchTurnRunningInstance(openDeadlineEnabled = true)
         val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2025-05-22")!!
         assertEquals(
             DeploymentSessionStopAction.CONTINUE,
@@ -28,7 +41,7 @@ class TouchTurnSessionStopLogicTest {
 
     @Test
     fun evaluateOpenDeadline_stopsAfterDeadline() {
-        val instance = touchTurnRunningInstance()
+        val instance = touchTurnRunningInstance(openDeadlineEnabled = true)
         val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2025-05-22")!!
         assertEquals(
             DeploymentSessionStopAction.STOP_AFTER_OPEN_DEADLINE,
@@ -43,13 +56,15 @@ class TouchTurnSessionStopLogicTest {
     fun evaluateOpenDeadline_continuesWhenOpeningBarTimeAnchorsDeadline() {
         val barTime = "20260603  13:03:21"
         val zone = "Asia/Hong_Kong"
-        val instance = touchTurnRunningInstance().copy(
+        val rules = openDeadlineRules()
+        val instance = touchTurnRunningInstance(openDeadlineEnabled = true).copy(
             touchTurnSession = TouchTurnSessionContext(
                 sessionDate = "2026-06-03",
                 status = TouchTurnCandleStatus.READY,
                 openingBarTime = barTime,
                 candle = null,
-                marketZoneId = zone
+                marketZoneId = zone,
+                rules = rules
             )
         )
         val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, "2026-06-03")!!
@@ -96,16 +111,28 @@ class TouchTurnSessionStopLogicTest {
         assertNull(DeploymentSessionStopLogic.evaluateDeadlineForInstance(instance))
     }
 
-    private fun touchTurnRunningInstance(): StrategyDeployment =
-        defaultStrategyDeployment(
+    private fun openDeadlineRules(): TouchTurnRuleConfig =
+        TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(openDeadline = true)
+        )
+
+    private fun touchTurnRunningInstance(openDeadlineEnabled: Boolean = false): StrategyDeployment {
+        val rules = if (openDeadlineEnabled) {
+            openDeadlineRules()
+        } else {
+            TouchTurnRuleConfig.DEFAULT
+        }
+        return defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500,
             status = DeploymentStatus.RUNNING
-        ).onSessionStarted("2025-05-22").copy(
+        ).copy(touchTurnRules = rules).onSessionStarted("2025-05-22").copy(
             touchTurnSession = TouchTurnSessionContext(
                 sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY
+                status = TouchTurnCandleStatus.READY,
+                rules = rules
             )
         )
+    }
 }

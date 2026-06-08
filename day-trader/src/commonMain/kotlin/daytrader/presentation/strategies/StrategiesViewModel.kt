@@ -604,7 +604,8 @@ class StrategiesViewModel(
             currencyCode = currencyCode,
             marketSource = marketSource,
             companyName = companyName,
-            instrument = instrument
+            instrument = instrument,
+            brokerKind = brokerKind
         ).copy(autoStartOnMarketOpen = autoStartOnMarketOpen)
         UiActionLog.log(
             action = "create_deployment",

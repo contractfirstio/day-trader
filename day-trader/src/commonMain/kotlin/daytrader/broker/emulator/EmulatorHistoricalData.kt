@@ -37,10 +37,18 @@ internal object EmulatorHistoricalData {
         )
         val ref = instrument.referencePrice
         val range = ref * profile.intradayRangePct
-        val open = ref - range * profile.openBias
-        val close = open + range * profile.closeBias
-        val high = maxOf(open, close) + range * 0.15
-        val low = minOf(open, close) - range * 0.10
+        val greenCandle = resolveFirstCandleIsGreen(
+            norm = SymbolMarkets.normalizeSymbol(symbol),
+            sessionYmd = sessionYmd,
+            colorMode = config.firstCandleColorMode,
+            sessionCandleFetchIndex = sessionCandleFetchIndex,
+            alternateFirstCandleColor = config.alternateFirstCandleColor
+        )
+        val ohlc = turnZoneCompliantOpeningOhlc(ref = ref, range = range, greenCandle = greenCandle)
+        val open = ohlc.open
+        val high = ohlc.high
+        val low = ohlc.low
+        val close = ohlc.close
         val barTime = resolveFirstCandleBarTime(
             marketZoneId = marketZoneId,
             secondsUntilClose = config.firstCandleSecondsUntilClose,
@@ -345,6 +353,41 @@ internal object EmulatorHistoricalData {
         val openBias: Double,
         val closeBias: Double
     )
+
+    internal data class OpeningOhlc(
+        val open: Double,
+        val high: Double,
+        val low: Double,
+        val close: Double
+    )
+
+    /**
+     * Synthetic opening 15m bar whose close sits in the Touch Turn zone:
+     * green (short) → lower third; red (long) → upper third.
+     */
+    internal fun turnZoneCompliantOpeningOhlc(
+        ref: Double,
+        range: Double,
+        greenCandle: Boolean
+    ): OpeningOhlc = if (greenCandle) {
+        val open = ref - range * 0.30
+        val close = open + range * 0.06
+        OpeningOhlc(
+            open = open,
+            high = open + range * 0.50,
+            low = open - range * 0.06,
+            close = close
+        )
+    } else {
+        val open = ref + range * 0.28
+        val close = open - range * 0.06
+        OpeningOhlc(
+            open = open,
+            high = open + range * 0.06,
+            low = open - range * 0.50,
+            close = close
+        )
+    }
 
     private val LIQUID_SYMBOLS = setOf("SPY", "QQQ", "AAPL", "NVDA", "700")
 }

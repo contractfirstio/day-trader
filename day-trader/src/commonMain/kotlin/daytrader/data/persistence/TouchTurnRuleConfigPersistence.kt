@@ -22,6 +22,7 @@ object TouchTurnRuleConfigPersistence {
                 closeConfirmationAfterCloseMs = it.closeConfirmationAfterCloseMs,
                 closedBarRefetchSettleMs = it.closedBarRefetchSettleMs,
                 volumeBufferObservationMs = it.volumeBufferObservationMs,
+                stopAfterOpenMinutes = it.stopAfterOpenMinutes,
                 enables = TouchTurnRuleEnables(
                     liquidityRange = it.enableLiquidityRange,
                     notDoji = it.enableNotDoji,
@@ -32,7 +33,8 @@ object TouchTurnRuleConfigPersistence {
                     liveBarAgreement = it.enableLiveBarAgreement,
                     liveTurnConfirmation = it.enableLiveTurnConfirmation,
                     liveEntryTouchable = it.enableLiveEntryTouchable,
-                    postEntryVolumeBuffer = it.enablePostEntryVolumeBuffer
+                    postEntryVolumeBuffer = it.enablePostEntryVolumeBuffer,
+                    openDeadline = it.enableOpenDeadline
                 )
             )
         } ?: TouchTurnRuleConfig.DEFAULT
@@ -54,6 +56,7 @@ object TouchTurnRuleConfigPersistence {
             closeConfirmationAfterCloseMs = config.closeConfirmationAfterCloseMs,
             closedBarRefetchSettleMs = config.closedBarRefetchSettleMs,
             volumeBufferObservationMs = config.volumeBufferObservationMs,
+            stopAfterOpenMinutes = config.stopAfterOpenMinutes,
             enableLiquidityRange = config.enables.liquidityRange,
             enableNotDoji = config.enables.notDoji,
             enableVolumeExhaustion = config.enables.volumeExhaustion,
@@ -63,6 +66,7 @@ object TouchTurnRuleConfigPersistence {
             enableLiveBarAgreement = config.enables.liveBarAgreement,
             enableLiveTurnConfirmation = config.enables.liveTurnConfirmation,
             enableLiveEntryTouchable = config.enables.liveEntryTouchable,
-            enablePostEntryVolumeBuffer = config.enables.postEntryVolumeBuffer
+            enablePostEntryVolumeBuffer = config.enables.postEntryVolumeBuffer,
+            enableOpenDeadline = config.enables.openDeadline
         )
 }

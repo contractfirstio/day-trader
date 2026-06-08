@@ -151,6 +151,30 @@ class EmulatorHistoricalDataTest {
     }
 
     @Test
+    fun firstFifteenMinuteCandle_passesBarCloseTurnForGreenAndRed() {
+        val instrument = EmulatorSeedCatalog.instruments()["700"]!!
+        val config = BrokerEmulatorConfig(
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+            alternateFirstCandleColor = true
+        )
+        val now = 1_780_913_137_000L
+        listOf(1, 2).forEach { fetchIndex ->
+            val bar = EmulatorHistoricalData.firstFifteenMinuteCandle(
+                symbol = "0700",
+                instrument = instrument,
+                config = config,
+                nowEpochMillis = now,
+                sessionCandleFetchIndex = fetchIndex
+            ).getOrThrow()
+            val adr = EmulatorHistoricalData.fourteenDayAdr("0700", instrument).getOrThrow()
+            val setup = TouchTurnLogic.computeBracketSetup(bar, TouchTurnLogic.liquidityRangeThreshold(adr))
+            assertTrue(setup.isLiquidityCandle, "fetchIndex=$fetchIndex")
+            assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar), "fetchIndex=$fetchIndex color=${setup.candleColor}")
+        }
+    }
+
+    @Test
     fun firstCandle_alternateFetchIndex_flipsColor() {
         val instrument = EmulatorSeedCatalog.instruments()["AAPL"]!!
         val config = BrokerEmulatorConfig(

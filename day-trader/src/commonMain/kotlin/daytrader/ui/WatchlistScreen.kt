@@ -336,13 +336,13 @@ private fun WatchlistHeader(
     ) {
         WatchlistHeaderCell("Company", WatchlistSortColumn.COMPANY, activeSortColumn, sortDirection, Modifier.weight(1.8f), onHeaderClick)
         WatchlistHeaderCell("Symbol", WatchlistSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.8f), onHeaderClick)
-        WatchlistHeaderCell("Market", WatchlistSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.7f), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Groups", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Strategies", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.1f), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Market", WatchlistSortColumn.MARKET, activeSortColumn, sortDirection, Modifier.weight(0.7f), onHeaderClick)
+        WatchlistHeaderCell("Groups", WatchlistSortColumn.GROUPS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick)
+        WatchlistHeaderCell("Strategies", WatchlistSortColumn.STRATEGIES, activeSortColumn, sortDirection, Modifier.weight(1.1f), onHeaderClick)
         WatchlistHeaderCell("Last Price", WatchlistSortColumn.LAST, activeSortColumn, sortDirection, Modifier.weight(1.0f).padding(end = 12.dp), onHeaderClick, alignEnd = true)
         WatchlistHeaderCell("Rev Score", WatchlistSortColumn.REVERSAL_SCORE, activeSortColumn, sortDirection, Modifier.weight(0.95f).padding(end = 16.dp), onHeaderClick, alignEnd = true)
-        WatchlistHeaderCell("Status", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(0.9f).padding(start = 4.dp), onHeaderClick, sortable = false)
-        WatchlistHeaderCell("Plans", WatchlistSortColumn.NOTES, activeSortColumn, sortDirection, Modifier.weight(1.2f), onHeaderClick, sortable = false)
+        WatchlistHeaderCell("Status", WatchlistSortColumn.STATUS, activeSortColumn, sortDirection, Modifier.weight(0.9f).padding(start = 4.dp), onHeaderClick)
+        WatchlistHeaderCell("Plans", WatchlistSortColumn.PLANS, activeSortColumn, sortDirection, Modifier.weight(1.2f), onHeaderClick)
         Spacer(modifier = Modifier.width(40.dp))
     }
 }

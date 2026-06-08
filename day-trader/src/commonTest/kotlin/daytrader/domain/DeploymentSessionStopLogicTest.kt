@@ -152,6 +152,9 @@ class DeploymentSessionStopLogicTest {
     @Test
     fun evaluateDeadlineForInstance_usesTouchTurnSessionMarketZone() {
         val sessionDate = "2026-05-26"
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(openDeadline = true)
+        )
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
@@ -159,10 +162,12 @@ class DeploymentSessionStopLogicTest {
             status = DeploymentStatus.RUNNING,
             marketZoneId = "America/New_York"
         ).onSessionStarted("2026-05-26").copy(
+            touchTurnRules = rules,
             touchTurnSession = TouchTurnSessionContext(
                 sessionDate = sessionDate,
                 status = TouchTurnCandleStatus.READY,
-                marketZoneId = "Europe/London"
+                marketZoneId = "Europe/London",
+                rules = rules
             )
         )
 

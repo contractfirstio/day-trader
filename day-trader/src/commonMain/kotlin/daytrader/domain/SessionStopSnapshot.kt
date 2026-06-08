@@ -33,9 +33,7 @@ private fun StrategyDeployment.touchTurnStopSnapshot(
 ): SessionStopSnapshot {
     val session = touchTurnSession
     val hadLiquidity = session?.setup?.isLiquidityCandle == true
-    val ordersPlaced = hadLiquidity &&
-        session.setup?.isActionable == true &&
-        session.sessionOrdersPlaced()
+    val ordersPlaced = session?.ordersPlacedForSession == true
     val positionOpened = hadOpenBrokerPosition || sessionTrades.isNotEmpty()
     val realized = sessionTrades.sessionRealizedPnL()
     val pnl = when {

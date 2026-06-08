@@ -9,6 +9,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.presentation.Formatters
@@ -68,6 +69,9 @@ object TouchTurnRuleExplanationMapper {
                 )
                 "postEntryVolumeBuffer" -> postEntryVolumeBufferCheck(
                     session, rules, currency, enabled
+                )
+                "openDeadline" -> openDeadlineCheck(
+                    session, rules, evaluationInstant, enabled
                 )
                 else -> RuleCheckUi(
                     key = definition.key,
@@ -574,6 +578,68 @@ object TouchTurnRuleExplanationMapper {
                 !enabled -> "Disabled"
                 !ordersPlaced -> "Not run"
                 else -> "Completed"
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun openDeadlineCheck(
+        session: TouchTurnSessionContext,
+        rules: TouchTurnRuleConfig,
+        evaluationInstant: Long,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val openEpoch = TouchTurnLogic.marketOpenEpochMillis(
+            sessionDateIso = session.sessionDate,
+            marketZoneId = session.marketZoneId,
+            firstCandleBarTime = session.candle?.time ?: session.openingBarTime
+        )
+        val remainingMs = openEpoch?.let {
+            TouchTurnSessionStopLogic.millisUntilStopAfterOpen(it, rules, evaluationInstant)
+        }
+        val passed = when {
+            !enabled -> null
+            openEpoch == null -> null
+            remainingMs == null -> null
+            remainingMs > 0L -> true
+            else -> false
+        }
+        val steps = buildList {
+            add(
+                "RTH open anchor: ${session.sessionDate} in ${session.marketZoneId} " +
+                    "(first 15m bar or session calendar open)."
+            )
+            add("Configured auto-stop: ${rules.stopAfterOpenMinutes} minutes after that open.")
+            if (openEpoch == null) {
+                add("Open anchor was not available at evaluation time.")
+            } else if (!enabled) {
+                add("Rule disabled — session would not auto-stop on this deadline.")
+            } else when (remainingMs) {
+                null -> add("Remaining time before auto-stop was unavailable.")
+                0L -> add("Evaluation time was at or past the open deadline.")
+                else -> add(
+                    "At evaluation, ${TouchTurnSessionStopLogic.pendingStopAfterOpenLabel(
+                        remainingMs,
+                        rules.stopAfterOpenMinutes
+                    ).removePrefix("Auto-stop in ")} remained before auto-stop."
+                )
+            }
+            add(stepResult(passed))
+        }
+        return RuleCheckUi(
+            key = "openDeadline",
+            label = "RTH open deadline",
+            description = "Stop the session and flatten working orders/position after the configured maximum " +
+                "minutes from regular-hours open.",
+            passed = passed,
+            detail = when {
+                !enabled -> "Disabled"
+                openEpoch == null -> "Open anchor unavailable"
+                remainingMs == 0L -> "Past deadline"
+                remainingMs != null ->
+                    "${rules.stopAfterOpenMinutes}m limit · ${remainingMs / 60_000}m remaining"
+                else -> null
             },
             enabled = enabled,
             explanationSteps = steps

@@ -6,7 +6,6 @@ import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.TouchTurnManualStopHandler
 import daytrader.data.TouchTurnOrderLog
-import daytrader.data.emulatorRequireCloseConfirmation
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
@@ -40,6 +39,7 @@ import daytrader.domain.TouchTurnSessionPrepare
 import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.effectiveTouchTurnRules
+import daytrader.domain.enforcesCloseConfirmation
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
@@ -1069,21 +1069,22 @@ class TouchTurnEngine(
             return
         }
         val evaluatedAt = nowEpochMillis()
-        val enforceCloseConfirmation = brokerKind.usesLiveIbMarketData ||
-            emulatorRequireCloseConfirmation()
+        val rules = session.rules
         val requireLivePriceChecks = brokerKind.usesLiveIbMarketData
+        val enforceCloseConfirmation = rules.enforcesCloseConfirmation(requireLivePriceChecks)
         val liveQuote = if (requireLivePriceChecks) quoteForSymbol(instance.symbol) else null
         val entryWindowStatus = TouchTurnLogic.entryWindowStatus(
             barTime = session.resolvedOpeningBarTime(),
             marketZoneId = session.marketZoneId,
             nowEpochMillis = evaluatedAt,
-            rules = session.rules
+            rules = rules
         )
         if (TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
                 requireLivePriceChecks = requireLivePriceChecks,
                 liveBid = liveQuote?.bid,
                 liveAsk = liveQuote?.ask,
-                entryWindowStatus = entryWindowStatus
+                entryWindowStatus = entryWindowStatus,
+                rules = rules
             )
         ) {
             marketData.ensureStreaming(
@@ -1156,7 +1157,6 @@ class TouchTurnEngine(
             return
         }
         val setup = afterSession.setup
-        val rules = afterSession.rules
         if (setup == null || !TouchTurnLogic.setupActionableForEntry(setup, rules) ||
             afterSession.entryOrdersPermitted != true
         ) {
@@ -1257,7 +1257,8 @@ class TouchTurnEngine(
             instrument = deploymentInstrument,
             setup = setup,
             openingBarClose = session.candle?.close,
-            brokerGateway = executionGw
+            brokerGateway = executionGw,
+            rules = rules
         )
         if (bracketSubmitRequested) {
             SessionTrace.bracketSubmitRequested(
@@ -1272,10 +1273,28 @@ class TouchTurnEngine(
         } else {
             pendingBracketPlacements.remove(instance.id)
             repository.update(instanceId) { current ->
-                current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+                current.withTouchTurnDecisionOutcome(
+                    orderSubmissionBlockOutcome(setup, session, rules)
+                        ?: TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+                )
             }
         }
         return bracketSubmitRequested
+    }
+
+    /** Rule-aware no-trade reason when bracket submission is blocked before the broker. */
+    private fun orderSubmissionBlockOutcome(
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        session: daytrader.domain.TouchTurnSessionContext,
+        rules: daytrader.domain.TouchTurnRuleConfig
+    ): TouchTurnSessionOutcome? {
+        val volumeExhausted = session.candle?.let { candle ->
+            TouchTurnLogic.isVolumeExhaustion(candle.volume, session.volumeSma20 ?: 0.0, rules)
+        } ?: false
+        return TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted, rules)
+            ?: TouchTurnSessionOutcome.NO_TRADE_DOJI.takeIf {
+                !TouchTurnLogic.setupActionableForEntry(setup, rules)
+            }
     }
 
     private fun logLiquidityPollOutcome(
@@ -1360,7 +1379,11 @@ class TouchTurnEngine(
                 TouchTurnDecisionLog.ordersSkipped(
                     instance.id,
                     instance.symbol,
-                    if (!setup.isLiquidityCandle) "not_liquidity_candle" else "not_actionable",
+                    when {
+                        rules.enables.liquidityRange && !setup.isLiquidityCandle -> "not_liquidity_candle"
+                        rules.enables.notDoji && !setup.isActionable -> "not_actionable"
+                        else -> "setup_not_actionable"
+                    },
                     session,
                     evaluatedAt
                 )

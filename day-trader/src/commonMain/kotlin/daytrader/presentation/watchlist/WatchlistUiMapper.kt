@@ -268,6 +268,9 @@ object WatchlistUiMapper {
         )
     }
 
+    fun plansSortKey(entry: WatchlistEntry, nearEntrySummary: String? = null): String =
+        nearEntrySummary?.takeIf { it.isNotBlank() } ?: planSummary(entry).orEmpty()
+
     private fun planSummary(entry: WatchlistEntry): String? {
         val complete = entry.tradePlans
             .map { plan -> plan to WatchlistTradePlanCalculator.compute(plan) }

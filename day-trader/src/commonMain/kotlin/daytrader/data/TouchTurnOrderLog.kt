@@ -8,6 +8,7 @@ import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerId
 import daytrader.diagnostics.TimestampedConsoleLog
@@ -28,16 +29,18 @@ object TouchTurnOrderLog {
         instrument: InstrumentIdentity? = null,
         setup: TouchTurnBracketSetup?,
         openingBarClose: Double? = null,
-        brokerGateway: BrokerGateway? = null
+        brokerGateway: BrokerGateway? = null,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Boolean {
-        if (setup == null || !setup.isActionable) return false
+        if (setup == null || !TouchTurnLogic.setupActionableForEntry(setup, rules)) return false
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
             symbol = symbol,
             setup = setup,
             maxDollars = maxDollars,
             currencyCode = currencyCode,
             instrument = instrument,
-            openingBarClose = openingBarClose
+            openingBarClose = openingBarClose,
+            rules = rules
         )
             ?: return false
         logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)

@@ -1,11 +1,10 @@
 package daytrader.presentation.strategies
 
-import daytrader.data.StrategyCatalog
 import daytrader.domain.DeploymentSessionStopLogic
 import daytrader.domain.StrategyDeployment
-import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionStopLogic
+import daytrader.domain.effectiveTouchTurnRules
 
 /** Presentation labels for Touch Turn UI sections (keeps domain logic out of Compose screens). */
 object TouchTurnScreenLabels {
@@ -35,18 +34,19 @@ object TouchTurnScreenLabels {
     )
 
     fun autoStopStatus(instance: StrategyDeployment): AutoStopStatus? {
-        val stopAfterMinOpen = StrategyCatalog.stopAfterMinOpen(StrategyType.TOUCH_AND_TURN_SCALPER) ?: return null
+        val rules = instance.effectiveTouchTurnRules()
+        if (!rules.enables.openDeadline) return null
         val sessionDate = DeploymentSessionStopLogic.sessionDateForRunningInstance(instance) ?: return null
         val openEpoch = TouchTurnSessionStopLogic.sessionOpenEpochMillis(instance, sessionDate) ?: return null
-        val remainingMs = TouchTurnSessionStopLogic.millisUntilStopAfterOpen(openEpoch)
+        val remainingMs = TouchTurnSessionStopLogic.millisUntilStopAfterOpen(openEpoch, rules) ?: return null
         val pastDeadline = remainingMs == 0L
         val remainingLabel = if (pastDeadline) {
             null
         } else {
-            TouchTurnSessionStopLogic.pendingStopAfterOpenLabel(remainingMs)
+            TouchTurnSessionStopLogic.pendingStopAfterOpenLabel(remainingMs, rules.stopAfterOpenMinutes)
         }
         return AutoStopStatus(
-            stopAfterMinOpen = stopAfterMinOpen,
+            stopAfterMinOpen = rules.stopAfterOpenMinutes,
             remainingLabel = remainingLabel,
             pastDeadline = pastDeadline
         )

@@ -12,6 +12,8 @@ import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
 import daytrader.domain.TouchTurnRunRecord
@@ -287,12 +289,16 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val zone = "America/New_York"
         val open = TouchTurnLogic.marketOpenEpochMillis("2026-05-22", zone, barTime)!!
         val now = open + 90 * 60_000 + 1
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(openDeadline = true)
+        )
         val session = readySession(
             candle = bar(barTime),
             rangeThreshold = 0.01,
             now = barEnd(barTime) + 1
         ).copy(
             ordersPlacedForSession = true,
+            rules = rules,
             milestones = TouchTurnMilestoneTimestamps(
                 startingSessionAt = "2026-05-22T09:30:05",
                 dataReadyAt = "2026-05-22T09:30:12",

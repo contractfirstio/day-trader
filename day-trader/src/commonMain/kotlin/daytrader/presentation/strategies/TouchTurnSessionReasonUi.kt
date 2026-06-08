@@ -297,7 +297,8 @@ object TouchTurnSessionReasonUi {
         return when {
             setup == null -> "Bracket setup is not ready yet."
             !setup.isLiquidityCandle -> "Bar failed the liquidity range check."
-            !setup.isActionable -> "Bar is not actionable (doji / flat)."
+            session.rules.enables.notDoji && !setup.isActionable ->
+                "Bar is not actionable (doji / flat)."
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.FAILED ->
                 "Close confirmation failed — entry band not satisfied."
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.EXPIRED ->

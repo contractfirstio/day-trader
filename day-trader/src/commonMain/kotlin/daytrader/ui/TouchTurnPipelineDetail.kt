@@ -723,7 +723,7 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 if (isRecap) "TouchTurnOrderRecapCaption" else "TouchTurnOrderPreviewCaption"
             )
         )
-        if (orderSetup.isActionable) {
+        if (TouchTurnLogic.setupActionableForEntry(orderSetup, session.rules)) {
             TouchTurnOrderPreviewChart(
                 candle = candle,
                 setup = orderSetup,
