@@ -25,7 +25,8 @@ class SessionStopSnapshotTest {
                     stopLoss = 405.0,
                     takeProfit = 395.0
                 ),
-                entryOrdersPermitted = true
+                entryOrdersPermitted = true,
+                ordersPlacedForSession = true
             )
         )
 
