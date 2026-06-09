@@ -137,6 +137,7 @@ fun StrategyDeployment.applyPreparedBootstrap(
         sessionDate = sessionDate,
         candle = ctx.firstCandle,
         atr14 = ctx.atr14,
+        dailyAtr14 = ctx.dailyAtr14,
         volumeSma20 = ctx.volumeSma20,
         adr14 = ctx.atr14,
         currencyCode = prepare.currencyCode,

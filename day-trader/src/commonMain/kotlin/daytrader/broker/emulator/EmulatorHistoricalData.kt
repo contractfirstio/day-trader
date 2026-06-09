@@ -93,11 +93,13 @@ internal object EmulatorHistoricalData {
             sessionYmd = sessionYmd,
             opening = opening
         )
+        val dailyBars = buildDailyBars(symbol, instrument, sessionYmd)
         return TouchTurnLogic.deriveTouchTurnSignalContext(
             bars = history,
             marketZoneId = marketZoneId,
             sessionDayYyyyMmdd = sessionYmd,
             explicitFirstCandle = opening,
+            dailyBars = dailyBars,
             rules = rules
         )
     }

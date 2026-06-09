@@ -44,8 +44,11 @@ object TouchTurnRuleExplanationMapper {
         return TouchTurnRuleConfig.toggleDefinitions.map { definition ->
             val enabled = TouchTurnRuleConfig.isToggleEnabled(rules, definition.key)
             val check = when (definition.key) {
-                "liquidityRange" -> liquidityRangeCheck(
-                    session, setup, candle, rules, currency, evaluationInstant, enabled
+                "liquidityRange15mAtr" -> liquidityRange15mAtrCheck(
+                    session, candle, rules, currency, evaluationInstant, enabled
+                )
+                "liquidityRangeDailyAtr" -> liquidityRangeDailyAtrCheck(
+                    session, candle, rules, currency, evaluationInstant, enabled
                 )
                 "notDoji" -> notDojiCheck(setup, candle, rules, enabled)
                 "volumeExhaustion" -> volumeExhaustionCheck(session, candle, rules, currency, enabled)
@@ -85,54 +88,105 @@ object TouchTurnRuleExplanationMapper {
         }
     }
 
-    private fun liquidityRangeCheck(
+    private fun liquidityRange15mAtrCheck(
         session: TouchTurnSessionContext,
-        setup: TouchTurnBracketSetup,
         candle: OhlcBar,
         rules: TouchTurnRuleConfig,
         currency: String,
         evaluationInstant: Long,
         enabled: Boolean
+    ): RuleCheckUi = liquidityRangeGateCheck(
+        key = "liquidityRange15mAtr",
+        label = "Liquidity range (15m ATR)",
+        description = "Opening 15m bar range must be at least 25% of 15m ATR(14).",
+        atrLabel = "15m ATR14",
+        atrValue = session.atr14,
+        threshold = session.liquidityThresholds.threshold15mAtr,
+        candle = candle,
+        currency = currency,
+        evaluationInstant = evaluationInstant,
+        enabled = enabled,
+        session = session
+    )
+
+    private fun liquidityRangeDailyAtrCheck(
+        session: TouchTurnSessionContext,
+        candle: OhlcBar,
+        rules: TouchTurnRuleConfig,
+        currency: String,
+        evaluationInstant: Long,
+        enabled: Boolean
+    ): RuleCheckUi = liquidityRangeGateCheck(
+        key = "liquidityRangeDailyAtr",
+        label = "Liquidity range (daily ATR)",
+        description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close.",
+        atrLabel = "Daily ATR14",
+        atrValue = session.dailyAtr14,
+        threshold = session.liquidityThresholds.thresholdDailyAtr,
+        candle = candle,
+        currency = currency,
+        evaluationInstant = evaluationInstant,
+        enabled = enabled,
+        session = session
+    )
+
+    private fun liquidityRangeGateCheck(
+        key: String,
+        label: String,
+        description: String,
+        atrLabel: String,
+        atrValue: Double?,
+        threshold: Double?,
+        candle: OhlcBar,
+        currency: String,
+        evaluationInstant: Long,
+        enabled: Boolean,
+        session: TouchTurnSessionContext
     ): RuleCheckUi {
         val closeStatus = session.candleCloseStatus(evaluationInstant)
+        val ratio = session.rules.atrLiquidityRatio
+        val gatePassed = threshold != null && candle.range >= threshold
         val passed = when {
             !enabled -> null
             closeStatus != FirstCandleCloseStatus.CLOSED -> null
-            setup.isLiquidityCandle -> true
+            threshold == null -> null
+            gatePassed -> true
             else -> false
         }
-        val atr = session.atr14
-        val ratio = rules.atrLiquidityRatio
-        val threshold = session.rangeThreshold.takeIf { it > 0.0 } ?: setup.rangeThreshold
         val steps = buildList {
             add("Wait for the opening 15-minute bar to finish printing.")
             add(
                 "Measure bar range: high ${fmt(candle.high, currency)} − low ${fmt(candle.low, currency)} " +
                     "= ${fmt(candle.range, currency)}."
             )
-            if (atr != null && atr > 0.0) {
+            if (atrValue != null && atrValue > 0.0 && threshold != null) {
                 add(
-                    "Liquidity threshold = ATR14 ${fmt(atr, currency)} × ${ratio} " +
+                    "Liquidity threshold = $atrLabel ${fmt(atrValue, currency)} × ${ratio} " +
                         "= ${fmt(threshold, currency)}."
                 )
-            } else {
+            } else if (threshold != null) {
                 add("Liquidity threshold for this run: ${fmt(threshold, currency)}.")
+            } else {
+                add("$atrLabel was not available — this gate could not be evaluated.")
             }
-            add(
-                "Compare range ${fmt(candle.range, currency)} against threshold ${fmt(threshold, currency)} " +
-                    "(need range ≥ threshold)."
-            )
+            if (threshold != null) {
+                add(
+                    "Compare range ${fmt(candle.range, currency)} against threshold ${fmt(threshold, currency)} " +
+                        "(need range ≥ threshold)."
+                )
+            }
             add(stepResult(passed))
         }
         return RuleCheckUi(
-            key = "liquidityRange",
-            label = "Liquidity range",
-            description = "Opening 15m bar range must meet the ATR liquidity threshold.",
+            key = key,
+            label = label,
+            description = description,
             passed = passed,
             detail = when {
                 !enabled -> "Disabled"
                 closeStatus != FirstCandleCloseStatus.CLOSED -> null
-                setup.isLiquidityCandle -> "OK"
+                threshold == null -> "ATR unavailable"
+                gatePassed -> "OK"
                 else -> "Below threshold"
             },
             enabled = enabled,

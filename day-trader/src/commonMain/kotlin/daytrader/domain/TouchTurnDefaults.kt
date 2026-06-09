@@ -3,6 +3,8 @@ package daytrader.domain
 object TouchTurnDefaults {
     const val ADR_LOOKBACK_DAYS = 14
     const val ATR_LOOKBACK_PERIODS = 14
+    /** Daily bars used for ProReal-style daily ATR(14) liquidity threshold. */
+    const val DAILY_ATR_LOOKBACK_PERIODS = 14
     const val VOLUME_SMA_PERIODS = 20
     /**
      * IB [reqHistoricalData] duration for Touch Turn 15m history. Needs ~20 prior RTH session

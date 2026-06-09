@@ -6,7 +6,10 @@ import kotlinx.serialization.Serializable
 /** Per-deployment enable flags for Touch Turn entry-gate rules ([notDoji] and [openDeadline] off by default). */
 @Serializable
 data class TouchTurnRuleEnables(
-    val liquidityRange: Boolean = true,
+    /** Opening 15m range must meet 25% × 15m ATR(14). */
+    val liquidityRange15mAtr: Boolean = true,
+    /** Opening 15m range must meet 25% × daily ATR(14) on close (ProReal-style). */
+    val liquidityRangeDailyAtr: Boolean = false,
     val notDoji: Boolean = false,
     val volumeExhaustion: Boolean = true,
     val barCloseTurn: Boolean = true,
@@ -24,6 +27,9 @@ data class TouchTurnRuleEnables(
     }
 }
 
+fun TouchTurnRuleEnables.requiresLiquidityRange(): Boolean =
+    liquidityRange15mAtr || liquidityRangeDailyAtr
+
 @Serializable
 data class TouchTurnRuleToggleDefinition(
     val key: String,
@@ -40,6 +46,8 @@ data class TouchTurnRuleConfig(
     val volumeExhaustionRatio: Double = TouchTurnDefaults.VOLUME_EXHAUSTION_RATIO,
     /** 15m periods used to compute ATR for the liquidity threshold. */
     val atrLookbackPeriods: Int = TouchTurnDefaults.ATR_LOOKBACK_PERIODS,
+    /** Daily periods used to compute daily ATR for the liquidity threshold. */
+    val dailyAtrLookbackPeriods: Int = TouchTurnDefaults.DAILY_ATR_LOOKBACK_PERIODS,
     /** Prior session opening bars used to compute the volume SMA. */
     val volumeSmaPeriods: Int = TouchTurnDefaults.VOLUME_SMA_PERIODS,
     /** Green/short: max position in bar range (0=low, 1=high) for turn confirmation. */
@@ -76,9 +84,14 @@ data class TouchTurnRuleConfig(
 
         val toggleDefinitions: List<TouchTurnRuleToggleDefinition> = listOf(
             TouchTurnRuleToggleDefinition(
-                key = "liquidityRange",
-                label = "Liquidity range",
-                description = "Opening 15m bar range must meet the ATR liquidity threshold."
+                key = "liquidityRange15mAtr",
+                label = "Liquidity range (15m ATR)",
+                description = "Opening 15m bar range must be at least 25% of 15m ATR(14)."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liquidityRangeDailyAtr",
+                label = "Liquidity range (daily ATR)",
+                description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close (ProReal-style)."
             ),
             TouchTurnRuleToggleDefinition(
                 key = "notDoji",
@@ -151,8 +164,14 @@ data class TouchTurnRuleConfig(
             ),
             TouchTurnRuleFieldDefinition(
                 key = "atrLookbackPeriods",
-                label = "ATR lookback (bars)",
-                description = "Number of prior 15m bars used to compute ATR14, which feeds the liquidity threshold.",
+                label = "ATR lookback (15m bars)",
+                description = "Number of prior 15m bars used to compute 15m ATR14 for the liquidity threshold.",
+                kind = TouchTurnRuleFieldKind.INTEGER
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "dailyAtrLookbackPeriods",
+                label = "ATR lookback (daily bars)",
+                description = "Number of prior daily bars used to compute daily ATR(14) for the liquidity threshold.",
                 kind = TouchTurnRuleFieldKind.INTEGER
             ),
             TouchTurnRuleFieldDefinition(
@@ -242,6 +261,7 @@ data class TouchTurnRuleConfig(
             "atrLiquidityRatio" -> config.atrLiquidityRatio.toString()
             "volumeExhaustionRatio" -> config.volumeExhaustionRatio.toString()
             "atrLookbackPeriods" -> config.atrLookbackPeriods.toString()
+            "dailyAtrLookbackPeriods" -> config.dailyAtrLookbackPeriods.toString()
             "volumeSmaPeriods" -> config.volumeSmaPeriods.toString()
             "closePositionShortMax" -> config.closePositionShortMax.toString()
             "closePositionLongMin" -> config.closePositionLongMin.toString()
@@ -264,6 +284,7 @@ data class TouchTurnRuleConfig(
                     if (intValue <= 0) return null
                     when (key) {
                         "atrLookbackPeriods" -> config.copy(atrLookbackPeriods = intValue)
+                        "dailyAtrLookbackPeriods" -> config.copy(dailyAtrLookbackPeriods = intValue)
                         "volumeSmaPeriods" -> config.copy(volumeSmaPeriods = intValue)
                         "stopAfterOpenMinutes" -> config.copy(stopAfterOpenMinutes = intValue)
                         else -> null
@@ -310,7 +331,8 @@ data class TouchTurnRuleConfig(
         }
 
         fun isToggleEnabled(config: TouchTurnRuleConfig, key: String): Boolean = when (key) {
-            "liquidityRange" -> config.enables.liquidityRange
+            "liquidityRange15mAtr" -> config.enables.liquidityRange15mAtr
+            "liquidityRangeDailyAtr" -> config.enables.liquidityRangeDailyAtr
             "notDoji" -> config.enables.notDoji
             "volumeExhaustion" -> config.enables.volumeExhaustion
             "barCloseTurn" -> config.enables.barCloseTurn
@@ -326,7 +348,8 @@ data class TouchTurnRuleConfig(
 
         fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig {
             val enables = when (key) {
-                "liquidityRange" -> config.enables.copy(liquidityRange = enabled)
+                "liquidityRange15mAtr" -> config.enables.copy(liquidityRange15mAtr = enabled)
+                "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
                 "notDoji" -> config.enables.copy(notDoji = enabled)
                 "volumeExhaustion" -> config.enables.copy(volumeExhaustion = enabled)
                 "barCloseTurn" -> config.enables.copy(barCloseTurn = enabled)

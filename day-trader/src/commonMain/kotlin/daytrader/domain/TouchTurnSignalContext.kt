@@ -11,6 +11,8 @@ data class TouchTurnSignalContext(
     val firstCandle: OhlcBar,
     /** 14-period ATR on completed 15-minute bars (prior to the opening bar). */
     val atr14: Double,
+    /** Wilder daily ATR(14) on completed daily bars (prior sessions; today excluded). */
+    val dailyAtr14: Double? = null,
     /** 20-period SMA of volume on prior session-opening 15m bars (prior to today). */
     val volumeSma20: Double,
     /**
@@ -19,5 +21,7 @@ data class TouchTurnSignalContext(
      */
     val todayOpeningBarPending: Boolean = false
 ) {
-    fun hasBootstrapMetrics(): Boolean = atr14 > 0.0 && volumeSma20 > 0.0
+    fun hasBootstrapMetrics(): Boolean =
+        atr14 > 0.0 && volumeSma20 > 0.0 &&
+            (dailyAtr14 == null || dailyAtr14 > 0.0)
 }

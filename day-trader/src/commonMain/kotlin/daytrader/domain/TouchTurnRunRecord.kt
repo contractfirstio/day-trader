@@ -70,6 +70,8 @@ data class TouchTurnRunMarketInputs(
     val adr14: Double? = null,
     /** 14-period ATR on prior 15m bars (liquidity range threshold input). */
     val atr14: Double? = null,
+    /** Wilder daily ATR(14) on completed daily bars (ProReal-style liquidity input). */
+    val dailyAtr14: Double? = null,
     /** 20-period SMA of prior session-opening 15m bar volume. */
     val volumeSma20: Double? = null,
     /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
@@ -228,6 +230,7 @@ fun buildTouchTurnRunRecord(
             openingBar = touchTurnSession.candle,
             adr14 = touchTurnSession.adr14,
             atr14 = touchTurnSession.atr14,
+            dailyAtr14 = touchTurnSession.dailyAtr14,
             volumeSma20 = touchTurnSession.volumeSma20,
             volumeCheck = TouchTurnVolumeCheck.fromSession(touchTurnSession),
             currencyCode = touchTurnSession.currencyCode,

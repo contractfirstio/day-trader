@@ -124,6 +124,60 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun liquidityThresholdFromDailyAtr_is25PercentOfDailyAtr() {
+        assertEquals(2.5, TouchTurnLogic.liquidityRangeThresholdFromDailyAtr(10.0), 0.001)
+    }
+
+    @Test
+    fun evaluatesLiquidityCandle_requiresBothGatesWhenBothEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0)
+        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 8.0)
+        val bothOn = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = true,
+                liquidityRangeDailyAtr = true
+            )
+        )
+        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, bothOn))
+        assertFalse(
+            TouchTurnLogic.evaluatesLiquidityCandle(
+                bar,
+                thresholds.copy(thresholdDailyAtr = 12.0),
+                bothOn
+            )
+        )
+    }
+
+    @Test
+    fun evaluatesLiquidityCandle_passesWhenNeitherGateEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 100.1, low = 99.9, close = 100.0)
+        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 5.0)
+        val neither = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = false
+            )
+        )
+        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, neither))
+    }
+
+    @Test
+    fun computeDailyAtr14_usesWilderAtrOnDailyBars() {
+        val bars = (1..16).map { day ->
+            OhlcBar(
+                open = 100.0 + day,
+                high = 102.0 + day,
+                low = 99.0 + day,
+                close = 101.0 + day,
+                time = "202505${day.toString().padStart(2, '0')}  16:00:00"
+            )
+        }
+        val dailyAtr = TouchTurnLogic.computeDailyAtr14(bars, excludeSessionDayYyyyMmdd = "20250516")
+            .getOrThrow()
+        assertTrue(dailyAtr > 0.0)
+    }
+
+    @Test
     fun shortStopIsHalfTakeProfitDistance_onSmallRangeBar() {
         val bar = OhlcBar(open = 5.36, high = 5.41, low = 5.34, close = 5.37)
         val setup = TouchTurnLogic.computeBracketSetup(
@@ -994,7 +1048,7 @@ class TouchTurnLogicTest {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange = false)
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange15mAtr = false)
         )
         assertTrue(TouchTurnLogic.setupActionableForEntry(setup, rules))
     }
@@ -1005,7 +1059,7 @@ class TouchTurnLogicTest {
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange = false,
+                liquidityRange15mAtr = false,
                 volumeExhaustion = false,
                 notDoji = false
             )

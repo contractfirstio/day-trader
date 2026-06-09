@@ -45,13 +45,14 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
     atr14: Double,
     volumeSma20: Double,
     adr14: Double? = null,
+    dailyAtr14: Double? = null,
     currencyCode: String = "USD",
     marketZoneId: String = "America/New_York",
     bootstrapReusedFromPrepare: Boolean? = null
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val rules = effectiveTouchTurnRules()
-    val threshold = TouchTurnLogic.liquidityRangeThresholdFromAtr(atr14, rules)
+    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(atr14, dailyAtr14, rules)
     val priorSession = touchTurnSession
     val prior = priorSession?.milestones
     val prepareSnapshot = when {
@@ -78,8 +79,10 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
             marketZoneId = marketZoneId,
             adr14 = adr14 ?: atr14,
             atr14 = atr14,
+            dailyAtr14 = dailyAtr14,
             volumeSma20 = volumeSma20,
-            rangeThreshold = threshold,
+            rangeThreshold = thresholds.threshold15mAtr ?: thresholds.primary,
+            rangeThresholdDailyAtr = thresholds.thresholdDailyAtr,
             rules = rules,
             milestones = TouchTurnMilestoneTimestamps(
                 startingSessionAt = prior?.startingSessionAt ?: inProgressSession()?.startedAt ?: at,
@@ -130,7 +133,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
     val rules = effectiveTouchTurnRules()
-    val setup = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold, rules)
+    val setup = TouchTurnLogic.computeBracketSetup(candle, session.liquidityThresholds, rules)
     val gate = TouchTurnLogic.evaluateEntryGate(
         setup = setup,
         candle = candle,
@@ -341,10 +344,15 @@ fun StrategySession.toTouchTurnAnalysisContext(
     val candle = inputs?.openingBar
     val adr = inputs?.adr14
     val atr = inputs?.atr14
-    val threshold = atr?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
-        ?: adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
-        ?: 0.0
-    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, threshold, rules) }
+    val dailyAtr = inputs?.dailyAtr14
+    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(atr, dailyAtr, rules).let { resolved ->
+        if (resolved.primary > 0.0) resolved else {
+            val legacy = atr?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
+                ?: adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
+            TouchTurnLiquidityThresholds(threshold15mAtr = legacy)
+        }
+    }
+    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, thresholds, rules) }
     val plannedBracket = record?.decision?.plannedBracket
     val outcome = record?.decision?.outcome
     val executedBracketLegs = record?.decision?.executedLegs?.takeIf { it.isNotEmpty() }
@@ -369,8 +377,10 @@ fun StrategySession.toTouchTurnAnalysisContext(
         marketZoneId = inputs?.marketZoneId ?: "America/New_York",
         adr14 = adr,
         atr14 = atr,
+        dailyAtr14 = dailyAtr,
         volumeSma20 = inputs?.volumeSma20,
-        rangeThreshold = threshold,
+        rangeThreshold = thresholds.threshold15mAtr ?: thresholds.primary,
+        rangeThresholdDailyAtr = thresholds.thresholdDailyAtr,
         rules = rules,
         entryOrdersPermitted = when (outcome) {
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> true

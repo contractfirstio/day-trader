@@ -385,7 +385,7 @@ object TouchTurnLogic {
             return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         }
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
-        if ((rules.enables.liquidityRange && !bracket.isLiquidityCandle) ||
+        if ((rules.enables.requiresLiquidityRange() && !bracket.isLiquidityCandle) ||
             (rules.enables.notDoji && !bracket.isActionable)
         ) {
             return TouchTurnCloseConfirmation.FAILED
@@ -523,7 +523,7 @@ object TouchTurnLogic {
     fun setupActionableForEntry(
         setup: TouchTurnBracketSetup,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = (setup.isLiquidityCandle || !rules.enables.liquidityRange) &&
+    ): Boolean = (setup.isLiquidityCandle || !rules.enables.requiresLiquidityRange()) &&
         (setup.candleColor != FirstCandleColor.DOJI || !rules.enables.notDoji)
 
     fun barSetupBlockOutcome(
@@ -534,7 +534,7 @@ object TouchTurnLogic {
         val enables = rules.enables
         return when {
             enables.volumeExhaustion && volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
-            enables.liquidityRange && !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+            enables.requiresLiquidityRange() && !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
             enables.notDoji && !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
             else -> null
         }
@@ -926,7 +926,8 @@ object TouchTurnLogic {
             candle,
             candle?.time,
             marketZoneId,
-            rangeThreshold,
+            TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
+            TouchTurnRuleConfig.DEFAULT,
             nowEpochMillis,
             sessionDateIso
         )
@@ -938,13 +939,32 @@ object TouchTurnLogic {
         rangeThreshold: Double,
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionDateIso: String? = null
+    ): LiquidityCandleEvaluation =
+        liquidityCandleEvaluation(
+            candle,
+            barTime,
+            marketZoneId,
+            TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
+            TouchTurnRuleConfig.DEFAULT,
+            nowEpochMillis,
+            sessionDateIso
+        )
+
+    fun liquidityCandleEvaluation(
+        candle: OhlcBar?,
+        barTime: String?,
+        marketZoneId: String,
+        liquidityThresholds: TouchTurnLiquidityThresholds,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        sessionDateIso: String? = null
     ): LiquidityCandleEvaluation {
         return when (firstCandleCloseStatus(barTime, marketZoneId, nowEpochMillis, sessionDateIso)) {
             FirstCandleCloseStatus.FORMING -> LiquidityCandleEvaluation.AWAITING_CLOSE
             FirstCandleCloseStatus.UNKNOWN -> LiquidityCandleEvaluation.UNKNOWN
             FirstCandleCloseStatus.CLOSED -> {
                 val bar = candle ?: return LiquidityCandleEvaluation.AWAITING_CLOSE
-                if (isLiquidityCandle(bar, rangeThreshold)) {
+                if (evaluatesLiquidityCandle(bar, liquidityThresholds, rules)) {
                     LiquidityCandleEvaluation.LIQUIDITY
                 } else {
                     LiquidityCandleEvaluation.NOT_LIQUIDITY
@@ -954,6 +974,37 @@ object TouchTurnLogic {
     }
 
     fun isLiquidityCandle(bar: OhlcBar, rangeThreshold: Double): Boolean = bar.range >= rangeThreshold
+
+    fun resolveLiquidityThresholds(
+        atr14: Double?,
+        dailyAtr14: Double?,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnLiquidityThresholds = TouchTurnLiquidityThresholds(
+        threshold15mAtr = atr14?.let { liquidityRangeThresholdFromAtr(it, rules) },
+        thresholdDailyAtr = dailyAtr14?.let { liquidityRangeThresholdFromDailyAtr(it, rules) }
+    )
+
+    /**
+     * True when the opening bar passes every enabled liquidity gate (AND). When neither gate is
+     * enabled, returns true.
+     */
+    fun evaluatesLiquidityCandle(
+        bar: OhlcBar,
+        liquidityThresholds: TouchTurnLiquidityThresholds,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): Boolean {
+        val enables = rules.enables
+        if (!enables.requiresLiquidityRange()) return true
+        if (enables.liquidityRange15mAtr) {
+            val threshold = liquidityThresholds.threshold15mAtr ?: return false
+            if (bar.range < threshold) return false
+        }
+        if (enables.liquidityRangeDailyAtr) {
+            val threshold = liquidityThresholds.thresholdDailyAtr ?: return false
+            if (bar.range < threshold) return false
+        }
+        return true
+    }
 
     fun liquidityEvaluationLabel(evaluation: LiquidityCandleEvaluation): String = when (evaluation) {
         LiquidityCandleEvaluation.AWAITING_CLOSE -> "Liquidity: pending (candle still forming)"
@@ -1020,6 +1071,29 @@ object TouchTurnLogic {
         atr14: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Double = atr14 * rules.atrLiquidityRatio
+
+    fun liquidityRangeThresholdFromDailyAtr(
+        dailyAtr14: Double,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): Double = dailyAtr14 * rules.atrLiquidityRatio
+
+    /**
+     * Wilder-style daily ATR over the last [period] completed sessions (today excluded when set).
+     */
+    fun computeDailyAtr14(
+        dailyBars: List<OhlcBar>,
+        period: Int = TouchTurnDefaults.DAILY_ATR_LOOKBACK_PERIODS,
+        excludeSessionDayYyyyMmdd: String? = null
+    ): Result<Double> {
+        val valid = dailyBars
+            .filter { it.high > 0.0 && it.low > 0.0 && it.high >= it.low }
+            .filter { bar ->
+                val day = barDayKey(bar.time) ?: return@filter false
+                excludeSessionDayYyyyMmdd == null || day != excludeSessionDayYyyyMmdd
+            }
+            .sortedBy { barDayKey(it.time).orEmpty() }
+        return computeAtr14(valid, period)
+    }
 
     /**
      * Wilder-style ATR over the last [period] completed bars (needs [period] true ranges).
@@ -1101,6 +1175,7 @@ object TouchTurnLogic {
         sessionDayYyyyMmdd: String,
         allowMissingTodayOpeningBar: Boolean = false,
         explicitFirstCandle: OhlcBar? = null,
+        dailyBars: List<OhlcBar>? = null,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext> {
         val first = explicitFirstCandle
@@ -1131,11 +1206,25 @@ object TouchTurnLogic {
         val volumeResult = computeVolumeSma20(priorOpenings, rules.volumeSmaPeriods)
         if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
         if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
+        val dailyAtrResult = dailyBars?.let {
+            computeDailyAtr14(it, rules.dailyAtrLookbackPeriods, excludeSessionDayYyyyMmdd = sessionDayYyyyMmdd)
+        }
+        if (rules.enables.liquidityRangeDailyAtr) {
+            if (dailyBars == null) {
+                return Result.failure(
+                    IllegalStateException("Daily bars required for daily ATR liquidity gate")
+                )
+            }
+            if (dailyAtrResult?.isFailure == true) {
+                return Result.failure(dailyAtrResult.exceptionOrNull()!!)
+            }
+        }
         val firstCandle = first ?: placeholderOpeningBar(sessionDayYyyyMmdd, marketZoneId)
         return Result.success(
             TouchTurnSignalContext(
                 firstCandle = firstCandle,
                 atr14 = atrResult.getOrThrow(),
+                dailyAtr14 = dailyAtrResult?.getOrNull(),
                 volumeSma20 = volumeResult.getOrThrow(),
                 todayOpeningBarPending = first == null
             )
@@ -1225,15 +1314,26 @@ object TouchTurnLogic {
         )
     }
 
-    /** @param rangeThreshold Min bar range (high − low) for a liquidity candle, e.g. 25% of 14-day ADR. */
+    /** @param rangeThreshold Legacy single threshold (treated as 15m ATR gate). */
     fun computeBracketSetup(
         bar: OhlcBar,
         rangeThreshold: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnBracketSetup = computeBracketSetup(
+        bar,
+        TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
+        rules
+    )
+
+    fun computeBracketSetup(
+        bar: OhlcBar,
+        liquidityThresholds: TouchTurnLiquidityThresholds,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnBracketSetup {
         val range = bar.range
         val color = firstCandleColor(bar)
-        val liquidity = isLiquidityCandle(bar, rangeThreshold)
+        val liquidity = evaluatesLiquidityCandle(bar, liquidityThresholds, rules)
+        val rangeThreshold = liquidityThresholds.primary
         val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
         return when (color) {
             FirstCandleColor.GREEN -> {

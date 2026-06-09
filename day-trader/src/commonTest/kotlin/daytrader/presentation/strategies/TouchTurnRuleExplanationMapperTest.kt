@@ -34,7 +34,7 @@ class TouchTurnRuleExplanationMapperTest {
             verboseExplanations = true,
             requireLivePriceChecks = false
         )
-        val liquidity = checks.first { it.key == "liquidityRange" }
+        val liquidity = checks.first { it.key == "liquidityRange15mAtr" }
         assertTrue(liquidity.enabled)
         assertTrue(liquidity.explanationSteps.size >= 4)
         assertTrue(liquidity.explanationSteps.last().startsWith("Result:"))
@@ -44,7 +44,7 @@ class TouchTurnRuleExplanationMapperTest {
     fun buildChecks_disabledRuleOmitsStepsWhenVerbose() {
         val session = sampleSession().copy(
             rules = TouchTurnRuleConfig.DEFAULT.copy(
-                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange = false)
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange15mAtr = false)
             )
         )
         val checks = TouchTurnRuleExplanationMapper.buildChecks(
@@ -53,7 +53,7 @@ class TouchTurnRuleExplanationMapperTest {
             verboseExplanations = true,
             requireLivePriceChecks = false
         )
-        val liquidity = checks.first { it.key == "liquidityRange" }
+        val liquidity = checks.first { it.key == "liquidityRange15mAtr" }
         assertFalse(liquidity.enabled)
         assertTrue(liquidity.explanationSteps.isEmpty())
     }

@@ -40,6 +40,7 @@ import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.enforcesCloseConfirmation
+import daytrader.domain.requiresLiquidityRange
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
@@ -635,6 +636,7 @@ class TouchTurnEngine(
                         sessionDate = sessionDate,
                         candle = ctx.firstCandle,
                         atr14 = ctx.atr14,
+                        dailyAtr14 = ctx.dailyAtr14,
                         volumeSma20 = ctx.volumeSma20,
                         adr14 = ctx.atr14,
                         currencyCode = currency,
@@ -671,6 +673,7 @@ class TouchTurnEngine(
                                 sessionDate = sessionDate,
                                 candle = context.firstCandle,
                                 atr14 = context.atr14,
+                                dailyAtr14 = context.dailyAtr14,
                                 volumeSma20 = context.volumeSma20,
                                 adr14 = context.atr14,
                                 currencyCode = currency,
@@ -1380,7 +1383,7 @@ class TouchTurnEngine(
                     instance.id,
                     instance.symbol,
                     when {
-                        rules.enables.liquidityRange && !setup.isLiquidityCandle -> "not_liquidity_candle"
+                        rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle -> "not_liquidity_candle"
                         rules.enables.notDoji && !setup.isActionable -> "not_actionable"
                         else -> "setup_not_actionable"
                     },

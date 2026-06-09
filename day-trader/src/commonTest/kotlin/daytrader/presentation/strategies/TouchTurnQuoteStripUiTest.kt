@@ -80,9 +80,12 @@ class TouchTurnQuoteStripUiTest {
         )
         assertNotNull(strip)
         val resolved = strip!!
-        assertEquals(99.726, resolved.entryPrice!!, absoluteTolerance = 0.0001)
+        assertEquals(setup.entry, resolved.entryPrice!!, absoluteTolerance = 0.0001)
         assertEquals(TouchTurnTradeSide.LONG, resolved.entrySide)
-        assertEquals("+3p", resolved.fillGapLabel)
+        assertEquals(
+            TouchTurnQuoteStripFormat.gapLabel(99.76 - setup.entry, "GBP"),
+            resolved.fillGapLabel
+        )
     }
 
     @Test
