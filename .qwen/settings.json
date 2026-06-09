@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Agent(Explore)",
-      "Bash(./gradlew *)"
-    ]
-  },
-  "$version": 4
-}
