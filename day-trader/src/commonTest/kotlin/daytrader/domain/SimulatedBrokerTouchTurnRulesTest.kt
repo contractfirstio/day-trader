@@ -16,27 +16,27 @@ class SimulatedBrokerTouchTurnRulesTest {
     }
 
     @Test
-    fun defaultForBrokerKind_usesZeroOffsetForEmulatorAndPaper() {
+    fun defaultForBrokerKind_usesZeroOffsetForEmulatorAndReplay() {
         assertEquals(0.0, TouchTurnRuleConfig.defaultForBrokerKind(BrokerKind.EMULATOR).entryInwardOffsetRatioOfRange)
-        assertEquals(
-            0.0,
-            TouchTurnRuleConfig.defaultForBrokerKind(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA)
-                .entryInwardOffsetRatioOfRange
-        )
         assertEquals(0.0, TouchTurnRuleConfig.defaultForBrokerKind(BrokerKind.REPLAY).entryInwardOffsetRatioOfRange)
     }
 
     @Test
-    fun defaultForBrokerKind_keepsLiveIbOffset() {
+    fun defaultForBrokerKind_usesLiveOffsetForIbAndHybrid() {
         assertEquals(
             TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
             TouchTurnRuleConfig.defaultForBrokerKind(BrokerKind.INTERACTIVE_BROKERS)
                 .entryInwardOffsetRatioOfRange
         )
+        assertEquals(
+            TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
+            TouchTurnRuleConfig.defaultForBrokerKind(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA)
+                .entryInwardOffsetRatioOfRange
+        )
     }
 
     @Test
-    fun withSimulatedBrokerEntryInwardOffset_patchesDeploymentSessionAndHistory() {
+    fun withEntryInwardOffsetForBrokerKind_patchesDeploymentSessionAndHistory() {
         val rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.15)
         val deployment = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
@@ -51,10 +51,13 @@ class SimulatedBrokerTouchTurnRulesTest {
             )
         )
 
-        val patched = deployment.withSimulatedBrokerEntryInwardOffset()
+        val patchedEmulator = deployment.withEntryInwardOffsetForBrokerKind(BrokerKind.EMULATOR)
+        assertEquals(0.0, patchedEmulator.touchTurnRules.entryInwardOffsetRatioOfRange)
+        assertEquals(0.0, patchedEmulator.touchTurnSession?.rules?.entryInwardOffsetRatioOfRange)
 
-        assertEquals(0.0, patched.touchTurnRules.entryInwardOffsetRatioOfRange)
-        assertEquals(0.0, patched.touchTurnSession?.rules?.entryInwardOffsetRatioOfRange)
+        val patchedHybrid = deployment.withEntryInwardOffsetForBrokerKind(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA)
+        assertEquals(0.02, patchedHybrid.touchTurnRules.entryInwardOffsetRatioOfRange)
+        assertEquals(0.02, patchedHybrid.touchTurnSession?.rules?.entryInwardOffsetRatioOfRange)
     }
 
     @Test

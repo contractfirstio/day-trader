@@ -429,8 +429,8 @@ object TouchTurnLogic {
     }
 
     /**
-     * Close must sit in the turn zone of the 15m range: lower third for shorts (green),
-     * upper third for longs (red).
+     * Close must sit in the turn zone of the 15m range: lower band for shorts (green),
+     * upper band for longs (red).
      */
     fun closePositionInTurnZone(
         setup: TouchTurnBracketSetup,
@@ -469,8 +469,7 @@ object TouchTurnLogic {
     fun entryTouchBuffer(
         setup: TouchTurnBracketSetup,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double =
-        (setup.range * rules.entryTouchBufferRatioOfRange).coerceAtLeast(rules.minStopDistance)
+    ): Double = setup.range * rules.entryTouchBufferRatioOfRange
 
     /**
      * True when a resting limit at [setup.entry] can still represent a touch fill (live price has not
@@ -1226,10 +1225,7 @@ object TouchTurnLogic {
         )
     }
 
-    /**
-     * @param rangeThreshold Min bar range (high − low) for a liquidity candle, e.g. 25% of 14-day ADR.
-     * @param minStopDistance Minimum entry-to-stop distance (spread / noise protection).
-     */
+    /** @param rangeThreshold Min bar range (high − low) for a liquidity candle, e.g. 25% of 14-day ADR. */
     fun computeBracketSetup(
         bar: OhlcBar,
         rangeThreshold: Double,
@@ -1238,14 +1234,13 @@ object TouchTurnLogic {
         val range = bar.range
         val color = firstCandleColor(bar)
         val liquidity = isLiquidityCandle(bar, rangeThreshold)
-        val minStopDistance = rules.minStopDistance
         val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
         return when (color) {
             FirstCandleColor.GREEN -> {
                 val tpDistance = range * rules.takeProfitFibRatioGreen
                 val entry = bar.high - entryInwardOffset
                 val takeProfit = entry - tpDistance
-                val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
+                val stopDistance = tpDistance / 2.0
                 TouchTurnBracketSetup(
                     range = range,
                     rangeThreshold = rangeThreshold,
@@ -1261,7 +1256,7 @@ object TouchTurnLogic {
                 val tpDistance = range * rules.takeProfitFibRatioRed
                 val entry = bar.low + entryInwardOffset
                 val takeProfit = entry + tpDistance
-                val stopDistance = maxOf(tpDistance / 2.0, minStopDistance)
+                val stopDistance = tpDistance / 2.0
                 TouchTurnBracketSetup(
                     range = range,
                     rangeThreshold = rangeThreshold,

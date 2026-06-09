@@ -53,8 +53,6 @@ data class TouchTurnRuleConfig(
     val entryTouchBufferRatioOfRange: Double = TouchTurnDefaults.ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE,
     /** Nudge entry limit inward from bar extreme — long up from low, short down from high (fraction of bar range). */
     val entryInwardOffsetRatioOfRange: Double = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
-    /** Minimum absolute entry-to-stop distance (spread / noise floor). */
-    val minStopDistance: Double = TouchTurnDefaults.MIN_STOP_DISTANCE,
     /** Green liquidity bar: take-profit distance as a fraction of bar range. */
     val takeProfitFibRatioGreen: Double = TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN,
     /** Red liquidity bar: take-profit distance as a fraction of bar range. */
@@ -167,14 +165,14 @@ data class TouchTurnRuleConfig(
                 key = "closePositionShortMax",
                 label = "Short turn zone (max)",
                 description = "Green liquidity bar (short): confirming price must sit at or below this fraction of " +
-                    "the bar range measured from the low (0 = low, 1 = high). Default 0.35 = lower third.",
+                    "the bar range measured from the low (0 = low, 1 = high). Default 0.45 = lower 45%.",
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
                 key = "closePositionLongMin",
                 label = "Long turn zone (min)",
                 description = "Red liquidity bar (long): confirming price must sit at or above this fraction of " +
-                    "the bar range measured from the low. Default 0.65 = upper third.",
+                    "the bar range measured from the low. Default 0.55 = upper 45%.",
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
@@ -197,13 +195,6 @@ data class TouchTurnRuleConfig(
                 description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
                     "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme.",
                 kind = TouchTurnRuleFieldKind.RATIO
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "minStopDistance",
-                label = "Min stop distance",
-                description = "Minimum absolute distance from entry to stop loss when building the bracket (noise / " +
-                    "spread floor). Stop is at least half the entry-to-TP distance or this value, whichever is larger.",
-                kind = TouchTurnRuleFieldKind.PRICE
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioGreen",
@@ -257,7 +248,6 @@ data class TouchTurnRuleConfig(
             "barLiveDivergenceMaxRatioOfRange" -> config.barLiveDivergenceMaxRatioOfRange.toString()
             "entryTouchBufferRatioOfRange" -> config.entryTouchBufferRatioOfRange.toString()
             "entryInwardOffsetRatioOfRange" -> config.entryInwardOffsetRatioOfRange.toString()
-            "minStopDistance" -> config.minStopDistance.toString()
             "takeProfitFibRatioGreen" -> config.takeProfitFibRatioGreen.toString()
             "takeProfitFibRatioRed" -> config.takeProfitFibRatioRed.toString()
             "closeConfirmationAfterCloseMs" -> config.closeConfirmationAfterCloseMs.toString()
@@ -308,7 +298,6 @@ data class TouchTurnRuleConfig(
                                     config.copy(barLiveDivergenceMaxRatioOfRange = doubleValue)
                                 "entryTouchBufferRatioOfRange" ->
                                     config.copy(entryTouchBufferRatioOfRange = doubleValue)
-                                "minStopDistance" -> config.copy(minStopDistance = doubleValue)
                                 "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
                                 "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
                                 else -> null
@@ -385,14 +374,15 @@ fun TouchTurnRuleConfig.enforcesCloseConfirmation(requireLivePriceChecks: Boolea
             ))
 
 fun BrokerKind.entryInwardOffsetRatioOfRangeDefault(): Double =
-    if (usesEmulatorExecution) {
-        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
-    } else {
-        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
+    when (this) {
+        BrokerKind.EMULATOR, BrokerKind.REPLAY ->
+            TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+        BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA ->
+            TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
     }
 
-fun TouchTurnRuleConfig.withSimulatedBrokerEntryInwardOffset(): TouchTurnRuleConfig {
-    val target = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig {
+    val target = kind.entryInwardOffsetRatioOfRangeDefault()
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
 }
 
@@ -402,16 +392,42 @@ fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig 
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
 }
 
-fun StrategyDeployment.withSimulatedBrokerEntryInwardOffset(): StrategyDeployment {
-    val rules = touchTurnRules.withSimulatedBrokerEntryInwardOffset()
+fun StrategyDeployment.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): StrategyDeployment {
+    val rules = touchTurnRules.withEntryInwardOffsetForBrokerKind(kind)
     val session = touchTurnSession?.let { ctx ->
-        val patchedRules = ctx.rules.withSimulatedBrokerEntryInwardOffset()
+        val patchedRules = ctx.rules.withEntryInwardOffsetForBrokerKind(kind)
         if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
     }
     val history = sessionHistory.map { day ->
         val record = day.touchTurnRunRecord ?: return@map day
         val runRules = record.rules ?: return@map day
-        val patchedRules = runRules.withSimulatedBrokerEntryInwardOffset()
+        val patchedRules = runRules.withEntryInwardOffsetForBrokerKind(kind)
+        if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
+    }
+    if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
+}
+
+fun TouchTurnRuleConfig.withDefaultCloseTurnZones(): TouchTurnRuleConfig {
+    val targetShort = TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX
+    val targetLong = TouchTurnDefaults.CLOSE_POSITION_LONG_MIN
+    return if (closePositionShortMax == targetShort && closePositionLongMin == targetLong) {
+        this
+    } else {
+        copy(closePositionShortMax = targetShort, closePositionLongMin = targetLong)
+    }
+}
+
+fun StrategyDeployment.withDefaultCloseTurnZones(): StrategyDeployment {
+    val rules = touchTurnRules.withDefaultCloseTurnZones()
+    val session = touchTurnSession?.let { ctx ->
+        val patchedRules = ctx.rules.withDefaultCloseTurnZones()
+        if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
+    }
+    val history = sessionHistory.map { day ->
+        val record = day.touchTurnRunRecord ?: return@map day
+        val runRules = record.rules ?: return@map day
+        val patchedRules = runRules.withDefaultCloseTurnZones()
         if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
     }
     if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this

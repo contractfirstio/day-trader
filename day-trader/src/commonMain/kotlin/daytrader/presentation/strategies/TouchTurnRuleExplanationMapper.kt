@@ -266,9 +266,9 @@ object TouchTurnRuleExplanationMapper {
         }
         val zoneLabel = when (setup.candleColor) {
             FirstCandleColor.GREEN ->
-                "lower third (≤ ${(rules.closePositionShortMax * 100).toInt()}% of range from low)"
+                "lower band (≤ ${(rules.closePositionShortMax * 100).toInt()}% of range from low)"
             FirstCandleColor.RED ->
-                "upper third (≥ ${(rules.closePositionLongMin * 100).toInt()}% of range from low)"
+                "upper band (≥ ${(rules.closePositionLongMin * 100).toInt()}% of range from low)"
             else -> "turn zone"
         }
         val steps = buildList {

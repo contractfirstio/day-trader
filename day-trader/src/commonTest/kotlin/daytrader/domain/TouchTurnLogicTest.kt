@@ -124,19 +124,18 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun longStopRespectsMinimumDistance_onRedCandle() {
-        val bar = OhlcBar(open = 10.02, high = 10.02, low = 10.0, close = 10.0)
+    fun shortStopIsHalfTakeProfitDistance_onSmallRangeBar() {
+        val bar = OhlcBar(open = 5.36, high = 5.41, low = 5.34, close = 5.37)
         val setup = TouchTurnLogic.computeBracketSetup(
             bar,
-            rangeThreshold = 1.0,
-            rules = TouchTurnRuleConfig.DEFAULT.copy(
-                minStopDistance = 0.05,
-                entryInwardOffsetRatioOfRange = 0.0
-            )
+            rangeThreshold = 0.01,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
         )
-        assertEquals(TouchTurnTradeSide.LONG, setup.side)
-        assertEquals(10.0, setup.entry, 0.001)
-        assertEquals(10.0 - 0.05, setup.stopLoss, 0.001)
+        val tpDistance = 0.07 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        assertEquals(TouchTurnTradeSide.SHORT, setup.side)
+        assertEquals(5.41, setup.entry, 0.001)
+        assertEquals(5.41 - tpDistance, setup.takeProfit, 0.001)
+        assertEquals(5.41 + tpDistance / 2.0, setup.stopLoss, 0.001)
     }
 
     @Test
@@ -574,7 +573,7 @@ class TouchTurnLogicTest {
         assertEquals(3, plan.orders.size)
         assertEquals("SELL", plan.orders[0].action)
         assertEquals("LMT", plan.orders[0].orderType)
-        assertEquals(409.0, plan.orders[0].price, 0.001)
+        assertEquals(409.8, plan.orders[0].price, 0.001)
         assertEquals(TouchTurnOrderRole.TAKE_PROFIT, plan.orders[1].role)
         assertEquals("BUY", plan.orders[1].action)
         assertEquals(TouchTurnOrderRole.STOP_LOSS, plan.orders[2].role)
@@ -591,7 +590,7 @@ class TouchTurnLogicTest {
         val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup, maxDollars = 4000)!!
         assertEquals(9, plan.quantity)
         assertEquals("BUY", plan.orders[0].action)
-        assertEquals(401.0, plan.orders[0].price, 0.001)
+        assertEquals(400.2, plan.orders[0].price, 0.001)
         assertEquals("SELL", plan.orders[1].action)
         assertEquals("STP", plan.orders[2].orderType)
     }

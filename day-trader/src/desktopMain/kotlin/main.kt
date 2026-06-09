@@ -42,6 +42,7 @@ private const val APPLICATION_NAME = "Day Trader"
 
 fun main() {
     CrashLogging.installDefaultHandlers()
+    println("=== Hello World ===")
     System.setProperty("apple.awt.application.name", APPLICATION_NAME)
     MacApplicationMenu.install(APPLICATION_NAME)
     application {
