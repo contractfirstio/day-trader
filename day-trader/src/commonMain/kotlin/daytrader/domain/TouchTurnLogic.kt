@@ -1237,9 +1237,9 @@ object TouchTurnLogic {
         val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
         return when (color) {
             FirstCandleColor.GREEN -> {
-                val tpDistance = range * rules.takeProfitFibRatioGreen
                 val entry = bar.high - entryInwardOffset
-                val takeProfit = entry - tpDistance
+                val takeProfit = bar.low + range * rules.takeProfitFibRatioGreen
+                val tpDistance = entry - takeProfit
                 val stopDistance = tpDistance / 2.0
                 TouchTurnBracketSetup(
                     range = range,
@@ -1297,7 +1297,7 @@ object TouchTurnLogic {
         val fibPct = takeProfitFibLabel(setup.candleColor)
         return when (setup.candleColor) {
             FirstCandleColor.GREEN ->
-                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct of range below entry, stop half that distance above entry."
+                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct fib retracement level, stop half the entry-to-target distance above entry."
             FirstCandleColor.RED ->
                 "Red liquidity bar → $action above bar low (inward offset), take profit at $fibPct of range above entry, stop half that distance below entry."
             FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."

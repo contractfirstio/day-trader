@@ -131,11 +131,26 @@ class TouchTurnLogicTest {
             rangeThreshold = 0.01,
             rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
         )
-        val tpDistance = 0.07 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        val fib38 = 5.34 + 0.07 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        val tpDistance = 5.41 - fib38
         assertEquals(TouchTurnTradeSide.SHORT, setup.side)
         assertEquals(5.41, setup.entry, 0.001)
-        assertEquals(5.41 - tpDistance, setup.takeProfit, 0.001)
+        assertEquals(fib38, setup.takeProfit, 0.001)
         assertEquals(5.41 + tpDistance / 2.0, setup.stopLoss, 0.001)
+    }
+
+    @Test
+    fun greenLiquidityBar_shortTakeProfit_atAbsoluteFib38RetracementLevel() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
+        )
+        val fib38 = 400.0 + 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        assertEquals(fib38, setup.takeProfit, 0.001)
+        assertEquals(410.0 - fib38, 410.0 - setup.takeProfit, 0.001)
+        assertEquals(410.0 + (410.0 - fib38) / 2.0, setup.stopLoss, 0.001)
     }
 
     @Test
@@ -147,9 +162,10 @@ class TouchTurnLogicTest {
         assertEquals(TouchTurnTradeSide.SHORT, setup.side)
         val entryOffset = 10.0 * TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
         val entry = 410.0 - entryOffset
+        val fib38 = 400.0 + 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        val tpDistance = entry - fib38
         assertEquals(entry, setup.entry, 0.001)
-        val tpDistance = 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
-        assertEquals(entry - tpDistance, setup.takeProfit, 0.001)
+        assertEquals(fib38, setup.takeProfit, 0.001)
         assertEquals(entry + tpDistance / 2.0, setup.stopLoss, 0.001)
     }
 
