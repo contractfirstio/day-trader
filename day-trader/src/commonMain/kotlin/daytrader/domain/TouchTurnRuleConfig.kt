@@ -456,13 +456,11 @@ fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): To
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
 }
 
-/** Ensures newly added rule toggles stay off (legacy persisted configs may still have [notDoji] enabled). */
+/** Ensures legacy-only rule toggles stay off (persisted configs may still have [notDoji] / [openDeadline] enabled). */
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
     val normalizedEnables = enables.copy(
         notDoji = false,
-        openDeadline = false,
-        macroTrendAlignment = false,
-        stockTrendAlignment = false
+        openDeadline = false
     )
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
 }

@@ -158,11 +158,37 @@ class SimulatedBrokerTouchTurnRulesTest {
 
         assertFalse(patched.touchTurnRules.enables.notDoji)
         assertFalse(patched.touchTurnRules.enables.openDeadline)
-        assertFalse(patched.touchTurnRules.enables.macroTrendAlignment)
-        assertFalse(patched.touchTurnRules.enables.stockTrendAlignment)
         assertFalse(patched.touchTurnSession?.rules?.enables?.notDoji ?: true)
         assertFalse(patched.touchTurnSession?.rules?.enables?.openDeadline ?: true)
-        assertFalse(patched.touchTurnSession?.rules?.enables?.macroTrendAlignment ?: true)
-        assertFalse(patched.touchTurnSession?.rules?.enables?.stockTrendAlignment ?: true)
+    }
+
+    @Test
+    fun withNewConfigurableTouchTurnRulesDisabled_preservesMacroAndStockTrendAlignment() {
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                macroTrendAlignment = true,
+                stockTrendAlignment = true
+            )
+        )
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "BARC",
+            maxDollars = 500,
+            brokerKind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA
+        ).copy(
+            touchTurnRules = rules,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-06-10",
+                status = TouchTurnCandleStatus.LOADING,
+                rules = rules
+            )
+        )
+
+        val patched = deployment.withNewConfigurableTouchTurnRulesDisabled()
+
+        assertTrue(patched.touchTurnRules.enables.macroTrendAlignment)
+        assertTrue(patched.touchTurnRules.enables.stockTrendAlignment)
+        assertTrue(patched.touchTurnSession?.rules?.enables?.macroTrendAlignment ?: false)
+        assertTrue(patched.touchTurnSession?.rules?.enables?.stockTrendAlignment ?: false)
     }
 }
