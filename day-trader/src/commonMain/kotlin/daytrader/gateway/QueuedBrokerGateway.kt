@@ -5,6 +5,8 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.ReversalScoreMacroVolSnapshot
 import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.HomeMarketMacroBenchmark
+import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
@@ -62,6 +64,7 @@ class QueuedBrokerGateway(
     private val pendingReversalScoreSymbol = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreSymbolSnapshot>>>()
     private val pendingReversalScoreMacro = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreMacroVolSnapshot>>>()
     private val pendingSpyRegime = mutableMapOf<Long, CompletableDeferred<Result<SpyRegimeSnapshot>>>()
+    private val pendingHomeMarketRegime = mutableMapOf<Long, CompletableDeferred<Result<MacroRegimeSnapshot>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -135,7 +138,7 @@ class QueuedBrokerGateway(
             )
         )
         return try {
-            withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+            withTimeout(SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS) { deferred.await() }
         } catch (e: Exception) {
             pendingSignalContext.remove(requestId)
             Result.failure(e)
@@ -248,6 +251,25 @@ class QueuedBrokerGateway(
         }
     }
 
+    override suspend fun fetchHomeMarketRegimeSnapshot(marketZoneId: String): Result<MacroRegimeSnapshot> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<MacroRegimeSnapshot>>()
+        pendingHomeMarketRegime[requestId] = deferred
+        sendCommand(GatewayCommand.FetchHomeMarketRegimeSnapshot(requestId, marketZoneId))
+        return try {
+            withTimeout(REVERSAL_SCORE_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingHomeMarketRegime.remove(requestId)
+            ReversalScoreLog.gatewayRequestFailed(
+                "home_market_regime",
+                symbol = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId).symbol,
+                requestId,
+                e
+            )
+            Result.failure(e)
+        }
+    }
+
     private fun apply(event: GatewayEvent) {
         when (event) {
             is GatewayEvent.ConnectionStateChanged -> _connectionState.value = event.state
@@ -290,11 +312,17 @@ class QueuedBrokerGateway(
             is GatewayEvent.SpyRegimeSnapshotReady -> {
                 pendingSpyRegime.remove(event.requestId)?.complete(event.result)
             }
+            is GatewayEvent.HomeMarketRegimeSnapshotReady -> {
+                pendingHomeMarketRegime.remove(event.requestId)?.complete(event.result)
+            }
         }
     }
 
     companion object {
         const val HISTORICAL_REQUEST_TIMEOUT_MS = 30_000L
+        /** IB composite aborts first with pending-leg detail; gateway waits slightly longer. */
+        const val SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS =
+            daytrader.domain.TouchTurnDefaults.SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS + 5_000L
         const val REVERSAL_SCORE_REQUEST_TIMEOUT_MS = 45_000L
     }
 }

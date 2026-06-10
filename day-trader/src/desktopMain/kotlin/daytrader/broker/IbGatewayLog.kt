@@ -29,6 +29,15 @@ internal object IbGatewayLog {
         emit("[IB] $message")
     }
 
+    /** Always emitted — composite bootstrap timed out with pending-leg detail. */
+    fun signalContextBootstrapTimeout(symbol: String, pendingLegs: String, timeoutMs: Long) {
+        val stamp = LogTimestamps.now().at
+        println(
+            "$stamp [IB] Touch Turn signal context timeout symbol=$symbol " +
+                "after ${timeoutMs / 1000}s pending=$pendingLegs"
+        )
+    }
+
     fun debug(message: String) {
         if (debugEnabled) emit("[IB] DEBUG $message")
     }

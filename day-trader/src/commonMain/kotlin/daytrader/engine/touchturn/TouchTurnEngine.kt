@@ -13,6 +13,7 @@ import daytrader.domain.DeploymentSessionStopLogic
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.ClosedFirstCandleRefetchValidation
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
@@ -40,6 +41,7 @@ import daytrader.domain.TouchTurnPrepareOverallStatus
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.enforcesCloseConfirmation
+import daytrader.domain.requiresLiquidityRange
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.withTouchTurnCandleFailed
@@ -81,6 +83,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
@@ -635,6 +639,7 @@ class TouchTurnEngine(
                         sessionDate = sessionDate,
                         candle = ctx.firstCandle,
                         atr14 = ctx.atr14,
+                        dailyAtr14 = ctx.dailyAtr14,
                         volumeSma20 = ctx.volumeSma20,
                         adr14 = ctx.atr14,
                         currencyCode = currency,
@@ -671,6 +676,7 @@ class TouchTurnEngine(
                                 sessionDate = sessionDate,
                                 candle = context.firstCandle,
                                 atr14 = context.atr14,
+                                dailyAtr14 = context.dailyAtr14,
                                 volumeSma20 = context.volumeSma20,
                                 adr14 = context.atr14,
                                 currencyCode = currency,
@@ -816,14 +822,12 @@ class TouchTurnEngine(
             scheduleClosedBarRefetch(instanceId)
             return
         }
-        if (barClosedJustSet && sessionAfterBarClosed.milestones.liquidityEvaluatedAt == null) {
-            scope.launch {
+        scope.launch {
+            if (barClosedJustSet && sessionAfterBarClosed.milestones.liquidityEvaluatedAt == null) {
                 yield()
-                evaluateLiquidityAfterClosedBar(instanceId)
             }
-            return
+            evaluateLiquidityAfterClosedBar(instanceId)
         }
-        evaluateLiquidityAfterClosedBar(instanceId)
     }
 
     private fun scheduleClosedBarRefetch(instanceId: String) {
@@ -1059,7 +1063,7 @@ class TouchTurnEngine(
         delayMillis(waitMs)
     }
 
-    private fun evaluateLiquidityAfterClosedBar(instanceId: String) {
+    private suspend fun evaluateLiquidityAfterClosedBar(instanceId: String) {
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         if (instance.status != DeploymentStatus.RUNNING) return
         val session = instance.touchTurnSession ?: return
@@ -1123,6 +1127,51 @@ class TouchTurnEngine(
             enforceCloseConfirmation = enforceCloseConfirmation,
             nowEpochMillis = evaluatedAt
         )
+        val gateway = marketDataBrokerGateway()
+        val instrument = DeploymentMarket.effectiveInstrument(instance)
+        val homeBenchmark = HomeMarketMacroBenchmark.forMarketZoneId(session.marketZoneId)
+        val (macroResult, stockResult) = coroutineScope {
+            val macroDeferred = async {
+                if (rules.enables.macroTrendAlignment) {
+                    gateway?.fetchHomeMarketRegimeSnapshot(session.marketZoneId)
+                } else {
+                    null
+                }
+            }
+            val stockDeferred = async {
+                if (rules.enables.stockTrendAlignment) {
+                    gateway?.fetchStockTrendSnapshot(instance.symbol, instrument)
+                } else {
+                    null
+                }
+            }
+            macroDeferred.await() to stockDeferred.await()
+        }
+        macroResult?.onFailure { error ->
+            SessionTrace.log(
+                type = "home_market_regime_fetch_failed",
+                deploymentId = instanceId,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                details = mapOf(
+                    "benchmark" to homeBenchmark.symbol,
+                    "benchmarkLabel" to homeBenchmark.label,
+                    "error" to (error.message ?: error.toString())
+                )
+            )
+        }
+        stockResult?.onFailure { error ->
+            SessionTrace.log(
+                type = "stock_trend_fetch_failed",
+                deploymentId = instanceId,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                details = mapOf("error" to (error.message ?: error.toString()))
+            )
+        }
+        val macroRegime = macroResult?.getOrNull()
+        val macroTrend = macroRegime?.macroTrendState()
+        val stockTrend = stockResult?.getOrNull()?.stockTrendState()
         repository.update(instanceId) { current ->
             current.withLiquidityEvaluatedIfClosed(
                 enforceCloseConfirmation = enforceCloseConfirmation,
@@ -1130,7 +1179,11 @@ class TouchTurnEngine(
                 liveBid = liveQuote?.bid,
                 liveAsk = liveQuote?.ask,
                 liveLast = liveQuote?.last,
-                requireLivePriceChecks = requireLivePriceChecks
+                requireLivePriceChecks = requireLivePriceChecks,
+                macroTrend = macroTrend,
+                stockTrend = stockTrend,
+                macroBenchmarkSymbol = macroRegime?.benchmark?.symbol ?: homeBenchmark.symbol,
+                macroBenchmarkLabel = macroRegime?.benchmark?.label ?: homeBenchmark.label
             )
         }
         val afterEval = repository.deployments.value.find { it.id == instanceId } ?: return
@@ -1190,6 +1243,10 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED,
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
@@ -1313,6 +1370,10 @@ class TouchTurnEngine(
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
@@ -1380,7 +1441,7 @@ class TouchTurnEngine(
                     instance.id,
                     instance.symbol,
                     when {
-                        rules.enables.liquidityRange && !setup.isLiquidityCandle -> "not_liquidity_candle"
+                        rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle -> "not_liquidity_candle"
                         rules.enables.notDoji && !setup.isActionable -> "not_actionable"
                         else -> "setup_not_actionable"
                     },
@@ -1535,12 +1596,19 @@ class TouchTurnEngine(
         }
     }
 
-    private fun quoteForSymbol(symbol: String): LiveQuote? {
-        val gateway = if (brokerKind.usesLiveIbMarketData) {
+    /**
+     * Gateway for live quotes and trend-alignment historical fetches.
+     * Hybrid / IB / replay use [sessionGateway] (live IB market data); pure emulator uses execution.
+     */
+    private fun marketDataBrokerGateway(): BrokerGateway? =
+        if (brokerKind.usesLiveIbMarketData) {
             sessionGateway ?: executionGateway
         } else {
             executionGateway ?: sessionGateway
-        } ?: return null
+        }
+
+    private fun quoteForSymbol(symbol: String): LiveQuote? {
+        val gateway = marketDataBrokerGateway() ?: return null
         val normalized = SymbolMarkets.normalizeSymbol(symbol)
         return gateway.quotes.value[normalized]
     }

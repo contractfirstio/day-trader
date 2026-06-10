@@ -124,19 +124,87 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun longStopRespectsMinimumDistance_onRedCandle() {
-        val bar = OhlcBar(open = 10.02, high = 10.02, low = 10.0, close = 10.0)
-        val setup = TouchTurnLogic.computeBracketSetup(
-            bar,
-            rangeThreshold = 1.0,
-            rules = TouchTurnRuleConfig.DEFAULT.copy(
-                minStopDistance = 0.05,
-                entryInwardOffsetRatioOfRange = 0.0
+    fun liquidityThresholdFromDailyAtr_is25PercentOfDailyAtr() {
+        assertEquals(2.5, TouchTurnLogic.liquidityRangeThresholdFromDailyAtr(10.0), 0.001)
+    }
+
+    @Test
+    fun evaluatesLiquidityCandle_requiresBothGatesWhenBothEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0)
+        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 8.0)
+        val bothOn = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = true,
+                liquidityRangeDailyAtr = true
             )
         )
-        assertEquals(TouchTurnTradeSide.LONG, setup.side)
-        assertEquals(10.0, setup.entry, 0.001)
-        assertEquals(10.0 - 0.05, setup.stopLoss, 0.001)
+        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, bothOn))
+        assertFalse(
+            TouchTurnLogic.evaluatesLiquidityCandle(
+                bar,
+                thresholds.copy(thresholdDailyAtr = 12.0),
+                bothOn
+            )
+        )
+    }
+
+    @Test
+    fun evaluatesLiquidityCandle_passesWhenNeitherGateEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 100.1, low = 99.9, close = 100.0)
+        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 5.0)
+        val neither = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = false
+            )
+        )
+        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, neither))
+    }
+
+    @Test
+    fun computeDailyAtr14_usesWilderAtrOnDailyBars() {
+        val bars = (1..16).map { day ->
+            OhlcBar(
+                open = 100.0 + day,
+                high = 102.0 + day,
+                low = 99.0 + day,
+                close = 101.0 + day,
+                time = "202505${day.toString().padStart(2, '0')}  16:00:00"
+            )
+        }
+        val dailyAtr = TouchTurnLogic.computeDailyAtr14(bars, excludeSessionDayYyyyMmdd = "20250516")
+            .getOrThrow()
+        assertTrue(dailyAtr > 0.0)
+    }
+
+    @Test
+    fun shortStopIsHalfTakeProfitDistance_onSmallRangeBar() {
+        val bar = OhlcBar(open = 5.36, high = 5.41, low = 5.34, close = 5.37)
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 0.01,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
+        )
+        val fib38 = 5.34 + 0.07 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        val tpDistance = 5.41 - fib38
+        assertEquals(TouchTurnTradeSide.SHORT, setup.side)
+        assertEquals(5.41, setup.entry, 0.001)
+        assertEquals(fib38, setup.takeProfit, 0.001)
+        assertEquals(5.41 + tpDistance / 2.0, setup.stopLoss, 0.001)
+    }
+
+    @Test
+    fun greenLiquidityBar_shortTakeProfit_atAbsoluteFib38RetracementLevel() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(entryInwardOffsetRatioOfRange = 0.0)
+        )
+        val fib38 = 400.0 + 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        assertEquals(fib38, setup.takeProfit, 0.001)
+        assertEquals(410.0 - fib38, 410.0 - setup.takeProfit, 0.001)
+        assertEquals(410.0 + (410.0 - fib38) / 2.0, setup.stopLoss, 0.001)
     }
 
     @Test
@@ -148,9 +216,10 @@ class TouchTurnLogicTest {
         assertEquals(TouchTurnTradeSide.SHORT, setup.side)
         val entryOffset = 10.0 * TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
         val entry = 410.0 - entryOffset
+        val fib38 = 400.0 + 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
+        val tpDistance = entry - fib38
         assertEquals(entry, setup.entry, 0.001)
-        val tpDistance = 10.0 * TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN
-        assertEquals(entry - tpDistance, setup.takeProfit, 0.001)
+        assertEquals(fib38, setup.takeProfit, 0.001)
         assertEquals(entry + tpDistance / 2.0, setup.stopLoss, 0.001)
     }
 
@@ -574,7 +643,7 @@ class TouchTurnLogicTest {
         assertEquals(3, plan.orders.size)
         assertEquals("SELL", plan.orders[0].action)
         assertEquals("LMT", plan.orders[0].orderType)
-        assertEquals(409.0, plan.orders[0].price, 0.001)
+        assertEquals(409.8, plan.orders[0].price, 0.001)
         assertEquals(TouchTurnOrderRole.TAKE_PROFIT, plan.orders[1].role)
         assertEquals("BUY", plan.orders[1].action)
         assertEquals(TouchTurnOrderRole.STOP_LOSS, plan.orders[2].role)
@@ -591,7 +660,7 @@ class TouchTurnLogicTest {
         val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup, maxDollars = 4000)!!
         assertEquals(9, plan.quantity)
         assertEquals("BUY", plan.orders[0].action)
-        assertEquals(401.0, plan.orders[0].price, 0.001)
+        assertEquals(400.2, plan.orders[0].price, 0.001)
         assertEquals("SELL", plan.orders[1].action)
         assertEquals("STP", plan.orders[2].orderType)
     }
@@ -979,7 +1048,7 @@ class TouchTurnLogicTest {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange = false)
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange15mAtr = false)
         )
         assertTrue(TouchTurnLogic.setupActionableForEntry(setup, rules))
     }
@@ -990,7 +1059,7 @@ class TouchTurnLogicTest {
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange = false,
+                liquidityRange15mAtr = false,
                 volumeExhaustion = false,
                 notDoji = false
             )
@@ -1506,6 +1575,102 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun describeSignalContextBootstrapPendingLegs_dailyStillPending() {
+        val detail = TouchTurnLogic.describeSignalContextBootstrapPendingLegs(
+            bars15mReady = true,
+            bars15mCount = 42,
+            dailyBarsRequired = true,
+            dailyBarsReady = false
+        )
+        assertEquals("15m_bars_ready(count=42),daily_bars", detail)
+    }
+
+    @Test
+    fun describeSignalContextBootstrapPendingLegs_openingBarAndDailyPending() {
+        val detail = TouchTurnLogic.describeSignalContextBootstrapPendingLegs(
+            bars15mReady = false,
+            dailyBarsRequired = true,
+            dailyBarsReady = false
+        )
+        assertEquals("15m_opening_bar,daily_bars", detail)
+    }
+
+    @Test
+    fun deriveTouchTurnSignalContext_dailyAtrOnly_skips15mAtrAndVolumeSma() {
+        val opening = OhlcBar(
+            open = 100.0,
+            high = 105.0,
+            low = 99.0,
+            close = 104.0,
+            time = "20260604  09:30:00",
+            volume = 12_000.0
+        )
+        val dailyBars = (1..16).map { day ->
+            OhlcBar(
+                open = 100.0 + day,
+                high = 102.0 + day,
+                low = 98.0 + day,
+                close = 101.0 + day,
+                time = "202605${day.toString().padStart(2, '0')}  16:00:00",
+                volume = 1_000_000.0
+            )
+        }
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = true,
+                volumeExhaustion = false
+            )
+        )
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = listOf(opening),
+            marketZoneId = "America/New_York",
+            sessionDayYyyyMmdd = "20260604",
+            explicitFirstCandle = opening,
+            dailyBars = dailyBars,
+            rules = rules
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val ctx = result.getOrThrow()
+        assertEquals(0.0, ctx.atr14)
+        assertEquals(0.0, ctx.volumeSma20)
+        assertTrue(ctx.dailyAtr14 != null && ctx.dailyAtr14 > 0.0)
+        assertTrue(ctx.hasBootstrapMetrics(rules))
+    }
+
+    @Test
+    fun deriveTouchTurnSignalContext_failsWhenDailyAtrRuleEnabledButDailyBarsMissing() {
+        val opening = OhlcBar(
+            open = 100.0,
+            high = 105.0,
+            low = 99.0,
+            close = 104.0,
+            time = "20260604  09:30:00",
+            volume = 12_000.0
+        )
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = true,
+                volumeExhaustion = false
+            )
+        )
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = listOf(opening),
+            marketZoneId = "America/New_York",
+            sessionDayYyyyMmdd = "20260604",
+            explicitFirstCandle = opening,
+            dailyBars = null,
+            rules = rules
+        )
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()?.message?.contains("Daily bars required") == true,
+            result.exceptionOrNull()?.message
+        )
+    }
+
+    @Test
     fun deriveTouchTurnSignalContext_withoutTodayBar_failsWithMarketLabel() {
         val zone = "Europe/London"
         val session = "20260604"
@@ -1520,5 +1685,157 @@ class TouchTurnLogicTest {
             result.exceptionOrNull()?.message?.contains("UK (LSE)") == true,
             result.exceptionOrNull()?.message
         )
+    }
+
+    @Test
+    fun trendAlignment_greenShortRequiresBearMacroAndDownStock() {
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 1.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.SHORT,
+            entry = 109.0,
+            stopLoss = 112.0,
+            takeProfit = 105.0
+        )
+        assertEquals(MacroTrendState.BEAR, TouchTurnTrendAlignment.requiredMacroTrend(setup))
+        assertEquals(StockTrendState.DOWN, TouchTurnTrendAlignment.requiredStockTrend(setup))
+        assertTrue(TouchTurnTrendAlignment.macroTrendAligned(setup, MacroTrendState.BEAR))
+        assertFalse(TouchTurnTrendAlignment.macroTrendAligned(setup, MacroTrendState.BULL))
+        assertTrue(TouchTurnTrendAlignment.stockTrendAligned(setup, StockTrendState.DOWN))
+        assertFalse(TouchTurnTrendAlignment.stockTrendAligned(setup, StockTrendState.UP))
+    }
+
+    @Test
+    fun trendAlignment_redLongRequiresBullMacroAndUpStock() {
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 1.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 91.0,
+            stopLoss = 88.0,
+            takeProfit = 95.0
+        )
+        assertEquals(MacroTrendState.BULL, TouchTurnTrendAlignment.requiredMacroTrend(setup))
+        assertEquals(StockTrendState.UP, TouchTurnTrendAlignment.requiredStockTrend(setup))
+    }
+
+    @Test
+    fun trendAlignmentBlockOutcome_macroTrendNull_returnsDataUnavailable() {
+        val bar = OhlcBar(
+            open = 100.0,
+            high = 110.0,
+            low = 99.0,
+            close = 108.0,
+            volume = 1_000.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(macroTrendAlignment = true)
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+            TouchTurnLogic.trendAlignmentBlockOutcome(setup, macroTrend = null, stockTrend = null, rules)
+        )
+    }
+
+    @Test
+    fun trendAlignmentBlockOutcome_stockTrendNull_returnsDataUnavailable() {
+        val bar = OhlcBar(
+            open = 100.0,
+            high = 101.0,
+            low = 90.0,
+            close = 92.0,
+            volume = 1_000.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(stockTrendAlignment = true)
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
+            TouchTurnLogic.trendAlignmentBlockOutcome(setup, macroTrend = null, stockTrend = null, rules)
+        )
+    }
+
+    @Test
+    fun evaluateEntryGate_blocksWhenMacroTrendMisaligned() {
+        val bar = OhlcBar(
+            open = 100.0,
+            high = 110.0,
+            low = 99.0,
+            close = 108.0,
+            volume = 1_000.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                macroTrendAlignment = true,
+                barCloseTurn = false,
+                entryWindow = false
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
+        val result = TouchTurnLogic.evaluateEntryGate(
+            setup = setup,
+            candle = bar,
+            volumeSma20 = 1_000.0,
+            marketZoneId = "America/New_York",
+            nowEpochMillis = barEnd + 1_000,
+            sessionDateIso = "2025-05-22",
+            enforceCloseConfirmation = false,
+            liveBid = null,
+            liveAsk = null,
+            liveLast = null,
+            requireLivePriceChecks = false,
+            macroTrend = MacroTrendState.BULL,
+            rules = rules
+        )
+        assertFalse(result.entryOrdersPermitted)
+        assertEquals(TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED, result.decisionOutcome)
+    }
+
+    @Test
+    fun evaluateEntryGate_allowsWhenStockTrendAligned() {
+        val bar = OhlcBar(
+            open = 100.0,
+            high = 101.0,
+            low = 90.0,
+            close = 92.0,
+            volume = 1_000.0,
+            time = "20250522  09:30:00"
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                stockTrendAlignment = true,
+                barCloseTurn = false,
+                entryWindow = false
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
+        val result = TouchTurnLogic.evaluateEntryGate(
+            setup = setup,
+            candle = bar,
+            volumeSma20 = 1_000.0,
+            marketZoneId = "America/New_York",
+            nowEpochMillis = barEnd + 1_000,
+            sessionDateIso = "2025-05-22",
+            enforceCloseConfirmation = false,
+            liveBid = null,
+            liveAsk = null,
+            liveLast = null,
+            requireLivePriceChecks = false,
+            stockTrend = StockTrendState.UP,
+            rules = rules
+        )
+        assertTrue(result.entryOrdersPermitted)
+        assertNull(result.decisionOutcome)
     }
 }

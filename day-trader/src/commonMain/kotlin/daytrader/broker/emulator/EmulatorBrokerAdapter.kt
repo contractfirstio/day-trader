@@ -128,6 +128,15 @@ class EmulatorBrokerAdapter(
                                 engine.fetchSpyRegimeSnapshot(command.requestId)
                             }
                         }
+                    is GatewayCommand.FetchHomeMarketRegimeSnapshot ->
+                        launch {
+                            withEngine {
+                                engine.fetchHomeMarketRegimeSnapshot(
+                                    command.requestId,
+                                    command.marketZoneId
+                                )
+                            }
+                        }
                     is GatewayCommand.FetchTouchTurnSignalContext ->
                         launch {
                             withEngine {

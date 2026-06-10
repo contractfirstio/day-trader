@@ -169,12 +169,16 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             }
         }
 
-        uiState.macroRegimeCard?.let { card ->
+        if (uiState.macroRegimeCards.isNotEmpty()) {
             Spacer(modifier = Modifier.height(10.dp))
-            WatchlistMacroRegimeCard(
-                card = card,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                uiState.macroRegimeCards.forEach { card ->
+                    WatchlistMacroRegimeCard(
+                        card = card,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
         }
 
         uiState.activitySummary?.let { summary ->

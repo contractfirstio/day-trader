@@ -88,6 +88,16 @@ data class OhlcBar(
     val range: Double get() = high - low
 }
 
+/** Liquidity range thresholds derived from 15m ATR and/or daily ATR(14). */
+@Serializable
+data class TouchTurnLiquidityThresholds(
+    val threshold15mAtr: Double? = null,
+    val thresholdDailyAtr: Double? = null,
+) {
+    /** Primary threshold for legacy display (15m when present, else daily). */
+    val primary: Double get() = threshold15mAtr ?: thresholdDailyAtr ?: 0.0
+}
+
 /** Intended trade direction after a liquidity opening bar. */
 @Serializable
 enum class TouchTurnTradeSide {
@@ -150,10 +160,14 @@ data class TouchTurnSessionContext(
     val adr14: Double? = null,
     /** 14-period ATR on 15-minute bars used for liquidity range threshold. */
     val atr14: Double? = null,
+    /** Wilder daily ATR(14) on completed daily bars (ProReal-style liquidity input). */
+    val dailyAtr14: Double? = null,
     /** 20-period SMA of prior session-opening 15m bar volume (apples-to-apples vs today's open). */
     val volumeSma20: Double? = null,
-    /** Liquidity threshold = [atr14] × [TouchTurnDefaults.ATR_LIQUIDITY_RATIO] (25%). */
+    /** 15m ATR liquidity threshold = [atr14] × ratio (25% default). */
     val rangeThreshold: Double = 0.0,
+    /** Daily ATR liquidity threshold = [dailyAtr14] × ratio when daily gate is enabled. */
+    val rangeThresholdDailyAtr: Double? = null,
     /** Set when the bar closes: true if a liquidity bracket was eligible to be logged/placed. */
     val entryOrdersPermitted: Boolean? = null,
     /** True when bracket orders were actually logged/placed for this session. */
@@ -169,7 +183,13 @@ data class TouchTurnSessionContext(
     /** Rule thresholds snapshotted from deployment at session start. */
     val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
     /** Pre-flight checks captured when this session was started. */
-    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null,
+    /** Home-market macro trend at liquidity evaluation (when macro trend alignment rule is enabled). */
+    val macroTrendAtEntry: MacroTrendState? = null,
+    val macroBenchmarkSymbol: String? = null,
+    val macroBenchmarkLabel: String? = null,
+    /** Symbol daily trend at liquidity evaluation (when stock trend alignment rule is enabled). */
+    val stockTrendAtEntry: StockTrendState? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 
@@ -181,6 +201,16 @@ data class TouchTurnSessionContext(
             milestones.liquidityEvaluatedAt == null
     val liquidityThresholdFromAtr: Double?
         get() = atr14?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
+
+    val liquidityThresholds: TouchTurnLiquidityThresholds
+        get() {
+            val resolved = TouchTurnLogic.resolveLiquidityThresholds(atr14, dailyAtr14, rules)
+            if (resolved.primary > 0.0) return resolved
+            return TouchTurnLiquidityThresholds(
+                threshold15mAtr = rangeThreshold.takeIf { it > 0.0 },
+                thresholdDailyAtr = rangeThresholdDailyAtr
+            )
+        }
 
     fun resolvedOpeningBarTime(): String? = candle?.time ?: openingBarTime
 
@@ -197,7 +227,8 @@ data class TouchTurnSessionContext(
             candle,
             resolvedOpeningBarTime(),
             marketZoneId,
-            rangeThreshold,
+            liquidityThresholds,
+            rules,
             nowEpochMillis,
             sessionDate
         )

@@ -7,8 +7,15 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.ReversalScoreMacroVolSnapshot
 import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.HomeMarketMacroBenchmark
+import daytrader.domain.MacroRegimeEvaluator
+import daytrader.domain.MacroRegimeSnapshot
+import daytrader.domain.MacroTrendState
 import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.SpyRegimeEvaluator
+import daytrader.domain.StockTrendEvaluator
+import daytrader.domain.StockTrendSnapshot
+import daytrader.domain.StockTrendState
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
@@ -122,5 +129,38 @@ interface BrokerGateway {
     suspend fun fetchSpyRegimeSnapshot(): Result<SpyRegimeSnapshot> {
         val close = fetchLatestDailyClose("SPY").getOrElse { return Result.failure(it) }
         return ReversalScoreService.syntheticSpyRegimeSnapshot(close)
+    }
+
+    /** Home-market index (SPY / HSI / FTSE) vs 200-SMA for Touch Turn macro alignment. */
+    suspend fun fetchHomeMarketRegimeSnapshot(marketZoneId: String): Result<MacroRegimeSnapshot> {
+        val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+        val close = fetchLatestDailyClose(benchmark.symbol).getOrElse { return Result.failure(it) }
+        return Result.success(
+            MacroRegimeEvaluator.buildSyntheticSnapshot(
+                benchmark = benchmark,
+                lastPrice = close,
+                trend = MacroTrendState.BULL
+            )
+        )
+    }
+
+    /** Symbol last price and 20-day SMA for stock trend alignment at Touch Turn entry. */
+    suspend fun fetchStockTrendSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity? = null
+    ): Result<StockTrendSnapshot> {
+        val snapshot = fetchReversalScoreSymbolSnapshot(symbol, instrument).getOrElse { return Result.failure(it) }
+        val lastPrice = snapshot.live.lastPrice
+        val observed = snapshot.historical.dailyCloses
+        val closes = if (observed.size >= StockTrendEvaluator.SMA_WINDOW) {
+            observed
+        } else {
+            StockTrendEvaluator.paddedDailyCloses(
+                lastPrice = lastPrice,
+                dailyCloses = observed,
+                trend = StockTrendState.UP
+            )
+        }
+        return StockTrendEvaluator.buildSnapshot(lastPrice, closes)
     }
 }

@@ -33,6 +33,8 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.requiresDailyHistoricalBootstrap
+import daytrader.domain.requiresDeep15mHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.AccountPosition
@@ -55,6 +57,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
@@ -175,6 +178,8 @@ class DesktopIbGatewayConnection(
     private val oneShotFirstCandle = ConcurrentHashMap<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val oneShotAdr = ConcurrentHashMap<Long, CompletableDeferred<Result<Double>>>()
     private val oneShotSignalContext = ConcurrentHashMap<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
+    private val pendingTouchTurnSignalContext = ConcurrentHashMap<Long, PendingTouchTurnSignalContext>()
+    private val adrReqIdForSignalContextGateway = ConcurrentHashMap<Int, Long>()
 
     private val reversalScoreHandler = ReversalScoreIbHandler(
         scope = scope,
@@ -235,6 +240,13 @@ class DesktopIbGatewayConnection(
                     is GatewayCommand.FetchSpyRegimeSnapshot ->
                         scope.launch {
                             reversalScoreHandler.requestSpyRegime(command.requestId)
+                        }
+                    is GatewayCommand.FetchHomeMarketRegimeSnapshot ->
+                        scope.launch {
+                            reversalScoreHandler.requestHomeMarketRegimeSnapshot(
+                                command.requestId,
+                                command.marketZoneId
+                            )
                         }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch {
@@ -365,8 +377,12 @@ class DesktopIbGatewayConnection(
         adrHistoricalCacheKey[reqId] = cacheKey
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, ADR_HISTORICAL_TIMEOUT_MS) {
-            cancelAdrHistorical(reqId)
             failAdrHistorical(reqId, "14-day ADR request timed out after ${ADR_HISTORICAL_TIMEOUT_MS / 1000}s")
+            paced {
+                if (client.isConnected) {
+                    runCatching { client.cancelHistoricalData(reqId) }
+                }
+            }
         }
         requestPacer.enqueue {
             if (!client.isConnected) {
@@ -850,7 +866,7 @@ class DesktopIbGatewayConnection(
     override fun historicalData(reqId: Int, bar: Bar) {
         try {
             if (reversalScoreHandler.onHistoricalData(reqId, bar)) return
-            if (adrGatewayRequestId.containsKey(reqId)) {
+            if (isAdrHistoricalReqId(reqId)) {
                 if (bar.high() > 0.0 && bar.low() > 0.0) {
                     adrHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
                 }
@@ -873,7 +889,7 @@ class DesktopIbGatewayConnection(
     override fun historicalDataEnd(reqId: Int, start: String?, end: String?) {
         try {
             if (reversalScoreHandler.onHistoricalDataEnd(reqId)) return
-            if (adrGatewayRequestId.containsKey(reqId)) {
+            if (isAdrHistoricalReqId(reqId)) {
                 completeAdrHistorical(reqId)
                 return
             }
@@ -886,6 +902,9 @@ class DesktopIbGatewayConnection(
             logCallbackFailure("historicalDataEnd", e)
         }
     }
+
+    private fun isAdrHistoricalReqId(reqId: Int): Boolean =
+        adrGatewayRequestId.containsKey(reqId) || adrReqIdForSignalContextGateway.containsKey(reqId)
 
     override fun historicalDataProtoBuf(historicalData: HistoricalDataProto.HistoricalData) {
         try {
@@ -1649,6 +1668,11 @@ class DesktopIbGatewayConnection(
         adrHistoricalSymbol.remove(reqId)
         adrHistoricalMarketZoneId.remove(reqId)
         adrHistoricalCacheKey.remove(reqId)
+        adrReqIdForSignalContextGateway.remove(reqId)?.let { signalGatewayId ->
+            pendingTouchTurnSignalContext[signalGatewayId]?.dailyFetchFailed = "Daily bar history request cancelled"
+            tryCompletePendingTouchTurnSignalContext(signalGatewayId)
+            return
+        }
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverAdrReady(
                 gatewayRequestId,
@@ -1667,6 +1691,11 @@ class DesktopIbGatewayConnection(
         adrHistoricalBars.remove(reqId)
         adrHistoricalSymbol.remove(reqId)
         adrHistoricalCacheKey.remove(reqId)
+        adrReqIdForSignalContextGateway.remove(reqId)?.let { signalGatewayId ->
+            pendingTouchTurnSignalContext[signalGatewayId]?.dailyFetchFailed = message
+            tryCompletePendingTouchTurnSignalContext(signalGatewayId)
+            return
+        }
         adrGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
             deliverAdrReady(
                 gatewayRequestId,
@@ -1677,12 +1706,18 @@ class DesktopIbGatewayConnection(
 
     private fun completeAdrHistorical(reqId: Int) {
         clearHistoricalRequestTimeout(reqId)
-        val gatewayRequestId = adrGatewayRequestId.remove(reqId) ?: return
+        val signalGatewayId = adrReqIdForSignalContextGateway.remove(reqId)
         val symbol = adrHistoricalSymbol.remove(reqId)
-        val cacheKey = adrHistoricalCacheKey.remove(reqId)
         val marketZoneId = adrHistoricalMarketZoneId.remove(reqId)
             ?: SymbolMarkets.marketZoneIdForSession(symbol.orEmpty(), instrument = null)
         val bars = adrHistoricalBars.remove(reqId).orEmpty().map { it.toTouchTurnOhlcBar(marketZoneId) }
+        if (signalGatewayId != null) {
+            pendingTouchTurnSignalContext[signalGatewayId]?.dailyBars = bars
+            tryCompletePendingTouchTurnSignalContext(signalGatewayId)
+            return
+        }
+        val gatewayRequestId = adrGatewayRequestId.remove(reqId) ?: return
+        val cacheKey = adrHistoricalCacheKey.remove(reqId)
         val sessionDay = sessionDayYyyyMmDd(marketZoneId)
         val adrResult = TouchTurnLogic.computeAdr14(bars, excludeSessionDayYyyyMmdd = sessionDay)
         if (cacheKey != null) {
@@ -1700,6 +1735,16 @@ class DesktopIbGatewayConnection(
         oneShotAdr.remove(gatewayRequestId)?.complete(result)
             ?: emit(GatewayEvent.FourteenDayAdrReady(gatewayRequestId, result))
     }
+
+    private data class PendingTouchTurnSignalContext(
+        val marketZoneId: String,
+        val sessionDay: String,
+        val allowMissingToday: Boolean,
+        val rules: TouchTurnRuleConfig,
+        var bars15m: List<OhlcBar>? = null,
+        var dailyBars: List<OhlcBar>? = null,
+        var dailyFetchFailed: String? = null,
+    )
 
     private suspend fun fetchTouchTurnSignalContextComposite(
         symbol: String,
@@ -1731,6 +1776,21 @@ class DesktopIbGatewayConnection(
             touchTurnHistoricalAllowMissingToday[reqId] = true
         }
         touchTurnHistoricalRules[reqId] = rules
+        val sessionDay = sessionDayYyyyMmDd(marketZoneId)
+        pendingTouchTurnSignalContext[gatewayRequestId] = PendingTouchTurnSignalContext(
+            marketZoneId = marketZoneId,
+            sessionDay = sessionDay,
+            allowMissingToday = allowMissingTodayOpeningBar,
+            rules = rules
+        )
+        if (rules.enables.requiresDailyHistoricalBootstrap()) {
+            requestDailyBarsForSignalContext(gatewayRequestId, trimmed, instrument, marketZoneId)
+        }
+        val fifteenMinuteDuration = if (rules.enables.requiresDeep15mHistoricalBootstrap()) {
+            TOUCH_TURN_HISTORICAL_DURATION
+        } else {
+            TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
+        }
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
             cancelTouchTurnHistorical(reqId)
@@ -1749,7 +1809,7 @@ class DesktopIbGatewayConnection(
                 reqId,
                 contract,
                 "",
-                TOUCH_TURN_HISTORICAL_DURATION,
+                fifteenMinuteDuration,
                 TOUCH_TURN_HISTORICAL_BAR_SIZE,
                 HISTORICAL_WHAT_TO_SHOW,
                 1,
@@ -1758,12 +1818,127 @@ class DesktopIbGatewayConnection(
                 null
             )
         }
-        return withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        val timeoutMs = TouchTurnDefaults.SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS
+        return try {
+            withTimeout(timeoutMs) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            abortTouchTurnSignalContextComposite(gatewayRequestId, trimmed, timeoutMs)
+        }
+    }
+
+    private fun abortTouchTurnSignalContextComposite(
+        gatewayRequestId: Long,
+        symbol: String,
+        timeoutMs: Long
+    ): Result<TouchTurnSignalContext> {
+        val pending = pendingTouchTurnSignalContext.remove(gatewayRequestId)
+        oneShotSignalContext.remove(gatewayRequestId)
+        cancelInFlightSignalContextHistoricals(gatewayRequestId)
+        val pendingLegs = TouchTurnLogic.describeSignalContextBootstrapPendingLegs(
+            bars15mReady = pending?.bars15m != null,
+            bars15mCount = pending?.bars15m?.size ?: 0,
+            dailyBarsRequired = pending?.rules?.enables?.requiresDailyHistoricalBootstrap() == true,
+            dailyBarsReady = pending?.dailyBars != null,
+            dailyFetchFailed = pending?.dailyFetchFailed
+        )
+        IbGatewayLog.signalContextBootstrapTimeout(symbol, pendingLegs, timeoutMs)
+        val message =
+            "Touch Turn signal context timed out after ${timeoutMs / 1000}s (pending: $pendingLegs)"
+        return Result.failure(IllegalStateException(message))
+    }
+
+    private fun cancelInFlightSignalContextHistoricals(gatewayRequestId: Long) {
+        touchTurnGatewayRequestId.entries
+            .filter { it.value == gatewayRequestId }
+            .map { it.key }
+            .toList()
+            .forEach { cancelTouchTurnHistorical(it) }
+        adrReqIdForSignalContextGateway.entries
+            .filter { it.value == gatewayRequestId }
+            .map { it.key }
+            .toList()
+            .forEach { cancelAdrHistorical(it) }
     }
 
     private fun deliverSignalContextReady(gatewayRequestId: Long, result: Result<TouchTurnSignalContext>) {
+        pendingTouchTurnSignalContext.remove(gatewayRequestId)
         oneShotSignalContext.remove(gatewayRequestId)?.complete(result)
             ?: emit(GatewayEvent.TouchTurnSignalContextReady(gatewayRequestId, result))
+    }
+
+    private suspend fun requestDailyBarsForSignalContext(
+        gatewayRequestId: Long,
+        symbol: String,
+        instrument: daytrader.domain.InstrumentIdentity?,
+        marketZoneId: String
+    ) {
+        if (!client.isConnected) {
+            pendingTouchTurnSignalContext[gatewayRequestId]?.dailyFetchFailed =
+                "Not connected to IB Gateway"
+            tryCompletePendingTouchTurnSignalContext(gatewayRequestId)
+            return
+        }
+        val trimmed = symbol.trim().uppercase()
+        val reqId = nextAdrHistoricalReqId.getAndIncrement()
+        adrReqIdForSignalContextGateway[reqId] = gatewayRequestId
+        adrHistoricalSymbol[reqId] = trimmed
+        adrHistoricalMarketZoneId[reqId] = marketZoneId
+        val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
+        scheduleHistoricalRequestTimeout(reqId, ADR_HISTORICAL_TIMEOUT_MS) {
+            failAdrHistorical(
+                reqId,
+                "Daily bar history request timed out after ${ADR_HISTORICAL_TIMEOUT_MS / 1000}s"
+            )
+            paced {
+                if (client.isConnected) {
+                    runCatching { client.cancelHistoricalData(reqId) }
+                }
+            }
+        }
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                clearHistoricalRequestTimeout(reqId)
+                adrReqIdForSignalContextGateway.remove(reqId)
+                pendingTouchTurnSignalContext[gatewayRequestId]?.dailyFetchFailed =
+                    "Disconnected before daily bar history request"
+                tryCompletePendingTouchTurnSignalContext(gatewayRequestId)
+                return@enqueue
+            }
+            client.reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                ADR_HISTORICAL_DURATION,
+                ADR_HISTORICAL_BAR_SIZE,
+                HISTORICAL_WHAT_TO_SHOW,
+                1,
+                1,
+                true,
+                null
+            )
+        }
+    }
+
+    private fun tryCompletePendingTouchTurnSignalContext(gatewayRequestId: Long) {
+        val pending = pendingTouchTurnSignalContext[gatewayRequestId] ?: return
+        val bars15m = pending.bars15m ?: return
+        pending.dailyFetchFailed?.let { message ->
+            pendingTouchTurnSignalContext.remove(gatewayRequestId)
+            deliverSignalContextReady(gatewayRequestId, Result.failure(IllegalStateException(message)))
+            return
+        }
+        if (pending.rules.enables.requiresDailyHistoricalBootstrap() && pending.dailyBars == null) return
+        deliverSignalContextReady(
+            gatewayRequestId,
+            TouchTurnLogic.deriveTouchTurnSignalContext(
+                bars = bars15m,
+                marketZoneId = pending.marketZoneId,
+                sessionDayYyyyMmdd = pending.sessionDay,
+                allowMissingTodayOpeningBar = pending.allowMissingToday,
+                rules = pending.rules,
+                dailyBars = pending.dailyBars
+            )
+        )
     }
 
     private fun deliverTouchTurnHistoricalFailure(gatewayRequestId: Long, message: String) {
@@ -1796,6 +1971,7 @@ class DesktopIbGatewayConnection(
         touchTurnHistoricalAllowMissingToday.remove(reqId)
         touchTurnHistoricalRules.remove(reqId)
         touchTurnGatewayRequestId.remove(reqId)?.let { gatewayRequestId ->
+            pendingTouchTurnSignalContext.remove(gatewayRequestId)
             deliverTouchTurnHistoricalFailure(gatewayRequestId, "Historical request cancelled")
         }
         paced {
@@ -1843,16 +2019,8 @@ class DesktopIbGatewayConnection(
             sessionDayBars = ohlcBars.count { TouchTurnLogic.barDayKey(it.time) == sessionDay }
         )
         if (oneShotSignalContext.containsKey(gatewayRequestId)) {
-            deliverSignalContextReady(
-                gatewayRequestId,
-                TouchTurnLogic.deriveTouchTurnSignalContext(
-                    ohlcBars,
-                    marketZoneId,
-                    sessionDay,
-                    allowMissingTodayOpeningBar = allowMissingToday,
-                    rules = rules
-                )
-            )
+            pendingTouchTurnSignalContext[gatewayRequestId]?.bars15m = ohlcBars
+            tryCompletePendingTouchTurnSignalContext(gatewayRequestId)
             return
         }
         if (first == null) {
@@ -2812,6 +2980,8 @@ class DesktopIbGatewayConnection(
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
         /** See [TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION]. */
         val TOUCH_TURN_HISTORICAL_DURATION: String = TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION
+        val TOUCH_TURN_OPENING_BAR_HISTORY_DURATION: String =
+            TouchTurnDefaults.TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
         const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
         const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
         /** RT Volume generic tick for live trade-size updates (volume buffer). */

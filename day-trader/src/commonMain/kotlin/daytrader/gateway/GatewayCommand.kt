@@ -79,4 +79,9 @@ sealed interface GatewayCommand {
     data class FetchSpyRegimeSnapshot(
         val requestId: Long
     ) : GatewayCommand
+
+    data class FetchHomeMarketRegimeSnapshot(
+        val requestId: Long,
+        val marketZoneId: String
+    ) : GatewayCommand
 }

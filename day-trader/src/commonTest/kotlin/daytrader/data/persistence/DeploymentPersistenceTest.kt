@@ -87,7 +87,7 @@ class DeploymentPersistenceTest {
     fun configurationRoundTrip_persistsTouchTurnRuleEnables() {
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange = false,
+                liquidityRange15mAtr = false,
                 volumeExhaustion = false,
                 postEntryVolumeBuffer = false
             )
@@ -100,7 +100,7 @@ class DeploymentPersistenceTest {
 
         val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
 
-        assertEquals(false, restored.touchTurnRules?.enables?.liquidityRange)
+        assertEquals(false, restored.touchTurnRules?.enables?.liquidityRange15mAtr)
         assertEquals(false, restored.touchTurnRules?.enables?.volumeExhaustion)
         assertEquals(false, restored.touchTurnRules?.enables?.postEntryVolumeBuffer)
         assertEquals(false, restored.touchTurnRules?.enables?.notDoji)

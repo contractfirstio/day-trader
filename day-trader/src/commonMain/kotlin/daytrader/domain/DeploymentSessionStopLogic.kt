@@ -31,7 +31,11 @@ object DeploymentSessionStopLogic {
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
-            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> true
+            TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE -> true
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             null -> false
         }

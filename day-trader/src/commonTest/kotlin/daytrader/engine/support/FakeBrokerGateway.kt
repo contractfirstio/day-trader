@@ -5,6 +5,10 @@ import daytrader.domain.InstrumentResolution
 import daytrader.domain.OhlcBar
 import daytrader.domain.ReversalScoreMacroVolSnapshot
 import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.HomeMarketMacroBenchmark
+import daytrader.domain.MacroRegimeEvaluator
+import daytrader.domain.MacroRegimeSnapshot
+import daytrader.domain.MacroTrendState
 import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
@@ -47,6 +51,8 @@ class FakeBrokerGateway(
         Result.success(ReversalScoreService.syntheticMacroVolSnapshot())
     var spyRegimeResult: Result<SpyRegimeSnapshot> =
         ReversalScoreService.syntheticSpyRegimeSnapshot(510.0)
+    var homeMarketRegimeByZone: Map<String, MacroRegimeSnapshot> = emptyMap()
+    val homeMarketRegimeFetchZones = mutableListOf<String>()
     var candleFetchResult: Result<OhlcBar> = candleResult
     var signalContextFetchResult: Result<TouchTurnSignalContext> = signalContextResult
         ?: Result.success(
@@ -126,6 +132,19 @@ class FakeBrokerGateway(
         reversalScoreMacroResult
 
     override suspend fun fetchSpyRegimeSnapshot(): Result<SpyRegimeSnapshot> = spyRegimeResult
+
+    override suspend fun fetchHomeMarketRegimeSnapshot(marketZoneId: String): Result<MacroRegimeSnapshot> {
+        homeMarketRegimeFetchZones += marketZoneId
+        homeMarketRegimeByZone[marketZoneId]?.let { return Result.success(it) }
+        val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+        return Result.success(
+            MacroRegimeEvaluator.buildSyntheticSnapshot(
+                benchmark = benchmark,
+                lastPrice = 510.0,
+                trend = MacroTrendState.BULL
+            )
+        )
+    }
 
     override suspend fun fetchTouchTurnSignalContext(
         symbol: String,

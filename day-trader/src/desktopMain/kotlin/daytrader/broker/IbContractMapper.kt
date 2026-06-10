@@ -34,6 +34,46 @@ internal object IbContractMapper {
     fun stockForHistorical(symbol: String): Contract =
         if (SymbolMarkets.isHongKong(symbol)) hkStock(symbol) else usStock(symbol)
 
+    /** Primary home-market index contract for 200-day regime requests. */
+    fun macroBenchmarkContract(symbol: String): Contract =
+        macroBenchmarkContractCandidates(symbol).first()
+
+    /**
+     * Ordered IB contract candidates for home-market index history.
+     * Tries fallbacks when the primary exchange returns no bars (common for HSI/UKX).
+     */
+    fun macroBenchmarkContractCandidates(symbol: String): List<Contract> =
+        when (symbol.trim().uppercase()) {
+            "HSI" -> listOf(
+                indexContract("HSI", "HKFE", "HKD"),
+                indexContract("HSI", "HKEX", "HKD"),
+                indexContract("HSI", "SMART", "HKD", primaryExch = "HKFE")
+            )
+            "UKX" -> listOf(
+                indexContract("UKX", "ICEEU", "GBP"),
+                indexContract("UKX", "SMART", "GBP", primaryExch = "ICEEU"),
+                // FTSE 100 tracker ETF when cash index contract is unavailable on the account.
+                lseStock("ISF")
+            )
+            else -> listOf(stockForHistorical(symbol))
+        }
+
+    private fun indexContract(
+        symbol: String,
+        exchange: String,
+        currency: String,
+        primaryExch: String? = null
+    ): Contract = Contract().apply {
+        symbol(symbol)
+        secType("IND")
+        exchange(exchange)
+        currency(currency)
+        primaryExch?.let { primaryExch(it) }
+    }
+
+    private fun lseStock(symbol: String): Contract =
+        smartStock(symbol, "GBP").apply { primaryExch("LSE") }
+
     fun smartStock(symbol: String, currency: String): Contract {
         val contract = Contract()
         contract.symbol(symbol.trim().uppercase())

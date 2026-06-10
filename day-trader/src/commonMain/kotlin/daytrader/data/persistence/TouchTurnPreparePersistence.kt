@@ -25,6 +25,7 @@ object TouchTurnPreparePersistence {
                     volume = first.volume
                 ),
                 atr14 = record.atr14,
+                dailyAtr14 = record.dailyAtr14,
                 volumeSma20 = record.volumeSma20,
                 todayOpeningBarPending = record.todayOpeningBarPending
             ),
@@ -50,6 +51,7 @@ object TouchTurnPreparePersistence {
             marketZoneId = prepare.marketZoneId,
             currencyCode = prepare.currencyCode,
             atr14 = prepare.signalContext.atr14,
+            dailyAtr14 = prepare.signalContext.dailyAtr14,
             volumeSma20 = prepare.signalContext.volumeSma20,
             todayOpeningBarPending = prepare.signalContext.todayOpeningBarPending,
             firstCandle = OhlcBarRecord(

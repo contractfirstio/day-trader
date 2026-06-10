@@ -586,9 +586,7 @@ class WatchlistViewModel(
             }
             repository.updateWatchlist(activeWatchlist.id) { current ->
                 current.copy(
-                    lastReversalScoreMacroTrend = result.macroTrendState,
-                    lastReversalScoreSpyLastPrice = result.spyLastPrice,
-                    lastReversalScoreSpySma200 = result.spySma200
+                    lastReversalScoreHomeMarketRegimes = result.homeMarketRegimes.map { it.toWatchlistRegime() }
                 )
             }
             lastReversalScoreResult = result
@@ -1232,7 +1230,7 @@ class WatchlistViewModel(
             brokerKind = brokerKind,
             lastReversalResult = resolvedReversalBatch
         )
-        val macroRegimeCard = resolvedReversalBatch?.let(WatchlistStatusUiMapper::buildMacroRegimeCard)
+        val macroRegimeCards = resolvedReversalBatch?.let(WatchlistStatusUiMapper::buildMacroRegimeCards).orEmpty()
         val activitySummary = WatchlistStatusUiMapper.buildActivitySummary(
             scanResult = lastScanResult,
             reversalResult = resolvedReversalBatch
@@ -1267,7 +1265,7 @@ class WatchlistViewModel(
                 bracketOrderEditor = bracketOrderDraft,
                 connectionLabel = connectionLabel(executionConnection, marketDataConnection),
                 statusStrip = statusStrip,
-                macroRegimeCard = macroRegimeCard,
+                macroRegimeCards = macroRegimeCards,
                 activitySummary = activitySummary,
                 scanInProgress = scanInProgress,
                 scanProgress = scanProgress,

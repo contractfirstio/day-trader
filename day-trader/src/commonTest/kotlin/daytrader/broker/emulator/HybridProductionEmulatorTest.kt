@@ -13,7 +13,7 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * Regression guard for hybrid paper execution ([BrokerEmulatorConfig.forLiveIbMarketData]).
- * Production hybrid must use approach-and-fill on live IB quotes, not immediate entry on bracket place.
+ * Live-exchange fills follow real limit-order rules (buy at ask, sell at bid) on each quote tick.
  */
 class HybridProductionEmulatorTest {
 
@@ -73,5 +73,54 @@ class HybridProductionEmulatorTest {
         )
         val position = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.single()
         assertTrue(position.quantity > 0, "entry should fill once live ask crosses buy limit")
+    }
+
+    @Test
+    fun forLiveIbMarketData_marketableLimitAtPlacement_fillsOnFirstQuote() = runBlocking {
+        val config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1)
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val entry = 26.5104
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = "1810",
+            setup = TouchTurnBracketSetup(
+                range = 0.5,
+                rangeThreshold = 0.1,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.LONG,
+                entry = entry,
+                stopLoss = entry - 0.1,
+                takeProfit = entry + 0.2
+            ),
+            maxDollars = 500,
+            currencyCode = "HKD"
+        )!!
+
+        engine.ingestLiveQuote(
+            "1810",
+            LiveQuote(symbol = "1810", bid = 26.42, ask = 26.44, last = 26.44),
+            priorClose = null
+        )
+        engine.placeTouchTurnBracket(plan)
+
+        assertTrue(
+            events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty(),
+            "entry must not fill on bracket place before the next quote evaluation"
+        )
+
+        engine.ingestLiveQuote(
+            "1810",
+            LiveQuote(symbol = "1810", bid = 26.40, ask = 26.42, last = 26.42),
+            priorClose = null
+        )
+        val position = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.single()
+        assertTrue(
+            position.quantity > 0,
+            "marketable buy limit should fill once live ask is at or below the limit"
+        )
     }
 }

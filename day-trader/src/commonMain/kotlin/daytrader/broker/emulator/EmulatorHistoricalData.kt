@@ -7,6 +7,8 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
+import daytrader.domain.requiresDailyHistoricalBootstrap
+import daytrader.domain.requiresDeep15mHistoricalBootstrap
 import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.sin
@@ -84,20 +86,30 @@ internal object EmulatorHistoricalData {
             nowEpochMillis = nowEpochMillis,
             sessionCandleFetchIndex = sessionCandleFetchIndex
         ).getOrElse { return Result.failure(it) }
-        val history = fifteenMinuteBarHistory(
-            symbol = symbol,
-            instrument = instrument,
-            config = config,
-            nowEpochMillis = nowEpochMillis,
-            sessionCandleFetchIndex = sessionCandleFetchIndex,
-            sessionYmd = sessionYmd,
-            opening = opening
-        )
+        val history = if (rules.enables.requiresDeep15mHistoricalBootstrap()) {
+            fifteenMinuteBarHistory(
+                symbol = symbol,
+                instrument = instrument,
+                config = config,
+                nowEpochMillis = nowEpochMillis,
+                sessionCandleFetchIndex = sessionCandleFetchIndex,
+                sessionYmd = sessionYmd,
+                opening = opening
+            )
+        } else {
+            listOf(opening)
+        }
+        val dailyBars = if (rules.enables.requiresDailyHistoricalBootstrap()) {
+            buildDailyBars(symbol, instrument, sessionYmd)
+        } else {
+            null
+        }
         return TouchTurnLogic.deriveTouchTurnSignalContext(
             bars = history,
             marketZoneId = marketZoneId,
             sessionDayYyyyMmdd = sessionYmd,
             explicitFirstCandle = opening,
+            dailyBars = dailyBars,
             rules = rules
         )
     }

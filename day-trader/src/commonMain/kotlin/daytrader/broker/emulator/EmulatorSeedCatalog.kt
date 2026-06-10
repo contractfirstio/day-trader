@@ -12,6 +12,8 @@ internal object EmulatorSeedCatalog {
         EmulatorInstrument("AMD", "Advanced Micro Devices", "USD", 110.00, 108.40),
         EmulatorInstrument("AMZN", "Amazon.com Inc.", "USD", 148.00, 151.20),
         EmulatorInstrument("SPY", "SPDR S&P 500 ETF Trust", "USD", 518.00, 521.60),
+        EmulatorInstrument("HSI", "Hang Seng Index", "HKD", 17_200.0, 17_450.0),
+        EmulatorInstrument("UKX", "FTSE 100 Index", "GBP", 8_150.0, 8_220.0),
         EmulatorInstrument("QQQ", "Invesco QQQ Trust", "USD", 448.00, 451.25),
         EmulatorInstrument("META", "Meta Platforms Inc.", "USD", 480.00, 492.80),
         EmulatorInstrument("700", "Tencent Holdings Ltd.", "HKD", 375.00, 382.40),

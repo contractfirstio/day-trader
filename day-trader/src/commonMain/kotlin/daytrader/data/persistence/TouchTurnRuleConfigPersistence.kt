@@ -10,13 +10,13 @@ object TouchTurnRuleConfigPersistence {
                 atrLiquidityRatio = it.atrLiquidityRatio,
                 volumeExhaustionRatio = it.volumeExhaustionRatio,
                 atrLookbackPeriods = it.atrLookbackPeriods,
+                dailyAtrLookbackPeriods = it.dailyAtrLookbackPeriods,
                 volumeSmaPeriods = it.volumeSmaPeriods,
                 closePositionShortMax = it.closePositionShortMax,
                 closePositionLongMin = it.closePositionLongMin,
                 barLiveDivergenceMaxRatioOfRange = it.barLiveDivergenceMaxRatioOfRange,
                 entryTouchBufferRatioOfRange = it.entryTouchBufferRatioOfRange,
                 entryInwardOffsetRatioOfRange = it.entryInwardOffsetRatioOfRange,
-                minStopDistance = it.minStopDistance,
                 takeProfitFibRatioGreen = it.takeProfitFibRatioGreen,
                 takeProfitFibRatioRed = it.takeProfitFibRatioRed,
                 closeConfirmationAfterCloseMs = it.closeConfirmationAfterCloseMs,
@@ -24,7 +24,8 @@ object TouchTurnRuleConfigPersistence {
                 volumeBufferObservationMs = it.volumeBufferObservationMs,
                 stopAfterOpenMinutes = it.stopAfterOpenMinutes,
                 enables = TouchTurnRuleEnables(
-                    liquidityRange = it.enableLiquidityRange,
+                    liquidityRange15mAtr = it.enableLiquidityRange15mAtr ?: it.enableLiquidityRange,
+                    liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
                     notDoji = it.enableNotDoji,
                     volumeExhaustion = it.enableVolumeExhaustion,
                     barCloseTurn = it.enableBarCloseTurn,
@@ -34,7 +35,9 @@ object TouchTurnRuleConfigPersistence {
                     liveTurnConfirmation = it.enableLiveTurnConfirmation,
                     liveEntryTouchable = it.enableLiveEntryTouchable,
                     postEntryVolumeBuffer = it.enablePostEntryVolumeBuffer,
-                    openDeadline = it.enableOpenDeadline
+                    openDeadline = it.enableOpenDeadline,
+                    macroTrendAlignment = it.enableMacroTrendAlignment,
+                    stockTrendAlignment = it.enableStockTrendAlignment
                 )
             )
         } ?: TouchTurnRuleConfig.DEFAULT
@@ -44,20 +47,22 @@ object TouchTurnRuleConfigPersistence {
             atrLiquidityRatio = config.atrLiquidityRatio,
             volumeExhaustionRatio = config.volumeExhaustionRatio,
             atrLookbackPeriods = config.atrLookbackPeriods,
+            dailyAtrLookbackPeriods = config.dailyAtrLookbackPeriods,
             volumeSmaPeriods = config.volumeSmaPeriods,
             closePositionShortMax = config.closePositionShortMax,
             closePositionLongMin = config.closePositionLongMin,
             barLiveDivergenceMaxRatioOfRange = config.barLiveDivergenceMaxRatioOfRange,
             entryTouchBufferRatioOfRange = config.entryTouchBufferRatioOfRange,
             entryInwardOffsetRatioOfRange = config.entryInwardOffsetRatioOfRange,
-            minStopDistance = config.minStopDistance,
             takeProfitFibRatioGreen = config.takeProfitFibRatioGreen,
             takeProfitFibRatioRed = config.takeProfitFibRatioRed,
             closeConfirmationAfterCloseMs = config.closeConfirmationAfterCloseMs,
             closedBarRefetchSettleMs = config.closedBarRefetchSettleMs,
             volumeBufferObservationMs = config.volumeBufferObservationMs,
             stopAfterOpenMinutes = config.stopAfterOpenMinutes,
-            enableLiquidityRange = config.enables.liquidityRange,
+            enableLiquidityRange = config.enables.liquidityRange15mAtr,
+            enableLiquidityRange15mAtr = config.enables.liquidityRange15mAtr,
+            enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
             enableNotDoji = config.enables.notDoji,
             enableVolumeExhaustion = config.enables.volumeExhaustion,
             enableBarCloseTurn = config.enables.barCloseTurn,
@@ -67,6 +72,8 @@ object TouchTurnRuleConfigPersistence {
             enableLiveTurnConfirmation = config.enables.liveTurnConfirmation,
             enableLiveEntryTouchable = config.enables.liveEntryTouchable,
             enablePostEntryVolumeBuffer = config.enables.postEntryVolumeBuffer,
-            enableOpenDeadline = config.enables.openDeadline
+            enableOpenDeadline = config.enables.openDeadline,
+            enableMacroTrendAlignment = config.enables.macroTrendAlignment,
+            enableStockTrendAlignment = config.enables.stockTrendAlignment
         )
 }

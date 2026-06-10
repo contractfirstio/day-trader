@@ -24,15 +24,23 @@ data class WatchlistEntry(
     val reversalScoreRecommendationText: String? = null
 )
 
+/** Cached home-market macro regime from the latest watchlist reversal-score batch. */
+data class WatchlistHomeMarketRegime(
+    val marketZoneId: String,
+    val benchmarkSymbol: String,
+    val benchmarkLabel: String,
+    val macroTrend: MacroTrendState? = null,
+    val lastPrice: Double? = null,
+    val sma200: Double? = null
+)
+
 data class Watchlist(
     val id: String,
     val name: String,
     val entries: List<WatchlistEntry>,
     val labels: List<WatchlistLabel> = emptyList(),
     val createdAtEpochMs: Long,
-    val lastReversalScoreMacroTrend: MacroTrendState? = null,
-    val lastReversalScoreSpyLastPrice: Double? = null,
-    val lastReversalScoreSpySma200: Double? = null
+    val lastReversalScoreHomeMarketRegimes: List<WatchlistHomeMarketRegime> = emptyList()
 )
 
 fun newWatchlistId(): String = "wl-${kotlin.random.Random.nextLong().toULong().toString(16)}"

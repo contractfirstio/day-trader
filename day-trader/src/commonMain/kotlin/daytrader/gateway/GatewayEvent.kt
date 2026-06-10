@@ -4,6 +4,7 @@ import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.ReversalScoreMacroVolSnapshot
 import daytrader.domain.ReversalScoreSymbolSnapshot
+import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.TouchTurnSignalContext
 
@@ -63,5 +64,10 @@ sealed interface GatewayEvent {
     data class SpyRegimeSnapshotReady(
         val requestId: Long,
         val result: Result<SpyRegimeSnapshot>
+    ) : GatewayEvent
+
+    data class HomeMarketRegimeSnapshotReady(
+        val requestId: Long,
+        val result: Result<MacroRegimeSnapshot>
     ) : GatewayEvent
 }

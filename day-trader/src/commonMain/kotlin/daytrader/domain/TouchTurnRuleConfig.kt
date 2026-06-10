@@ -6,7 +6,10 @@ import kotlinx.serialization.Serializable
 /** Per-deployment enable flags for Touch Turn entry-gate rules ([notDoji] and [openDeadline] off by default). */
 @Serializable
 data class TouchTurnRuleEnables(
-    val liquidityRange: Boolean = true,
+    /** Opening 15m range must meet 25% × 15m ATR(14). */
+    val liquidityRange15mAtr: Boolean = true,
+    /** Opening 15m range must meet 25% × daily ATR(14) on close (ProReal-style). */
+    val liquidityRangeDailyAtr: Boolean = false,
     val notDoji: Boolean = false,
     val volumeExhaustion: Boolean = true,
     val barCloseTurn: Boolean = true,
@@ -17,12 +20,26 @@ data class TouchTurnRuleEnables(
     val liveEntryTouchable: Boolean = true,
     val postEntryVolumeBuffer: Boolean = true,
     /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
-    val openDeadline: Boolean = false
+    val openDeadline: Boolean = false,
+    /** SPY vs 200-SMA must align with fade direction (green→bear, red→bull). */
+    val macroTrendAlignment: Boolean = false,
+    /** Symbol vs 20-SMA must align with fade direction (green→down, red→up). */
+    val stockTrendAlignment: Boolean = false
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
     }
 }
+
+fun TouchTurnRuleEnables.requiresLiquidityRange(): Boolean =
+    liquidityRange15mAtr || liquidityRangeDailyAtr
+
+/** Full 2M 15m history for 15m ATR liquidity and/or volume-exhaustion SMA. */
+fun TouchTurnRuleEnables.requiresDeep15mHistoricalBootstrap(): Boolean =
+    liquidityRange15mAtr || volumeExhaustion
+
+fun TouchTurnRuleEnables.requiresDailyHistoricalBootstrap(): Boolean =
+    liquidityRangeDailyAtr
 
 @Serializable
 data class TouchTurnRuleToggleDefinition(
@@ -40,6 +57,8 @@ data class TouchTurnRuleConfig(
     val volumeExhaustionRatio: Double = TouchTurnDefaults.VOLUME_EXHAUSTION_RATIO,
     /** 15m periods used to compute ATR for the liquidity threshold. */
     val atrLookbackPeriods: Int = TouchTurnDefaults.ATR_LOOKBACK_PERIODS,
+    /** Daily periods used to compute daily ATR for the liquidity threshold. */
+    val dailyAtrLookbackPeriods: Int = TouchTurnDefaults.DAILY_ATR_LOOKBACK_PERIODS,
     /** Prior session opening bars used to compute the volume SMA. */
     val volumeSmaPeriods: Int = TouchTurnDefaults.VOLUME_SMA_PERIODS,
     /** Green/short: max position in bar range (0=low, 1=high) for turn confirmation. */
@@ -53,8 +72,6 @@ data class TouchTurnRuleConfig(
     val entryTouchBufferRatioOfRange: Double = TouchTurnDefaults.ENTRY_TOUCH_BUFFER_RATIO_OF_RANGE,
     /** Nudge entry limit inward from bar extreme — long up from low, short down from high (fraction of bar range). */
     val entryInwardOffsetRatioOfRange: Double = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
-    /** Minimum absolute entry-to-stop distance (spread / noise floor). */
-    val minStopDistance: Double = TouchTurnDefaults.MIN_STOP_DISTANCE,
     /** Green liquidity bar: take-profit distance as a fraction of bar range. */
     val takeProfitFibRatioGreen: Double = TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN,
     /** Red liquidity bar: take-profit distance as a fraction of bar range. */
@@ -75,12 +92,18 @@ data class TouchTurnRuleConfig(
 
         fun defaultForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig =
             DEFAULT.copy(entryInwardOffsetRatioOfRange = kind.entryInwardOffsetRatioOfRangeDefault())
+                .withLiquidityGatesForBrokerKind(kind)
 
         val toggleDefinitions: List<TouchTurnRuleToggleDefinition> = listOf(
             TouchTurnRuleToggleDefinition(
-                key = "liquidityRange",
-                label = "Liquidity range",
-                description = "Opening 15m bar range must meet the ATR liquidity threshold."
+                key = "liquidityRange15mAtr",
+                label = "Liquidity range (15m ATR)",
+                description = "Opening 15m bar range must be at least 25% of 15m ATR(14)."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "liquidityRangeDailyAtr",
+                label = "Liquidity range (daily ATR)",
+                description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close (ProReal-style)."
             ),
             TouchTurnRuleToggleDefinition(
                 key = "notDoji",
@@ -133,6 +156,18 @@ data class TouchTurnRuleConfig(
                 label = "RTH open deadline",
                 description = "Stop the session and flatten working orders/position after the configured maximum " +
                     "minutes from regular-hours open."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "macroTrendAlignment",
+                label = "Macro trend alignment",
+                description = "Only fade when the home-market index matches the opening bar: green short requires bear " +
+                    "(below 200-SMA), red long requires bull (above 200-SMA). US→SPY, HK→Hang Seng, UK→FTSE 100."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "stockTrendAlignment",
+                label = "Stock trend alignment",
+                description = "Only fade when the symbol's daily trend matches the opening bar: green short requires " +
+                    "downtrend (below 20-SMA), red long requires uptrend (above 20-SMA)."
             )
         )
 
@@ -153,8 +188,14 @@ data class TouchTurnRuleConfig(
             ),
             TouchTurnRuleFieldDefinition(
                 key = "atrLookbackPeriods",
-                label = "ATR lookback (bars)",
-                description = "Number of prior 15m bars used to compute ATR14, which feeds the liquidity threshold.",
+                label = "ATR lookback (15m bars)",
+                description = "Number of prior 15m bars used to compute 15m ATR14 for the liquidity threshold.",
+                kind = TouchTurnRuleFieldKind.INTEGER
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "dailyAtrLookbackPeriods",
+                label = "ATR lookback (daily bars)",
+                description = "Number of prior daily bars used to compute daily ATR(14) for the liquidity threshold.",
                 kind = TouchTurnRuleFieldKind.INTEGER
             ),
             TouchTurnRuleFieldDefinition(
@@ -167,14 +208,14 @@ data class TouchTurnRuleConfig(
                 key = "closePositionShortMax",
                 label = "Short turn zone (max)",
                 description = "Green liquidity bar (short): confirming price must sit at or below this fraction of " +
-                    "the bar range measured from the low (0 = low, 1 = high). Default 0.35 = lower third.",
+                    "the bar range measured from the low (0 = low, 1 = high). Default 0.45 = lower 45%.",
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
                 key = "closePositionLongMin",
                 label = "Long turn zone (min)",
                 description = "Red liquidity bar (long): confirming price must sit at or above this fraction of " +
-                    "the bar range measured from the low. Default 0.65 = upper third.",
+                    "the bar range measured from the low. Default 0.55 = upper 45%.",
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
@@ -197,13 +238,6 @@ data class TouchTurnRuleConfig(
                 description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
                     "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme.",
                 kind = TouchTurnRuleFieldKind.RATIO
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "minStopDistance",
-                label = "Min stop distance",
-                description = "Minimum absolute distance from entry to stop loss when building the bracket (noise / " +
-                    "spread floor). Stop is at least half the entry-to-TP distance or this value, whichever is larger.",
-                kind = TouchTurnRuleFieldKind.PRICE
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioGreen",
@@ -251,13 +285,13 @@ data class TouchTurnRuleConfig(
             "atrLiquidityRatio" -> config.atrLiquidityRatio.toString()
             "volumeExhaustionRatio" -> config.volumeExhaustionRatio.toString()
             "atrLookbackPeriods" -> config.atrLookbackPeriods.toString()
+            "dailyAtrLookbackPeriods" -> config.dailyAtrLookbackPeriods.toString()
             "volumeSmaPeriods" -> config.volumeSmaPeriods.toString()
             "closePositionShortMax" -> config.closePositionShortMax.toString()
             "closePositionLongMin" -> config.closePositionLongMin.toString()
             "barLiveDivergenceMaxRatioOfRange" -> config.barLiveDivergenceMaxRatioOfRange.toString()
             "entryTouchBufferRatioOfRange" -> config.entryTouchBufferRatioOfRange.toString()
             "entryInwardOffsetRatioOfRange" -> config.entryInwardOffsetRatioOfRange.toString()
-            "minStopDistance" -> config.minStopDistance.toString()
             "takeProfitFibRatioGreen" -> config.takeProfitFibRatioGreen.toString()
             "takeProfitFibRatioRed" -> config.takeProfitFibRatioRed.toString()
             "closeConfirmationAfterCloseMs" -> config.closeConfirmationAfterCloseMs.toString()
@@ -274,6 +308,7 @@ data class TouchTurnRuleConfig(
                     if (intValue <= 0) return null
                     when (key) {
                         "atrLookbackPeriods" -> config.copy(atrLookbackPeriods = intValue)
+                        "dailyAtrLookbackPeriods" -> config.copy(dailyAtrLookbackPeriods = intValue)
                         "volumeSmaPeriods" -> config.copy(volumeSmaPeriods = intValue)
                         "stopAfterOpenMinutes" -> config.copy(stopAfterOpenMinutes = intValue)
                         else -> null
@@ -308,7 +343,6 @@ data class TouchTurnRuleConfig(
                                     config.copy(barLiveDivergenceMaxRatioOfRange = doubleValue)
                                 "entryTouchBufferRatioOfRange" ->
                                     config.copy(entryTouchBufferRatioOfRange = doubleValue)
-                                "minStopDistance" -> config.copy(minStopDistance = doubleValue)
                                 "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
                                 "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
                                 else -> null
@@ -321,7 +355,8 @@ data class TouchTurnRuleConfig(
         }
 
         fun isToggleEnabled(config: TouchTurnRuleConfig, key: String): Boolean = when (key) {
-            "liquidityRange" -> config.enables.liquidityRange
+            "liquidityRange15mAtr" -> config.enables.liquidityRange15mAtr
+            "liquidityRangeDailyAtr" -> config.enables.liquidityRangeDailyAtr
             "notDoji" -> config.enables.notDoji
             "volumeExhaustion" -> config.enables.volumeExhaustion
             "barCloseTurn" -> config.enables.barCloseTurn
@@ -332,12 +367,15 @@ data class TouchTurnRuleConfig(
             "liveEntryTouchable" -> config.enables.liveEntryTouchable
             "postEntryVolumeBuffer" -> config.enables.postEntryVolumeBuffer
             "openDeadline" -> config.enables.openDeadline
+            "macroTrendAlignment" -> config.enables.macroTrendAlignment
+            "stockTrendAlignment" -> config.enables.stockTrendAlignment
             else -> true
         }
 
         fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig {
             val enables = when (key) {
-                "liquidityRange" -> config.enables.copy(liquidityRange = enabled)
+                "liquidityRange15mAtr" -> config.enables.copy(liquidityRange15mAtr = enabled)
+                "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
                 "notDoji" -> config.enables.copy(notDoji = enabled)
                 "volumeExhaustion" -> config.enables.copy(volumeExhaustion = enabled)
                 "barCloseTurn" -> config.enables.copy(barCloseTurn = enabled)
@@ -348,6 +386,8 @@ data class TouchTurnRuleConfig(
                 "liveEntryTouchable" -> config.enables.copy(liveEntryTouchable = enabled)
                 "postEntryVolumeBuffer" -> config.enables.copy(postEntryVolumeBuffer = enabled)
                 "openDeadline" -> config.enables.copy(openDeadline = enabled)
+                "macroTrendAlignment" -> config.enables.copy(macroTrendAlignment = enabled)
+                "stockTrendAlignment" -> config.enables.copy(stockTrendAlignment = enabled)
                 else -> config.enables
             }
             return config.copy(enables = enables)
@@ -385,33 +425,100 @@ fun TouchTurnRuleConfig.enforcesCloseConfirmation(requireLivePriceChecks: Boolea
             ))
 
 fun BrokerKind.entryInwardOffsetRatioOfRangeDefault(): Double =
-    if (usesEmulatorExecution) {
-        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
-    } else {
-        TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
+    when (this) {
+        BrokerKind.EMULATOR, BrokerKind.REPLAY ->
+            TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+        BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA ->
+            TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
     }
 
-fun TouchTurnRuleConfig.withSimulatedBrokerEntryInwardOffset(): TouchTurnRuleConfig {
-    val target = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED
+/** IB and hybrid use daily ATR(14) liquidity; offline emulator/replay keep 15m ATR(14). */
+fun BrokerKind.defaultLiquidityRange15mAtrEnabled(): Boolean = when (this) {
+    BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> false
+    BrokerKind.EMULATOR, BrokerKind.REPLAY -> true
+}
+
+fun BrokerKind.defaultLiquidityRangeDailyAtrEnabled(): Boolean = when (this) {
+    BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> true
+    BrokerKind.EMULATOR, BrokerKind.REPLAY -> false
+}
+
+fun TouchTurnRuleConfig.withLiquidityGatesForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig {
+    val targetEnables = enables.copy(
+        liquidityRange15mAtr = kind.defaultLiquidityRange15mAtrEnabled(),
+        liquidityRangeDailyAtr = kind.defaultLiquidityRangeDailyAtrEnabled()
+    )
+    return if (targetEnables == enables) this else copy(enables = targetEnables)
+}
+
+fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig {
+    val target = kind.entryInwardOffsetRatioOfRangeDefault()
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
 }
 
 /** Ensures newly added rule toggles stay off (legacy persisted configs may still have [notDoji] enabled). */
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
-    val normalizedEnables = enables.copy(notDoji = false, openDeadline = false)
+    val normalizedEnables = enables.copy(
+        notDoji = false,
+        openDeadline = false,
+        macroTrendAlignment = false,
+        stockTrendAlignment = false
+    )
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
 }
 
-fun StrategyDeployment.withSimulatedBrokerEntryInwardOffset(): StrategyDeployment {
-    val rules = touchTurnRules.withSimulatedBrokerEntryInwardOffset()
+fun StrategyDeployment.withLiquidityGatesForBrokerKind(kind: BrokerKind): StrategyDeployment {
+    val rules = touchTurnRules.withLiquidityGatesForBrokerKind(kind)
     val session = touchTurnSession?.let { ctx ->
-        val patchedRules = ctx.rules.withSimulatedBrokerEntryInwardOffset()
+        val patchedRules = ctx.rules.withLiquidityGatesForBrokerKind(kind)
         if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
     }
     val history = sessionHistory.map { day ->
         val record = day.touchTurnRunRecord ?: return@map day
         val runRules = record.rules ?: return@map day
-        val patchedRules = runRules.withSimulatedBrokerEntryInwardOffset()
+        val patchedRules = runRules.withLiquidityGatesForBrokerKind(kind)
+        if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
+    }
+    if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
+}
+
+fun StrategyDeployment.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): StrategyDeployment {
+    val rules = touchTurnRules.withEntryInwardOffsetForBrokerKind(kind)
+    val session = touchTurnSession?.let { ctx ->
+        val patchedRules = ctx.rules.withEntryInwardOffsetForBrokerKind(kind)
+        if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
+    }
+    val history = sessionHistory.map { day ->
+        val record = day.touchTurnRunRecord ?: return@map day
+        val runRules = record.rules ?: return@map day
+        val patchedRules = runRules.withEntryInwardOffsetForBrokerKind(kind)
+        if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
+    }
+    if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
+}
+
+fun TouchTurnRuleConfig.withDefaultCloseTurnZones(): TouchTurnRuleConfig {
+    val targetShort = TouchTurnDefaults.CLOSE_POSITION_SHORT_MAX
+    val targetLong = TouchTurnDefaults.CLOSE_POSITION_LONG_MIN
+    return if (closePositionShortMax == targetShort && closePositionLongMin == targetLong) {
+        this
+    } else {
+        copy(closePositionShortMax = targetShort, closePositionLongMin = targetLong)
+    }
+}
+
+fun StrategyDeployment.withDefaultCloseTurnZones(): StrategyDeployment {
+    val rules = touchTurnRules.withDefaultCloseTurnZones()
+    val session = touchTurnSession?.let { ctx ->
+        val patchedRules = ctx.rules.withDefaultCloseTurnZones()
+        if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
+    }
+    val history = sessionHistory.map { day ->
+        val record = day.touchTurnRunRecord ?: return@map day
+        val runRules = record.rules ?: return@map day
+        val patchedRules = runRules.withDefaultCloseTurnZones()
         if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
     }
     if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this

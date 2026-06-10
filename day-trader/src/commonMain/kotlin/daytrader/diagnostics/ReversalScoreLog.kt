@@ -304,6 +304,77 @@ object ReversalScoreLog {
         )
     }
 
+    fun homeMarketRegimeFetchStarted(
+        benchmarkSymbol: String,
+        benchmarkLabel: String,
+        gatewayRequestId: Long,
+        marketZoneId: String
+    ) {
+        event(
+            type = "home_market_regime_fetch_started",
+            symbol = benchmarkSymbol,
+            details = mapOf(
+                "gatewayRequestId" to gatewayRequestId.toString(),
+                "benchmarkLabel" to benchmarkLabel,
+                "marketZoneId" to marketZoneId
+            )
+        )
+    }
+
+    fun homeMarketRegimeStage(
+        benchmarkSymbol: String,
+        gatewayRequestId: Long,
+        stage: String,
+        detail: String = ""
+    ) {
+        event(
+            type = "home_market_regime_stage",
+            symbol = benchmarkSymbol,
+            details = buildMap {
+                put("gatewayRequestId", gatewayRequestId.toString())
+                put("stage", stage)
+                if (detail.isNotBlank()) put("detail", detail)
+            }
+        )
+    }
+
+    fun homeMarketRegimeDelivered(
+        benchmarkSymbol: String,
+        gatewayRequestId: Long,
+        lastPrice: Double,
+        sma200: Double,
+        dailyCloseCount: Int,
+        trend: String?
+    ) {
+        event(
+            type = "home_market_regime_delivered",
+            symbol = benchmarkSymbol,
+            details = mapOf(
+                "gatewayRequestId" to gatewayRequestId.toString(),
+                "lastPrice" to lastPrice.toString(),
+                "sma200" to sma200.toString(),
+                "dailyCloseCount" to dailyCloseCount.toString(),
+                "trend" to (trend ?: "null")
+            )
+        )
+    }
+
+    fun homeMarketRegimeFailed(
+        benchmarkSymbol: String,
+        gatewayRequestId: Long,
+        error: Throwable
+    ) {
+        event(
+            type = "home_market_regime_failed",
+            symbol = benchmarkSymbol,
+            details = mapOf(
+                "gatewayRequestId" to gatewayRequestId.toString(),
+                "error" to (error.message ?: error.toString()),
+                "errorType" to error::class.simpleName.orEmpty()
+            )
+        )
+    }
+
     fun gatewayRequestFailed(kind: String, symbol: String?, requestId: Long, error: Throwable) {
         event(
             type = "gateway_request_failed",

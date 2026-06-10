@@ -120,7 +120,7 @@ class TouchTurnPipelineDetailUiMapperTest {
         )
         val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(session, now)
         assertNotNull(evaluation)
-        val liquidity = evaluation.checks.first { it.label == "Liquidity range" }
+        val liquidity = evaluation.checks.first { it.label == "Liquidity range (15m ATR)" }
         assertEquals(true, liquidity.passed)
         assertEquals("OK", liquidity.detail)
         assertEquals(true, liquidity.enabled)

@@ -29,6 +29,14 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_ORDER_REJECTED,
     /** Opening 15m volume exceeded exhaustion threshold (high-conviction breakout). */
     NO_TRADE_VOLUME_EXHAUSTION,
+    /** SPY macro trend did not match fade direction when macro trend alignment is enabled. */
+    NO_TRADE_MACRO_TREND_MISALIGNED,
+    /** Home-market index regime data could not be loaded for macro trend alignment. */
+    NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+    /** Symbol daily trend did not match fade direction when stock trend alignment is enabled. */
+    NO_TRADE_STOCK_TREND_MISALIGNED,
+    /** Symbol daily trend inputs could not be loaded for stock trend alignment. */
+    NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
     TRADE_BRACKET_SUBMITTED
 }
 
@@ -70,6 +78,8 @@ data class TouchTurnRunMarketInputs(
     val adr14: Double? = null,
     /** 14-period ATR on prior 15m bars (liquidity range threshold input). */
     val atr14: Double? = null,
+    /** Wilder daily ATR(14) on completed daily bars (ProReal-style liquidity input). */
+    val dailyAtr14: Double? = null,
     /** 20-period SMA of prior session-opening 15m bar volume. */
     val volumeSma20: Double? = null,
     /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
@@ -228,6 +238,7 @@ fun buildTouchTurnRunRecord(
             openingBar = touchTurnSession.candle,
             adr14 = touchTurnSession.adr14,
             atr14 = touchTurnSession.atr14,
+            dailyAtr14 = touchTurnSession.dailyAtr14,
             volumeSma20 = touchTurnSession.volumeSma20,
             volumeCheck = TouchTurnVolumeCheck.fromSession(touchTurnSession),
             currencyCode = touchTurnSession.currencyCode,
