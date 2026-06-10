@@ -129,6 +129,29 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
+    fun liveStatus_openPositionWithoutOrders_warnsNoProtectiveOrders() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-10",
+            status = TouchTurnCandleStatus.READY,
+            ordersPlacedForSession = true,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            milestones = TouchTurnMilestoneTimestamps(
+                ordersPlacedAt = "2026-06-10T15:15:11",
+                positionOpenedAt = "2026-06-10T15:15:30"
+            )
+        )
+        val ui = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = true,
+            hasOpenOrders = false,
+            closing = false,
+            nowEpochMillis = System.currentTimeMillis()
+        )
+        assertNotNull(ui)
+        assertContains(ui!!.headline, "no protective orders")
+    }
+
+    @Test
     fun stopTrigger_noTrade_usesDecisionHeadline() {
         val ui = TouchTurnSessionReasonUi.forStopTrigger(
             trigger = TouchTurnSessionStopTrigger.NO_TRADE_DECISION,

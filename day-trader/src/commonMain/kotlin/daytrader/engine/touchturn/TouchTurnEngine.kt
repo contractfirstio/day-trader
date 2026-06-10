@@ -109,6 +109,7 @@ class TouchTurnEngine(
 
     private val stuckFormingLogged = mutableSetOf<String>()
     private val liquidityJobs = mutableMapOf<String, Job>()
+    private val liquidityEvalJobs = mutableMapOf<String, Job>()
     private val closedBarRefetchJobs = mutableMapOf<String, Job>()
     private val loadJobs = mutableMapOf<String, Job>()
     private val prepareJobs = mutableMapOf<String, Job>()
@@ -409,6 +410,7 @@ class TouchTurnEngine(
             session = instance.touchTurnSession
         )
         liquidityJobs.remove(command.instanceId)?.cancel()
+        liquidityEvalJobs.remove(command.instanceId)?.cancel()
         closedBarRefetchJobs.remove(command.instanceId)?.cancel()
         loadJobs.remove(command.instanceId)?.cancel()
         prepareJobs.remove(command.instanceId)?.cancel()
@@ -822,11 +824,16 @@ class TouchTurnEngine(
             scheduleClosedBarRefetch(instanceId)
             return
         }
-        scope.launch {
+        liquidityEvalJobs[instanceId]?.cancel()
+        liquidityEvalJobs[instanceId] = scope.launch {
             if (barClosedJustSet && sessionAfterBarClosed.milestones.liquidityEvaluatedAt == null) {
                 yield()
             }
-            evaluateLiquidityAfterClosedBar(instanceId)
+            try {
+                evaluateLiquidityAfterClosedBar(instanceId)
+            } finally {
+                liquidityEvalJobs.remove(instanceId)
+            }
         }
     }
 
@@ -1067,7 +1074,7 @@ class TouchTurnEngine(
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         if (instance.status != DeploymentStatus.RUNNING) return
         val session = instance.touchTurnSession ?: return
-        if (session.setup != null) return
+        if (session.setup != null || session.ordersPlacedForSession) return
         val candle = session.candle ?: run {
             scheduleClosedBarRefetch(instanceId)
             return
@@ -1216,6 +1223,16 @@ class TouchTurnEngine(
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return
         }
+        bracketSubmitSkipReason(afterEval)?.let { reason ->
+            SessionTrace.bracketSubmitSkipped(
+                deploymentId = instanceId,
+                sessionId = afterEval.inProgressSession()?.id,
+                symbol = afterEval.symbol,
+                reason = reason
+            )
+            finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
+            return
+        }
         scope.launch {
             yield()
             val bracketSubmitRequested = requestBracketAfterLiquidityEvaluation(
@@ -1264,7 +1281,17 @@ class TouchTurnEngine(
         notifyNoTradeDecisionIfNeeded(instanceId)
         TouchTurnDecisionLog.watchPollExit(instanceId, instance.symbol, "liquidity_poll_complete")
         liquidityJobs.remove(instanceId)?.cancel()
+        liquidityEvalJobs.remove(instanceId)?.cancel()
         closedBarRefetchJobs.remove(instanceId)?.cancel()
+    }
+
+    private fun bracketSubmitSkipReason(instance: StrategyDeployment): String? {
+        val session = instance.touchTurnSession ?: return "no_session"
+        if (session.ordersPlacedForSession) return "orders_placed_for_session"
+        if (pendingBracketPlacements.containsKey(instance.id)) return "bracket_submit_pending"
+        if (SymbolMarkets.hasOpenPosition(instance, brokerPositions.value)) return "open_position"
+        if (SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders.value)) return "open_orders"
+        return null
     }
 
     private fun requestBracketAfterLiquidityEvaluation(
@@ -1278,6 +1305,15 @@ class TouchTurnEngine(
         val setup = session.setup ?: return false
         val rules = session.rules
         if (!TouchTurnLogic.setupActionableForEntry(setup, rules) || session.entryOrdersPermitted != true) {
+            return false
+        }
+        bracketSubmitSkipReason(instance)?.let { reason ->
+            SessionTrace.bracketSubmitSkipped(
+                deploymentId = instanceId,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                reason = reason
+            )
             return false
         }
         val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
@@ -1535,17 +1571,24 @@ class TouchTurnEngine(
                 stoppedAt = null,
                 fills = fills
             )
-            val positionQty = positions.find {
+            val newFills = sessionFills.filter { fill -> traced.add(fill.execId) }
+            if (newFills.isEmpty()) continue
+            val positionAfterBatch = positions.find {
                 SymbolMarkets.symbolsMatch(it.symbol, instance.symbol)
-            }?.quantity
-            for (fill in sessionFills) {
-                if (!traced.add(fill.execId)) continue
+            }?.quantity ?: 0
+            var qtyBeforeBatch = positionAfterBatch
+            for (fill in newFills.asReversed()) {
+                qtyBeforeBatch -= signedFillQuantity(fill)
+            }
+            var runningQty = qtyBeforeBatch
+            for (fill in newFills) {
+                runningQty += signedFillQuantity(fill)
                 SessionTrace.fillRecorded(
                     deploymentId = instance.id,
                     sessionId = session.id,
                     symbol = instance.symbol,
                     fill = fill,
-                    positionQtyAfter = positionQty
+                    positionQtyAfter = runningQty
                 )
             }
         }
@@ -1615,5 +1658,11 @@ class TouchTurnEngine(
 
     private fun emit(event: TouchTurnEvent) {
         eventChannel.trySend(event)
+    }
+
+    private fun signedFillQuantity(fill: BrokerFill): Int = when (fill.side.uppercase()) {
+        "BUY" -> fill.quantity
+        "SELL" -> -fill.quantity
+        else -> 0
     }
 }

@@ -526,7 +526,14 @@ object TouchTurnStatusBreadcrumbMapper {
         val activePath = activePathFor(steps, session, nowEpochMillis)
         val nodes = pipelineNodes(steps)
         val edges = pipelineEdges(activePath, nodes)
-        val caption = pipelineCaption(steps, nodes, activePath, session, nowEpochMillis)
+        val caption = pipelineCaption(
+            steps = steps,
+            nodes = nodes,
+            activePath = activePath,
+            session = session,
+            hasOpenOrders = hasOpenOrders,
+            nowEpochMillis = nowEpochMillis
+        )
         val statusBanner = TouchTurnSessionReasonUi.liveStatus(
             session = session,
             hasOpenPosition = hasOpenPosition,
@@ -710,6 +717,7 @@ object TouchTurnStatusBreadcrumbMapper {
         nodes: List<TouchTurnPipelineNode>,
         activePath: List<TouchTurnPipelineNodeId>,
         session: TouchTurnSessionContext?,
+        hasOpenOrders: Boolean,
         nowEpochMillis: Long
     ): String {
         session?.decisionOutcome?.takeIf { it != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED }?.let { outcome ->
@@ -738,7 +746,12 @@ object TouchTurnStatusBreadcrumbMapper {
                     return appendTimestamp("Waiting for entry fill", nodes, current.timestamp)
                 }
                 TouchTurnPipelineNodeId.Position -> {
-                    return appendTimestamp("In position — TP / SL working", nodes, current.timestamp)
+                    val caption = if (hasOpenOrders) {
+                        "In position — TP / SL working"
+                    } else {
+                        "In position — no protective orders"
+                    }
+                    return appendTimestamp(caption, nodes, current.timestamp)
                 }
                 TouchTurnPipelineNodeId.Close -> {
                     session?.decisionOutcome?.let { outcome ->

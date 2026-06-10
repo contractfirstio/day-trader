@@ -36,9 +36,10 @@ class TouchTurnQuoteStripUiTest {
 
     @Test
     fun gapLabel_gbp_formatsAsPence() {
-        assertEquals("+12p", TouchTurnQuoteStripFormat.gapLabel(0.12, "GBP"))
-        assertEquals("-4p", TouchTurnQuoteStripFormat.gapLabel(-0.04, "GBP"))
-        assertEquals("at entry", TouchTurnQuoteStripFormat.gapLabel(0.0, "GBP"))
+        assertEquals("+12p", TouchTurnQuoteStripFormat.gapLabel(12.0, "GBP", "LSE"))
+        assertEquals("-4p", TouchTurnQuoteStripFormat.gapLabel(-4.0, "GBP", "LSE"))
+        assertEquals("at entry", TouchTurnQuoteStripFormat.gapLabel(0.0, "GBP", "LSE"))
+        assertEquals("+0p", TouchTurnQuoteStripFormat.gapLabel(0.12, "GBP", "LSE"))
     }
 
     @Test
@@ -49,7 +50,8 @@ class TouchTurnQuoteStripUiTest {
             last = 99.62,
             currencyCode = "GBP",
             entryPrice = 99.64,
-            entrySide = TouchTurnTradeSide.LONG
+            entrySide = TouchTurnTradeSide.LONG,
+            listingExch = "LSE"
         )
         assertTrue(strip.isFillable)
         assertEquals("at entry", strip.fillGapLabel)
@@ -63,10 +65,11 @@ class TouchTurnQuoteStripUiTest {
             last = 99.72,
             currencyCode = "GBP",
             entryPrice = 99.64,
-            entrySide = TouchTurnTradeSide.LONG
+            entrySide = TouchTurnTradeSide.LONG,
+            listingExch = "LSE"
         )
         assertFalse(strip.isFillable)
-        assertEquals("+12p", strip.fillGapLabel)
+        assertEquals("+0p", strip.fillGapLabel)
     }
 
     @Test
@@ -76,14 +79,15 @@ class TouchTurnQuoteStripUiTest {
         val strip = TouchTurnQuoteStripUiMapper.from(
             quote = LiveQuote(symbol = "LLOY", bid = 99.70, ask = 99.76, last = 99.72),
             currencyCode = "GBP",
-            bracketSetup = setup
+            bracketSetup = setup,
+            listingExch = "LSE"
         )
         assertNotNull(strip)
         val resolved = strip!!
         assertEquals(setup.entry, resolved.entryPrice!!, absoluteTolerance = 0.0001)
         assertEquals(TouchTurnTradeSide.LONG, resolved.entrySide)
         assertEquals(
-            TouchTurnQuoteStripFormat.gapLabel(99.76 - setup.entry, "GBP"),
+            TouchTurnQuoteStripFormat.gapLabel(99.76 - setup.entry, "GBP", "LSE"),
             resolved.fillGapLabel
         )
     }
@@ -96,10 +100,11 @@ class TouchTurnQuoteStripUiTest {
             quote = LiveQuote(symbol = "LLOY", bid = 99.70, ask = 99.76, last = 99.72),
             currencyCode = "GBP",
             bracketSetup = setup,
-            closestApproach = TouchTurnClosestApproachUi(gap = 0.02, fillPrice = 99.66)
+            closestApproach = TouchTurnClosestApproachUi(gap = 2.0, fillPrice = 99.66),
+            listingExch = "LSE"
         )
         assertNotNull(strip?.closestApproach)
-        assertEquals("+2p", strip?.closestApproach?.gapLabel("GBP"))
+        assertEquals("+2p", strip?.closestApproach?.gapLabel("GBP", "LSE"))
         assertEquals(99.66, strip?.closestApproach?.fillPrice)
     }
 

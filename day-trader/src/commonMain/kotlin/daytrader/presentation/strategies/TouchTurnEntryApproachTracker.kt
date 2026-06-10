@@ -41,5 +41,6 @@ data class TouchTurnClosestApproachUi(
     val gap: Double,
     val fillPrice: Double
 ) {
-    fun gapLabel(currencyCode: String): String = TouchTurnQuoteStripFormat.gapLabel(gap, currencyCode)
+    fun gapLabel(currencyCode: String, listingExch: String? = null): String =
+        TouchTurnQuoteStripFormat.gapLabel(gap, currencyCode, listingExch)
 }

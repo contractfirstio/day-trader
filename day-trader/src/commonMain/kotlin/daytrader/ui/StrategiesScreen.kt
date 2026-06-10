@@ -201,6 +201,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     onTabChange = viewModel::onDetailTabChange,
                     onResolveSymbol = viewModel::resolveInstrumentForSymbol,
                     onUpdateDeployment = viewModel::onUpdateDeployment,
+                    onCopyTouchTurnRulesToAllOther = viewModel::onCopyTouchTurnRulesToAllOther,
+                    otherDeploymentCount = (uiState.totalCount - 1).coerceAtLeast(0),
                     onStartStop = viewModel::onToggleSession,
                     onPrepareSession = viewModel::onPrepareSession,
                     onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
@@ -240,6 +242,8 @@ private fun StrategyDeploymentDetailPanel(
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
+    onCopyTouchTurnRulesToAllOther: (String) -> Unit,
+    otherDeploymentCount: Int,
     onStartStop: (String) -> Unit,
     onPrepareSession: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -281,6 +285,10 @@ private fun StrategyDeploymentDetailPanel(
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
+                onCopyTouchTurnRulesToAllOther = {
+                    onCopyTouchTurnRulesToAllOther(selectedDeployment.id)
+                },
+                otherDeploymentCount = otherDeploymentCount,
                 onStartStop = { onStartStop(selectedDeployment.id) },
                 onPrepareSession = { onPrepareSession(selectedDeployment.id) },
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
@@ -483,6 +491,8 @@ private fun StrategyDeploymentDetail(
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
+    onCopyTouchTurnRulesToAllOther: () -> Unit,
+    otherDeploymentCount: Int,
     onStartStop: () -> Unit,
     onPrepareSession: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -605,8 +615,10 @@ private fun StrategyDeploymentDetail(
                     instance = instance,
                     globalAutoStartEnabled = globalAutoStartEnabled,
                     touchTurnPrepare = touchTurnPrepare,
+                    otherDeploymentCount = otherDeploymentCount,
                     onResolveSymbol = onResolveSymbol,
-                    onUpdate = onUpdate
+                    onUpdate = onUpdate,
+                    onCopyTouchTurnRulesToAllOther = onCopyTouchTurnRulesToAllOther
                 )
                 StrategyDetailTab.LIVE -> LiveTab(
                     instance = instance,
@@ -654,8 +666,10 @@ private fun ConfigurationTab(
     instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
     touchTurnPrepare: TouchTurnPrepareUiState?,
+    otherDeploymentCount: Int,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
-    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
+    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
+    onCopyTouchTurnRulesToAllOther: () -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
 
@@ -708,12 +722,63 @@ private fun ConfigurationTab(
             var showTouchTurnRules by remember(instance.id, instance.touchTurnRules) {
                 mutableStateOf(false)
             }
-            OutlinedButton(
-                onClick = { showTouchTurnRules = true },
-                enabled = canEdit,
-                modifier = Modifier.testTag("TouchTurnRulesConfigButton")
+            var showCopyRulesConfirm by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Touch Turn rules…", color = if (canEdit) Color.White else TextSecondary)
+                OutlinedButton(
+                    onClick = { showTouchTurnRules = true },
+                    enabled = canEdit,
+                    modifier = Modifier.testTag("TouchTurnRulesConfigButton")
+                ) {
+                    Text("Touch Turn rules…", color = if (canEdit) Color.White else TextSecondary)
+                }
+                OutlinedButton(
+                    onClick = { showCopyRulesConfirm = true },
+                    enabled = canEdit && otherDeploymentCount > 0,
+                    modifier = Modifier.testTag("TouchTurnRulesCopyToAllButton")
+                ) {
+                    Text(
+                        "Copy rules to all…",
+                        color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
+                    )
+                }
+            }
+            if (showCopyRulesConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showCopyRulesConfirm = false },
+                    containerColor = SurfaceDark,
+                    title = {
+                        Text("Copy rules to all deployments?", color = Color.White, fontWeight = FontWeight.Bold)
+                    },
+                    text = {
+                        Text(
+                            "Apply this deployment's Touch Turn rules and thresholds to " +
+                                "$otherDeploymentCount other deployment${if (otherDeploymentCount == 1) "" else "s"}? " +
+                                "Changes apply on the next session start.",
+                            color = TextSecondary,
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showCopyRulesConfirm = false
+                                onCopyTouchTurnRulesToAllOther()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GainGreen)
+                        ) {
+                            Text("Copy to all")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showCopyRulesConfirm = false }) {
+                            Text("Cancel", color = TextSecondary)
+                        }
+                    },
+                    modifier = Modifier.testTag("TouchTurnRulesCopyToAllDialog")
+                )
             }
             if (showTouchTurnRules) {
                 TouchTurnRulesConfigDialog(

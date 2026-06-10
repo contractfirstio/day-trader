@@ -59,6 +59,7 @@ fun TouchTurnLiveOrderPriceChart(
     chart: TouchTurnLiveOrderChartUiState,
     modifier: Modifier = Modifier
 ) {
+    val listingExch = chart.quoteStrip?.listingExch
     val priceSeries = remember(chart.priceHistory, chart.currentPrice) {
         buildPriceSeries(chart.priceHistory, chart.currentPrice)
     }
@@ -93,8 +94,11 @@ fun TouchTurnLiveOrderPriceChart(
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .testTag("TouchTurnLiveOrderPriceChart")
     ) {
-        val lastLabel = chart.currentPrice?.let { Formatters.moneyPlain(it, chart.currencyCode) }
-            ?: priceSeries.lastOrNull()?.let { Formatters.moneyPlain(it, chart.currencyCode) }
+        val lastLabel = chart.currentPrice?.let {
+            Formatters.listingPricePlain(it, chart.currencyCode, listingExch)
+        } ?: priceSeries.lastOrNull()?.let {
+            Formatters.listingPricePlain(it, chart.currencyCode, listingExch)
+        }
         val titlePrefix = when (chart.context) {
             TouchTurnPriceChartContext.OPENING_BAR_FORMING ->
                 "Live stream · opening 15m bar"
@@ -248,7 +252,7 @@ fun TouchTurnLiveOrderPriceChart(
 
                 listOf(priceRange.priceMax, priceRange.priceMin).forEachIndexed { index, price ->
                     val y = if (index == 0) plotTop else plotBottom
-                    val label = Formatters.moneyPlain(price, chart.currencyCode)
+                    val label = Formatters.listingPricePlain(price, chart.currencyCode, listingExch)
                     val layout = textMeasurer.measure(label, labelStyle)
                     drawText(
                         textLayoutResult = layout,
@@ -326,7 +330,7 @@ fun TouchTurnLiveOrderPriceChart(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            Formatters.moneyPlain(level.price, chart.currencyCode),
+                            Formatters.listingPricePlain(level.price, chart.currencyCode, listingExch),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.White

@@ -700,6 +700,22 @@ class StrategiesViewModel(
         }
     }
 
+    fun onCopyTouchTurnRulesToAllOther(sourceId: String) {
+        val source = repository.deployments.value.find { it.id == sourceId } ?: return
+        if (source.status == DeploymentStatus.RUNNING) return
+        val rules = source.touchTurnRules
+        val targets = repository.deployments.value.filter { it.id != sourceId }
+        if (targets.isEmpty()) return
+        UiActionLog.forDeployment(
+            deployment = source,
+            action = "copy_touch_turn_rules_to_all_other",
+            details = mapOf("targetCount" to targets.size.toString())
+        )
+        for (target in targets) {
+            repository.update(target.id) { it.copy(touchTurnRules = rules) }
+        }
+    }
+
     fun onPrepareSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
         if (existing.status == DeploymentStatus.RUNNING) return

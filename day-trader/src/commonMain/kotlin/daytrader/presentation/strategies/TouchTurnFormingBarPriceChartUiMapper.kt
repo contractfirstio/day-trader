@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.domain.InstrumentPriceScale
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
@@ -32,12 +33,18 @@ object TouchTurnFormingBarPriceChartUiMapper {
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup
         )
+        val listingExch = InstrumentPriceScale.resolvedListingExch(
+            currency = session.currencyCode,
+            marketZoneId = session.marketZoneId,
+            primaryExch = deployment.instrument?.primaryExch
+        )
         val quoteStrip = TouchTurnQuoteStripUiMapper.from(
             quote = quote,
             currencyCode = session.currencyCode,
             bracketSetup = session.setup,
             levels = levels,
-            closestApproach = closestApproach
+            closestApproach = closestApproach,
+            listingExch = listingExch
         )
         return TouchTurnLiveOrderChartUiState(
             symbol = deployment.symbol,

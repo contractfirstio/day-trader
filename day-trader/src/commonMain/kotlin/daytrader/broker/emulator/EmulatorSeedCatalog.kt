@@ -162,7 +162,13 @@ internal data class EmulatorPosition(
         ask: Double = marketPrice,
         last: Double = marketPrice
     ): daytrader.gateway.AccountPosition {
-        val pnl = (marketPrice - avgPrice) * quantity
+        val pnl = daytrader.domain.InstrumentPriceScale.unrealizedPnL(
+            quantity = quantity,
+            avgPriceRaw = avgPrice,
+            marketPriceRaw = marketPrice,
+            currency = instrument.currency,
+            primaryExch = instrument.primaryExch
+        )
         return daytrader.gateway.AccountPosition(
             account = account,
             symbol = instrument.symbol,
