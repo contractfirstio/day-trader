@@ -11,6 +11,8 @@ object TouchTurnDefaults {
      * opening bars plus today's bar and an ATR window (~35+ trading days); 1 M is often too short.
      */
     const val TOUCH_TURN_15M_HISTORY_DURATION = "2 M"
+    /** Shallow 15m history when only today's opening bar is needed (liquidity/volume rules off). */
+    const val TOUCH_TURN_OPENING_BAR_HISTORY_DURATION = "5 D"
     /** Liquidity when first 15m range is at least this fraction of 14-period ATR. */
     const val ATR_LIQUIDITY_RATIO = 0.25
     /** Opening-bar volume above this multiple of the 20 prior session-open volume SMA aborts entry. */

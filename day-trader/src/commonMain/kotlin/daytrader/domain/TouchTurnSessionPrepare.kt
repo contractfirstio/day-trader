@@ -61,7 +61,9 @@ data class TouchTurnSessionPrepare(
         ): Boolean {
             if (prepare == null) return false
             if (prepare.checks.any { it.status == TouchTurnPrepareStatus.FAIL.name }) return false
-            if (!prepare.signalContext.hasBootstrapMetrics()) return false
+            if (!prepare.signalContext.hasBootstrapMetrics(deployment.effectiveTouchTurnRules())) {
+                return false
+            }
             if (prepare.sessionDateIso != sessionDateIso) return false
             if (prepare.instrumentKey != DeploymentMarket.effectiveInstrument(deployment).dedupeKey()) {
                 return false

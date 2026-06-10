@@ -30,6 +30,13 @@ data class TouchTurnRuleEnables(
 fun TouchTurnRuleEnables.requiresLiquidityRange(): Boolean =
     liquidityRange15mAtr || liquidityRangeDailyAtr
 
+/** Full 2M 15m history for 15m ATR liquidity and/or volume-exhaustion SMA. */
+fun TouchTurnRuleEnables.requiresDeep15mHistoricalBootstrap(): Boolean =
+    liquidityRange15mAtr || volumeExhaustion
+
+fun TouchTurnRuleEnables.requiresDailyHistoricalBootstrap(): Boolean =
+    liquidityRangeDailyAtr
+
 @Serializable
 data class TouchTurnRuleToggleDefinition(
     val key: String,
@@ -81,6 +88,7 @@ data class TouchTurnRuleConfig(
 
         fun defaultForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig =
             DEFAULT.copy(entryInwardOffsetRatioOfRange = kind.entryInwardOffsetRatioOfRangeDefault())
+                .withLiquidityGatesForBrokerKind(kind)
 
         val toggleDefinitions: List<TouchTurnRuleToggleDefinition> = listOf(
             TouchTurnRuleToggleDefinition(
@@ -404,6 +412,25 @@ fun BrokerKind.entryInwardOffsetRatioOfRangeDefault(): Double =
             TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE
     }
 
+/** IB and hybrid use daily ATR(14) liquidity; offline emulator/replay keep 15m ATR(14). */
+fun BrokerKind.defaultLiquidityRange15mAtrEnabled(): Boolean = when (this) {
+    BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> false
+    BrokerKind.EMULATOR, BrokerKind.REPLAY -> true
+}
+
+fun BrokerKind.defaultLiquidityRangeDailyAtrEnabled(): Boolean = when (this) {
+    BrokerKind.INTERACTIVE_BROKERS, BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> true
+    BrokerKind.EMULATOR, BrokerKind.REPLAY -> false
+}
+
+fun TouchTurnRuleConfig.withLiquidityGatesForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig {
+    val targetEnables = enables.copy(
+        liquidityRange15mAtr = kind.defaultLiquidityRange15mAtrEnabled(),
+        liquidityRangeDailyAtr = kind.defaultLiquidityRangeDailyAtrEnabled()
+    )
+    return if (targetEnables == enables) this else copy(enables = targetEnables)
+}
+
 fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): TouchTurnRuleConfig {
     val target = kind.entryInwardOffsetRatioOfRangeDefault()
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
@@ -413,6 +440,22 @@ fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): To
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
     val normalizedEnables = enables.copy(notDoji = false, openDeadline = false)
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
+}
+
+fun StrategyDeployment.withLiquidityGatesForBrokerKind(kind: BrokerKind): StrategyDeployment {
+    val rules = touchTurnRules.withLiquidityGatesForBrokerKind(kind)
+    val session = touchTurnSession?.let { ctx ->
+        val patchedRules = ctx.rules.withLiquidityGatesForBrokerKind(kind)
+        if (patchedRules == ctx.rules) ctx else ctx.copy(rules = patchedRules)
+    }
+    val history = sessionHistory.map { day ->
+        val record = day.touchTurnRunRecord ?: return@map day
+        val runRules = record.rules ?: return@map day
+        val patchedRules = runRules.withLiquidityGatesForBrokerKind(kind)
+        if (patchedRules == runRules) day else day.copy(touchTurnRunRecord = record.copy(rules = patchedRules))
+    }
+    if (rules == touchTurnRules && session == touchTurnSession && history == sessionHistory) return this
+    return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
 }
 
 fun StrategyDeployment.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): StrategyDeployment {

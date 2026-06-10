@@ -21,7 +21,11 @@ data class TouchTurnSignalContext(
      */
     val todayOpeningBarPending: Boolean = false
 ) {
-    fun hasBootstrapMetrics(): Boolean =
-        atr14 > 0.0 && volumeSma20 > 0.0 &&
-            (dailyAtr14 == null || dailyAtr14 > 0.0)
+    fun hasBootstrapMetrics(rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT): Boolean {
+        val atrOk = !rules.enables.liquidityRange15mAtr || atr14 > 0.0
+        val volumeOk = !rules.enables.volumeExhaustion || volumeSma20 > 0.0
+        val dailyOk = !rules.enables.liquidityRangeDailyAtr ||
+            (dailyAtr14 != null && dailyAtr14 > 0.0)
+        return atrOk && volumeOk && dailyOk
+    }
 }

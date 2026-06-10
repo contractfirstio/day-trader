@@ -33,6 +33,8 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.requiresDailyHistoricalBootstrap
+import daytrader.domain.requiresDeep15mHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.AccountPosition
@@ -1766,8 +1768,13 @@ class DesktopIbGatewayConnection(
             allowMissingToday = allowMissingTodayOpeningBar,
             rules = rules
         )
-        if (rules.enables.liquidityRangeDailyAtr) {
+        if (rules.enables.requiresDailyHistoricalBootstrap()) {
             requestDailyBarsForSignalContext(gatewayRequestId, trimmed, instrument, marketZoneId)
+        }
+        val fifteenMinuteDuration = if (rules.enables.requiresDeep15mHistoricalBootstrap()) {
+            TOUCH_TURN_HISTORICAL_DURATION
+        } else {
+            TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
         }
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
@@ -1787,7 +1794,7 @@ class DesktopIbGatewayConnection(
                 reqId,
                 contract,
                 "",
-                TOUCH_TURN_HISTORICAL_DURATION,
+                fifteenMinuteDuration,
                 TOUCH_TURN_HISTORICAL_BAR_SIZE,
                 HISTORICAL_WHAT_TO_SHOW,
                 1,
@@ -1861,7 +1868,7 @@ class DesktopIbGatewayConnection(
             deliverSignalContextReady(gatewayRequestId, Result.failure(IllegalStateException(message)))
             return
         }
-        if (pending.rules.enables.liquidityRangeDailyAtr && pending.dailyBars == null) return
+        if (pending.rules.enables.requiresDailyHistoricalBootstrap() && pending.dailyBars == null) return
         deliverSignalContextReady(
             gatewayRequestId,
             TouchTurnLogic.deriveTouchTurnSignalContext(
@@ -2914,6 +2921,8 @@ class DesktopIbGatewayConnection(
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
         /** See [TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION]. */
         val TOUCH_TURN_HISTORICAL_DURATION: String = TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION
+        val TOUCH_TURN_OPENING_BAR_HISTORY_DURATION: String =
+            TouchTurnDefaults.TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
         const val TOUCH_TURN_HISTORICAL_BAR_SIZE = "15 mins"
         const val TOUCH_TURN_HISTORICAL_TIMEOUT_MS = 45_000L
         /** RT Volume generic tick for live trade-size updates (volume buffer). */

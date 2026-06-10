@@ -1575,6 +1575,81 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun deriveTouchTurnSignalContext_dailyAtrOnly_skips15mAtrAndVolumeSma() {
+        val opening = OhlcBar(
+            open = 100.0,
+            high = 105.0,
+            low = 99.0,
+            close = 104.0,
+            time = "20260604  09:30:00",
+            volume = 12_000.0
+        )
+        val dailyBars = (1..16).map { day ->
+            OhlcBar(
+                open = 100.0 + day,
+                high = 102.0 + day,
+                low = 98.0 + day,
+                close = 101.0 + day,
+                time = "202605${day.toString().padStart(2, '0')}  16:00:00",
+                volume = 1_000_000.0
+            )
+        }
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = true,
+                volumeExhaustion = false
+            )
+        )
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = listOf(opening),
+            marketZoneId = "America/New_York",
+            sessionDayYyyyMmdd = "20260604",
+            explicitFirstCandle = opening,
+            dailyBars = dailyBars,
+            rules = rules
+        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        val ctx = result.getOrThrow()
+        assertEquals(0.0, ctx.atr14)
+        assertEquals(0.0, ctx.volumeSma20)
+        assertTrue(ctx.dailyAtr14 != null && ctx.dailyAtr14 > 0.0)
+        assertTrue(ctx.hasBootstrapMetrics(rules))
+    }
+
+    @Test
+    fun deriveTouchTurnSignalContext_failsWhenDailyAtrRuleEnabledButDailyBarsMissing() {
+        val opening = OhlcBar(
+            open = 100.0,
+            high = 105.0,
+            low = 99.0,
+            close = 104.0,
+            time = "20260604  09:30:00",
+            volume = 12_000.0
+        )
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRange15mAtr = false,
+                liquidityRangeDailyAtr = true,
+                volumeExhaustion = false
+            )
+        )
+        val result = TouchTurnLogic.deriveTouchTurnSignalContext(
+            bars = listOf(opening),
+            marketZoneId = "America/New_York",
+            sessionDayYyyyMmdd = "20260604",
+            explicitFirstCandle = opening,
+            dailyBars = null,
+            rules = rules
+        )
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()?.message?.contains("Daily bars required") == true,
+            result.exceptionOrNull()?.message
+        )
+    }
+
+    @Test
     fun deriveTouchTurnSignalContext_withoutTodayBar_failsWithMarketLabel() {
         val zone = "Europe/London"
         val session = "20260604"

@@ -980,8 +980,16 @@ object TouchTurnLogic {
         dailyAtr14: Double?,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnLiquidityThresholds = TouchTurnLiquidityThresholds(
-        threshold15mAtr = atr14?.let { liquidityRangeThresholdFromAtr(it, rules) },
-        thresholdDailyAtr = dailyAtr14?.let { liquidityRangeThresholdFromDailyAtr(it, rules) }
+        threshold15mAtr = if (rules.enables.liquidityRange15mAtr) {
+            atr14?.takeIf { it > 0.0 }?.let { liquidityRangeThresholdFromAtr(it, rules) }
+        } else {
+            null
+        },
+        thresholdDailyAtr = if (rules.enables.liquidityRangeDailyAtr) {
+            dailyAtr14?.takeIf { it > 0.0 }?.let { liquidityRangeThresholdFromDailyAtr(it, rules) }
+        } else {
+            null
+        }
     )
 
     /**
@@ -1201,9 +1209,17 @@ object TouchTurnLogic {
                 }
                 .sortedBy { barTimeSortKey(it.time) }
         }
-        val atrResult = computeAtr14(priorForAtr, rules.atrLookbackPeriods)
-        val priorOpenings = priorSessionOpeningFifteenMinuteBars(bars, marketZoneId, sessionDayYyyyMmdd)
-        val volumeResult = computeVolumeSma20(priorOpenings, rules.volumeSmaPeriods)
+        val atrResult = if (rules.enables.liquidityRange15mAtr) {
+            computeAtr14(priorForAtr, rules.atrLookbackPeriods)
+        } else {
+            Result.success(0.0)
+        }
+        val volumeResult = if (rules.enables.volumeExhaustion) {
+            val priorOpenings = priorSessionOpeningFifteenMinuteBars(bars, marketZoneId, sessionDayYyyyMmdd)
+            computeVolumeSma20(priorOpenings, rules.volumeSmaPeriods)
+        } else {
+            Result.success(0.0)
+        }
         if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
         if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
         val dailyAtrResult = dailyBars?.let {

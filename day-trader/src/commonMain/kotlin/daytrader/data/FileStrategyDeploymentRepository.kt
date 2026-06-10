@@ -11,6 +11,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.withNewConfigurableTouchTurnRulesDisabled
 import daytrader.domain.withDefaultCloseTurnZones
 import daytrader.domain.withEntryInwardOffsetForBrokerKind
+import daytrader.domain.withLiquidityGatesForBrokerKind
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,7 @@ class FileStrategyDeploymentRepository(
         val brokerKind = AppFileSystem.currentDataScope()
         var updated = deployments.map { it.withNewConfigurableTouchTurnRulesDisabled() }
         updated = updated.map { it.withEntryInwardOffsetForBrokerKind(brokerKind) }
+        updated = updated.map { it.withLiquidityGatesForBrokerKind(brokerKind) }
         updated = updated.map { it.withDefaultCloseTurnZones() }
         if (updated != deployments) {
             writer.persistNow(updated)
