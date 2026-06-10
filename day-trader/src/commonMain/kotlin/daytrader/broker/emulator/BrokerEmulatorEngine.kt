@@ -2,6 +2,9 @@ package daytrader.broker.emulator
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.MacroTrendState
+import daytrader.domain.RthMarketSessions
+import daytrader.domain.StockTrendState
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
@@ -49,6 +52,8 @@ class BrokerEmulatorEngine(
     private var firstCandleFetchCount = 0
     /** Bootstrap fetch index per symbol; refetch reuses without incrementing. */
     private val lockedCandleFetchIndexBySymbol = mutableMapOf<String, Int>()
+    /** Touch Turn symbol registered per RTH zone after bootstrap/refetch (drives aligned trend mocks). */
+    private val touchTurnSymbolByZone = mutableMapOf<String, String>()
     private val externalFeedReadyLogged = mutableSetOf<String>()
     /** Per-symbol holders for synthetic streaming quotes (session-scoped, like IB hybrid). */
     private val streamSubscriptionRefCount = mutableMapOf<String, Int>()
@@ -128,6 +133,7 @@ class BrokerEmulatorEngine(
         pendingBracketWalks.clear()
         bracketEntryPending.clear()
         lockedCandleFetchIndexBySymbol.clear()
+        touchTurnSymbolByZone.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
@@ -159,6 +165,7 @@ class BrokerEmulatorEngine(
             Result.failure(IllegalArgumentException(message))
         } else {
             val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch = false)
+            registerTouchTurnSessionSymbol(trimmed, instrument)
             val candleResult = EmulatorHistoricalData.firstFifteenMinuteCandle(
                 symbol = trimmed,
                 instrument = instrument,
@@ -245,12 +252,29 @@ class BrokerEmulatorEngine(
             if (lastPrice == null) {
                 Result.failure(IllegalStateException("No emulator daily bars for $symbol"))
             } else {
+                val norm = SymbolMarkets.normalizeSymbol(trimmed)
+                val stockTrend = config.stockTrendBySymbol[norm]
+                    ?: alignedStockTrendForSymbol(norm)
+                    ?: StockTrendState.UP
+                val closes = if (config.stockTrendBySymbol.containsKey(norm)) {
+                    daytrader.domain.StockTrendEvaluator.historicalClosesForTrend(
+                        lastPrice = lastPrice,
+                        trend = stockTrend
+                    )
+                } else {
+                    daytrader.domain.StockTrendEvaluator.paddedDailyCloses(
+                        lastPrice = lastPrice,
+                        dailyCloses = bars.map { it.close },
+                        trend = stockTrend
+                    )
+                }
+                val resolvedLast = closes.last()
                 Result.success(
-                    daytrader.data.ReversalScoreService.syntheticSymbolSnapshot(lastPrice).copy(
+                    daytrader.data.ReversalScoreService.syntheticSymbolSnapshot(resolvedLast).copy(
                         historical = daytrader.domain.ReversalScoreHistoricalSnapshot(
-                            dailyCloses = bars.map { it.close },
-                            dailyVolumes = bars.map { it.close * 10_000.0 },
-                            historicalIvValues = bars.map { 0.15 + (it.close.toInt() % 7) * 0.005 }
+                            dailyCloses = closes,
+                            dailyVolumes = closes.map { it * 10_000.0 },
+                            historicalIvValues = closes.map { 0.15 + (it.toInt() % 7) * 0.005 }
                         )
                     )
                 )
@@ -272,17 +296,40 @@ class BrokerEmulatorEngine(
     suspend fun fetchSpyRegimeSnapshot(requestId: Long) {
         delay(config.historicalDelayMs)
         val result = runCatching {
-            val resolved = resolveInstrument("SPY")
-                ?: error("Unknown symbol: SPY")
-            val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(resolved.marketZoneId, System.currentTimeMillis())
-            val bars = EmulatorHistoricalData.buildDailyBars("SPY", resolved, sessionDay)
-            val lastPrice = bars.lastOrNull()?.close?.takeIf { it > 0.0 }
-                ?: error("No emulator daily bars for SPY")
-            val closes = bars.map { it.close }
-            daytrader.domain.SpyRegimeEvaluator.buildSnapshot(lastPrice, closes).getOrThrow()
+            buildHomeMarketRegimeSnapshot(RthMarketSessions.US.zoneId).getOrThrow()
+                .let { macro ->
+                    daytrader.domain.SpyRegimeSnapshot(
+                        lastPrice = macro.lastPrice,
+                        sma200 = macro.sma200,
+                        dailyCloses = macro.dailyCloses
+                    )
+                }
         }
         emit(GatewayEvent.SpyRegimeSnapshotReady(requestId, result))
     }
+
+    suspend fun fetchHomeMarketRegimeSnapshot(requestId: Long, marketZoneId: String) {
+        delay(config.historicalDelayMs)
+        val result = buildHomeMarketRegimeSnapshot(marketZoneId)
+        emit(GatewayEvent.HomeMarketRegimeSnapshotReady(requestId, result))
+    }
+
+    private fun buildHomeMarketRegimeSnapshot(marketZoneId: String): Result<daytrader.domain.MacroRegimeSnapshot> =
+        runCatching {
+            val benchmark = daytrader.domain.HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+            val resolved = resolveInstrument(benchmark.symbol)
+                ?: error("Unknown macro benchmark: ${benchmark.symbol}")
+            val lastPrice = resolved.referencePrice.takeIf { it > 0.0 }
+                ?: error("No emulator price for ${benchmark.symbol}")
+            val trend = config.homeMacroTrendByZone[marketZoneId]
+                ?: alignedMacroTrendForZone(marketZoneId)
+                ?: MacroTrendState.BULL
+            daytrader.domain.MacroRegimeEvaluator.buildSyntheticSnapshot(
+                benchmark = benchmark,
+                lastPrice = lastPrice,
+                trend = trend
+            )
+        }
 
     suspend fun fetchTouchTurnSignalContext(
         requestId: Long,
@@ -297,6 +344,7 @@ class BrokerEmulatorEngine(
             Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
         } else {
             val fetchIndex = resolveSessionCandleFetchIndex(trimmed, isClosedBarRefetch)
+            registerTouchTurnSessionSymbol(trimmed, instrument)
             EmulatorHistoricalData.touchTurnSignalContext(
                 symbol = trimmed,
                 instrument = instrument,
@@ -318,11 +366,52 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.TouchTurnSignalContextReady(requestId, result))
     }
 
+    private fun registerTouchTurnSessionSymbol(symbol: String, instrument: EmulatorInstrument) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        touchTurnSymbolByZone[instrument.marketZoneId] = norm
+    }
+
+    /**
+     * Fade alignment: green short → bear macro / down stock; red long → bull macro / up stock.
+     * Used when trend-rule overrides are absent so emulator sessions complete end-to-end.
+     */
+    private fun alignedMacroTrendForZone(marketZoneId: String): MacroTrendState? =
+        touchTurnSymbolByZone[marketZoneId]?.let { alignedMacroTrendForSymbol(it) }
+
+    private fun alignedStockTrendForSymbol(norm: String): StockTrendState? =
+        when (resolveFirstCandleIsGreenForSymbol(norm)) {
+            true -> StockTrendState.DOWN
+            false -> StockTrendState.UP
+            null -> null
+        }
+
+    private fun alignedMacroTrendForSymbol(norm: String): MacroTrendState? =
+        when (resolveFirstCandleIsGreenForSymbol(norm)) {
+            true -> MacroTrendState.BEAR
+            false -> MacroTrendState.BULL
+            null -> null
+        }
+
+    private fun resolveFirstCandleIsGreenForSymbol(symbol: String): Boolean? {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val instrument = resolveInstrument(norm) ?: return null
+        val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(instrument.marketZoneId, System.currentTimeMillis())
+        val fetchIndex = lockedCandleFetchIndexBySymbol[norm] ?: return null
+        return EmulatorHistoricalData.resolveFirstCandleIsGreen(
+            norm = norm,
+            sessionYmd = sessionDay,
+            colorMode = config.firstCandleColorMode,
+            sessionCandleFetchIndex = fetchIndex,
+            alternateFirstCandleColor = config.alternateFirstCandleColor
+        )
+    }
+
     /**
      * When [alternateFirstCandleColor] is on, each Touch Turn **session** (bootstrap + refetch)
      * shares one index; only bootstrap increments so refetch does not flip green/red.
      */
-    private fun resolveSessionCandleFetchIndex(norm: String, isClosedBarRefetch: Boolean): Int {
+    private fun resolveSessionCandleFetchIndex(symbol: String, isClosedBarRefetch: Boolean): Int {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (!config.alternateFirstCandleColor ||
             config.firstCandleColorMode != EmulatorFirstCandleColorMode.AUTO
         ) {
@@ -890,45 +979,10 @@ class BrokerEmulatorEngine(
         return parent.status == "Filled"
     }
 
-    private fun entryTouchBuffer(range: Double): Double =
-        (range * 0.05).coerceAtLeast(0.05)
-
-    private fun recordEntryApproachSide(symbol: String, quote: EmulatorMarketQuote) {
-        val pending = bracketEntryPending[symbol] ?: return
-        val buffer = entryTouchBuffer(pending.range)
-        when {
-            pending.isBuyEntry && quote.ask > pending.entryPrice + buffer ->
-                pending.sawApproachSide = true
-            !pending.isBuyEntry && quote.bid < pending.entryPrice - buffer ->
-                pending.sawApproachSide = true
-        }
-    }
-
-    private fun touchTurnEntryLimitMayFill(order: EmulatorOrder, quote: EmulatorMarketQuote): Boolean {
-        if (order.parentId != 0 || !bracketManagedOrderIds.contains(order.orderId)) {
-            return true
-        }
-        if (!config.pricingSource.isExternal) {
-            return true
-        }
-        val norm = SymbolMarkets.normalizeSymbol(order.symbol)
-        val pending = bracketEntryPending[norm] ?: return true
-        recordEntryApproachSide(norm, quote)
-        val limit = order.limitPrice ?: return false
-        val limitCrossed = when (order.action.uppercase()) {
-            "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
-            "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)
-            else -> false
-        }
-        if (!limitCrossed) return false
-        return pending.sawApproachSide
-    }
-
     private fun maybeFillLimitOrder(order: EmulatorOrder) {
         if (!quoteBook.canTriggerFills(order.symbol)) return
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return
         val limit = order.limitPrice ?: return
-        if (!touchTurnEntryLimitMayFill(order, quote)) return
         val shouldFill = when (order.action.uppercase()) {
             "BUY" -> EmulatorMarketQuoteBook.buyLimitFillable(quote.ask, limit)
             "SELL" -> EmulatorMarketQuoteBook.sellLimitFillable(quote.bid, limit)

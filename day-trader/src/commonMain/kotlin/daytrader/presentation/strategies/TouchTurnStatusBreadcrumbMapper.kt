@@ -236,6 +236,10 @@ object TouchTurnStatusBreadcrumbMapper {
                 return failedPhase(session)
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED,
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
@@ -823,6 +827,10 @@ object TouchTurnStatusBreadcrumbMapper {
         }
 
     private val noTradeAfterRulesOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED,
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,

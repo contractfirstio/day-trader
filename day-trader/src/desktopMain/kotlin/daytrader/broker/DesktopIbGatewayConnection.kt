@@ -57,6 +57,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.sync.Mutex
@@ -240,6 +241,13 @@ class DesktopIbGatewayConnection(
                         scope.launch {
                             reversalScoreHandler.requestSpyRegime(command.requestId)
                         }
+                    is GatewayCommand.FetchHomeMarketRegimeSnapshot ->
+                        scope.launch {
+                            reversalScoreHandler.requestHomeMarketRegimeSnapshot(
+                                command.requestId,
+                                command.marketZoneId
+                            )
+                        }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         scope.launch {
                             requestFirstFifteenMinuteCandle(
@@ -369,8 +377,12 @@ class DesktopIbGatewayConnection(
         adrHistoricalCacheKey[reqId] = cacheKey
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, ADR_HISTORICAL_TIMEOUT_MS) {
-            cancelAdrHistorical(reqId)
             failAdrHistorical(reqId, "14-day ADR request timed out after ${ADR_HISTORICAL_TIMEOUT_MS / 1000}s")
+            paced {
+                if (client.isConnected) {
+                    runCatching { client.cancelHistoricalData(reqId) }
+                }
+            }
         }
         requestPacer.enqueue {
             if (!client.isConnected) {
@@ -854,7 +866,7 @@ class DesktopIbGatewayConnection(
     override fun historicalData(reqId: Int, bar: Bar) {
         try {
             if (reversalScoreHandler.onHistoricalData(reqId, bar)) return
-            if (adrGatewayRequestId.containsKey(reqId)) {
+            if (isAdrHistoricalReqId(reqId)) {
                 if (bar.high() > 0.0 && bar.low() > 0.0) {
                     adrHistoricalBars.getOrPut(reqId) { mutableListOf() }.add(bar)
                 }
@@ -877,7 +889,7 @@ class DesktopIbGatewayConnection(
     override fun historicalDataEnd(reqId: Int, start: String?, end: String?) {
         try {
             if (reversalScoreHandler.onHistoricalDataEnd(reqId)) return
-            if (adrGatewayRequestId.containsKey(reqId)) {
+            if (isAdrHistoricalReqId(reqId)) {
                 completeAdrHistorical(reqId)
                 return
             }
@@ -890,6 +902,9 @@ class DesktopIbGatewayConnection(
             logCallbackFailure("historicalDataEnd", e)
         }
     }
+
+    private fun isAdrHistoricalReqId(reqId: Int): Boolean =
+        adrGatewayRequestId.containsKey(reqId) || adrReqIdForSignalContextGateway.containsKey(reqId)
 
     override fun historicalDataProtoBuf(historicalData: HistoricalDataProto.HistoricalData) {
         try {
@@ -1803,7 +1818,46 @@ class DesktopIbGatewayConnection(
                 null
             )
         }
-        return withTimeout(QueuedBrokerGateway.HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        val timeoutMs = TouchTurnDefaults.SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS
+        return try {
+            withTimeout(timeoutMs) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            abortTouchTurnSignalContextComposite(gatewayRequestId, trimmed, timeoutMs)
+        }
+    }
+
+    private fun abortTouchTurnSignalContextComposite(
+        gatewayRequestId: Long,
+        symbol: String,
+        timeoutMs: Long
+    ): Result<TouchTurnSignalContext> {
+        val pending = pendingTouchTurnSignalContext.remove(gatewayRequestId)
+        oneShotSignalContext.remove(gatewayRequestId)
+        cancelInFlightSignalContextHistoricals(gatewayRequestId)
+        val pendingLegs = TouchTurnLogic.describeSignalContextBootstrapPendingLegs(
+            bars15mReady = pending?.bars15m != null,
+            bars15mCount = pending?.bars15m?.size ?: 0,
+            dailyBarsRequired = pending?.rules?.enables?.requiresDailyHistoricalBootstrap() == true,
+            dailyBarsReady = pending?.dailyBars != null,
+            dailyFetchFailed = pending?.dailyFetchFailed
+        )
+        IbGatewayLog.signalContextBootstrapTimeout(symbol, pendingLegs, timeoutMs)
+        val message =
+            "Touch Turn signal context timed out after ${timeoutMs / 1000}s (pending: $pendingLegs)"
+        return Result.failure(IllegalStateException(message))
+    }
+
+    private fun cancelInFlightSignalContextHistoricals(gatewayRequestId: Long) {
+        touchTurnGatewayRequestId.entries
+            .filter { it.value == gatewayRequestId }
+            .map { it.key }
+            .toList()
+            .forEach { cancelTouchTurnHistorical(it) }
+        adrReqIdForSignalContextGateway.entries
+            .filter { it.value == gatewayRequestId }
+            .map { it.key }
+            .toList()
+            .forEach { cancelAdrHistorical(it) }
     }
 
     private fun deliverSignalContextReady(gatewayRequestId: Long, result: Result<TouchTurnSignalContext>) {
@@ -1831,10 +1885,15 @@ class DesktopIbGatewayConnection(
         adrHistoricalMarketZoneId[reqId] = marketZoneId
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, ADR_HISTORICAL_TIMEOUT_MS) {
-            cancelAdrHistorical(reqId)
-            pendingTouchTurnSignalContext[gatewayRequestId]?.dailyFetchFailed =
+            failAdrHistorical(
+                reqId,
                 "Daily bar history request timed out after ${ADR_HISTORICAL_TIMEOUT_MS / 1000}s"
-            tryCompletePendingTouchTurnSignalContext(gatewayRequestId)
+            )
+            paced {
+                if (client.isConnected) {
+                    runCatching { client.cancelHistoricalData(reqId) }
+                }
+            }
         }
         requestPacer.enqueue {
             if (!client.isConnected) {

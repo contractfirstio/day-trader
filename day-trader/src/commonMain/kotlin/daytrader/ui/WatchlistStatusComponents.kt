@@ -68,11 +68,8 @@ internal fun WatchlistStatusStrip(
             label = strip.priceModeLabel,
             tooltip = strip.priceModeTooltip
         )
-        strip.macroChipLabel?.let { label ->
-            StatusChip(
-                label = label,
-                tone = strip.macroChipTone ?: WatchlistConnectionChipTone.CONNECTED
-            )
+        strip.macroChips.forEach { chip ->
+            StatusChip(label = chip.label, tone = chip.tone)
         }
     }
 }
@@ -168,7 +165,12 @@ internal fun WatchlistMacroRegimeCard(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("MACRO REGIME", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${card.benchmarkLabel.uppercase()} REGIME",
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     Text(
                         card.trendLabel,
                         color = accent,
@@ -185,9 +187,14 @@ internal fun WatchlistMacroRegimeCard(
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("SPY · 200-day SMA", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        card.spyPriceLabel,
+                        "${card.benchmarkLabel} · 200-day SMA",
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        card.indexPriceLabel,
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,

@@ -183,7 +183,13 @@ data class TouchTurnSessionContext(
     /** Rule thresholds snapshotted from deployment at session start. */
     val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
     /** Pre-flight checks captured when this session was started. */
-    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null,
+    /** Home-market macro trend at liquidity evaluation (when macro trend alignment rule is enabled). */
+    val macroTrendAtEntry: MacroTrendState? = null,
+    val macroBenchmarkSymbol: String? = null,
+    val macroBenchmarkLabel: String? = null,
+    /** Symbol daily trend at liquidity evaluation (when stock trend alignment rule is enabled). */
+    val stockTrendAtEntry: StockTrendState? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 

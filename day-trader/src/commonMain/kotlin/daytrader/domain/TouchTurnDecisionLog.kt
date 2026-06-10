@@ -296,6 +296,14 @@ object TouchTurnDecisionLog {
                 detail("  HINT: bar range must exceed 25% of 14-day ADR")
             TouchTurnSessionOutcome.NO_TRADE_DOJI ->
                 detail("  HINT: DOJI / non-actionable candle — no bracket")
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED ->
+                detail("  HINT: macro trend alignment — green short needs home-market bear, red long needs bull")
+            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE ->
+                detail("  HINT: home-market index regime data unavailable — check IB index subscription / contract")
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED ->
+                detail("  HINT: stock trend alignment — green short needs downtrend, red long needs uptrend")
+            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE ->
+                detail("  HINT: symbol daily trend data unavailable — check IB historical request")
             else -> Unit
         }
     }

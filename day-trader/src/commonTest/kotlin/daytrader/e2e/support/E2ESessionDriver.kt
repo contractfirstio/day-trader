@@ -23,9 +23,12 @@ class E2ESessionDriver(
         engine.dispatch(TouchTurnCommand.BrokerConnected)
     }
 
-    suspend fun loadFirstCandle(deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID) {
+    suspend fun loadFirstCandle(
+        deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
+        sessionDate: String = E2ETestFixtures.SESSION_DATE
+    ) {
         engine.dispatch(
-            TouchTurnCommand.LoadFirstCandle(deploymentId, E2ETestFixtures.SESSION_DATE)
+            TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate)
         )
         awaitCandleReady(deploymentId)
         delay(250)

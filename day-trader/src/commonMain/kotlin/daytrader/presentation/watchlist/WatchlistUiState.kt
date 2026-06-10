@@ -77,14 +77,14 @@ data class WatchlistStatusStripUi(
     val priceModeLabel: String = "On-demand prices",
     val priceModeTooltip: String =
         "Last prices refresh when you run Check proximity (IB historical requests, not streaming).",
-    val macroChipLabel: String? = null,
-    val macroChipTone: WatchlistConnectionChipTone? = null
+    val macroChips: List<WatchlistConnectionChipUi> = emptyList()
 )
 
 data class WatchlistMacroRegimeCardUi(
+    val benchmarkLabel: String,
     val trend: MacroTrendState?,
     val trendLabel: String,
-    val spyPriceLabel: String,
+    val indexPriceLabel: String,
     val distanceFromSmaLabel: String,
     val actionHint: String,
     val scoredLabel: String,
@@ -286,7 +286,7 @@ data class WatchlistUiState(
     val bracketOrderEditor: WatchlistBracketOrderUi? = null,
     val connectionLabel: String = "Disconnected",
     val statusStrip: WatchlistStatusStripUi = WatchlistStatusStripUi(),
-    val macroRegimeCard: WatchlistMacroRegimeCardUi? = null,
+    val macroRegimeCards: List<WatchlistMacroRegimeCardUi> = emptyList(),
     val activitySummary: WatchlistActivitySummaryUi? = null,
     val scanInProgress: Boolean = false,
     val scanProgress: WatchlistScanProgressUi? = null,

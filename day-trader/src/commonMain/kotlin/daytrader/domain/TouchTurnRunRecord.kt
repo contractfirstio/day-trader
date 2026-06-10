@@ -29,6 +29,14 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_ORDER_REJECTED,
     /** Opening 15m volume exceeded exhaustion threshold (high-conviction breakout). */
     NO_TRADE_VOLUME_EXHAUSTION,
+    /** SPY macro trend did not match fade direction when macro trend alignment is enabled. */
+    NO_TRADE_MACRO_TREND_MISALIGNED,
+    /** Home-market index regime data could not be loaded for macro trend alignment. */
+    NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
+    /** Symbol daily trend did not match fade direction when stock trend alignment is enabled. */
+    NO_TRADE_STOCK_TREND_MISALIGNED,
+    /** Symbol daily trend inputs could not be loaded for stock trend alignment. */
+    NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
     TRADE_BRACKET_SUBMITTED
 }
 

@@ -7,7 +7,11 @@ import com.ib.client.EClientSocket
 import com.ib.client.TickType
 import com.ib.client.Types
 import com.ib.client.protobuf.HistoricalDataProto
+import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.MacroBenchmark
+import daytrader.domain.MacroRegimeEvaluator
+import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.ReversalScoreHistoricalSnapshot
 import daytrader.domain.ReversalScoreLiveSnapshot
 import daytrader.domain.ReversalScoreMacroVolSnapshot
@@ -82,6 +86,20 @@ internal class ReversalScoreIbHandler(
     private val spyByHistoricalReqId = ConcurrentHashMap<Int, Long>()
     private val spyByLiveReqId = ConcurrentHashMap<Int, Long>()
     private val spyTimeoutJobs = ConcurrentHashMap<Long, Job>()
+
+    private data class HomeMarketRegimeRequest(
+        val gatewayRequestId: Long,
+        val benchmark: MacroBenchmark,
+        val contractCandidates: List<Contract>,
+        var contractAttempt: Int = 0,
+        val dailyCloses: MutableList<Double> = mutableListOf(),
+        var liveLast: Double? = null
+    )
+
+    private val homeMarketRegimeRequests = ConcurrentHashMap<Long, HomeMarketRegimeRequest>()
+    private val homeMarketRegimeByHistoricalReqId = ConcurrentHashMap<Int, Long>()
+    private val homeMarketRegimeByLiveReqId = ConcurrentHashMap<Int, Long>()
+    private val homeMarketRegimeTimeoutJobs = ConcurrentHashMap<Long, Job>()
 
     fun requestSymbolSnapshot(gatewayRequestId: Long, symbol: String, instrument: InstrumentIdentity?) {
         if (!isConnected()) {
@@ -185,6 +203,34 @@ internal class ReversalScoreIbHandler(
     }
 
     fun onIbError(reqId: Int, errorCode: Int, errorMsg: String): Boolean {
+        homeMarketRegimeByHistoricalReqId.remove(reqId)?.let { gatewayRequestId ->
+            val request = homeMarketRegimeRequests[gatewayRequestId]
+            ReversalScoreLog.homeMarketRegimeStage(
+                benchmarkSymbol = request?.benchmark?.symbol ?: "unknown",
+                gatewayRequestId = gatewayRequestId,
+                stage = "history_error",
+                detail = "code=$errorCode msg=$errorMsg attempt=${request?.contractAttempt ?: -1}"
+            )
+            if (!advanceHomeMarketRegimeHistorical(gatewayRequestId, "history_error_$errorCode")) {
+                failHomeMarketRegime(
+                    gatewayRequestId,
+                    IllegalStateException(
+                        "${request?.benchmark?.label ?: "Home market"} historical error $errorCode: $errorMsg"
+                    )
+                )
+            }
+            return true
+        }
+        homeMarketRegimeByLiveReqId.remove(reqId)?.let { gatewayRequestId ->
+            ReversalScoreLog.homeMarketRegimeStage(
+                benchmarkSymbol = homeMarketRegimeRequests[gatewayRequestId]?.benchmark?.symbol ?: "unknown",
+                gatewayRequestId = gatewayRequestId,
+                stage = "live_error",
+                detail = "code=$errorCode msg=$errorMsg"
+            )
+            completeHomeMarketRegime(gatewayRequestId)
+            return true
+        }
         spyByHistoricalReqId.remove(reqId)?.let { gatewayRequestId ->
             failSpyRegime(gatewayRequestId, IllegalStateException("SPY historical error $errorCode: $errorMsg"))
             return true
@@ -235,9 +281,17 @@ internal class ReversalScoreIbHandler(
     private fun tracksHistoricalReqId(reqId: Int): Boolean =
         symbolByHistoricalReqId.containsKey(reqId) ||
             macroByHistoricalReqId.containsKey(reqId) ||
-            spyByHistoricalReqId.containsKey(reqId)
+            spyByHistoricalReqId.containsKey(reqId) ||
+            homeMarketRegimeByHistoricalReqId.containsKey(reqId)
+
+    private fun hasSufficientHomeMarketDailyCloses(count: Int): Boolean =
+        count >= MacroRegimeEvaluator.SMA_WINDOW
 
     private fun recordHistoricalClose(reqId: Int, close: Double) {
+        homeMarketRegimeByHistoricalReqId[reqId]?.let { gatewayRequestId ->
+            homeMarketRegimeRequests[gatewayRequestId]?.dailyCloses?.add(close)
+            return
+        }
         spyByHistoricalReqId[reqId]?.let { gatewayRequestId ->
             spyRequests[gatewayRequestId]?.dailyCloses?.add(close)
             return
@@ -341,6 +395,39 @@ internal class ReversalScoreIbHandler(
             maybeCompleteMacro(gatewayRequestId)
             return true
         }
+        homeMarketRegimeByHistoricalReqId.remove(reqId)?.let { gatewayRequestId ->
+            val request = homeMarketRegimeRequests[gatewayRequestId] ?: return true
+            val closeCount = request.dailyCloses.size
+            ReversalScoreLog.homeMarketRegimeStage(
+                benchmarkSymbol = request.benchmark.symbol,
+                gatewayRequestId = gatewayRequestId,
+                stage = "history_complete",
+                detail = "attempt=${request.contractAttempt} closes=$closeCount " +
+                    "exchange=${request.contractCandidates.getOrNull(request.contractAttempt)?.exchange()}"
+            )
+            if (!hasSufficientHomeMarketDailyCloses(closeCount)) {
+                if (!advanceHomeMarketRegimeHistorical(gatewayRequestId, "insufficient_closes_$closeCount")) {
+                    failHomeMarketRegime(
+                        gatewayRequestId,
+                        IllegalStateException(
+                            "Need at least ${MacroRegimeEvaluator.SMA_WINDOW} daily closes for " +
+                                "${request.benchmark.label} 200-SMA (got $closeCount)"
+                        )
+                    )
+                }
+                return true
+            }
+            requestPacer.enqueue {
+                val liveReqId = nextMktDataReqId()
+                homeMarketRegimeByLiveReqId[liveReqId] = gatewayRequestId
+                val contract = IbContractMapper.forDataRequest(
+                    request.contractCandidates[request.contractAttempt]
+                )
+                clientProvider().reqMktData(liveReqId, contract, "", true, false, null)
+                scheduleHomeMarketRegimeLiveFallback(gatewayRequestId, liveReqId)
+            }
+            return true
+        }
         spyByHistoricalReqId.remove(reqId)?.let { gatewayRequestId ->
             requestPacer.enqueue {
                 val liveReqId = nextMktDataReqId()
@@ -363,6 +450,91 @@ internal class ReversalScoreIbHandler(
             clientProvider().cancelMktData(liveReqId)
             completeSpyRegime(gatewayRequestId)
         }
+    }
+
+    fun requestHomeMarketRegimeSnapshot(gatewayRequestId: Long, marketZoneId: String) {
+        if (!isConnected()) {
+            deliverHomeMarketRegime(
+                gatewayRequestId,
+                Result.failure(IllegalStateException("Not connected to IB Gateway"))
+            )
+            return
+        }
+        val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+        val candidates = IbContractMapper.macroBenchmarkContractCandidates(benchmark.symbol)
+        ReversalScoreLog.homeMarketRegimeFetchStarted(
+            benchmarkSymbol = benchmark.symbol,
+            benchmarkLabel = benchmark.label,
+            gatewayRequestId = gatewayRequestId,
+            marketZoneId = marketZoneId
+        )
+        homeMarketRegimeRequests[gatewayRequestId] = HomeMarketRegimeRequest(
+            gatewayRequestId = gatewayRequestId,
+            benchmark = benchmark,
+            contractCandidates = candidates
+        )
+        scheduleHomeMarketRegimeTimeout(gatewayRequestId)
+        enqueueHomeMarketRegimeHistorical(gatewayRequestId)
+    }
+
+    private fun enqueueHomeMarketRegimeHistorical(gatewayRequestId: Long) {
+        requestPacer.enqueue {
+            if (!isConnected()) {
+                failHomeMarketRegime(
+                    gatewayRequestId,
+                    IllegalStateException("Disconnected before home-market regime request")
+                )
+                return@enqueue
+            }
+            val request = homeMarketRegimeRequests[gatewayRequestId] ?: return@enqueue
+            if (request.contractAttempt >= request.contractCandidates.size) {
+                failHomeMarketRegime(
+                    gatewayRequestId,
+                    IllegalStateException("No IB contract candidates left for ${request.benchmark.label}")
+                )
+                return@enqueue
+            }
+            request.dailyCloses.clear()
+            request.liveLast = null
+            val contract = IbContractMapper.forDataRequest(
+                request.contractCandidates[request.contractAttempt]
+            )
+            ReversalScoreLog.homeMarketRegimeStage(
+                benchmarkSymbol = request.benchmark.symbol,
+                gatewayRequestId = gatewayRequestId,
+                stage = "history_enqueued",
+                detail = "attempt=${request.contractAttempt} exchange=${contract.exchange()}"
+            )
+            val reqId = nextHistoricalReqId()
+            homeMarketRegimeByHistoricalReqId[reqId] = gatewayRequestId
+            clientProvider().reqHistoricalData(
+                reqId,
+                contract,
+                "",
+                HOME_MARKET_REGIME_DURATION,
+                SYMBOL_DAILY_BAR_SIZE,
+                SYMBOL_DAILY_WHAT_TO_SHOW,
+                0,
+                1,
+                false,
+                null
+            )
+        }
+    }
+
+    private fun advanceHomeMarketRegimeHistorical(gatewayRequestId: Long, reason: String): Boolean {
+        val request = homeMarketRegimeRequests[gatewayRequestId] ?: return false
+        val nextAttempt = request.contractAttempt + 1
+        if (nextAttempt >= request.contractCandidates.size) return false
+        request.contractAttempt = nextAttempt
+        ReversalScoreLog.homeMarketRegimeStage(
+            benchmarkSymbol = request.benchmark.symbol,
+            gatewayRequestId = gatewayRequestId,
+            stage = "retry_contract",
+            detail = "reason=$reason nextAttempt=$nextAttempt"
+        )
+        enqueueHomeMarketRegimeHistorical(gatewayRequestId)
+        return true
     }
 
     fun requestSpyRegime(gatewayRequestId: Long) {
@@ -400,6 +572,19 @@ internal class ReversalScoreIbHandler(
 
     fun onTickPrice(reqId: Int, field: Int, price: Double) {
         if (price <= 0.0) return
+        homeMarketRegimeByLiveReqId[reqId]?.let { gatewayRequestId ->
+            if (field == TickType.LAST.index() ||
+                field == TickType.DELAYED_LAST.index() ||
+                field == TickType.CLOSE.index() ||
+                field == TickType.DELAYED_CLOSE.index()
+            ) {
+                homeMarketRegimeRequests[gatewayRequestId]?.liveLast = price
+                clientProvider().cancelMktData(reqId)
+                homeMarketRegimeByLiveReqId.remove(reqId)
+                completeHomeMarketRegime(gatewayRequestId)
+            }
+            return
+        }
         spyByLiveReqId[reqId]?.let { gatewayRequestId ->
             if (field == TickType.LAST.index() ||
                 field == TickType.DELAYED_LAST.index() ||
@@ -448,6 +633,11 @@ internal class ReversalScoreIbHandler(
     }
 
     fun onSnapshotEnd(reqId: Int) {
+        homeMarketRegimeByLiveReqId.remove(reqId)?.let { gatewayRequestId ->
+            clientProvider().cancelMktData(reqId)
+            completeHomeMarketRegime(gatewayRequestId)
+            return
+        }
         spyByLiveReqId.remove(reqId)?.let { gatewayRequestId ->
             clientProvider().cancelMktData(reqId)
             completeSpyRegime(gatewayRequestId)
@@ -603,6 +793,69 @@ internal class ReversalScoreIbHandler(
         deliverMacro(gatewayRequestId, Result.failure(error))
     }
 
+    private fun scheduleHomeMarketRegimeLiveFallback(gatewayRequestId: Long, liveReqId: Int) {
+        scope.launch {
+            delay(SNAPSHOT_FALLBACK_MS)
+            if (homeMarketRegimeByLiveReqId.remove(liveReqId) == null) return@launch
+            clientProvider().cancelMktData(liveReqId)
+            completeHomeMarketRegime(gatewayRequestId)
+        }
+    }
+
+    private fun scheduleHomeMarketRegimeTimeout(gatewayRequestId: Long) {
+        homeMarketRegimeTimeoutJobs[gatewayRequestId]?.cancel()
+        homeMarketRegimeTimeoutJobs[gatewayRequestId] = scope.launch {
+            delay(QueuedBrokerGateway.REVERSAL_SCORE_REQUEST_TIMEOUT_MS)
+            if (homeMarketRegimeRequests.containsKey(gatewayRequestId)) {
+                completeHomeMarketRegime(gatewayRequestId)
+            }
+        }
+    }
+
+    private fun completeHomeMarketRegime(gatewayRequestId: Long) {
+        val request = homeMarketRegimeRequests.remove(gatewayRequestId) ?: return
+        homeMarketRegimeTimeoutJobs.remove(gatewayRequestId)?.cancel()
+        val lastPrice = request.liveLast ?: request.dailyCloses.lastOrNull()
+        if (lastPrice == null || lastPrice <= 0.0) {
+            failHomeMarketRegime(
+                gatewayRequestId,
+                IllegalStateException("No ${request.benchmark.label} price for regime snapshot")
+            )
+            return
+        }
+        val snapshotResult = MacroRegimeEvaluator.buildSnapshot(
+            benchmark = request.benchmark,
+            lastPrice = lastPrice,
+            dailyCloses = request.dailyCloses
+        )
+        snapshotResult.onSuccess { snapshot ->
+            ReversalScoreLog.homeMarketRegimeDelivered(
+                benchmarkSymbol = request.benchmark.symbol,
+                gatewayRequestId = gatewayRequestId,
+                lastPrice = snapshot.lastPrice,
+                sma200 = snapshot.sma200,
+                dailyCloseCount = snapshot.dailyCloses.size,
+                trend = snapshot.macroTrendState()?.name
+            )
+        }
+        deliverHomeMarketRegime(gatewayRequestId, snapshotResult)
+    }
+
+    private fun failHomeMarketRegime(gatewayRequestId: Long, error: Throwable) {
+        val request = homeMarketRegimeRequests.remove(gatewayRequestId)
+        homeMarketRegimeTimeoutJobs.remove(gatewayRequestId)?.cancel()
+        ReversalScoreLog.homeMarketRegimeFailed(
+            benchmarkSymbol = request?.benchmark?.symbol ?: "unknown",
+            gatewayRequestId = gatewayRequestId,
+            error = error
+        )
+        deliverHomeMarketRegime(gatewayRequestId, Result.failure(error))
+    }
+
+    private fun deliverHomeMarketRegime(gatewayRequestId: Long, result: Result<MacroRegimeSnapshot>) {
+        emit(GatewayEvent.HomeMarketRegimeSnapshotReady(gatewayRequestId, result))
+    }
+
     private fun scheduleSpyTimeout(gatewayRequestId: Long) {
         spyTimeoutJobs[gatewayRequestId]?.cancel()
         spyTimeoutJobs[gatewayRequestId] = scope.launch {
@@ -652,6 +905,8 @@ internal class ReversalScoreIbHandler(
     private companion object {
         const val SPY_SYMBOL = "SPY"
         const val SPY_REGIME_DURATION = "200 D"
+        // IB rejects day-based durations >365; need years for 200-day SMA window.
+        const val HOME_MARKET_REGIME_DURATION = "2 Y"
         const val SYMBOL_DAILY_DURATION = "30 D"
         const val SYMBOL_IV_DURATION = "1 Y"
         const val SYMBOL_DAILY_BAR_SIZE = "1 day"

@@ -540,6 +540,38 @@ object TouchTurnLogic {
         }
     }
 
+    fun trendAlignmentBlockOutcome(
+        setup: TouchTurnBracketSetup,
+        macroTrend: MacroTrendState?,
+        stockTrend: StockTrendState?,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? {
+        val enables = rules.enables
+        if (enables.macroTrendAlignment) {
+            when (TouchTurnTrendAlignment.requiredMacroTrend(setup)) {
+                null -> Unit
+                else -> when (macroTrend) {
+                    null -> return TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE
+                    else -> if (!TouchTurnTrendAlignment.macroTrendAligned(setup, macroTrend)) {
+                        return TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED
+                    }
+                }
+            }
+        }
+        if (enables.stockTrendAlignment) {
+            when (TouchTurnTrendAlignment.requiredStockTrend(setup)) {
+                null -> Unit
+                else -> when (stockTrend) {
+                    null -> return TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE
+                    else -> if (!TouchTurnTrendAlignment.stockTrendAligned(setup, stockTrend)) {
+                        return TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED
+                    }
+                }
+            }
+        }
+        return null
+    }
+
     data class EntryGateResult(
         val entryOrdersPermitted: Boolean,
         val decisionOutcome: TouchTurnSessionOutcome?,
@@ -563,6 +595,8 @@ object TouchTurnLogic {
         liveAsk: Double?,
         liveLast: Double?,
         requireLivePriceChecks: Boolean,
+        macroTrend: MacroTrendState? = null,
+        stockTrend: StockTrendState? = null,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): EntryGateResult {
         val enables = rules.enables
@@ -577,6 +611,14 @@ object TouchTurnLogic {
             rules
         )
         barSetupBlockOutcome(setup, volumeExhausted, rules)?.let { outcome ->
+            return EntryGateResult(
+                entryOrdersPermitted = false,
+                decisionOutcome = outcome,
+                closeConfirmation = closeConfirmation,
+                closeGatePassed = false
+            )
+        }
+        trendAlignmentBlockOutcome(setup, macroTrend, stockTrend, rules)?.let { outcome ->
             return EntryGateResult(
                 entryOrdersPermitted = false,
                 decisionOutcome = outcome,
@@ -1084,6 +1126,31 @@ object TouchTurnLogic {
         dailyAtr14: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Double = dailyAtr14 * rules.atrLiquidityRatio
+
+    /** Diagnoses which IB historical legs were still pending when composite bootstrap timed out. */
+    fun describeSignalContextBootstrapPendingLegs(
+        bars15mReady: Boolean,
+        bars15mCount: Int = 0,
+        dailyBarsRequired: Boolean,
+        dailyBarsReady: Boolean,
+        dailyFetchFailed: String? = null
+    ): String {
+        val legs = buildList {
+            if (bars15mReady) {
+                add("15m_bars_ready(count=$bars15mCount)")
+            } else {
+                add("15m_opening_bar")
+            }
+            if (dailyBarsRequired) {
+                when {
+                    dailyFetchFailed != null -> add("daily_bars_failed=$dailyFetchFailed")
+                    dailyBarsReady -> add("daily_bars_ready")
+                    else -> add("daily_bars")
+                }
+            }
+        }
+        return legs.joinToString(",")
+    }
 
     /**
      * Wilder-style daily ATR over the last [period] completed sessions (today excluded when set).

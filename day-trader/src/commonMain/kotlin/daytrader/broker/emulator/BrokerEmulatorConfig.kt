@@ -1,5 +1,8 @@
 package daytrader.broker.emulator
 
+import daytrader.domain.MacroTrendState
+import daytrader.domain.StockTrendState
+
 /**
  * Controls the synthetic first 15m bar for Touch Turn (green → short, red → long).
  * [AUTO] uses symbol/day hashing; [ALTERNATE] flips on each emulator candle fetch when enabled in config.
@@ -75,7 +78,11 @@ data class BrokerEmulatorConfig(
      * Price feed for order fill triggers. [EmulatorPricingSource.SYNTHETIC] walks quotes inside
      * the emulator; [EmulatorPricingSource.LIVE_EXCHANGE] uses [BrokerEmulatorEngine.ingestExternalQuote].
      */
-    val pricingSource: EmulatorPricingSource = EmulatorPricingSource.SYNTHETIC
+    val pricingSource: EmulatorPricingSource = EmulatorPricingSource.SYNTHETIC,
+    /** Override home-market macro trend by RTH zone id (tests / experiments). */
+    val homeMacroTrendByZone: Map<String, MacroTrendState> = emptyMap(),
+    /** Override symbol stock trend by normalized symbol (tests / experiments). */
+    val stockTrendBySymbol: Map<String, StockTrendState> = emptyMap()
 ) {
     /** @see pricingSource */
     val useLiveIbMarketData: Boolean

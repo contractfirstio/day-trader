@@ -14,9 +14,21 @@ data class WatchlistRecord(
     val entries: List<WatchlistEntryRecord> = emptyList(),
     val labels: List<WatchlistLabelRecord> = emptyList(),
     val createdAtEpochMs: Long,
+    val lastReversalScoreHomeMarketRegimes: List<WatchlistHomeMarketRegimeRecord> = emptyList(),
+    /** Legacy single-SPY cache — migrated into [lastReversalScoreHomeMarketRegimes] on load. */
     val lastReversalScoreMacroTrend: String? = null,
     val lastReversalScoreSpyLastPrice: Double? = null,
     val lastReversalScoreSpySma200: Double? = null
+)
+
+@Serializable
+data class WatchlistHomeMarketRegimeRecord(
+    val marketZoneId: String,
+    val benchmarkSymbol: String,
+    val benchmarkLabel: String,
+    val macroTrend: String? = null,
+    val lastPrice: Double? = null,
+    val sma200: Double? = null
 )
 
 @Serializable

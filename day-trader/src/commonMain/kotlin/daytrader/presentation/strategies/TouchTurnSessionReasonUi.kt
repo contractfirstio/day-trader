@@ -7,6 +7,7 @@ import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnTrendAlignment
 
 enum class TouchTurnReasonSeverity {
     Info,
@@ -56,6 +57,46 @@ object TouchTurnSessionReasonUi {
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> TouchTurnSessionStatusUi(
             headline = "No trade — volume exhaustion",
             detail = "Opening bar volume exceeded the exhaustion threshold (high-conviction breakout filter). Bracket orders were not placed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED -> {
+            val macro = session?.macroTrendAtEntry?.name?.lowercase() ?: "unknown"
+            val benchmark = session?.macroBenchmarkLabel ?: "home market index"
+            val required = session?.setup?.let { setup ->
+                TouchTurnTrendAlignment.requiredMacroTrend(setup)?.name?.lowercase()
+            } ?: "aligned macro"
+            TouchTurnSessionStatusUi(
+                headline = "No trade — macro trend misaligned",
+                detail = "Macro trend alignment is enabled. $benchmark was $macro but this fade requires $required " +
+                    "(green short → bear, red long → bull). Bracket orders were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE -> {
+            val benchmark = session?.macroBenchmarkLabel ?: "home market index"
+            TouchTurnSessionStatusUi(
+                headline = "No trade — macro trend unavailable",
+                detail = "Macro trend alignment is enabled but $benchmark regime data could not be gathered from IB " +
+                    "(index history or live quote). Bracket orders were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED -> {
+            val stock = session?.stockTrendAtEntry?.name?.lowercase() ?: "unknown"
+            val required = session?.setup?.let { setup ->
+                TouchTurnTrendAlignment.requiredStockTrend(setup)?.name?.lowercase()
+            } ?: "aligned trend"
+            TouchTurnSessionStatusUi(
+                headline = "No trade — stock trend misaligned",
+                detail = "Stock trend alignment is enabled. The symbol was trending $stock but this fade requires " +
+                    "$required (green short → down, red long → up). Bracket orders were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE -> TouchTurnSessionStatusUi(
+            headline = "No trade — stock trend unavailable",
+            detail = "Stock trend alignment is enabled but daily trend data could not be gathered from IB. " +
+                "Bracket orders were not placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_DOJI -> TouchTurnSessionStatusUi(

@@ -13,6 +13,11 @@ object TouchTurnDefaults {
     const val TOUCH_TURN_15M_HISTORY_DURATION = "2 M"
     /** Shallow 15m history when only today's opening bar is needed (liquidity/volume rules off). */
     const val TOUCH_TURN_OPENING_BAR_HISTORY_DURATION = "5 D"
+    /**
+     * Composite Touch Turn bootstrap (15m + optional daily). Slightly above IB historical timeouts (45s)
+     * so IB can return a leg-specific error before the gateway gives up.
+     */
+    const val SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS = 50_000L
     /** Liquidity when first 15m range is at least this fraction of 14-period ATR. */
     const val ATR_LIQUIDITY_RATIO = 0.25
     /** Opening-bar volume above this multiple of the 20 prior session-open volume SMA aborts entry. */

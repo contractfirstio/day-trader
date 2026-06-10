@@ -20,7 +20,11 @@ data class TouchTurnRuleEnables(
     val liveEntryTouchable: Boolean = true,
     val postEntryVolumeBuffer: Boolean = true,
     /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
-    val openDeadline: Boolean = false
+    val openDeadline: Boolean = false,
+    /** SPY vs 200-SMA must align with fade direction (green→bear, red→bull). */
+    val macroTrendAlignment: Boolean = false,
+    /** Symbol vs 20-SMA must align with fade direction (green→down, red→up). */
+    val stockTrendAlignment: Boolean = false
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
@@ -152,6 +156,18 @@ data class TouchTurnRuleConfig(
                 label = "RTH open deadline",
                 description = "Stop the session and flatten working orders/position after the configured maximum " +
                     "minutes from regular-hours open."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "macroTrendAlignment",
+                label = "Macro trend alignment",
+                description = "Only fade when the home-market index matches the opening bar: green short requires bear " +
+                    "(below 200-SMA), red long requires bull (above 200-SMA). US→SPY, HK→Hang Seng, UK→FTSE 100."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "stockTrendAlignment",
+                label = "Stock trend alignment",
+                description = "Only fade when the symbol's daily trend matches the opening bar: green short requires " +
+                    "downtrend (below 20-SMA), red long requires uptrend (above 20-SMA)."
             )
         )
 
@@ -351,6 +367,8 @@ data class TouchTurnRuleConfig(
             "liveEntryTouchable" -> config.enables.liveEntryTouchable
             "postEntryVolumeBuffer" -> config.enables.postEntryVolumeBuffer
             "openDeadline" -> config.enables.openDeadline
+            "macroTrendAlignment" -> config.enables.macroTrendAlignment
+            "stockTrendAlignment" -> config.enables.stockTrendAlignment
             else -> true
         }
 
@@ -368,6 +386,8 @@ data class TouchTurnRuleConfig(
                 "liveEntryTouchable" -> config.enables.copy(liveEntryTouchable = enabled)
                 "postEntryVolumeBuffer" -> config.enables.copy(postEntryVolumeBuffer = enabled)
                 "openDeadline" -> config.enables.copy(openDeadline = enabled)
+                "macroTrendAlignment" -> config.enables.copy(macroTrendAlignment = enabled)
+                "stockTrendAlignment" -> config.enables.copy(stockTrendAlignment = enabled)
                 else -> config.enables
             }
             return config.copy(enables = enables)
@@ -438,7 +458,12 @@ fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): To
 
 /** Ensures newly added rule toggles stay off (legacy persisted configs may still have [notDoji] enabled). */
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
-    val normalizedEnables = enables.copy(notDoji = false, openDeadline = false)
+    val normalizedEnables = enables.copy(
+        notDoji = false,
+        openDeadline = false,
+        macroTrendAlignment = false,
+        stockTrendAlignment = false
+    )
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
 }
 

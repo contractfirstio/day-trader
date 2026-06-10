@@ -35,7 +35,9 @@ object TouchTurnRuleConfigPersistence {
                     liveTurnConfirmation = it.enableLiveTurnConfirmation,
                     liveEntryTouchable = it.enableLiveEntryTouchable,
                     postEntryVolumeBuffer = it.enablePostEntryVolumeBuffer,
-                    openDeadline = it.enableOpenDeadline
+                    openDeadline = it.enableOpenDeadline,
+                    macroTrendAlignment = it.enableMacroTrendAlignment,
+                    stockTrendAlignment = it.enableStockTrendAlignment
                 )
             )
         } ?: TouchTurnRuleConfig.DEFAULT
@@ -70,6 +72,8 @@ object TouchTurnRuleConfigPersistence {
             enableLiveTurnConfirmation = config.enables.liveTurnConfirmation,
             enableLiveEntryTouchable = config.enables.liveEntryTouchable,
             enablePostEntryVolumeBuffer = config.enables.postEntryVolumeBuffer,
-            enableOpenDeadline = config.enables.openDeadline
+            enableOpenDeadline = config.enables.openDeadline,
+            enableMacroTrendAlignment = config.enables.macroTrendAlignment,
+            enableStockTrendAlignment = config.enables.stockTrendAlignment
         )
 }

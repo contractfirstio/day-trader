@@ -125,7 +125,11 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     liveBid: Double? = null,
     liveAsk: Double? = null,
     liveLast: Double? = null,
-    requireLivePriceChecks: Boolean = false
+    requireLivePriceChecks: Boolean = false,
+    macroTrend: MacroTrendState? = null,
+    stockTrend: StockTrendState? = null,
+    macroBenchmarkSymbol: String? = null,
+    macroBenchmarkLabel: String? = null
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
@@ -146,6 +150,8 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         liveAsk = liveAsk,
         liveLast = liveLast,
         requireLivePriceChecks = requireLivePriceChecks,
+        macroTrend = macroTrend,
+        stockTrend = stockTrend,
         rules = rules
     )
     val closeConfirmation = gate.closeConfirmation
@@ -166,6 +172,10 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         setup = setup,
         entryOrdersPermitted = entryOrdersPermitted,
         decisionOutcome = decisionOutcome ?: session.decisionOutcome,
+        macroTrendAtEntry = macroTrend ?: session.macroTrendAtEntry,
+        stockTrendAtEntry = stockTrend ?: session.stockTrendAtEntry,
+        macroBenchmarkSymbol = macroBenchmarkSymbol ?: session.macroBenchmarkSymbol,
+        macroBenchmarkLabel = macroBenchmarkLabel ?: session.macroBenchmarkLabel,
         milestones = milestones
     )
     TouchTurnDecisionLog.liquidityEvaluated(

@@ -15,6 +15,8 @@ class SimulatedBrokerTouchTurnRulesTest {
             val rules = TouchTurnRuleConfig.defaultForBrokerKind(kind)
             assertFalse(rules.enables.notDoji, "notDoji should be off for $kind")
             assertFalse(rules.enables.openDeadline, "openDeadline should be off for $kind")
+            assertFalse(rules.enables.macroTrendAlignment, "macroTrendAlignment should be off for $kind")
+            assertFalse(rules.enables.stockTrendAlignment, "stockTrendAlignment should be off for $kind")
         }
     }
 
@@ -156,7 +158,11 @@ class SimulatedBrokerTouchTurnRulesTest {
 
         assertFalse(patched.touchTurnRules.enables.notDoji)
         assertFalse(patched.touchTurnRules.enables.openDeadline)
+        assertFalse(patched.touchTurnRules.enables.macroTrendAlignment)
+        assertFalse(patched.touchTurnRules.enables.stockTrendAlignment)
         assertFalse(patched.touchTurnSession?.rules?.enables?.notDoji ?: true)
         assertFalse(patched.touchTurnSession?.rules?.enables?.openDeadline ?: true)
+        assertFalse(patched.touchTurnSession?.rules?.enables?.macroTrendAlignment ?: true)
+        assertFalse(patched.touchTurnSession?.rules?.enables?.stockTrendAlignment ?: true)
     }
 }

@@ -5,8 +5,11 @@ import daytrader.domain.ProximityThresholdMode
 import daytrader.domain.ReversalScoreAlignmentBadge
 import daytrader.domain.MacroTrendState
 import daytrader.domain.TradeSide
+import daytrader.domain.HomeMarketMacroBenchmark
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
+import daytrader.domain.WatchlistHomeMarketRegime
 import daytrader.domain.WatchlistLabel
 import daytrader.domain.WatchlistLabels
 import daytrader.domain.WatchlistPlanDiaryEntry
@@ -26,23 +29,65 @@ object WatchlistPersistence {
             entries = entries,
             labels = WatchlistLabels.sorted(labels),
             createdAtEpochMs = record.createdAtEpochMs,
-            lastReversalScoreMacroTrend = record.lastReversalScoreMacroTrend
-                ?.let { runCatching { MacroTrendState.valueOf(it) }.getOrNull() },
-            lastReversalScoreSpyLastPrice = record.lastReversalScoreSpyLastPrice,
-            lastReversalScoreSpySma200 = record.lastReversalScoreSpySma200
+            lastReversalScoreHomeMarketRegimes = resolveHomeMarketRegimes(record)
         )
     }
 
-    fun toRecord(watchlist: Watchlist): WatchlistRecord =
-        WatchlistRecord(
+    fun toRecord(watchlist: Watchlist): WatchlistRecord {
+        val usRegime = watchlist.lastReversalScoreHomeMarketRegimes.firstOrNull {
+            it.benchmarkSymbol == HomeMarketMacroBenchmark.forMarketZoneId(RthMarketSessions.US.zoneId).symbol
+        }
+        return WatchlistRecord(
             id = watchlist.id,
             name = watchlist.name,
             entries = watchlist.entries.map(::toEntryRecord),
             labels = watchlist.labels.map(::toLabelRecord),
             createdAtEpochMs = watchlist.createdAtEpochMs,
-            lastReversalScoreMacroTrend = watchlist.lastReversalScoreMacroTrend?.name,
-            lastReversalScoreSpyLastPrice = watchlist.lastReversalScoreSpyLastPrice,
-            lastReversalScoreSpySma200 = watchlist.lastReversalScoreSpySma200
+            lastReversalScoreHomeMarketRegimes = watchlist.lastReversalScoreHomeMarketRegimes.map(::toHomeMarketRegimeRecord),
+            lastReversalScoreMacroTrend = usRegime?.macroTrend?.name,
+            lastReversalScoreSpyLastPrice = usRegime?.lastPrice,
+            lastReversalScoreSpySma200 = usRegime?.sma200
+        )
+    }
+
+    private fun resolveHomeMarketRegimes(record: WatchlistRecord): List<WatchlistHomeMarketRegime> {
+        if (record.lastReversalScoreHomeMarketRegimes.isNotEmpty()) {
+            return record.lastReversalScoreHomeMarketRegimes.map(::toHomeMarketRegimeDomain)
+        }
+        val legacyTrend = record.lastReversalScoreMacroTrend
+            ?.let { runCatching { MacroTrendState.valueOf(it) }.getOrNull() }
+            ?: return emptyList()
+        val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(RthMarketSessions.US.zoneId)
+        return listOf(
+            WatchlistHomeMarketRegime(
+                marketZoneId = benchmark.marketZoneId,
+                benchmarkSymbol = benchmark.symbol,
+                benchmarkLabel = benchmark.label,
+                macroTrend = legacyTrend,
+                lastPrice = record.lastReversalScoreSpyLastPrice,
+                sma200 = record.lastReversalScoreSpySma200
+            )
+        )
+    }
+
+    private fun toHomeMarketRegimeDomain(record: WatchlistHomeMarketRegimeRecord): WatchlistHomeMarketRegime =
+        WatchlistHomeMarketRegime(
+            marketZoneId = record.marketZoneId,
+            benchmarkSymbol = record.benchmarkSymbol,
+            benchmarkLabel = record.benchmarkLabel,
+            macroTrend = record.macroTrend?.let { runCatching { MacroTrendState.valueOf(it) }.getOrNull() },
+            lastPrice = record.lastPrice,
+            sma200 = record.sma200
+        )
+
+    private fun toHomeMarketRegimeRecord(regime: WatchlistHomeMarketRegime): WatchlistHomeMarketRegimeRecord =
+        WatchlistHomeMarketRegimeRecord(
+            marketZoneId = regime.marketZoneId,
+            benchmarkSymbol = regime.benchmarkSymbol,
+            benchmarkLabel = regime.benchmarkLabel,
+            macroTrend = regime.macroTrend?.name,
+            lastPrice = regime.lastPrice,
+            sma200 = regime.sma200
         )
 
     private fun toLabelDomain(record: WatchlistLabelRecord): WatchlistLabel =

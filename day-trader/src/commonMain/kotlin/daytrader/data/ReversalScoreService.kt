@@ -1,10 +1,12 @@
 package daytrader.data
 
+import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.domain.ReversalScoreAlignmentBadge
 import daytrader.domain.ReversalScoreInputs
 import daytrader.domain.ReversalScoreCalculator
 import daytrader.domain.ContextualAlignmentEvaluator
 import daytrader.domain.ReversalScoreInsightGenerator
+import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.MacroTrendState
 import daytrader.domain.ReversalScoreHistoricalSnapshot
 import daytrader.domain.ReversalScoreLiveSnapshot
@@ -12,9 +14,11 @@ import daytrader.domain.ReversalScoreMacroVolSnapshot
 import daytrader.domain.ReversalScoreResult
 import daytrader.domain.ReversalScoreSymbolSnapshot
 import daytrader.domain.ReversalScoreYieldCurveSnapshot
-import daytrader.domain.SpyRegimeSnapshot
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.SpyRegimeEvaluator
+import daytrader.domain.SpyRegimeSnapshot
 import daytrader.domain.WatchlistEntry
+import daytrader.domain.WatchlistHomeMarketRegime
 import daytrader.diagnostics.ReversalScoreLog
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.GatewayConnectionState
@@ -31,8 +35,26 @@ data class ReversalScoreProgress(
 enum class ReversalScoreCalculationStage {
     MACRO_VOL,
     YIELD_CURVE,
-    SPY_REGIME,
+    HOME_MARKET_REGIME,
     SYMBOLS
+}
+
+data class HomeMarketRegimeSummary(
+    val marketZoneId: String,
+    val benchmarkSymbol: String,
+    val benchmarkLabel: String,
+    val macroTrendState: MacroTrendState? = null,
+    val lastPrice: Double? = null,
+    val sma200: Double? = null
+) {
+    fun toWatchlistRegime(): WatchlistHomeMarketRegime = WatchlistHomeMarketRegime(
+        marketZoneId = marketZoneId,
+        benchmarkSymbol = benchmarkSymbol,
+        benchmarkLabel = benchmarkLabel,
+        macroTrend = macroTrendState,
+        lastPrice = lastPrice,
+        sma200 = sma200
+    )
 }
 
 data class ReversalScoreEntryResult(
@@ -51,9 +73,7 @@ data class ReversalScoreEntryResult(
 
 data class ReversalScoreBatchResult(
     val calculatedAtEpochMs: Long,
-    val macroTrendState: MacroTrendState? = null,
-    val spyLastPrice: Double? = null,
-    val spySma200: Double? = null,
+    val homeMarketRegimes: List<HomeMarketRegimeSummary> = emptyList(),
     val entryResults: List<ReversalScoreEntryResult>
 ) {
     val failedCount: Int = entryResults.count { it.score == null }
@@ -109,25 +129,20 @@ class ReversalScoreService(
         val macroVol = macroVolResult.getOrThrow()
         val yieldCurve = yieldResult.getOrThrow()
 
-        ReversalScoreLog.logLine("spy_regime_fetch_started")
-        onProgress(ReversalScoreProgress(stage = ReversalScoreCalculationStage.SPY_REGIME))
-        val spyRegimeResult = gateway.fetchSpyRegimeSnapshot()
-        if (spyRegimeResult.isFailure) {
-            val message = spyRegimeResult.exceptionOrNull()?.let { error ->
-                "${error.message ?: error.toString()} (${error::class.simpleName})"
-            } ?: "SPY regime fetch failed"
-            ReversalScoreLog.batchFailedEarly(message, gateway.brokerId, entries.size)
-            return failureBatch(entries = entries, message = message)
-        }
-        val spyRegime = spyRegimeResult.getOrThrow()
-        val macroTrend = spyRegime.macroTrendState()
-        ReversalScoreLog.logLine(
-            "spy_regime_fetch_succeeded last=${spyRegime.lastPrice} sma200=${spyRegime.sma200} trend=${macroTrend?.name ?: "NEUTRAL"}"
+        val homeMarketZones = entries
+            .map { RthMarketSessions.forZoneId(it.marketZoneId).zoneId }
+            .distinct()
+        val homeMarketRegimes = fetchHomeMarketRegimes(
+            marketZoneIds = homeMarketZones,
+            gateway = gateway,
+            onProgress = onProgress
         )
 
         val results = mutableListOf<ReversalScoreEntryResult>()
 
         entries.forEachIndexed { index, entry ->
+            val entryZoneId = RthMarketSessions.forZoneId(entry.marketZoneId).zoneId
+            val macroTrend = homeMarketRegimes[entryZoneId]?.macroTrendState
             onProgress(
                 ReversalScoreProgress(
                     stage = ReversalScoreCalculationStage.SYMBOLS,
@@ -206,12 +221,71 @@ class ReversalScoreService(
 
         return ReversalScoreBatchResult(
             calculatedAtEpochMs = System.currentTimeMillis(),
-            macroTrendState = macroTrend,
-            spyLastPrice = spyRegime.lastPrice,
-            spySma200 = spyRegime.sma200,
+            homeMarketRegimes = homeMarketZones.mapNotNull { homeMarketRegimes[it] },
             entryResults = results
         )
     }
+
+    private suspend fun fetchHomeMarketRegimes(
+        marketZoneIds: List<String>,
+        gateway: BrokerGateway,
+        onProgress: (ReversalScoreProgress) -> Unit
+    ): Map<String, HomeMarketRegimeSummary> {
+        val regimes = linkedMapOf<String, HomeMarketRegimeSummary>()
+        marketZoneIds.forEach { marketZoneId ->
+            val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+            ReversalScoreLog.logLine(
+                "home_market_regime_fetch_started zone=$marketZoneId benchmark=${benchmark.symbol}"
+            )
+            onProgress(
+                ReversalScoreProgress(
+                    stage = ReversalScoreCalculationStage.HOME_MARKET_REGIME,
+                    symbol = benchmark.symbol
+                )
+            )
+            val snapshotResult = gateway.fetchHomeMarketRegimeSnapshot(marketZoneId)
+            val summary = snapshotResult.fold(
+                onSuccess = { snapshot ->
+                    val trend = snapshot.macroTrendState()
+                    ReversalScoreLog.logLine(
+                        "home_market_regime_fetch_succeeded zone=$marketZoneId " +
+                            "benchmark=${snapshot.benchmark.symbol} last=${snapshot.lastPrice} " +
+                            "sma200=${snapshot.sma200} trend=${trend?.name ?: "NEUTRAL"}"
+                    )
+                    toHomeMarketRegimeSummary(marketZoneId, snapshot)
+                },
+                onFailure = { error ->
+                    ReversalScoreLog.logLine(
+                        "home_market_regime_fetch_failed zone=$marketZoneId " +
+                            "benchmark=${benchmark.symbol} error=${error.message ?: error}"
+                    )
+                    HomeMarketRegimeSummary(
+                        marketZoneId = marketZoneId,
+                        benchmarkSymbol = benchmark.symbol,
+                        benchmarkLabel = benchmark.label,
+                        macroTrendState = null,
+                        lastPrice = null,
+                        sma200 = null
+                    )
+                }
+            )
+            regimes[marketZoneId] = summary
+        }
+        return regimes
+    }
+
+    private fun toHomeMarketRegimeSummary(
+        marketZoneId: String,
+        snapshot: MacroRegimeSnapshot
+    ): HomeMarketRegimeSummary =
+        HomeMarketRegimeSummary(
+            marketZoneId = marketZoneId,
+            benchmarkSymbol = snapshot.benchmark.symbol,
+            benchmarkLabel = snapshot.benchmark.label,
+            macroTrendState = snapshot.macroTrendState(),
+            lastPrice = snapshot.lastPrice,
+            sma200 = snapshot.sma200
+        )
 
     private fun failureBatch(entries: List<WatchlistEntry>, message: String): ReversalScoreBatchResult =
         ReversalScoreBatchResult(

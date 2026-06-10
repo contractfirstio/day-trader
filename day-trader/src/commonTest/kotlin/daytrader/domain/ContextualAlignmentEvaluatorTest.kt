@@ -58,6 +58,21 @@ class ContextualAlignmentEvaluatorTest {
     }
 
     @Test
+    fun homeMarketMacroBenchmark_resolvesByZone() {
+        assertEquals("SPY", HomeMarketMacroBenchmark.forMarketZoneId("America/New_York").symbol)
+        assertEquals("HSI", HomeMarketMacroBenchmark.forMarketZoneId("Asia/Hong_Kong").symbol)
+        assertEquals("UKX", HomeMarketMacroBenchmark.forMarketZoneId("Europe/London").symbol)
+    }
+
+    @Test
+    fun stockTrendSnapshot_evaluatesUpAndDown() {
+        val up = StockTrendSnapshot(lastPrice = 110.0, sma20 = 100.0)
+        val down = StockTrendSnapshot(lastPrice = 90.0, sma20 = 100.0)
+        assertEquals(StockTrendState.UP, up.stockTrendState())
+        assertEquals(StockTrendState.DOWN, down.stockTrendState())
+    }
+
+    @Test
     fun spyRegimeSnapshot_evaluatesBullAndBear() {
         val bull = SpyRegimeSnapshot(lastPrice = 510.0, sma200 = 480.0)
         assertEquals(MacroTrendState.BULL, bull.macroTrendState())

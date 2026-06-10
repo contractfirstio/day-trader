@@ -1,8 +1,15 @@
 package daytrader.e2e.support
 
+import daytrader.data.ReversalScoreService
+import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.MacroRegimeEvaluator
+import daytrader.domain.MacroRegimeSnapshot
+import daytrader.domain.MacroTrendState
 import daytrader.domain.OhlcBar
+import daytrader.domain.ReversalScoreHistoricalSnapshot
+import daytrader.domain.ReversalScoreSymbolSnapshot
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.AccountPosition
@@ -33,8 +40,13 @@ class ProgrammableIbMarketDataGateway(
 
     var bootstrapContext: TouchTurnSignalContext = E2ETestFixtures.bootstrapContext()
     var refetchContexts: List<TouchTurnSignalContext> = emptyList()
+    var reversalScoreSymbolResult: Result<ReversalScoreSymbolSnapshot>? = null
+    var homeMarketRegimeResult: Result<MacroRegimeSnapshot>? = null
     val subscribedSymbols = mutableListOf<String>()
     val ensureLiveMarketDataCalls = mutableListOf<String>()
+    var reversalScoreSymbolFetchCount = 0
+    var homeMarketRegimeFetchCount = 0
+    var stockTrendFetchCount = 0
 
     private val refetchIndex = AtomicInteger(0)
 
@@ -129,6 +141,47 @@ class ProgrammableIbMarketDataGateway(
         instrument: InstrumentIdentity?
     ): Result<Double> = Result.success(bootstrapContext.firstCandle.close)
 
+    override suspend fun fetchReversalScoreSymbolSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<ReversalScoreSymbolSnapshot> {
+        reversalScoreSymbolFetchCount++
+        reversalScoreSymbolResult?.let { return it }
+        val lastPrice = bootstrapContext.firstCandle.close
+        val closes = bullishDailyCloses(lastPrice, count = 30)
+        return Result.success(
+            ReversalScoreService.syntheticSymbolSnapshot(lastPrice).copy(
+                historical = ReversalScoreHistoricalSnapshot(
+                    dailyCloses = closes,
+                    dailyVolumes = closes.map { it * 10_000.0 },
+                    historicalIvValues = closes.map { 0.15 }
+                )
+            )
+        )
+    }
+
+    override suspend fun fetchHomeMarketRegimeSnapshot(marketZoneId: String): Result<MacroRegimeSnapshot> {
+        homeMarketRegimeFetchCount++
+        homeMarketRegimeResult?.let { return it }
+        val benchmark = HomeMarketMacroBenchmark.forMarketZoneId(marketZoneId)
+        val lastPrice = bootstrapContext.firstCandle.close
+        return Result.success(
+            MacroRegimeEvaluator.buildSyntheticSnapshot(
+                benchmark = benchmark,
+                lastPrice = lastPrice,
+                trend = MacroTrendState.BULL
+            )
+        )
+    }
+
+    override suspend fun fetchStockTrendSnapshot(
+        symbol: String,
+        instrument: InstrumentIdentity?
+    ): Result<daytrader.domain.StockTrendSnapshot> {
+        stockTrendFetchCount++
+        return super.fetchStockTrendSnapshot(symbol, instrument)
+    }
+
     fun ensureStreaming(symbol: String) {
         ensureLiveMarketDataCalls.add(symbol)
         subscribedSymbols.add(symbol)
@@ -143,4 +196,7 @@ class ProgrammableIbMarketDataGateway(
             )
         )
     }
+
+    private fun bullishDailyCloses(lastPrice: Double, count: Int): List<Double> =
+        List(count) { index -> lastPrice * (1.0 - (count - 1 - index) * 0.002) }
 }

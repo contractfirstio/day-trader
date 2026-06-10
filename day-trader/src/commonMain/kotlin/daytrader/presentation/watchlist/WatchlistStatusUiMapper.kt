@@ -1,11 +1,13 @@
 package daytrader.presentation.watchlist
 
+import daytrader.data.HomeMarketRegimeSummary
 import daytrader.data.ReversalScoreBatchResult
 import daytrader.data.ReversalScoreCalculationStage
 import daytrader.data.ReversalScoreEntryResult
 import daytrader.data.ReversalScoreProgress
 import daytrader.data.WatchlistScanResult
 import daytrader.domain.MacroTrendState
+import daytrader.domain.RthMarketSessions
 import daytrader.domain.ReversalScoreComponents
 import daytrader.domain.ReversalScoreResult
 import daytrader.domain.Watchlist
@@ -33,15 +35,22 @@ object WatchlistStatusUiMapper {
         val scoredEntries = watchlist.entries.filter {
             it.reversalScore != null && it.reversalScoreAtEpochMs != null
         }
-        if (scoredEntries.isEmpty() && watchlist.lastReversalScoreMacroTrend == null) return null
+        if (scoredEntries.isEmpty() && watchlist.lastReversalScoreHomeMarketRegimes.isEmpty()) return null
         val calculatedAt = scoredEntries.maxOfOrNull { it.reversalScoreAtEpochMs!! }
             ?: watchlist.entries.mapNotNull { it.reversalScoreAtEpochMs }.maxOrNull()
             ?: return null
         return ReversalScoreBatchResult(
             calculatedAtEpochMs = calculatedAt,
-            macroTrendState = watchlist.lastReversalScoreMacroTrend,
-            spyLastPrice = watchlist.lastReversalScoreSpyLastPrice,
-            spySma200 = watchlist.lastReversalScoreSpySma200,
+            homeMarketRegimes = watchlist.lastReversalScoreHomeMarketRegimes.map { regime ->
+                HomeMarketRegimeSummary(
+                    marketZoneId = regime.marketZoneId,
+                    benchmarkSymbol = regime.benchmarkSymbol,
+                    benchmarkLabel = regime.benchmarkLabel,
+                    macroTrendState = regime.macroTrend,
+                    lastPrice = regime.lastPrice,
+                    sma200 = regime.sma200
+                )
+            },
             entryResults = scoredEntries.mapNotNull { entry ->
                 entry.reversalScore?.let { score ->
                     ReversalScoreEntryResult(
@@ -81,46 +90,58 @@ object WatchlistStatusUiMapper {
             )
             else -> listOf(connectionChip(brokerKind.displayName, execution))
         }
-        val macroChip = lastReversalResult?.let { result ->
-            result.macroTrendState?.let { trend ->
-                val ago = relativeTimeShort(result.calculatedAtEpochMs)
-                "SPY ${trend.name.lowercase().replaceFirstChar { it.uppercase() }} · $ago" to when (trend) {
-                    MacroTrendState.BULL -> WatchlistConnectionChipTone.CONNECTED
-                    MacroTrendState.BEAR -> WatchlistConnectionChipTone.ERROR
+        val ago = lastReversalResult?.calculatedAtEpochMs?.let(::relativeTimeShort)
+        val macroChips = lastReversalResult?.homeMarketRegimes.orEmpty().mapNotNull { regime ->
+            regime.macroTrendState?.let { trend ->
+                val label = buildString {
+                    append(regime.benchmarkLabel)
+                    append(' ')
+                    append(trend.name.lowercase().replaceFirstChar { it.uppercase() })
+                    ago?.let { append(" · $it") }
                 }
+                WatchlistConnectionChipUi(
+                    label = label,
+                    tone = when (trend) {
+                        MacroTrendState.BULL -> WatchlistConnectionChipTone.CONNECTED
+                        MacroTrendState.BEAR -> WatchlistConnectionChipTone.ERROR
+                    }
+                )
             }
         }
         return WatchlistStatusStripUi(
             connectionChips = connectionChips,
-            macroChipLabel = macroChip?.first,
-            macroChipTone = macroChip?.second
+            macroChips = macroChips
         )
     }
 
-    fun buildMacroRegimeCard(result: ReversalScoreBatchResult): WatchlistMacroRegimeCardUi? {
+    fun buildMacroRegimeCards(result: ReversalScoreBatchResult): List<WatchlistMacroRegimeCardUi> {
         val succeeded = result.entryResults.count { it.score != null }
-        if (succeeded == 0 && result.macroTrendState == null) return null
-        val last = result.spyLastPrice
-        val sma = result.spySma200
-        val trend = result.macroTrendState
+        if (succeeded == 0 && result.homeMarketRegimes.isEmpty()) return emptyList()
         val failed = result.failedCount
         val scoredLabel = when {
             failed == 0 -> "$succeeded scored"
             else -> "$succeeded scored · $failed failed"
         }
-        return WatchlistMacroRegimeCardUi(
-            trend = trend,
-            trendLabel = trend?.name ?: "NEUTRAL",
-            spyPriceLabel = last?.let(Formatters::price) ?: "—",
-            distanceFromSmaLabel = if (last != null && sma != null && sma > 0.0) {
-                formatDistanceFromSma(last, sma)
-            } else {
-                "—"
-            },
-            actionHint = macroActionHint(trend),
-            scoredLabel = scoredLabel,
-            calculatedAtLabel = "Latest score · ${formatCalculatedAt(result.calculatedAtEpochMs)}"
-        )
+        val calculatedAtLabel = "Latest score · ${formatCalculatedAt(result.calculatedAtEpochMs)}"
+        return result.homeMarketRegimes
+            .sortedBy { regimeSortOrder(it.marketZoneId) }
+            .map { regime ->
+                val trend = regime.macroTrendState
+                WatchlistMacroRegimeCardUi(
+                    benchmarkLabel = regime.benchmarkLabel,
+                    trend = trend,
+                    trendLabel = trend?.name ?: "UNAVAILABLE",
+                    indexPriceLabel = regime.lastPrice?.let(Formatters::price) ?: "—",
+                    distanceFromSmaLabel = if (regime.lastPrice != null && regime.sma200 != null && regime.sma200 > 0.0) {
+                        formatDistanceFromSma(regime.lastPrice, regime.sma200)
+                    } else {
+                        "—"
+                    },
+                    actionHint = macroActionHint(trend),
+                    scoredLabel = scoredLabel,
+                    calculatedAtLabel = calculatedAtLabel
+                )
+            }
     }
 
     fun buildActivitySummary(
@@ -157,11 +178,11 @@ object WatchlistStatusUiMapper {
     fun buildReversalScoreProgress(progress: ReversalScoreProgress): ReversalScoreProgressUi {
         val macroActive = progress.stage == ReversalScoreCalculationStage.MACRO_VOL ||
             progress.stage == ReversalScoreCalculationStage.YIELD_CURVE
-        val spyActive = progress.stage == ReversalScoreCalculationStage.SPY_REGIME
+        val homeMarketActive = progress.stage == ReversalScoreCalculationStage.HOME_MARKET_REGIME
         val symbolsActive = progress.stage == ReversalScoreCalculationStage.SYMBOLS
 
-        val macroComplete = progress.stage.ordinal >= ReversalScoreCalculationStage.SPY_REGIME.ordinal
-        val spyComplete = progress.stage == ReversalScoreCalculationStage.SYMBOLS
+        val macroComplete = progress.stage.ordinal >= ReversalScoreCalculationStage.HOME_MARKET_REGIME.ordinal
+        val homeMarketComplete = progress.stage == ReversalScoreCalculationStage.SYMBOLS
         val symbolsComplete = symbolsActive &&
             progress.total > 0 &&
             progress.completed >= progress.total
@@ -175,7 +196,10 @@ object WatchlistStatusUiMapper {
         val detailLabel = when (progress.stage) {
             ReversalScoreCalculationStage.MACRO_VOL -> "Fetching VIX / macro volatility…"
             ReversalScoreCalculationStage.YIELD_CURVE -> "Fetching yield curve…"
-            ReversalScoreCalculationStage.SPY_REGIME -> "Evaluating SPY 200-day regime…"
+            ReversalScoreCalculationStage.HOME_MARKET_REGIME -> {
+                val benchmark = progress.symbol.takeIf { it.isNotBlank() } ?: "home market"
+                "Evaluating $benchmark 200-day regime…"
+            }
             ReversalScoreCalculationStage.SYMBOLS ->
                 "Scoring ${progress.completed}/${progress.total} · ${progress.symbol}"
         }
@@ -183,7 +207,7 @@ object WatchlistStatusUiMapper {
         return ReversalScoreProgressUi(
             steps = listOf(
                 ReversalScoreProgressStepUi("Macro", stepStatus(macroComplete, macroActive)),
-                ReversalScoreProgressStepUi("SPY", stepStatus(spyComplete, spyActive)),
+                ReversalScoreProgressStepUi("Home", stepStatus(homeMarketComplete, homeMarketActive)),
                 ReversalScoreProgressStepUi(
                     "Symbols",
                     stepStatus(symbolsComplete, symbolsActive)
@@ -257,4 +281,11 @@ object WatchlistStatusUiMapper {
 
     private fun scanFailureSuffix(failedCount: Int): String =
         if (failedCount > 0) " ($failedCount failed)" else ""
+
+    private fun regimeSortOrder(marketZoneId: String): Int = when (marketZoneId) {
+        RthMarketSessions.US.zoneId -> 0
+        RthMarketSessions.EUR.zoneId -> 1
+        RthMarketSessions.HK.zoneId -> 2
+        else -> 3
+    }
 }

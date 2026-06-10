@@ -12,6 +12,8 @@ import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnVolumeCheck
+import daytrader.domain.TouchTurnTrendAlignment
+import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.presentation.Formatters
 
 /**
@@ -75,6 +77,12 @@ object TouchTurnRuleExplanationMapper {
                 )
                 "openDeadline" -> openDeadlineCheck(
                     session, rules, evaluationInstant, enabled
+                )
+                "macroTrendAlignment" -> macroTrendAlignmentCheck(
+                    session, setup, enabled
+                )
+                "stockTrendAlignment" -> stockTrendAlignmentCheck(
+                    session, setup, enabled
                 )
                 else -> RuleCheckUi(
                     key = definition.key,
@@ -694,6 +702,101 @@ object TouchTurnRuleExplanationMapper {
                 remainingMs != null ->
                     "${rules.stopAfterOpenMinutes}m limit · ${remainingMs / 60_000}m remaining"
                 else -> null
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun macroTrendAlignmentCheck(
+        session: TouchTurnSessionContext,
+        setup: TouchTurnBracketSetup,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val required = TouchTurnTrendAlignment.requiredMacroTrend(setup)
+        val actual = session.macroTrendAtEntry
+        val passed = when {
+            !enabled -> null
+            required == null -> null
+            session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED -> false
+            session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE -> false
+            session.entryOrdersPermitted == true -> true
+            actual == null -> false
+            else -> TouchTurnTrendAlignment.macroTrendAligned(setup, actual)
+        }
+        val benchmark = session.macroBenchmarkLabel ?: HomeMarketMacroBenchmark
+            .forMarketZoneId(session.marketZoneId)
+            .label
+        val steps = buildList {
+            add("Fade alignment uses $benchmark vs 200-day SMA at liquidity evaluation.")
+            required?.let { req ->
+                add(
+                    "${setup.candleColor.name.lowercase()} ${TouchTurnLogic.tradeSideLabel(setup.side).lowercase()} " +
+                        "requires macro ${req.name.lowercase()}."
+                )
+            }
+            add(
+                "Observed $benchmark macro trend: ${actual?.name?.lowercase() ?: "unavailable"}."
+            )
+            add(stepResult(passed))
+        }
+        return RuleCheckUi(
+            key = "macroTrendAlignment",
+            label = "Macro trend alignment",
+            description = "Only fade when the home-market index matches the opening bar: green short requires bear, " +
+                "red long requires bull.",
+            passed = passed,
+            detail = when {
+                !enabled -> "Disabled"
+                required == null -> "Non-directional bar"
+                actual == null -> "$benchmark trend unavailable"
+                else -> "$benchmark ${actual.name.lowercase()} · need ${required.name.lowercase()}"
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun stockTrendAlignmentCheck(
+        session: TouchTurnSessionContext,
+        setup: TouchTurnBracketSetup,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val required = TouchTurnTrendAlignment.requiredStockTrend(setup)
+        val actual = session.stockTrendAtEntry
+        val passed = when {
+            !enabled -> null
+            required == null -> null
+            session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED -> false
+            session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE -> false
+            session.entryOrdersPermitted == true -> true
+            actual == null -> false
+            else -> TouchTurnTrendAlignment.stockTrendAligned(setup, actual)
+        }
+        val steps = buildList {
+            add("Fade alignment uses symbol price vs 20-day SMA at liquidity evaluation.")
+            required?.let { req ->
+                add(
+                    "${setup.candleColor.name.lowercase()} ${TouchTurnLogic.tradeSideLabel(setup.side).lowercase()} " +
+                        "requires stock trend ${req.name.lowercase()}."
+                )
+            }
+            add(
+                "Observed stock trend: ${actual?.name?.lowercase() ?: "unavailable"}."
+            )
+            add(stepResult(passed))
+        }
+        return RuleCheckUi(
+            key = "stockTrendAlignment",
+            label = "Stock trend alignment",
+            description = "Only fade when the symbol's daily trend matches the opening bar: green short requires " +
+                "downtrend, red long requires uptrend.",
+            passed = passed,
+            detail = when {
+                !enabled -> "Disabled"
+                required == null -> "Non-directional bar"
+                actual == null -> "Stock trend unavailable"
+                else -> "Stock ${actual.name.lowercase()} · need ${required.name.lowercase()}"
             },
             enabled = enabled,
             explanationSteps = steps

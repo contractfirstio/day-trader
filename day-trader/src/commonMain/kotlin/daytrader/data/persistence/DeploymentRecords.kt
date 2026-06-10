@@ -130,6 +130,8 @@ data class TouchTurnRuleConfigRecord(
     val enableLiveEntryTouchable: Boolean = true,
     val enablePostEntryVolumeBuffer: Boolean = true,
     val enableOpenDeadline: Boolean = false,
+    val enableMacroTrendAlignment: Boolean = false,
+    val enableStockTrendAlignment: Boolean = false,
     val stopAfterOpenMinutes: Int = 90
 )
 
