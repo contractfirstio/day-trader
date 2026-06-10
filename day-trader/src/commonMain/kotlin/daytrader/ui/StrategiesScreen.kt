@@ -136,15 +136,15 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                         .testTag("StrategyDeploymentList")
                 ) {
-                    Text(
-                        if (uiState.hasActiveFilters) {
+                    DeploymentsListHeader(
+                        title = if (uiState.hasActiveFilters) {
                             "Deployments (${uiState.filteredCount} of ${uiState.totalCount})"
                         } else {
                             "Deployments (${uiState.totalCount})"
                         },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        closedSessionHistoryCount = uiState.globalClosedSessionHistoryCount,
+                        hasInProgressSessions = uiState.globalHasInProgressSessions,
+                        onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistoryForAllDeployments
                     )
                     Spacer(modifier = Modifier.height(4.dp))
 
@@ -2559,6 +2559,88 @@ private fun ClosePositionButton(
             },
             dismissButton = {
                 TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun DeploymentsListHeader(
+    title: String,
+    closedSessionHistoryCount: Int,
+    hasInProgressSessions: Boolean,
+    onDeleteAllSessionHistory: () -> Unit
+) {
+    var showDeleteAllConfirm by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+        if (closedSessionHistoryCount > 0) {
+            TextButton(
+                onClick = { showDeleteAllConfirm = true },
+                modifier = Modifier.testTag("AllDeploymentsClearHistoryButton")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Clear all history", color = TextSecondary, fontSize = 12.sp)
+            }
+        }
+    }
+
+    if (showDeleteAllConfirm) {
+        val sessionLabel = if (closedSessionHistoryCount == 1) "session" else "sessions"
+        AlertDialog(
+            onDismissRequest = { showDeleteAllConfirm = false },
+            containerColor = SurfaceDark,
+            title = {
+                Text("Clear all session history?", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    Text(
+                        "Remove all $closedSessionHistoryCount closed $sessionLabel from every deployment? This cannot be undone.",
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                    if (hasInProgressSessions) {
+                        Text(
+                            "In-progress sessions will be kept.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteAllConfirm = false
+                        onDeleteAllSessionHistory()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
+                ) {
+                    Text("Clear all history")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllConfirm = false }) {
                     Text("Cancel", color = TextSecondary)
                 }
             }

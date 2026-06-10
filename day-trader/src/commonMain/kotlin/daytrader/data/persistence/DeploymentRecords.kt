@@ -113,6 +113,7 @@ data class TouchTurnRuleConfigRecord(
     val entryInwardOffsetRatioOfRange: Double = 0.02,
     val takeProfitFibRatioGreen: Double = 0.382,
     val takeProfitFibRatioRed: Double = 0.382,
+    val takeProfitToStopLossRatio: Double = 2.0,
     val closeConfirmationAfterCloseMs: Long = 60_000L,
     val closedBarRefetchSettleMs: Long = 3_000L,
     val volumeBufferObservationMs: Long = 60_000L,

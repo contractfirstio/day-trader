@@ -15,7 +15,7 @@ class BracketExitSimulationTest {
         val p = naturalTakeProfitFirstProbability(setup.entry, setup.stopLoss, setup.takeProfit)
         assertTrue(
             p < 0.45,
-            "Touch Turn long places stop at half the TP distance; expected TP-first well below 50% (was $p)"
+            "Touch Turn long places stop at configurable TP:SL ratio; expected TP-first well below 50% (was $p)"
         )
     }
 

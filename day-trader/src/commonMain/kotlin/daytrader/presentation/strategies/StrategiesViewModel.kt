@@ -850,6 +850,39 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun onDeleteAllSessionHistoryForAllDeployments() {
+        val allDeployments = repository.deployments.value
+        val closedRunIds = allDeployments.flatMap { deployment ->
+            deployment.sessionHistory
+                .filter { it.status != SessionStatus.IN_PROGRESS }
+                .map { it.id }
+        }.toSet()
+        if (closedRunIds.isEmpty()) return
+        val deploymentsWithClosedHistory = allDeployments.filter { deployment ->
+            deployment.sessionHistory.any { it.status != SessionStatus.IN_PROGRESS }
+        }
+        UiActionLog.log(
+            action = "delete_all_session_history_all_deployments",
+            details = mapOf(
+                "deploymentCount" to deploymentsWithClosedHistory.size.toString(),
+                "sessionCount" to closedRunIds.size.toString()
+            )
+        )
+        if (selectedSessionHistoryId in closedRunIds) selectedSessionHistoryId = null
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            for (deployment in deploymentsWithClosedHistory) {
+                touchTurnEngine.dispatch(TouchTurnCommand.DeleteAllSessionHistory(deployment.id))
+            }
+        } else {
+            for (deployment in deploymentsWithClosedHistory) {
+                repository.update(deployment.id) { it.withoutClosedSessionHistory() }
+            }
+            repository.flushPersistence()
+        }
+        syncDeploymentsFromRepository()
+        emitUiState()
+    }
+
     fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
         StrategyCatalog.defaultMaxDollars(strategyType)
 
@@ -977,6 +1010,13 @@ class StrategiesViewModel(
             )
         }
 
+        val globalClosedSessionHistoryCount = deployments.sumOf { deployment ->
+            deployment.sessionHistory.count { it.status != SessionStatus.IN_PROGRESS }
+        }
+        val globalHasInProgressSessions = deployments.any { deployment ->
+            deployment.sessionHistory.any { it.status == SessionStatus.IN_PROGRESS }
+        }
+
         _uiState.update {
             StrategiesUiState(
                 filteredRows = listRows,
@@ -1042,6 +1082,8 @@ class StrategiesViewModel(
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 touchTurnOrderLifecycle = touchTurnOrderLifecycle,
                 touchTurnPrepare = touchTurnPrepare,
+                globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
+                globalHasInProgressSessions = globalHasInProgressSessions,
             )
         }
     }

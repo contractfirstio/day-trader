@@ -28,6 +28,11 @@ object TouchTurnDefaults {
     const val TAKE_PROFIT_FIB_RATIO_GREEN = 0.382
     /** Red (long) liquidity bar: take-profit distance as fraction of bar range. */
     const val TAKE_PROFIT_FIB_RATIO_RED = 0.382
+    /**
+     * Stop distance = entry-to-target distance ÷ this ratio (reward:risk).
+     * Default 2.0 → stop at half the take-profit distance (2:1 TP:SL).
+     */
+    const val TAKE_PROFIT_TO_STOP_LOSS_RATIO = 2.0
     /** Max time after 15m bar close to pass close confirmation and place entry orders. */
     const val CLOSE_CONFIRMATION_AFTER_CLOSE_MS = 60_000L
     /** Wait after 15m bar end before trusting IB historical refetch (bar-not-final race). */
