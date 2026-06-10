@@ -223,11 +223,7 @@ object TouchTurnSessionReasonUi {
         }
 
         if (hasOpenPosition) {
-            return TouchTurnSessionStatusUi(
-                headline = "In position — TP / SL working",
-                detail = "Manage the trade on the chart or via broker orders. Session auto-stops when flat after a completed cycle.",
-                severity = TouchTurnReasonSeverity.Info
-            )
+            return inPositionStatus(hasOpenOrders)
         }
 
         if (hasOpenOrders && !session.ordersPlacedForSession) {
@@ -241,11 +237,7 @@ object TouchTurnSessionReasonUi {
         if (session.ordersPlacedForSession || session.decisionOutcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
             val entryFilled = bracketEntryFilled(session, hasOpenPosition)
             return when {
-                hasOpenPosition -> TouchTurnSessionStatusUi(
-                    headline = "In position — TP / SL working",
-                    detail = "Manage the trade on the chart or via broker orders. Session auto-stops when flat after a completed cycle.",
-                    severity = TouchTurnReasonSeverity.Info
-                )
+                hasOpenPosition -> inPositionStatus(hasOpenOrders)
                 hasOpenOrders -> TouchTurnSessionStatusUi(
                     headline = "Waiting for entry fill",
                     detail = "Bracket is at the broker. Entry, stop, and take-profit remain working until price touches entry or orders are cancelled.",
@@ -365,4 +357,19 @@ object TouchTurnSessionReasonUi {
             "Bracket ended without an entry fill (cancelled, expired, or session stopped)."
         TouchTurnOrderLifecyclePhase.CLOSED -> null
     }
+
+    private fun inPositionStatus(hasOpenOrders: Boolean): TouchTurnSessionStatusUi =
+        if (hasOpenOrders) {
+            TouchTurnSessionStatusUi(
+                headline = "In position — TP / SL working",
+                detail = "Manage the trade on the chart or via broker orders. Session auto-stops when flat after a completed cycle.",
+                severity = TouchTurnReasonSeverity.Info
+            )
+        } else {
+            TouchTurnSessionStatusUi(
+                headline = "In position — no protective orders",
+                detail = "Open position with no working stop or take-profit at the broker. Flatten manually or stop the session.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
 }

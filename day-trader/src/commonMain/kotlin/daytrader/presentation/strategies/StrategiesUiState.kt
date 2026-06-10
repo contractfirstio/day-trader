@@ -78,4 +78,8 @@ data class StrategiesUiState(
     val touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi? = null,
     /** Pre-flight checklist for stopped Touch Turn deployments (Prepare before Start). */
     val touchTurnPrepare: TouchTurnPrepareUiState? = null,
+    /** Closed session rows across all deployments (for global clear-history). */
+    val globalClosedSessionHistoryCount: Int = 0,
+    /** True when any deployment still has an in-progress session row. */
+    val globalHasInProgressSessions: Boolean = false,
 )

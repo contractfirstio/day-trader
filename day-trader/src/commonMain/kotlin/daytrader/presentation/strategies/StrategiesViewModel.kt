@@ -700,6 +700,22 @@ class StrategiesViewModel(
         }
     }
 
+    fun onCopyTouchTurnRulesToAllOther(sourceId: String) {
+        val source = repository.deployments.value.find { it.id == sourceId } ?: return
+        if (source.status == DeploymentStatus.RUNNING) return
+        val rules = source.touchTurnRules
+        val targets = repository.deployments.value.filter { it.id != sourceId }
+        if (targets.isEmpty()) return
+        UiActionLog.forDeployment(
+            deployment = source,
+            action = "copy_touch_turn_rules_to_all_other",
+            details = mapOf("targetCount" to targets.size.toString())
+        )
+        for (target in targets) {
+            repository.update(target.id) { it.copy(touchTurnRules = rules) }
+        }
+    }
+
     fun onPrepareSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
         if (existing.status == DeploymentStatus.RUNNING) return
@@ -834,6 +850,39 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun onDeleteAllSessionHistoryForAllDeployments() {
+        val allDeployments = repository.deployments.value
+        val closedRunIds = allDeployments.flatMap { deployment ->
+            deployment.sessionHistory
+                .filter { it.status != SessionStatus.IN_PROGRESS }
+                .map { it.id }
+        }.toSet()
+        if (closedRunIds.isEmpty()) return
+        val deploymentsWithClosedHistory = allDeployments.filter { deployment ->
+            deployment.sessionHistory.any { it.status != SessionStatus.IN_PROGRESS }
+        }
+        UiActionLog.log(
+            action = "delete_all_session_history_all_deployments",
+            details = mapOf(
+                "deploymentCount" to deploymentsWithClosedHistory.size.toString(),
+                "sessionCount" to closedRunIds.size.toString()
+            )
+        )
+        if (selectedSessionHistoryId in closedRunIds) selectedSessionHistoryId = null
+        if (useTouchTurnEngine && touchTurnEngine != null) {
+            for (deployment in deploymentsWithClosedHistory) {
+                touchTurnEngine.dispatch(TouchTurnCommand.DeleteAllSessionHistory(deployment.id))
+            }
+        } else {
+            for (deployment in deploymentsWithClosedHistory) {
+                repository.update(deployment.id) { it.withoutClosedSessionHistory() }
+            }
+            repository.flushPersistence()
+        }
+        syncDeploymentsFromRepository()
+        emitUiState()
+    }
+
     fun defaultMaxDollarsFor(strategyType: StrategyType): Int =
         StrategyCatalog.defaultMaxDollars(strategyType)
 
@@ -961,6 +1010,13 @@ class StrategiesViewModel(
             )
         }
 
+        val globalClosedSessionHistoryCount = deployments.sumOf { deployment ->
+            deployment.sessionHistory.count { it.status != SessionStatus.IN_PROGRESS }
+        }
+        val globalHasInProgressSessions = deployments.any { deployment ->
+            deployment.sessionHistory.any { it.status == SessionStatus.IN_PROGRESS }
+        }
+
         _uiState.update {
             StrategiesUiState(
                 filteredRows = listRows,
@@ -1026,6 +1082,8 @@ class StrategiesViewModel(
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 touchTurnOrderLifecycle = touchTurnOrderLifecycle,
                 touchTurnPrepare = touchTurnPrepare,
+                globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
+                globalHasInProgressSessions = globalHasInProgressSessions,
             )
         }
     }

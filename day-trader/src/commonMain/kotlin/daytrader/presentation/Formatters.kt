@@ -1,6 +1,7 @@
 package daytrader.presentation
 
 import daytrader.domain.CurrencyCodes
+import daytrader.domain.InstrumentPriceScale
 import daytrader.domain.SessionStatus
 
 object Formatters {
@@ -24,6 +25,16 @@ object Formatters {
     fun moneyPlain(amount: Double, currencyCode: String): String {
         val code = normalizeDisplayCurrency(currencyCode)
         return "${currencySymbol(code)}${String.format("%.2f", amount)}"
+    }
+
+    /** Listing/tick price — pence for LSE (593.07p), major units otherwise (£, $). */
+    fun listingPricePlain(amount: Double, currencyCode: String, listingExch: String? = null): String {
+        val code = normalizeDisplayCurrency(currencyCode)
+        return if (InstrumentPriceScale.quotesInMinorUnits(code, listingExch)) {
+            "${String.format("%.2f", amount)}p"
+        } else {
+            moneyPlain(amount, currencyCode)
+        }
     }
 
     fun normalizeDisplayCurrency(currencyCode: String): String =

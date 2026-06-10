@@ -379,4 +379,51 @@ class BrokerEmulatorEngineTest {
         assertTrue(filled, "expected entry to fill after synthetic market ticks")
     }
 
+    @Test
+    fun placeTouchTurnBracket_rejectsWhenSymbolAlreadyHasOpenPosition() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 2.0,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.LONG,
+            entry = 593.074,
+            stopLoss = 592.3673,
+            takeProfit = 594.4874
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = "NWG",
+            setup = setup,
+            maxDollars = 100_000,
+            currencyCode = "GBP",
+            instrument = daytrader.domain.InstrumentIdentity(
+                symbol = "NWG",
+                exchange = "SMART",
+                primaryExch = "LSE",
+                currency = "GBP"
+            )
+        )!!
+
+        engine.placeTouchTurnBracket(plan)
+        engine.ingestLiveQuote(
+            "NWG",
+            LiveQuote(symbol = "NWG", bid = 592.8, ask = 593.0, last = 592.9),
+            priorClose = null
+        )
+        assertEquals(168, events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.single().quantity)
+
+        engine.placeTouchTurnBracket(plan)
+        val ack = events.filterIsInstance<GatewayEvent.TouchTurnBracketPlaced>().last().ack
+        assertTrue(ack.result.isFailure)
+        assertEquals(168, events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.single().quantity)
+    }
+
 }

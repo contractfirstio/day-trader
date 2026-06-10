@@ -671,7 +671,12 @@ fun TouchTurnPipelineSectionOrdersPreview(
     val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
     val closeConfirmation = remember(session, tick) { session.pipelineCloseConfirmation() }
     val currency = session.currencyCode
-    val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
+    val listingExch = daytrader.domain.InstrumentPriceScale.resolvedListingExch(
+        currency = currency,
+        marketZoneId = session.marketZoneId,
+        primaryExch = null
+    )
+    val fmt: (Double) -> String = { Formatters.listingPricePlain(it, currency, listingExch) }
 
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionOrders"),
@@ -1029,10 +1034,19 @@ private fun TouchTurnCloseConfirmationCard(
         val entry = confirmation.entryPrice
         val stop = confirmation.stopPrice
         if (close != null && entry != null && stop != null) {
+            val listingExch = daytrader.domain.InstrumentPriceScale.resolvedListingExch(
+                currency = confirmation.currency,
+                marketZoneId = if (confirmation.currency == "GBP") {
+                    daytrader.domain.RthMarketSessions.EUR.zoneId
+                } else {
+                    null
+                },
+                primaryExch = null
+            )
             Text(
-                "Close ${Formatters.moneyPlain(close, confirmation.currency)} · " +
-                    "Entry ${Formatters.moneyPlain(entry, confirmation.currency)} · " +
-                    "Stop ${Formatters.moneyPlain(stop, confirmation.currency)}",
+                "Close ${Formatters.listingPricePlain(close, confirmation.currency, listingExch)} · " +
+                    "Entry ${Formatters.listingPricePlain(entry, confirmation.currency, listingExch)} · " +
+                    "Stop ${Formatters.listingPricePlain(stop, confirmation.currency, listingExch)}",
                 fontSize = 11.sp,
                 color = Color.White
             )

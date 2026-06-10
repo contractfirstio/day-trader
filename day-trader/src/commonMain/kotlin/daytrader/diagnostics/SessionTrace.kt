@@ -324,6 +324,21 @@ object SessionTrace {
     }
 
     /** Engine queued [placeTouchTurnBracket] — session not committed until [bracketAcknowledged]. */
+    fun bracketSubmitSkipped(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        reason: String
+    ) {
+        log(
+            type = "bracket_submit_skipped",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = mapOf("reason" to reason)
+        )
+    }
+
     fun bracketSubmitRequested(
         deploymentId: String,
         sessionId: String?,

@@ -8,7 +8,8 @@ internal data class EmulatorInstrument(
     val companyName: String,
     val currency: String,
     val priorClose: Double,
-    val referencePrice: Double
+    val referencePrice: Double,
+    val primaryExch: String? = null
 ) {
     val marketZoneId: String
         get() = if (SymbolMarkets.isHongKong(symbol)) {

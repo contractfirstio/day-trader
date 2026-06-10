@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.domain.InstrumentPriceScale
 import daytrader.presentation.Formatters
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnTradeSide
@@ -17,6 +18,8 @@ data class TouchTurnQuoteStripUi(
     val currencyCode: String,
     val entryPrice: Double?,
     val entrySide: TouchTurnTradeSide?,
+    /** LSE primary exchange when UK listing — gaps are in pence. */
+    val listingExch: String? = null,
     /** Smallest fill gap observed this session (long → ask, short → bid). */
     val closestApproach: TouchTurnClosestApproachUi? = null
 ) {
@@ -29,7 +32,7 @@ data class TouchTurnQuoteStripUi(
     )
 
     val fillGapLabel: String? get() = fillGap?.let {
-        TouchTurnQuoteStripFormat.gapLabel(it, currencyCode)
+        TouchTurnQuoteStripFormat.gapLabel(it, currencyCode, listingExch)
     }
 
     val isFillable: Boolean get() = fillGap?.let { it <= 0.0 } == true
@@ -41,7 +44,8 @@ object TouchTurnQuoteStripUiMapper {
         currencyCode: String,
         bracketSetup: TouchTurnBracketSetup?,
         levels: List<TouchTurnOrderLevelUi> = emptyList(),
-        closestApproach: TouchTurnClosestApproachUi? = null
+        closestApproach: TouchTurnClosestApproachUi? = null,
+        listingExch: String? = null
     ): TouchTurnQuoteStripUi? {
         val entryPrice = bracketSetup?.entry
             ?: levels.firstOrNull { it.kind == TouchTurnOrderLevelKind.ENTRY }?.price
@@ -56,6 +60,7 @@ object TouchTurnQuoteStripUiMapper {
             currencyCode = currencyCode,
             entryPrice = entryPrice,
             entrySide = bracketSetup?.side,
+            listingExch = listingExch,
             closestApproach = closestApproach
         )
     }
@@ -86,13 +91,16 @@ object TouchTurnQuoteStripFormat {
         }
     }
 
-    fun gapLabel(gap: Double, currencyCode: String): String {
-        if (kotlin.math.abs(gap) < 0.000_05) return "at entry"
+    fun gapLabel(gap: Double, currencyCode: String, primaryExch: String? = null): String {
+        val currency = Formatters.normalizeDisplayCurrency(currencyCode)
+        val atEntryTolerance = if (InstrumentPriceScale.quotesInMinorUnits(currency, primaryExch)) 0.05 else 0.000_05
+        if (kotlin.math.abs(gap) < atEntryTolerance) return "at entry"
         val sign = if (gap > 0) "+" else "-"
         val magnitude = kotlin.math.abs(gap)
-        return when (Formatters.normalizeDisplayCurrency(currencyCode)) {
-            "GBP" -> "$sign${(magnitude * 100).roundToInt()}p"
-            else -> "$sign${String.format("%.2f", magnitude)}"
+        return if (InstrumentPriceScale.quotesInMinorUnits(currency, primaryExch)) {
+            "$sign${magnitude.roundToInt()}p"
+        } else {
+            "$sign${String.format("%.2f", magnitude)}"
         }
     }
 }

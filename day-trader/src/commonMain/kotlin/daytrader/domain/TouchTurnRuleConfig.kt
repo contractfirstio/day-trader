@@ -76,6 +76,8 @@ data class TouchTurnRuleConfig(
     val takeProfitFibRatioGreen: Double = TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN,
     /** Red liquidity bar: take-profit distance as a fraction of bar range. */
     val takeProfitFibRatioRed: Double = TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_RED,
+    /** Stop distance = entry-to-target distance ÷ this ratio (reward:risk). Higher = tighter stop. */
+    val takeProfitToStopLossRatio: Double = TouchTurnDefaults.TAKE_PROFIT_TO_STOP_LOSS_RATIO,
     /** Max milliseconds after 15m bar close to pass turn confirmation and place entry orders. */
     val closeConfirmationAfterCloseMs: Long = TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS,
     /** Wait after bar end before trusting a closed-bar historical refetch. */
@@ -252,6 +254,13 @@ data class TouchTurnRuleConfig(
                 kind = TouchTurnRuleFieldKind.RATIO
             ),
             TouchTurnRuleFieldDefinition(
+                key = "takeProfitToStopLossRatio",
+                label = "Take profit : stop loss ratio",
+                description = "Stop distance is entry-to-target distance divided by this ratio. Default 2 = stop at " +
+                    "half the take-profit distance (2:1 reward:risk). Higher values tighten the stop (smaller loss).",
+                kind = TouchTurnRuleFieldKind.RATIO
+            ),
+            TouchTurnRuleFieldDefinition(
                 key = "closeConfirmationAfterCloseMs",
                 label = "Entry window after close (ms)",
                 description = "Maximum time after the 15m bar closes to pass turn confirmation and submit bracket " +
@@ -294,6 +303,7 @@ data class TouchTurnRuleConfig(
             "entryInwardOffsetRatioOfRange" -> config.entryInwardOffsetRatioOfRange.toString()
             "takeProfitFibRatioGreen" -> config.takeProfitFibRatioGreen.toString()
             "takeProfitFibRatioRed" -> config.takeProfitFibRatioRed.toString()
+            "takeProfitToStopLossRatio" -> config.takeProfitToStopLossRatio.toString()
             "closeConfirmationAfterCloseMs" -> config.closeConfirmationAfterCloseMs.toString()
             "closedBarRefetchSettleMs" -> config.closedBarRefetchSettleMs.toString()
             "volumeBufferObservationMs" -> config.volumeBufferObservationMs.toString()
@@ -345,6 +355,8 @@ data class TouchTurnRuleConfig(
                                     config.copy(entryTouchBufferRatioOfRange = doubleValue)
                                 "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
                                 "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
+                                "takeProfitToStopLossRatio" ->
+                                    config.copy(takeProfitToStopLossRatio = doubleValue)
                                 else -> null
                             }
                         }
@@ -456,13 +468,11 @@ fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): To
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
 }
 
-/** Ensures newly added rule toggles stay off (legacy persisted configs may still have [notDoji] enabled). */
+/** Ensures legacy-only rule toggles stay off (persisted configs may still have [notDoji] / [openDeadline] enabled). */
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
     val normalizedEnables = enables.copy(
         notDoji = false,
-        openDeadline = false,
-        macroTrendAlignment = false,
-        stockTrendAlignment = false
+        openDeadline = false
     )
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
 }

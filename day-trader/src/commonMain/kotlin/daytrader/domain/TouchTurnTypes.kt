@@ -108,7 +108,7 @@ enum class TouchTurnTradeSide {
 /**
  * Bracket levels derived from the first 15-minute candle (Touch Turn liquidity setup).
  * Green bar → short at high, TP at 38.2% of range; red bar → long at low, TP at 38.2% of range.
- * Stop is half the entry-to-TP distance beyond entry (with a minimum).
+ * Stop is entry-to-TP distance ÷ [TouchTurnRuleConfig.takeProfitToStopLossRatio] beyond entry.
  */
 @Serializable
 data class TouchTurnBracketSetup(

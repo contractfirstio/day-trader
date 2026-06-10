@@ -29,17 +29,17 @@ fun TouchTurnQuoteStrip(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             QuoteStripField(
                 label = "Bid",
-                value = strip.bid?.let { Formatters.moneyPlain(it, strip.currencyCode) },
+                value = strip.bid?.let { Formatters.listingPricePlain(it, strip.currencyCode, strip.listingExch) },
                 testTag = "TouchTurnQuoteStripBid"
             )
             QuoteStripField(
                 label = "Ask",
-                value = strip.ask?.let { Formatters.moneyPlain(it, strip.currencyCode) },
+                value = strip.ask?.let { Formatters.listingPricePlain(it, strip.currencyCode, strip.listingExch) },
                 testTag = "TouchTurnQuoteStripAsk"
             )
             QuoteStripField(
                 label = "Last",
-                value = strip.last?.let { Formatters.moneyPlain(it, strip.currencyCode) },
+                value = strip.last?.let { Formatters.listingPricePlain(it, strip.currencyCode, strip.listingExch) },
                 testTag = "TouchTurnQuoteStripLast"
             )
         }
@@ -52,16 +52,16 @@ fun TouchTurnQuoteStrip(
             Text(
                 text = buildString {
                     append("Entry ")
-                    append(Formatters.moneyPlain(entry, strip.currencyCode))
+                    append(Formatters.listingPricePlain(entry, strip.currencyCode, strip.listingExch))
                     if (gapLabel != null) {
                         append(" · Δ ")
                         append(gapLabel)
                     }
                     strip.closestApproach?.let { best ->
                         append(" · Best ")
-                        append(best.gapLabel(strip.currencyCode))
+                        append(best.gapLabel(strip.currencyCode, strip.listingExch))
                         append(" @ ")
-                        append(Formatters.moneyPlain(best.fillPrice, strip.currencyCode))
+                        append(Formatters.listingPricePlain(best.fillPrice, strip.currencyCode, strip.listingExch))
                     }
                 },
                 fontSize = 9.sp,

@@ -5,6 +5,7 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.MacroTrendState
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.StockTrendState
+import daytrader.domain.InstrumentPriceScale
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
@@ -453,6 +454,27 @@ class BrokerEmulatorEngine(
             spreadWidenFactor = config.bracketExitSpreadWidenFactor
         )
         val symbol = SymbolMarkets.normalizeSymbol(adjustedPlan.symbol)
+        val openPositionQty = positions.firstOrNull {
+            SymbolMarkets.symbolsMatch(it.instrument.symbol, symbol) && it.quantity != 0
+        }?.quantity
+        if (openPositionQty != null) {
+            EmulatorLog.bracketRejected(symbol, "open_position_exists")
+            val failure = TouchTurnBracketAck(
+                symbol = symbolForAck,
+                orderIds = emptyList(),
+                result = Result.failure(IllegalStateException("open_position_exists")),
+                plan = plan
+            )
+            emit(GatewayEvent.TouchTurnBracketPlaced(failure))
+            EmulatorLog.bracketAckEmitted(
+                symbolForAck,
+                emptyList(),
+                success = false,
+                openOrderCount = openOrderBook.snapshot().size,
+                error = "open_position_exists"
+            )
+            return
+        }
         if (config.pricingSource.isSynthetic) {
             ensureStreamingMarketData(symbol, adjustedPlan.instrument)
         }
@@ -477,7 +499,7 @@ class BrokerEmulatorEngine(
             .forEach { openOrderBook.removeOrder(it.orderId) }
         bracketManagedOrderIds.removeIf { id -> orders[id]?.let { SymbolMarkets.symbolsMatch(it.symbol, symbol) } == true }
 
-        ensureInstrument(symbol, adjustedPlan.currencyCode, entryPrice)
+        ensureInstrument(symbol, adjustedPlan.currencyCode, entryPrice, adjustedPlan.instrument)
 
         val entryId = allocateOrderId()
         bracketManagedOrderIds.add(entryId)
@@ -868,15 +890,29 @@ class BrokerEmulatorEngine(
         return catalog[norm] ?: dynamicInstruments[norm]
     }
 
-    private fun ensureInstrument(symbol: String, currency: String, referencePrice: Double): EmulatorInstrument {
+    private fun ensureInstrument(
+        symbol: String,
+        currency: String,
+        referencePrice: Double,
+        identity: daytrader.domain.InstrumentIdentity? = null
+    ): EmulatorInstrument {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
-        resolveInstrument(norm)?.let { return it }
+        resolveInstrument(norm)?.let { existing ->
+            val primaryExch = identity?.primaryExch?.takeIf { it.isNotBlank() }
+            if (primaryExch != null && existing.primaryExch.isNullOrBlank()) {
+                val updated = existing.copy(primaryExch = primaryExch)
+                dynamicInstruments[norm] = updated
+                return updated
+            }
+            return existing
+        }
         return EmulatorInstrument(
             symbol = norm,
             companyName = norm,
             currency = currency,
             priorClose = referencePrice,
-            referencePrice = referencePrice
+            referencePrice = referencePrice,
+            primaryExch = identity?.primaryExch?.takeIf { it.isNotBlank() }
         ).also { dynamicInstruments[norm] = it }
     }
 
@@ -1169,11 +1205,14 @@ class BrokerEmulatorEngine(
         if (!isClosing) return null
         val exitPrice = order.fillPrice()
         val closeQty = minOf(kotlin.math.abs(signedFill), kotlin.math.abs(pos.quantity))
-        return if (pos.quantity > 0) {
-            (exitPrice - pos.avgPrice) * closeQty
-        } else {
-            (pos.avgPrice - exitPrice) * closeQty
-        }
+        return InstrumentPriceScale.realizedPnLOnClose(
+            closeQty = closeQty,
+            avgPriceRaw = pos.avgPrice,
+            exitPriceRaw = exitPrice,
+            currency = order.currency,
+            isLong = pos.quantity > 0,
+            primaryExch = pos.instrument.primaryExch
+        )
     }
 
     private fun recordFill(

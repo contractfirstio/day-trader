@@ -1423,7 +1423,7 @@ object TouchTurnLogic {
                 val entry = bar.high - entryInwardOffset
                 val takeProfit = bar.low + range * rules.takeProfitFibRatioGreen
                 val tpDistance = entry - takeProfit
-                val stopDistance = tpDistance / 2.0
+                val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
                 TouchTurnBracketSetup(
                     range = range,
                     rangeThreshold = rangeThreshold,
@@ -1439,7 +1439,7 @@ object TouchTurnLogic {
                 val tpDistance = range * rules.takeProfitFibRatioRed
                 val entry = bar.low + entryInwardOffset
                 val takeProfit = entry + tpDistance
-                val stopDistance = tpDistance / 2.0
+                val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
                 TouchTurnBracketSetup(
                     range = range,
                     rangeThreshold = rangeThreshold,
@@ -1478,12 +1478,31 @@ object TouchTurnLogic {
     fun orderPreviewSummary(setup: TouchTurnBracketSetup): String {
         val action = tradeSideLabel(setup.side).lowercase()
         val fibPct = takeProfitFibLabel(setup.candleColor)
+        val stopDesc = stopLossDistanceDescription(setup)
         return when (setup.candleColor) {
             FirstCandleColor.GREEN ->
-                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct fib retracement level, stop half the entry-to-target distance above entry."
+                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct fib " +
+                    "retracement level, $stopDesc above entry."
             FirstCandleColor.RED ->
-                "Red liquidity bar → $action above bar low (inward offset), take profit at $fibPct of range above entry, stop half that distance below entry."
+                "Red liquidity bar → $action above bar low (inward offset), take profit at $fibPct of range " +
+                    "above entry, $stopDesc below entry."
             FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."
         }
     }
+
+    private fun stopLossDistanceDescription(setup: TouchTurnBracketSetup): String {
+        val tpDistance = kotlin.math.abs(setup.takeProfit - setup.entry)
+        val slDistance = kotlin.math.abs(setup.stopLoss - setup.entry)
+        if (tpDistance <= 0.0 || slDistance <= 0.0) return "stop at entry"
+        val ratio = tpDistance / slDistance
+        val ratioLabel = if (ratio == ratio.toLong().toDouble()) {
+            "${ratio.toLong()}:1"
+        } else {
+            "%.1f:1".format(ratio)
+        }
+        return "stop at $ratioLabel take-profit-to-stop-loss (entry-to-target distance ÷ ${formatRatio(ratio)})"
+    }
+
+    private fun formatRatio(ratio: Double): String =
+        if (ratio == ratio.toLong().toDouble()) ratio.toLong().toString() else "%.2g".format(ratio)
 }

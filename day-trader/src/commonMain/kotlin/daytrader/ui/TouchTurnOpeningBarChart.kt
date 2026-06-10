@@ -47,6 +47,7 @@ fun TouchTurnOpeningBarChart(
     livePriceHistory: List<Double> = emptyList(),
     currentPrice: Double? = null,
     quoteStrip: TouchTurnQuoteStripUi? = null,
+    listingExch: String? = quoteStrip?.listingExch,
     modifier: Modifier = Modifier
 ) {
     val bodyColor = when (candleColor) {
@@ -82,8 +83,8 @@ fun TouchTurnOpeningBarChart(
     val rangeLabel = rangeThreshold?.takeIf { it > 0.0 }?.let { threshold ->
         val passes = candle.range >= threshold
         buildString {
-            append("Range ${Formatters.moneyPlain(candle.range, currencyCode)}")
-            append(" · threshold ${Formatters.moneyPlain(threshold, currencyCode)}")
+            append("Range ${Formatters.listingPricePlain(candle.range, currencyCode, listingExch)}")
+            append(" · threshold ${Formatters.listingPricePlain(threshold, currencyCode, listingExch)}")
             if (closeStatus == FirstCandleCloseStatus.CLOSED) {
                 append(if (passes) " · liquidity OK" else " · below threshold")
             }
@@ -221,7 +222,7 @@ fun TouchTurnOpeningBarChart(
 
             listOf(priceRange.max, priceRange.min).forEachIndexed { index, price ->
                 val y = if (index == 0) plotTop else plotBottom
-                val label = Formatters.moneyPlain(price, currencyCode)
+                val label = Formatters.listingPricePlain(price, currencyCode, listingExch)
                 val layout = textMeasurer.measure(label, labelStyle)
                 drawText(
                     textLayoutResult = layout,
@@ -240,7 +241,7 @@ fun TouchTurnOpeningBarChart(
             )
             ohlcLabels.forEach { (tag, price) ->
                 val y = yFor(price)
-                val label = "$tag ${Formatters.moneyPlain(price, currencyCode)}"
+                val label = "$tag ${Formatters.listingPricePlain(price, currencyCode, listingExch)}"
                 val layout = textMeasurer.measure(label, labelStyle.copy(color = bodyColor.copy(alpha = 0.9f)))
                 drawText(
                     textLayoutResult = layout,

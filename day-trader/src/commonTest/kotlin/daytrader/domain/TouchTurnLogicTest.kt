@@ -239,6 +239,25 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun takeProfitToStopLossRatio_tightensStop_whenRatioIncreased() {
+        val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
+        val defaultSetup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val tighterStopRules = TouchTurnRuleConfig.DEFAULT.copy(takeProfitToStopLossRatio = 4.0)
+        val tighterSetup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = tighterStopRules
+        )
+        assertEquals(defaultSetup.entry, tighterSetup.entry, 0.001)
+        assertEquals(defaultSetup.takeProfit, tighterSetup.takeProfit, 0.001)
+        val defaultRisk = defaultSetup.entry - defaultSetup.stopLoss
+        val tighterRisk = tighterSetup.entry - tighterSetup.stopLoss
+        assertTrue(tighterRisk < defaultRisk)
+        val tpDistance = defaultSetup.takeProfit - defaultSetup.entry
+        assertEquals(defaultSetup.entry - tpDistance / 4.0, tighterSetup.stopLoss, 0.001)
+    }
+
+    @Test
     fun entryInwardOffset_movesLongUpAndShortDown() {
         val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
         val atExtreme = TouchTurnLogic.computeBracketSetup(
