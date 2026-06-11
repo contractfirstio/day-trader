@@ -14,6 +14,7 @@ import daytrader.domain.WatchlistLabel
 import daytrader.domain.WatchlistLabels
 import daytrader.domain.WatchlistPlanDiaryEntry
 import daytrader.domain.WatchlistPlanKind
+import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.defaultWatchlistTradePlans
 
@@ -178,6 +179,7 @@ object WatchlistPersistence {
             proximityThresholdValue = record.proximityThresholdValue,
             orderPlacedAtEpochMs = record.orderPlacedAtEpochMs,
             placedOrderIds = record.placedOrderIds,
+            executedBracketLegs = record.executedBracketLegs.mapNotNull(::parseExecutedBracketLeg),
             diaryEntries = record.diaryEntries.map(::toDiaryDomain)
         )
 
@@ -215,6 +217,7 @@ object WatchlistPersistence {
             proximityThresholdValue = plan.proximityThresholdValue,
             orderPlacedAtEpochMs = plan.orderPlacedAtEpochMs,
             placedOrderIds = plan.placedOrderIds,
+            executedBracketLegs = plan.executedBracketLegs.map { it.name },
             diaryEntries = plan.diaryEntries.map(::toDiaryRecord)
         )
 
@@ -253,4 +256,7 @@ object WatchlistPersistence {
         ProximityThresholdMode.PERCENT -> "percent"
         ProximityThresholdMode.ABSOLUTE -> "absolute"
     }
+
+    private fun parseExecutedBracketLeg(value: String): TouchTurnOrderRole? =
+        runCatching { TouchTurnOrderRole.valueOf(value.uppercase()) }.getOrNull()
 }

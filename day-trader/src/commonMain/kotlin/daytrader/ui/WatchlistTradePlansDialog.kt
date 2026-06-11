@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import daytrader.domain.ProximityThresholdMode
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistLabels
+import daytrader.presentation.watchlist.WatchlistEntryChartsUi
 import daytrader.presentation.watchlist.WatchlistLabelUi
 import daytrader.presentation.watchlist.WatchlistStrategyUi
 import daytrader.presentation.watchlist.WatchlistPlanEditorUi
@@ -47,9 +49,10 @@ import daytrader.ui.theme.*
 import kotlinx.coroutines.delay
 
 @Composable
-internal fun WatchlistTradePlansDialog(
+internal fun WatchlistEntryDetailPanel(
     editor: WatchlistTradePlansEditorUi,
-    onDismiss: () -> Unit,
+    charts: WatchlistEntryChartsUi?,
+    onBack: () -> Unit,
     onSave: () -> Unit,
     onSideChange: (String, TradeSide) -> Unit,
     onSizingModeChange: (String, PlanSizingMode) -> Unit,
@@ -63,20 +66,37 @@ internal fun WatchlistTradePlansDialog(
     onRemoveStrategy: (String) -> Unit,
     onPlaceBracket: (String) -> Unit,
     onReactivatePlan: (String) -> Unit,
-    onOpenDiary: (String) -> Unit
+    onOpenDiary: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier
-            .fillMaxWidth(0.92f)
-            .testTag("WatchlistTradePlansDialog"),
-        containerColor = SurfaceDark,
-        title = {
-            Column {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("WatchlistEntryDetailPanel")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.testTag("WatchlistEntryDetailBack")
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back to watchlist",
+                    tint = Color.White
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "${editor.symbol} — Trade plans",
                     color = Color.White,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
                 )
                 Text(
                     "${editor.companyName} · Last scanned ${editor.formattedLast}",
@@ -84,49 +104,6 @@ internal fun WatchlistTradePlansDialog(
                     fontSize = 13.sp
                 )
             }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 560.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                WatchlistGroupsEditor(
-                    assignedLabels = editor.assignedLabels,
-                    availableLabels = editor.availableLabels,
-                    newGroupInput = editor.newGroupInput,
-                    onGroupInputChange = onGroupInputChange,
-                    onAddGroup = { onAddGroup(null) },
-                    onQuickAddGroup = { onAddGroup(it) },
-                    onRemoveGroup = onRemoveGroup
-                )
-                WatchlistStrategiesEditor(
-                    symbol = editor.symbol,
-                    assignedStrategies = editor.assignedStrategies,
-                    onCreateStrategyDeployment = onCreateStrategyDeployment,
-                    onRemoveStrategy = onRemoveStrategy
-                )
-                editor.plans.forEach { plan ->
-                    TradePlanCard(
-                        plan = plan,
-                        isNearEntry = plan.isNearEntry,
-                        canPlaceBracket = plan.orderPlacedLabel == null &&
-                            plan.outcome?.let { it.errors.isEmpty() && it.quantityLabel != null } == true,
-                        onPlaceBracket = { onPlaceBracket(plan.planId) },
-                        onSideChange = { onSideChange(plan.planId, it) },
-                        onSizingModeChange = { onSizingModeChange(plan.planId, it) },
-                        onProximityEnabledChange = { onProximityEnabledChange(plan.planId, it) },
-                        onProximityModeChange = { onProximityModeChange(plan.planId, it) },
-                        onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) },
-                        onReactivatePlan = { onReactivatePlan(plan.planId) },
-                        onOpenDiary = { onOpenDiary(plan.planId) }
-                    )
-                }
-            }
-        },
-        confirmButton = {
             Button(
                 onClick = onSave,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
@@ -134,13 +111,70 @@ internal fun WatchlistTradePlansDialog(
             ) {
                 Text("Save", color = Color.White)
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
-            }
         }
-    )
+
+        HorizontalSplitPane(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            initialLeftFraction = 0.48f,
+            minLeftFraction = 0.32f,
+            maxLeftFraction = 0.68f,
+            leftContent = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(1.dp, SurfaceDark, RoundedCornerShape(8.dp))
+                        .background(SurfaceDark, RoundedCornerShape(8.dp))
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    WatchlistGroupsEditor(
+                        assignedLabels = editor.assignedLabels,
+                        availableLabels = editor.availableLabels,
+                        newGroupInput = editor.newGroupInput,
+                        onGroupInputChange = onGroupInputChange,
+                        onAddGroup = { onAddGroup(null) },
+                        onQuickAddGroup = { onAddGroup(it) },
+                        onRemoveGroup = onRemoveGroup
+                    )
+                    WatchlistStrategiesEditor(
+                        symbol = editor.symbol,
+                        assignedStrategies = editor.assignedStrategies,
+                        onCreateStrategyDeployment = onCreateStrategyDeployment,
+                        onRemoveStrategy = onRemoveStrategy
+                    )
+                    editor.plans.forEach { plan ->
+                        TradePlanCard(
+                            plan = plan,
+                            isNearEntry = plan.isNearEntry,
+                            canPlaceBracket = plan.orderPlacedLabel == null &&
+                                plan.outcome?.let { it.errors.isEmpty() && it.quantityLabel != null } == true,
+                            onPlaceBracket = { onPlaceBracket(plan.planId) },
+                            onSideChange = { onSideChange(plan.planId, it) },
+                            onSizingModeChange = { onSizingModeChange(plan.planId, it) },
+                            onProximityEnabledChange = { onProximityEnabledChange(plan.planId, it) },
+                            onProximityModeChange = { onProximityModeChange(plan.planId, it) },
+                            onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) },
+                            onReactivatePlan = { onReactivatePlan(plan.planId) },
+                            onOpenDiary = { onOpenDiary(plan.planId) }
+                        )
+                    }
+                }
+            },
+            rightContent = {
+                charts?.let { chartState ->
+                    WatchlistEntryChartsPanel(
+                        charts = chartState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 4.dp)
+                    )
+                }
+            }
+        )
+    }
 }
 
 @Composable

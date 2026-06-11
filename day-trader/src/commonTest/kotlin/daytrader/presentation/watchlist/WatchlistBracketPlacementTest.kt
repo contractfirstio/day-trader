@@ -37,8 +37,7 @@ class WatchlistBracketPlacementTest {
 
         assertEquals(1, execution.placedBrackets.size)
         assertEquals("AAPL", execution.placedBrackets.single().symbol)
-        val ui = awaitBracketResult(viewModel)
-        assertTrue(ui.submitResultMessage?.contains("Bracket submitted") == true)
+        awaitBracketPlaced(viewModel, repository)
     }
 
     @Test
@@ -58,8 +57,7 @@ class WatchlistBracketPlacementTest {
             awaitExecutionConnected(viewModel)
             openAndSubmitBracket(viewModel, repository)
 
-            val ui = awaitBracketResult(viewModel)
-            assertTrue(ui.submitResultMessage?.contains("Bracket submitted") == true)
+            awaitBracketPlaced(viewModel, repository)
             assertTrue(harness.ibGateway.ensureLiveMarketDataCalls.contains("AAPL"))
         } finally {
             harness.shutdown()
@@ -74,14 +72,18 @@ class WatchlistBracketPlacementTest {
         }
     }
 
-    private suspend fun awaitBracketResult(viewModel: WatchlistViewModel): WatchlistBracketOrderUi {
-        return withTimeout(5_000) {
-            var editor: WatchlistBracketOrderUi? = null
-            while (editor?.submitResultMessage == null) {
-                editor = viewModel.uiState.value.bracketOrderEditor
+    private suspend fun awaitBracketPlaced(
+        viewModel: WatchlistViewModel,
+        repository: InMemoryWatchlistRepository
+    ) {
+        withTimeout(5_000) {
+            while (true) {
+                val plan = repository.watchlists.value.first().entries.single().tradePlans.single()
+                if (plan.hasPlacedOrder && viewModel.uiState.value.bracketOrderEditor == null) {
+                    return@withTimeout
+                }
                 delay(25)
             }
-            editor!!
         }
     }
 

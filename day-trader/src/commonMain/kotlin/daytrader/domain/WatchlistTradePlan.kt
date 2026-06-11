@@ -34,12 +34,18 @@ data class WatchlistTradePlan(
     /** Set when a bracket order was submitted for this plan from the watchlist. */
     val orderPlacedAtEpochMs: Long? = null,
     val placedOrderIds: List<Int> = emptyList(),
+    /** Bracket legs filled for this plan — keeps chart levels pulsing like Touch Turn. */
+    val executedBracketLegs: List<TouchTurnOrderRole> = emptyList(),
     val diaryEntries: List<WatchlistPlanDiaryEntry> = emptyList()
 ) {
     val hasPlacedOrder: Boolean get() = orderPlacedAtEpochMs != null
 
     fun withoutOrderPlacement(): WatchlistTradePlan =
-        copy(orderPlacedAtEpochMs = null, placedOrderIds = emptyList())
+        copy(
+            orderPlacedAtEpochMs = null,
+            placedOrderIds = emptyList(),
+            executedBracketLegs = emptyList()
+        )
 }
 
 data class WatchlistPlanOutcome(
