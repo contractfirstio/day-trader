@@ -21,6 +21,8 @@ import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
 import daytrader.marketdata.MarketQuoteBus
+import daytrader.platform.TradingClock
+import daytrader.platform.WallClock
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.SessionBundle
 import daytrader.ui.tools.PriceFeedTesterDialog
@@ -43,6 +45,11 @@ fun App(
     setStreamingMarketDataType: ((IbStreamingMarketDataType) -> Unit)? = null,
     replayHybridRuntime: ReplayHybridRuntime? = null,
     replayBundle: SessionBundle? = null,
+    replayCaptureCatalog: List<daytrader.replay.ReplayCaptureRef> = emptyList(),
+    loadReplayBundle: (String) -> Result<SessionBundle> = {
+        Result.failure(IllegalStateException("Replay bundle loader not configured"))
+    },
+    tradingClock: TradingClock = WallClock,
     onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
@@ -54,7 +61,10 @@ fun App(
         ensureLiveMarketData = ensureLiveMarketData,
         releaseLiveMarketData = releaseLiveMarketData,
         replayHybridRuntime = replayHybridRuntime,
-        replayBundle = replayBundle
+        replayBundle = replayBundle,
+        replayCaptureCatalog = replayCaptureCatalog,
+        loadReplayBundle = loadReplayBundle,
+        tradingClock = tradingClock
     )
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     var showPriceFeedTester by remember { mutableStateOf(false) }
@@ -77,7 +87,9 @@ fun App(
             ApplicationQuitCoordinator(
                 hasRunningSessions = viewModel::hasRunningSessions,
                 runningSymbols = viewModel::runningSessionSymbols,
-                stopRunningSessions = viewModel::shutdownRunningSessions
+                stopRunningSessions = viewModel::shutdownRunningSessions,
+                hasActiveMarketDataCaptures = viewModel::hasActiveMarketDataCaptures,
+                stopMarketDataCaptures = { viewModel.stopAllSessionMarketDataCaptures() }
             )
         )
         onDispose {
@@ -128,7 +140,7 @@ fun App(
                     )
                 }
                 val replayController = dependencies.replayController
-                val replaySessionBundle = dependencies.replayBundle
+                val replaySessionBundle = replayHybridRuntime?.bundle ?: dependencies.replayBundle
                 if (replayController != null && replaySessionBundle != null) {
                     ReplayControlBar(
                         bundle = replaySessionBundle,

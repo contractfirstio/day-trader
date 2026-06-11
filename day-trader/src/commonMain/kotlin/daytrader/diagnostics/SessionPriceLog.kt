@@ -1,6 +1,7 @@
 package daytrader.diagnostics
 
 import daytrader.broker.SymbolMarkets
+import daytrader.data.SessionMarketDataCapture
 import daytrader.data.persistence.AppDataFiles
 import daytrader.data.persistence.JsonFileStore
 import daytrader.domain.DeploymentStatus
@@ -38,7 +39,7 @@ object SessionPriceLog {
 
     fun install(deploymentsProvider: () -> List<StrategyDeployment>) {
         sessionLookup = { symbol ->
-            deploymentsProvider()
+            val fromRunning = deploymentsProvider()
                 .asSequence()
                 .filter { it.status == DeploymentStatus.RUNNING }
                 .filter { SymbolMarkets.symbolsMatch(it.symbol, symbol) }
@@ -50,6 +51,16 @@ object SessionPriceLog {
                         symbol = deployment.symbol
                     )
                 }
+            val fromCapture = SessionMarketDataCapture.targetsForSymbol(symbol)
+                .map { capture ->
+                    SessionPriceTarget(
+                        deploymentId = capture.deploymentId,
+                        sessionId = capture.sessionId,
+                        symbol = capture.symbol
+                    )
+                }
+            (fromRunning + fromCapture)
+                .distinctBy { it.deploymentId to it.sessionId }
                 .toList()
         }
     }

@@ -7,6 +7,14 @@ import kotlin.test.assertTrue
 
 class BrokerKindTest {
     @Test
+    fun capturesSessionMarketData_trueForHybridAndIbOnly() {
+        assertTrue(BrokerKind.INTERACTIVE_BROKERS.capturesSessionMarketData)
+        assertTrue(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA.capturesSessionMarketData)
+        assertFalse(BrokerKind.EMULATOR.capturesSessionMarketData)
+        assertFalse(BrokerKind.REPLAY.capturesSessionMarketData)
+    }
+
+    @Test
     fun usesLiveIbMarketData_trueForLiveTradingPaths() {
         assertTrue(BrokerKind.INTERACTIVE_BROKERS.usesLiveIbMarketData)
         assertTrue(BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA.usesLiveIbMarketData)

@@ -25,6 +25,7 @@ import daytrader.platform.DesktopFolderPicker
 import daytrader.platform.MacApplicationMenu
 import daytrader.replay.SessionBundleDirectoryReader
 import daytrader.replay.SessionReplayCatalog
+import daytrader.replay.SessionReplayCatalog.toCaptureRef
 import daytrader.ui.App
 import daytrader.ui.ApplicationQuitConfirmDialog
 import daytrader.ui.ApplicationQuitCoordinator
@@ -164,16 +165,28 @@ fun main() {
                         val catalogEntries = remember {
                             SessionReplayCatalog.discover(AppFileSystem.applicationDataRoot())
                         }
+                        val replayCaptureCatalog = remember(catalogEntries) {
+                            catalogEntries.map { it.toCaptureRef() }
+                        }
                         SessionReplayPickerScreen(
                             entries = catalogEntries,
                             onBrowseFolder = { DesktopFolderPicker.pickDirectory("Select captured session folder") },
                             onContinue = { entry ->
+                                val bootstrapEntry = entry ?: catalogEntries.firstOrNull()
+                                    ?: error("No hybrid session captures found under paper-live-ib")
                                 val bundle = SessionBundleDirectoryReader
-                                    .loadReplayableFromDirectory(entry.directoryPath)
+                                    .loadReplayableFromDirectory(bootstrapEntry.directoryPath)
                                     .getOrElse { error(it.message ?: "Failed to load session bundle") }
+                                val catalog = replayCaptureCatalog + listOfNotNull(
+                                    entry?.takeIf { picked ->
+                                        catalogEntries.none { it.directoryPath == picked.directoryPath }
+                                    }?.toCaptureRef()
+                                )
                                 AppFileSystem.configureDataScope(BrokerKind.REPLAY)
                                 val runtime = BrokerRuntime.createReplay(bundle)
-                                phase = StartupPhase.Running(runtime)
+                                phase = StartupPhase.Running(
+                                    runtime.copy(replayCaptureCatalog = catalog)
+                                )
                             },
                             onBack = { phase = StartupPhase.ChooseBroker }
                         )
@@ -200,6 +213,9 @@ fun main() {
                             setStreamingMarketDataType = current.runtime.setStreamingMarketDataType,
                             replayHybridRuntime = current.runtime.replayHybridRuntime,
                             replayBundle = current.runtime.replayBundle,
+                            replayCaptureCatalog = current.runtime.replayCaptureCatalog,
+                            loadReplayBundle = SessionBundleDirectoryReader::loadReplayableFromDirectory,
+                            tradingClock = current.runtime.clock,
                             onRegisterApplicationQuit = { applicationQuit = it }
                         )
                     }

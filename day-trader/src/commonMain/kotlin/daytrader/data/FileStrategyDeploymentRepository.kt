@@ -12,6 +12,7 @@ import daytrader.domain.withNewConfigurableTouchTurnRulesDisabled
 import daytrader.domain.withDefaultCloseTurnZones
 import daytrader.domain.withEntryInwardOffsetForBrokerKind
 import daytrader.domain.withLiquidityGatesForBrokerKind
+import daytrader.gateway.BrokerKind
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +79,8 @@ class FileStrategyDeploymentRepository(
 
     private fun normalizeDeployments(deployments: List<StrategyDeployment>): List<StrategyDeployment> {
         val brokerKind = AppFileSystem.currentDataScope()
+        // Replay is a debugging surface: preserve user-edited Touch Turn rules across restarts.
+        if (brokerKind == BrokerKind.REPLAY) return deployments
         var updated = deployments.map { it.withNewConfigurableTouchTurnRulesDisabled() }
         updated = updated.map { it.withEntryInwardOffsetForBrokerKind(brokerKind) }
         updated = updated.map { it.withLiquidityGatesForBrokerKind(brokerKind) }

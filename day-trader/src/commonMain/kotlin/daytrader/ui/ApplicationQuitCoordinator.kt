@@ -6,5 +6,7 @@ package daytrader.ui
 data class ApplicationQuitCoordinator(
     val hasRunningSessions: () -> Boolean,
     val runningSymbols: () -> List<String>,
-    val stopRunningSessions: () -> Unit
+    val stopRunningSessions: () -> Unit,
+    val hasActiveMarketDataCaptures: () -> Boolean = { false },
+    val stopMarketDataCaptures: () -> Unit = {}
 )

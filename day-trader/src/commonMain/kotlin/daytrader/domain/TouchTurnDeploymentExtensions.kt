@@ -8,7 +8,7 @@ fun StrategyDeployment.beginTouchTurnSession(sessionDate: String): StrategyDeplo
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
             status = TouchTurnCandleStatus.LOADING,
-            rules = effectiveTouchTurnRules(),
+            rules = touchTurnRules ?: TouchTurnRuleConfig.DEFAULT,
             milestones = TouchTurnMilestoneTimestamps(startingSessionAt = startedAt),
             prepareSnapshot = prepareSnapshot
         )
@@ -51,7 +51,7 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
     bootstrapReusedFromPrepare: Boolean? = null
 ): StrategyDeployment {
     if (!isTouchTurn) return this
-    val rules = effectiveTouchTurnRules()
+    val rules = touchTurnRules ?: TouchTurnRuleConfig.DEFAULT
     val thresholds = TouchTurnLogic.resolveLiquidityThresholds(atr14, dailyAtr14, rules)
     val priorSession = touchTurnSession
     val prior = priorSession?.milestones

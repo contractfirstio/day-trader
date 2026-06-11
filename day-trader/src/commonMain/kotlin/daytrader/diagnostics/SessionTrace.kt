@@ -3,10 +3,13 @@ package daytrader.diagnostics
 import daytrader.data.persistence.AppDataFiles
 import daytrader.broker.emulator.EmulatorLogScope
 import daytrader.data.persistence.JsonFileStore
+import daytrader.data.persistence.TouchTurnRuleConfigPersistence
+import daytrader.data.persistence.TouchTurnRuleConfigRecord
 import daytrader.data.persistence.TouchTurnRunPersistence
 import daytrader.data.persistence.TouchTurnRunRecordRecord
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
+import daytrader.domain.isTouchTurn
 import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRunRecord
@@ -71,6 +74,20 @@ object SessionTrace {
         flushPendingIntoSession(deployment.id, session.id)
         EmulatorLogScope.bind(deployment.id, session.id)
         val stamp = LogTimestamps.now()
+        val touchTurnRulesData = if (deployment.isTouchTurn) {
+            val rules = deployment.touchTurnSession?.rules ?: deployment.touchTurnRules
+            buildJsonObject {
+                put(
+                    "touchTurnRules",
+                    json.encodeToJsonElement(
+                        TouchTurnRuleConfigRecord.serializer(),
+                        TouchTurnRuleConfigPersistence.toRecord(rules)
+                    )
+                )
+            }
+        } else {
+            null
+        }
         log(
             type = "session_started",
             deploymentId = deployment.id,
@@ -82,7 +99,8 @@ object SessionTrace {
                 "startedAt" to session.startedAt,
                 "maxAtRisk" to session.maxAtRisk.toString(),
                 "startedBy" to (session.touchTurnStartedBy?.name ?: "unknown")
-            )
+            ),
+            data = touchTurnRulesData
         )
         SessionManifestWriter.sessionStarted(deployment, session, stamp.epochMs)
     }
@@ -280,6 +298,26 @@ object SessionTrace {
                         TouchTurnLogic.isVolumeExhaustion(openingBarVolume, volumeSma20).toString()
                     )
                 }
+            }
+        )
+    }
+
+    /** Interactive replay virtual-time playback ([daytrader.replay.ReplayPlaybackOrchestrator]). */
+    fun replayPlayback(
+        deploymentId: String,
+        event: String,
+        sessionId: String? = null,
+        symbol: String? = null,
+        details: Map<String, String> = emptyMap()
+    ) {
+        log(
+            type = "replay_playback",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = buildMap {
+                put("event", event)
+                putAll(details)
             }
         )
     }

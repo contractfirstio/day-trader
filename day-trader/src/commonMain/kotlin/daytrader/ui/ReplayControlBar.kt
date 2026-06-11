@@ -12,6 +12,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -24,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import daytrader.replay.ReplayComparison
 import daytrader.replay.ReplayFillComparison
+import daytrader.replay.ReplayPlaybackConfig
+import daytrader.replay.ReplayPlaybackState
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.SessionBundle
 import daytrader.ui.theme.GainGreen
@@ -42,6 +45,7 @@ fun ReplayControlBar(
     var comparison by remember { mutableStateOf<ReplayComparison?>(controller.lastComparison) }
     var fillComparison by remember { mutableStateOf<ReplayFillComparison?>(controller.lastFillComparison) }
     val scope = rememberCoroutineScope()
+    val playbackState by controller.runtime.playbackOrchestrator.state.collectAsState()
 
     Row(
         modifier = modifier
@@ -59,6 +63,11 @@ fun ReplayControlBar(
             )
             Text(
                 text = "Captured session ${bundle.sessionId} — virtual time, no IB connection required",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+            Text(
+                text = playbackStatusLabel(playbackState),
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
@@ -108,4 +117,13 @@ fun ReplayControlBar(
             Text(if (running) "Replaying…" else "Run Replay")
         }
     }
+}
+
+private fun playbackStatusLabel(state: ReplayPlaybackState): String = when (state) {
+    ReplayPlaybackState.Idle -> "Playback idle — start a session or run regression replay"
+    is ReplayPlaybackState.FastForming ->
+        "Opening bar fast-forward (${state.step}/${state.totalSteps})"
+    ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…"
+    is ReplayPlaybackState.DrippingQuotes ->
+        "Quotes ${state.published}/${state.total} · ${ReplayPlaybackConfig.QUOTE_INTERVAL_MS} ms"
 }
