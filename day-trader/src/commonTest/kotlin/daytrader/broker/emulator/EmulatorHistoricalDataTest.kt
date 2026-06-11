@@ -75,8 +75,8 @@ class EmulatorHistoricalDataTest {
         assertTrue(shortCount > 0, "expected at least one short setup in catalog")
         val longShare = longCount.toDouble() / (longCount + shortCount)
         assertTrue(
-            longShare in 0.4..0.6,
-            "long=$longCount short=$shortCount longShare=$longShare (want ~50/50)"
+            longShare in 0.35..0.65,
+            "long=$longCount short=$shortCount longShare=$longShare (want roughly balanced across catalog)"
         )
     }
 

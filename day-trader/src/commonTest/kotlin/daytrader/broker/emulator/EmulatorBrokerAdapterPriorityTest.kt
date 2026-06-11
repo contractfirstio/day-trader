@@ -105,7 +105,12 @@ class EmulatorBrokerAdapterPriorityTest {
             val plan = touchTurnPlan(symbol) ?: error("plan for $symbol")
             outbound.offer(GatewayCommand.PlaceTouchTurnBracket(plan))
         }
-        delay(500)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val acks = events.filterIsInstance<GatewayEvent.TouchTurnBracketPlaced>()
+            if (acks.size >= symbols.size && acks.all { it.ack.result.isSuccess }) break
+            delay(25)
+        }
 
         val acks = events.filterIsInstance<GatewayEvent.TouchTurnBracketPlaced>()
         assertEquals(symbols.size, acks.size, "acks=${acks.map { it.ack.symbol }}")

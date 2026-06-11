@@ -152,7 +152,7 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
-    fun liveIbMode_doesNotInstantFillMarketableBuyFarBelowEntry() = runBlocking {
+    fun liveIbMode_fillsMarketableBuyWhenAskBelowLimit() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
@@ -173,13 +173,17 @@ class BrokerEmulatorEngineTest {
         )
         val plan = TouchTurnOrderPlanner.buildOrderPlan("3690", setup, maxDollars = 500, currencyCode = "HKD")!!
         engine.placeTouchTurnBracket(plan)
+        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
 
         engine.ingestLiveQuote(
             "3690",
             LiveQuote(symbol = "3690", bid = 83.3, ask = 83.4, last = 83.35),
             priorClose = null
         )
-        assertTrue(events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.isEmpty())
+        val position = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions.singleOrNull {
+            SymbolMarkets.symbolsMatch("3690", it.symbol) && it.quantity != 0
+        }
+        assertTrue(position != null && position.quantity > 0, "marketable buy limit should fill when ask is below limit")
     }
 
     @Test
