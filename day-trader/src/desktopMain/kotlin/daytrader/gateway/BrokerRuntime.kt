@@ -7,7 +7,10 @@ import daytrader.broker.emulator.EmulatorBrokerAdapter
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.marketdata.MarketQuoteBusUiRelay
 import daytrader.platform.CrashLogging
+import daytrader.platform.TradingClock
+import daytrader.platform.WallClock
 import daytrader.replay.ReplayClock
+import daytrader.replay.ReplayCaptureRef
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.SessionBundle
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 
 data class BrokerRuntime(
     val kind: BrokerKind,
+    val clock: TradingClock,
     val gateway: QueuedBrokerGateway,
     /** IB or replay market-data gateway for Touch Turn ADR / first candle / quotes. */
     val marketDataGateway: BrokerGateway? = null,
@@ -30,6 +34,7 @@ data class BrokerRuntime(
     val quoteBus: MarketQuoteBus? = null,
     val replayBundle: SessionBundle? = null,
     val replayHybridRuntime: ReplayHybridRuntime? = null,
+    val replayCaptureCatalog: List<ReplayCaptureRef> = emptyList(),
     private val adapters: List<BrokerAdapter> = emptyList(),
     private val queueSets: List<BlockingGatewayQueues> = emptyList(),
     private val quoteUiRelay: MarketQuoteBusUiRelay? = null
@@ -77,9 +82,10 @@ data class BrokerRuntime(
             hybrid.start()
             return BrokerRuntime(
                 kind = BrokerKind.REPLAY,
+                clock = clock,
                 gateway = hybrid.executionGateway,
                 marketDataGateway = hybrid.marketDataGateway,
-                ensureLiveMarketData = { _, _ -> hybrid.quoteFeeder.publishUpTo(clock.now()) },
+                ensureLiveMarketData = { _, _ -> hybrid.playbackOrchestrator.ensureQuotesFlowing() },
                 releaseLiveMarketData = { _, _ -> },
                 quoteBus = hybrid.quoteBus,
                 replayHybridRuntime = hybrid,
@@ -128,6 +134,7 @@ data class BrokerRuntime(
             }
             return BrokerRuntime(
                 kind = kind,
+                clock = WallClock,
                 gateway = gateway,
                 quoteBus = quoteBus,
                 ensureLiveMarketData = emulatorEnsureRelease.first,
@@ -177,6 +184,7 @@ data class BrokerRuntime(
             )
             return BrokerRuntime(
                 kind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
+                clock = WallClock,
                 gateway = executionGateway,
                 marketDataGateway = marketDataGateway,
                 ensureLiveMarketData = { symbol, instrument ->

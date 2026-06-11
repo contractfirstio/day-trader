@@ -197,6 +197,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     tradingPanelShowsSessionRecap = uiState.tradingPanelShowsSessionRecap,
                     tradingPanelRecapRunId = uiState.tradingPanelRecapRunId,
                     tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
+                    sessionMarketDataCapture = uiState.sessionMarketDataCapture,
+                    onStopMarketDataCapture = viewModel::onStopSessionMarketDataCapture,
                     onResetTradingPanel = viewModel::onResetTradingPanel,
                     onTabChange = viewModel::onDetailTabChange,
                     onResolveSymbol = viewModel::resolveInstrumentForSymbol,
@@ -238,6 +240,8 @@ private fun StrategyDeploymentDetailPanel(
     tradingPanelShowsSessionRecap: Boolean,
     tradingPanelRecapRunId: String?,
     tradingPanelShowsLiveMarketQuotes: Boolean,
+    sessionMarketDataCapture: SessionMarketDataCaptureUi?,
+    onStopMarketDataCapture: (String) -> Unit,
     onResetTradingPanel: (String) -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -281,6 +285,8 @@ private fun StrategyDeploymentDetailPanel(
                 tradingPanelShowsSessionRecap = tradingPanelShowsSessionRecap,
                 tradingPanelRecapRunId = tradingPanelRecapRunId,
                 tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes,
+                sessionMarketDataCapture = sessionMarketDataCapture,
+                onStopMarketDataCapture = { onStopMarketDataCapture(selectedDeployment.id) },
                 onResetTradingPanel = { onResetTradingPanel(selectedDeployment.id) },
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
@@ -487,6 +493,8 @@ private fun StrategyDeploymentDetail(
     tradingPanelShowsSessionRecap: Boolean,
     tradingPanelRecapRunId: String?,
     tradingPanelShowsLiveMarketQuotes: Boolean,
+    sessionMarketDataCapture: SessionMarketDataCaptureUi?,
+    onStopMarketDataCapture: () -> Unit,
     onResetTradingPanel: () -> Unit,
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
@@ -597,6 +605,14 @@ private fun StrategyDeploymentDetail(
                     }
                 )
             }
+        }
+
+        if (sessionMarketDataCapture != null) {
+            SessionMarketDataCaptureBar(
+                capture = sessionMarketDataCapture,
+                onStop = onStopMarketDataCapture,
+                modifier = Modifier.testTag("SessionMarketDataCaptureBar")
+            )
         }
 
         if (detailTab == StrategyDetailTab.LIVE && tradingPanelShowsLiveMarketQuotes) {

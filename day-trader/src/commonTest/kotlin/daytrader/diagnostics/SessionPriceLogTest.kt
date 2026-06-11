@@ -1,5 +1,6 @@
 package daytrader.diagnostics
 
+import daytrader.data.SessionMarketDataCapture
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
@@ -52,7 +53,7 @@ class SessionPriceLogTest {
     }
 
     @Test
-    fun recordQuoteSnapshot_skipsWhenNoRunningSession() {
+    fun recordQuoteSnapshot_skipsWhenNoRunningSessionOrCapture() {
         SessionPriceLog.install {
             listOf(
                 defaultStrategyDeployment(
@@ -69,6 +70,33 @@ class SessionPriceLogTest {
             previous = emptyMap()
         )
         SessionPriceLog.clearInstall()
+    }
+
+    @Test
+    fun recordQuoteSnapshot_writesWhenPostSessionCaptureActive() {
+        SessionMarketDataCapture.start(
+            deploymentId = "inst-a",
+            sessionId = "session-cap",
+            symbol = "AAPL",
+            instrument = null
+        )
+        SessionPriceLog.install {
+            listOf(
+                defaultStrategyDeployment(
+                    strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+                    symbol = "AAPL",
+                    maxDollars = 500,
+                    status = DeploymentStatus.STOPPED
+                )
+            )
+        }
+        SessionPriceLog.recordQuoteSnapshot(
+            brokerId = BrokerId.INTERACTIVE_BROKERS,
+            incoming = mapOf("AAPL" to LiveQuote(symbol = "AAPL", bid = 1.0, ask = 2.0)),
+            previous = emptyMap()
+        )
+        SessionPriceLog.clearInstall()
+        SessionMarketDataCapture.stopAll()
     }
 
     @Test

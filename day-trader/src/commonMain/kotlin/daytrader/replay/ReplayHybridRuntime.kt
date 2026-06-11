@@ -12,6 +12,7 @@ import daytrader.gateway.GatewayEvent
 import daytrader.gateway.QueuedBrokerGateway
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.marketdata.MarketQuoteBus
+import daytrader.platform.MutableTradingClock
 import java.util.concurrent.LinkedBlockingQueue
 import kotlinx.coroutines.CoroutineScope
 
@@ -19,10 +20,12 @@ import kotlinx.coroutines.CoroutineScope
  * Hybrid replay wiring: emulator execution + captured IB market data from a [SessionBundle].
  */
 class ReplayHybridRuntime(
-    val bundle: SessionBundle,
-    val clock: ReplayClock,
+    bundle: SessionBundle,
+    val clock: MutableTradingClock,
     private val scope: CoroutineScope
 ) {
+    var bundle: SessionBundle = bundle
+        private set
     val quoteBus = MarketQuoteBus()
     val marketDataGateway = ReplayMarketDataGateway(bundle)
     private val inbound = LinkedBlockingQueue<GatewayEvent>()
@@ -44,9 +47,15 @@ class ReplayHybridRuntime(
     )
 
     val quoteFeeder = QuoteFeeder(
-        bundle = bundle,
+        bundle = this.bundle,
         quoteBus = quoteBus,
         marketDataGateway = marketDataGateway
+    )
+
+    val playbackOrchestrator = ReplayPlaybackOrchestrator(
+        clock = clock,
+        quoteFeeder = quoteFeeder,
+        scope = scope
     )
 
     fun start() {
@@ -57,7 +66,24 @@ class ReplayHybridRuntime(
         marketDataGateway.connect()
     }
 
+    /** Resets captured market-data cursors when a new replay session starts at virtual open. */
+    fun prepareForSession() {
+        playbackOrchestrator.stop()
+        marketDataGateway.resetRefetchIndex()
+        quoteFeeder.reset()
+    }
+
+    /** Switches active hybrid capture (quotes, historical bootstrap/refetch) for another deployment. */
+    fun swapBundle(newBundle: SessionBundle) {
+        if (newBundle.sessionId == bundle.sessionId && newBundle.deploymentId == bundle.deploymentId) return
+        playbackOrchestrator.stop()
+        bundle = newBundle
+        marketDataGateway.replaceBundle(newBundle)
+        quoteFeeder.replaceBundle(newBundle)
+    }
+
     fun shutdown() {
+        playbackOrchestrator.stop()
         emulator.shutdown()
         marketDataGateway.disconnect()
     }
@@ -65,7 +91,7 @@ class ReplayHybridRuntime(
     fun createEngine(repository: StrategyDeploymentRepository): TouchTurnEngine {
         val marketData = BrokerGatewayMarketDataProvider(
             gateway = marketDataGateway,
-            ensureLiveMarketData = { _, _ -> quoteFeeder.publishUpTo(clock.now()) }
+            ensureLiveMarketData = { _, _ -> playbackOrchestrator.ensureQuotesFlowing() }
         )
         return TouchTurnEngine(
             marketData = marketData,
@@ -73,7 +99,7 @@ class ReplayHybridRuntime(
             repository = repository,
             scope = scope,
             brokerKind = BrokerKind.REPLAY,
-            nowEpochMillis = clock::now,
+            nowEpochMillis = clock::nowEpochMillis,
             delayMillis = clock::delayMillis,
             sessionGateway = marketDataGateway,
             executionGateway = executionGateway

@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Market-data-only [BrokerGateway] that serves captured historical payloads and quotes from a [SessionBundle].
  */
 class ReplayMarketDataGateway(
-    private val bundle: SessionBundle
+    private var bundle: SessionBundle
 ) : BrokerGateway {
     private val refetchIndex = AtomicInteger(0)
 
@@ -55,6 +55,12 @@ class ReplayMarketDataGateway(
 
     fun resetRefetchIndex() {
         refetchIndex.set(0)
+    }
+
+    fun replaceBundle(newBundle: SessionBundle) {
+        bundle = newBundle
+        refetchIndex.set(0)
+        _quotes.value = emptyMap()
     }
 
     fun updateQuote(event: QuoteEvent) {

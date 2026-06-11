@@ -82,4 +82,11 @@ data class StrategiesUiState(
     val globalClosedSessionHistoryCount: Int = 0,
     /** True when any deployment still has an in-progress session row. */
     val globalHasInProgressSessions: Boolean = false,
+    /** Post-session IB quote recording for the selected deployment (Hybrid / IB only). */
+    val sessionMarketDataCapture: SessionMarketDataCaptureUi? = null,
+)
+
+data class SessionMarketDataCaptureUi(
+    val sessionId: String,
+    val symbol: String,
 )

@@ -47,7 +47,9 @@ internal fun StartBlockedByPositionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(alert.summary, color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
-                Text(alert.positionDetails, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                if (alert.positionDetails.isNotBlank()) {
+                    Text(alert.positionDetails, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                }
                 Text(alert.reason, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
             }
         },

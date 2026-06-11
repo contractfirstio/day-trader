@@ -13,10 +13,13 @@ import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
+import daytrader.platform.TradingClock
+import daytrader.platform.WallClock
 import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.PreMarketClosePositionWatcher
 import daytrader.data.RunningSessionShutdown
+import daytrader.data.SessionMarketDataCapture
 import daytrader.data.TouchTurnManualStopHandler
 import daytrader.data.WatchlistRepository
 import daytrader.data.WatchlistStrategyLinkSync
@@ -84,7 +87,8 @@ class StrategiesViewModel(
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val onDeploymentCreated: ((String) -> Unit)? = null,
-    private val watchlistRepository: WatchlistRepository? = null
+    private val watchlistRepository: WatchlistRepository? = null,
+    private val tradingClock: TradingClock = WallClock
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
@@ -435,6 +439,7 @@ class StrategiesViewModel(
             brokerFills = brokerFills,
             trigger = trigger
         )
+        stopAllSessionMarketDataCaptures(trigger = trigger.name.lowercase())
         syncDeploymentsFromRepository()
         emitUiState()
     }
@@ -638,9 +643,49 @@ class StrategiesViewModel(
 
     private fun maybeReleaseLiveMarketDataForSymbol(symbol: String, instrument: InstrumentIdentity?) {
         val release = releaseLiveMarketData ?: return
-        if (LiveMarketDataLifecycle.anyRunningDeploymentNeedsQuotes(symbol, deployments)) return
+        if (LiveMarketDataLifecycle.anyDeploymentNeedsQuotes(symbol, deployments)) return
         release(symbol, instrument)
     }
+
+    fun onStopSessionMarketDataCapture(deploymentId: String) {
+        if (!brokerKind.capturesSessionMarketData) return
+        val deployment = repository.deployments.value.find { it.id == deploymentId } ?: return
+        val target = SessionMarketDataCapture.stop(deploymentId) ?: return
+        UiActionLog.log(
+            action = "stop_market_data_capture",
+            deploymentId = deploymentId,
+            sessionId = target.sessionId,
+            symbol = target.symbol,
+            details = mapOf("trigger" to "manual")
+        )
+        SessionTrace.log(
+            type = "market_data_capture_stopped",
+            deploymentId = deploymentId,
+            sessionId = target.sessionId,
+            symbol = target.symbol,
+            details = mapOf("trigger" to "manual")
+        )
+        maybeReleaseLiveMarketDataForSymbol(target.symbol, target.instrument)
+        emitUiState()
+    }
+
+    fun stopAllSessionMarketDataCaptures(trigger: String = "application_shutdown") {
+        if (!brokerKind.capturesSessionMarketData) return
+        val stopped = SessionMarketDataCapture.stopAll()
+        for (target in stopped) {
+            SessionTrace.log(
+                type = "market_data_capture_stopped",
+                deploymentId = target.deploymentId,
+                sessionId = target.sessionId,
+                symbol = target.symbol,
+                details = mapOf("trigger" to trigger)
+            )
+            maybeReleaseLiveMarketDataForSymbol(target.symbol, target.instrument)
+        }
+    }
+
+    fun hasActiveMarketDataCaptures(): Boolean =
+        brokerKind.capturesSessionMarketData && SessionMarketDataCapture.activeTargets().isNotEmpty()
 
     fun onToggleSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
@@ -800,6 +845,9 @@ class StrategiesViewModel(
             repository.update(id) { stopped }
         }
         prepareInProgressIds.remove(id)
+        SessionMarketDataCapture.stop(id)?.let { target ->
+            maybeReleaseLiveMarketDataForSymbol(target.symbol, target.instrument)
+        }
         repository.remove(id)
         watchlistRepository?.let { WatchlistStrategyLinkSync.removeDeploymentFromAllWatchlists(it, id) }
         repository.flushPersistence()
@@ -997,7 +1045,7 @@ class StrategiesViewModel(
                 brokerFills = brokerFills,
                 showSessionRecap = showSessionRecap,
                 recapRunId = recapRunId,
-                nowEpochMillis = System.currentTimeMillis()
+                nowEpochMillis = tradingClock.nowEpochMillis()
             )
         }
         val touchTurnOrderLifecycle = selected?.let { instance ->
@@ -1016,6 +1064,9 @@ class StrategiesViewModel(
         val globalHasInProgressSessions = deployments.any { deployment ->
             deployment.sessionHistory.any { it.status == SessionStatus.IN_PROGRESS }
         }
+        val marketDataCaptureActive = selected?.let { instance ->
+            SessionMarketDataCapture.activeForDeployment(instance.id) != null
+        } == true
 
         _uiState.update {
             StrategiesUiState(
@@ -1047,6 +1098,7 @@ class StrategiesViewModel(
                             instance,
                             state.tradingPanelDismissedRecapSessionId,
                             historicRunId = recapRunId,
+                            marketDataCaptureActive = marketDataCaptureActive,
                         ),
                         requireBidAskForFills = requiresBidAskForFills &&
                             instance.status == DeploymentStatus.RUNNING &&
@@ -1077,6 +1129,7 @@ class StrategiesViewModel(
                         instance,
                         state.tradingPanelDismissedRecapSessionId,
                         historicRunId = recapRunId,
+                        marketDataCaptureActive = marketDataCaptureActive,
                     )
                 } == true,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
@@ -1084,6 +1137,14 @@ class StrategiesViewModel(
                 touchTurnPrepare = touchTurnPrepare,
                 globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
                 globalHasInProgressSessions = globalHasInProgressSessions,
+                sessionMarketDataCapture = selected?.let { instance ->
+                    SessionMarketDataCapture.activeForDeployment(instance.id)?.let { capture ->
+                        SessionMarketDataCaptureUi(
+                            sessionId = capture.sessionId,
+                            symbol = capture.symbol
+                        )
+                    }
+                },
             )
         }
     }
@@ -1122,7 +1183,7 @@ class StrategiesViewModel(
     }
 
     private fun recordTouchTurnLivePrices() {
-        val now = System.currentTimeMillis()
+        val now = tradingClock.nowEpochMillis()
         for (deployment in deployments) {
             if (!deployment.isTouchTurn) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
@@ -1270,7 +1331,8 @@ class StrategiesViewModel(
             instance = instance,
             brokerPositions = brokerPositions,
             brokerOpenOrders = brokerOpenOrders,
-            brokerFills = brokerFills
+            brokerFills = brokerFills,
+            nowEpochMillis = tradingClock.nowEpochMillis()
         )
         TouchTurnStatusBreadcrumbMapper.graph(
             instance = instance,

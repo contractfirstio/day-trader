@@ -31,6 +31,10 @@ enum class BrokerKind {
             this == EMULATOR_LIVE_IB_MARKET_DATA ||
             this == REPLAY
 
+    /** Live IB quotes are persisted to session `prices.jsonl` (Hybrid + IB only). */
+    val capturesSessionMarketData: Boolean
+        get() = this == INTERACTIVE_BROKERS || this == EMULATOR_LIVE_IB_MARKET_DATA
+
     /** Subdirectory under the app data root — one folder per startup choice. */
     val dataDirectorySegment: String
         get() = when (this) {

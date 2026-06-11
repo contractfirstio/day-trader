@@ -86,5 +86,6 @@ data class WatchlistTradePlanRecord(
     val proximityThresholdValue: Double? = null,
     val orderPlacedAtEpochMs: Long? = null,
     val placedOrderIds: List<Int> = emptyList(),
+    val executedBracketLegs: List<String> = emptyList(),
     val diaryEntries: List<WatchlistPlanDiaryEntryRecord> = emptyList()
 )

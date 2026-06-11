@@ -51,6 +51,8 @@ import daytrader.domain.withTouchTurnPositionOpenedIfNeeded
 import daytrader.data.StrategyCatalog
 import daytrader.domain.withClosedPosition
 import daytrader.data.DeploymentSessionController
+import daytrader.data.LiveMarketDataLifecycle
+import daytrader.data.SessionMarketDataCapture
 import daytrader.domain.withStopPrice
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
@@ -79,9 +81,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -99,13 +102,16 @@ class TouchTurnEngine(
     private val isGlobalAutoStartEnabled: () -> Boolean = { true },
     private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
     private val delayMillis: suspend (Long) -> Unit = { delay(it) },
+    private val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? = null,
+    /** Returns false when no hybrid capture exists for the deployment (session start is blocked). */
+    private val activateReplayCapture: ((StrategyDeployment) -> Boolean)? = null,
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null
 ) : TouchTurnEnginePort {
     private val commandQueue = Channel<TouchTurnCommand>(Channel.UNLIMITED)
-    private val eventChannel = Channel<TouchTurnEvent>(Channel.UNLIMITED)
-    override val events: Flow<TouchTurnEvent> = eventChannel.receiveAsFlow()
+    private val eventFlow = MutableSharedFlow<TouchTurnEvent>(extraBufferCapacity = 64)
+    override val events: Flow<TouchTurnEvent> = eventFlow.asSharedFlow()
 
     private val stuckFormingLogged = mutableSetOf<String>()
     private val liquidityJobs = mutableMapOf<String, Job>()
@@ -314,13 +320,13 @@ class TouchTurnEngine(
     private fun startTimers() {
         scope.launch {
             while (isActive) {
-                delayMillis(TouchTurnEngineConfig.STOP_RULES_POLL_MS)
+                delayPollLoop(TouchTurnEngineConfig.STOP_RULES_POLL_MS)
                 dispatch(TouchTurnCommand.PollStopRules)
             }
         }
         scope.launch {
             while (isActive) {
-                delayMillis(TouchTurnEngineConfig.AUTO_START_POLL_MS)
+                delayPollLoop(TouchTurnEngineConfig.AUTO_START_POLL_MS)
                 dispatch(TouchTurnCommand.EvaluateAutoStart)
             }
         }
@@ -365,6 +371,24 @@ class TouchTurnEngine(
             uiEffects.showStartBlockedAlert(alert)
             return
         }
+        if (brokerKind == BrokerKind.REPLAY) {
+            if (activateReplayCapture?.invoke(existing) == false) {
+                val alert = StartBlockedAlertMapper.fromReplayCaptureNotFound(existing)
+                SessionTrace.log(
+                    type = "session_start_blocked",
+                    deploymentId = existing.id,
+                    symbol = existing.symbol,
+                    details = mapOf(
+                        "reason" to "replay_capture_not_found",
+                        "deploymentSymbol" to SymbolMarkets.normalizeSymbol(existing.symbol)
+                    )
+                )
+                emit(TouchTurnEvent.StartBlocked(alert))
+                uiEffects.showStartBlockedAlert(alert)
+                return
+            }
+            onReplaySessionStarting?.invoke(existing, command.sessionDate)
+        }
         repository.update(command.instanceId) { current ->
             DeploymentSessionController.start(
                 instance = current,
@@ -375,6 +399,7 @@ class TouchTurnEngine(
         tracedFillExecIdsByInstance.remove(command.instanceId)
         repository.flushPersistence()
         val updated = repository.deployments.value.find { it.id == command.instanceId } ?: return
+        startSessionMarketDataCapture(updated)
         updated.inProgressSession()?.let { session ->
             emit(
                 TouchTurnEvent.SessionStarted(
@@ -502,10 +527,6 @@ class TouchTurnEngine(
         }
     }
 
-    /** Replay drives virtual time via [nowEpochMillis]; live modes keep wall clock for open-deadline stops. */
-    private fun stopRulesNowEpochMillis(): Long =
-        if (brokerKind == BrokerKind.REPLAY) nowEpochMillis() else System.currentTimeMillis()
-
     private fun handlePollStopRules(snapshot: TouchTurnCommand.BrokerSnapshot? = null) {
         val positions = snapshot?.positions ?: brokerPositions.value
         val openOrders = snapshot?.openOrders ?: brokerOpenOrders.value
@@ -521,7 +542,7 @@ class TouchTurnEngine(
             positions = positions,
             openOrders = openOrders,
             fills = fills,
-            nowEpochMillis = stopRulesNowEpochMillis()
+            nowEpochMillis = nowEpochMillis()
         )
         for (candidate in candidates) {
             val instance = repository.deployments.value.find { it.id == candidate.instanceId } ?: continue
@@ -769,12 +790,21 @@ class TouchTurnEngine(
             TouchTurnEngineConfig.LIQUIDITY_POLL_MS
         }
 
+    /** Replay poll loops use wall time so virtual clock stays under orchestrator control. */
+    private suspend fun delayPollLoop(intervalMs: Long) {
+        if (brokerKind == BrokerKind.REPLAY) {
+            delay(intervalMs)
+        } else {
+            delayMillis(intervalMs)
+        }
+    }
+
     private fun watchLiquidity(instanceId: String, sessionDate: String) {
         liquidityJobs[instanceId]?.cancel()
         liquidityJobs[instanceId] = scope.launch {
             dispatch(TouchTurnCommand.PollLiquidity(instanceId))
             while (isActive) {
-                delayMillis(liquidityPollIntervalMs())
+                delayPollLoop(liquidityPollIntervalMs())
                 dispatch(TouchTurnCommand.PollLiquidity(instanceId))
                 val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
                 if (instance.touchTurnSession?.setup != null) return@launch
@@ -1553,11 +1583,27 @@ class TouchTurnEngine(
     private fun maybeReleaseLiveMarketData(deployment: StrategyDeployment) {
         val symbol = deployment.symbol
         val instrument = DeploymentMarket.effectiveInstrument(deployment)
-        val stillNeeded = repository.deployments.value.any {
-            it.status == DeploymentStatus.RUNNING &&
-                SymbolMarkets.symbolsMatch(it.symbol, symbol)
+        if (LiveMarketDataLifecycle.anyDeploymentNeedsQuotes(symbol, repository.deployments.value)) {
+            return
         }
-        if (!stillNeeded) marketData.releaseStreaming(symbol, instrument)
+        marketData.releaseStreaming(symbol, instrument)
+    }
+
+    private fun startSessionMarketDataCapture(deployment: StrategyDeployment) {
+        if (!brokerKind.capturesSessionMarketData) return
+        val session = deployment.inProgressSession() ?: return
+        SessionMarketDataCapture.start(
+            deploymentId = deployment.id,
+            sessionId = session.id,
+            symbol = deployment.symbol,
+            instrument = DeploymentMarket.effectiveInstrument(deployment)
+        )
+        SessionTrace.log(
+            type = "market_data_capture_started",
+            deploymentId = deployment.id,
+            sessionId = session.id,
+            symbol = deployment.symbol
+        )
     }
 
     private fun traceNewSessionFills(fills: List<BrokerFill>, positions: List<AccountPosition>) {
@@ -1605,7 +1651,7 @@ class TouchTurnEngine(
             positions = positions,
             openOrders = openOrders,
             fills = fills,
-            nowEpochMillis = stopRulesNowEpochMillis()
+            nowEpochMillis = nowEpochMillis()
         )
         val candidateIds = candidates.map { it.instanceId }.toSet()
         for (instance in deployments) {
@@ -1657,7 +1703,7 @@ class TouchTurnEngine(
     }
 
     private fun emit(event: TouchTurnEvent) {
-        eventChannel.trySend(event)
+        scope.launch { eventFlow.emit(event) }
     }
 
     private fun signedFillQuantity(fill: BrokerFill): Int = when (fill.side.uppercase()) {

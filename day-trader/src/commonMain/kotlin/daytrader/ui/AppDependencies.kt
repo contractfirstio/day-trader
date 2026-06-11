@@ -11,7 +11,9 @@ import daytrader.data.ReversalScoreService
 import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
 import daytrader.domain.InstrumentIdentity
+import daytrader.broker.SymbolMarkets
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.StrategyDeployment
 import daytrader.engine.LoggingTouchTurnEngine
 import daytrader.engine.TouchTurnEngine
 import daytrader.engine.TouchTurnEngineConfig
@@ -27,14 +29,21 @@ import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.presentation.watchlist.WatchlistViewModel
+import daytrader.diagnostics.SessionTrace
+import daytrader.replay.ReplayBundleResolver
+import daytrader.replay.ReplayCaptureRef
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.ReplaySessionController
+import daytrader.replay.ReplaySessionPlaybackBridge
+import daytrader.replay.ReplaySessionTiming
 import daytrader.replay.SessionBundle
+import daytrader.platform.MutableTradingClock
+import daytrader.platform.TradingClock
+import daytrader.platform.WallClock
 import daytrader.platform.defaultMacroYieldDataProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 
 data class AppDependencies(
     val marketFilter: MarketFilterState,
@@ -58,7 +67,12 @@ fun rememberAppDependencies(
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     replayHybridRuntime: ReplayHybridRuntime? = null,
-    replayBundle: SessionBundle? = null
+    replayBundle: SessionBundle? = null,
+    replayCaptureCatalog: List<ReplayCaptureRef> = emptyList(),
+    loadReplayBundle: (String) -> Result<SessionBundle> = {
+        Result.failure(IllegalStateException("Replay bundle loader not configured"))
+    },
+    tradingClock: TradingClock = WallClock
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
     val watchlistRepository = remember(brokerKind) { FileWatchlistRepository(brokerKind = brokerKind) }
@@ -80,6 +94,9 @@ fun rememberAppDependencies(
         releaseLiveMarketData,
         replayHybridRuntime,
         replayBundle,
+        replayCaptureCatalog,
+        loadReplayBundle,
+        tradingClock,
         engineScope
     ) {
         val sessionGateway = touchTurnSessionGateway ?: brokerGateway
@@ -91,7 +108,43 @@ fun rememberAppDependencies(
                 trigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
             )
         }
-        val replayClock = replayHybridRuntime?.clock
+        val mutableClock = tradingClock as? MutableTradingClock
+        val activateReplayCapture: ((StrategyDeployment) -> Boolean)? =
+            if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null) {
+                { deployment ->
+                    val capture = ReplayBundleResolver.selectCapture(deployment, replayCaptureCatalog)
+                    val bundle = capture?.let { loadReplayBundle(it.directoryPath).getOrNull() }
+                    if (capture == null || bundle == null) {
+                        false
+                    } else {
+                        val previous = replayHybridRuntime.bundle
+                        replayHybridRuntime.swapBundle(bundle)
+                        ReplaySessionController.seedDeploymentIfNeeded(strategyRepository, bundle)
+                        SessionTrace.log(
+                            type = "replay_capture_activated",
+                            deploymentId = deployment.id,
+                            symbol = deployment.symbol,
+                            details = mapOf(
+                                "captureDirectory" to capture.directoryPath,
+                                "captureSessionId" to bundle.sessionId,
+                                "previousSessionId" to previous.sessionId
+                            )
+                        )
+                        true
+                    }
+                }
+            } else {
+                null
+            }
+        val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? =
+            if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null && mutableClock != null) {
+                { instance, sessionDate ->
+                    ReplaySessionTiming.alignClockToSessionOpen(mutableClock, instance, sessionDate)
+                    replayHybridRuntime.prepareForSession()
+                }
+            } else {
+                null
+            }
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
             val executionGateway = brokerGateway ?: session
             val marketDataGateway = if (
@@ -121,10 +174,10 @@ fun rememberAppDependencies(
                 scope = engineScope,
                 brokerKind = brokerKind,
                 isGlobalAutoStartEnabled = { appStateRepository.state.value.globalAutoStartEnabled },
-                nowEpochMillis = replayClock?.let { clock -> { clock.now() } }
-                    ?: { System.currentTimeMillis() },
-                delayMillis = replayClock?.let { clock -> clock::delayMillis }
-                    ?: { ms -> delay(ms) },
+                nowEpochMillis = tradingClock::nowEpochMillis,
+                delayMillis = tradingClock::delayMillis,
+                onReplaySessionStarting = onReplaySessionStarting,
+                activateReplayCapture = activateReplayCapture,
                 sessionGateway = session,
                 executionGateway = executionGateway
             )
@@ -146,7 +199,8 @@ fun rememberAppDependencies(
             ensureLiveMarketData = ensureLiveMarketData,
             releaseLiveMarketData = releaseLiveMarketData,
             onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
-            watchlistRepository = watchlistRepository
+            watchlistRepository = watchlistRepository,
+            tradingClock = tradingClock
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,
@@ -166,9 +220,15 @@ fun rememberAppDependencies(
                 engine.start()
             }
         }
-        val replayController = if (replayHybridRuntime != null && replayBundle != null && touchTurnEngine != null) {
+        if (replayHybridRuntime != null && touchTurnEngine != null) {
+            replayHybridRuntime.playbackOrchestrator.attach(touchTurnEngine, strategyRepository)
+            ReplaySessionPlaybackBridge(
+                orchestrator = replayHybridRuntime.playbackOrchestrator,
+                scope = engineScope
+            ).attach(touchTurnEngine)
+        }
+        val replayController = if (replayHybridRuntime != null && touchTurnEngine != null) {
             ReplaySessionController(
-                bundle = replayBundle,
                 runtime = replayHybridRuntime,
                 repository = strategyRepository,
                 engine = touchTurnEngine,
@@ -190,7 +250,7 @@ fun rememberAppDependencies(
             watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
-            replayBundle = replayBundle
+            replayBundle = replayHybridRuntime?.bundle ?: replayBundle
         )
     }
 }

@@ -35,7 +35,15 @@ import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.TouchTurnBracketAck
+import daytrader.domain.OhlcBar
+import daytrader.gateway.AccountPosition
+import daytrader.gateway.BrokerFill
+import daytrader.gateway.LiveQuote
+import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.LiveMarkPriceResolver
+import daytrader.presentation.strategies.LivePriceTickHistory
+import daytrader.presentation.strategies.TouchTurnQuoteStripUiMapper
 import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
@@ -92,6 +100,15 @@ class WatchlistViewModel(
     private var reversalScoreLoadingEntryId: String? = null
     private var lastReversalScoreResult: ReversalScoreBatchResult? = null
     private var reversalScoreInsight: WatchlistReversalScoreInsightUi? = null
+    private var entryChartsEntryId: String? = null
+    private var entryDailyBars: List<OhlcBar> = emptyList()
+    private var entryDailyBarsLoading = false
+    private var entryDailyBarsError: String? = null
+    private var brokerQuotes: Map<String, LiveQuote> = emptyMap()
+    private var brokerOpenOrders: List<WorkingOrder> = emptyList()
+    private var brokerFills: List<BrokerFill> = emptyList()
+    private var brokerPositions: List<AccountPosition> = emptyList()
+    private val entryLivePriceHistory = LivePriceTickHistory(maxPoints = 450, minIntervalMillis = 2_000L)
 
     private val _uiState = MutableStateFlow(WatchlistUiState())
     val uiState: StateFlow<WatchlistUiState> = _uiState.asStateFlow()
@@ -132,6 +149,31 @@ class WatchlistViewModel(
             ?.onEach(::handleBracketPlacementAck)
             ?.launchIn(scope)
 
+        executionGateway?.openOrders
+            ?.onEach { orders ->
+                brokerOpenOrders = orders
+                recordEntryLivePrices()
+                emitUiState()
+            }
+            ?.launchIn(scope)
+
+        executionGateway?.fills
+            ?.onEach { fills ->
+                brokerFills = fills
+                syncExecutedBracketLegsFromFills()
+                recordEntryLivePrices()
+                emitUiState()
+            }
+            ?.launchIn(scope)
+
+        executionGateway?.positions
+            ?.onEach { positions ->
+                brokerPositions = positions
+                recordEntryLivePrices()
+                emitUiState()
+            }
+            ?.launchIn(scope)
+
         if (marketDataGateway != null && marketDataGateway !== executionGateway) {
             marketDataGateway.connectionState
                 .onEach { state ->
@@ -140,6 +182,14 @@ class WatchlistViewModel(
                 }
                 .launchIn(scope)
         }
+
+        marketDataGateway?.quotes
+            ?.onEach { quotes ->
+                brokerQuotes = quotes
+                recordEntryLivePrices()
+                emitUiState()
+            }
+            ?.launchIn(scope)
     }
 
     private fun handleBracketPlacementAck(ack: TouchTurnBracketAck) {
@@ -152,24 +202,33 @@ class WatchlistViewModel(
             recordPlanOrderPlacement(
                 entryId = draft.entryId,
                 planId = draft.planId,
-                orderIds = ack.orderIds
+                orderIds = ack.orderIds,
+                bracketDraft = draft
+            )
+            bracketOrderDraft = null
+            pendingBracketSymbol = null
+        } else {
+            bracketOrderDraft = draft.copy(
+                submitInProgress = false,
+                submitResultMessage = "Bracket failed: ${ack.result.exceptionOrNull()?.message ?: "unknown error"}"
             )
         }
-        bracketOrderDraft = draft.copy(
-            submitInProgress = false,
-            submitResultMessage = if (ack.result.isSuccess) {
-                val ids = ack.orderIds.joinToString(", ")
-                if (ids.isBlank()) "Bracket submitted." else "Bracket submitted (order ids: $ids)."
-            } else {
-                "Bracket failed: ${ack.result.exceptionOrNull()?.message ?: "unknown error"}"
-            }
-        )
         emitUiState()
     }
 
-    private fun recordPlanOrderPlacement(entryId: String, planId: String, orderIds: List<Int>) {
+    private fun recordPlanOrderPlacement(
+        entryId: String,
+        planId: String,
+        orderIds: List<Int>,
+        bracketDraft: WatchlistBracketOrderUi
+    ) {
         val watchlist = selectedWatchlist() ?: return
         val placedAt = System.currentTimeMillis()
+        val entryPrice = bracketDraft.entryPriceText.toDoubleOrNull()
+        val stopPrice = bracketDraft.stopPriceText.toDoubleOrNull()
+        val targetPrice = bracketDraft.targetPriceText.toDoubleOrNull()
+        val quantity = bracketDraft.quantityText.toIntOrNull()
+        val investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } }
         repository.updateWatchlist(watchlist.id) { current ->
             current.copy(
                 entries = current.entries.map { entry ->
@@ -178,6 +237,11 @@ class WatchlistViewModel(
                         tradePlans = entry.tradePlans.map { plan ->
                             if (plan.id != planId) plan
                             else plan.copy(
+                                side = bracketDraft.side,
+                                entryPrice = entryPrice ?: plan.entryPrice,
+                                stopPrice = stopPrice ?: plan.stopPrice,
+                                targetPrice = targetPrice ?: plan.targetPrice,
+                                investmentAmount = investmentAmount ?: plan.investmentAmount,
                                 orderPlacedAtEpochMs = placedAt,
                                 placedOrderIds = orderIds
                             )
@@ -697,6 +761,7 @@ class WatchlistViewModel(
         if (tradePlansEditorDraft?.entryId == entryId) {
             tradePlansEditorDraft = null
             planDiaryEditorDraft = null
+            clearEntryCharts()
         }
         repository.removeEntry(watchlist.id, entryId)
         emitUiState()
@@ -708,6 +773,7 @@ class WatchlistViewModel(
         tradePlansEditorDraft = refreshEditorDraft(
             WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist, deployments = strategyDeployments)
         )
+        startEntryCharts(entry)
         emitUiState()
     }
 
@@ -716,6 +782,7 @@ class WatchlistViewModel(
         planDiaryEditorDraft = null
         bracketOrderDraft = null
         pendingBracketSymbol = null
+        clearEntryCharts()
         emitUiState()
     }
 
@@ -974,7 +1041,11 @@ class WatchlistViewModel(
         pendingBracketSymbol = draft.symbol
         ensureLiveMarketData?.invoke(entry.symbol, entry.instrument)
         val submitGeneration = ++bracketSubmitGeneration
-        bracketOrderDraft = draft.copy(submitInProgress = true, submitResultMessage = null)
+        bracketOrderDraft = draft.copy(
+            submitInProgress = true,
+            submitResultMessage = null,
+            validationErrors = emptyList()
+        )
         emitUiState()
         gateway.placeTouchTurnBracket(planResult.getOrThrow())
         scheduleBracketAckTimeout(submitGeneration)
@@ -1150,6 +1221,162 @@ class WatchlistViewModel(
         emitUiState()
     }
 
+    private fun startEntryCharts(entry: WatchlistEntry) {
+        entryChartsEntryId = entry.id
+        entryDailyBars = emptyList()
+        entryDailyBarsLoading = true
+        entryDailyBarsError = null
+        entryLivePriceHistory.clear()
+        ensureLiveMarketData?.invoke(entry.symbol, entry.instrument)
+        scope.launch {
+            loadEntryDailyBars(entry)
+        }
+    }
+
+    private fun clearEntryCharts() {
+        entryChartsEntryId = null
+        entryDailyBars = emptyList()
+        entryDailyBarsLoading = false
+        entryDailyBarsError = null
+        entryLivePriceHistory.clear()
+    }
+
+    private suspend fun loadEntryDailyBars(entry: WatchlistEntry) {
+        val gateway = marketDataGateway ?: executionGateway
+        if (gateway == null) {
+            if (entryChartsEntryId != entry.id) return
+            entryDailyBarsLoading = false
+            entryDailyBarsError = "Broker not connected"
+            emitUiState()
+            return
+        }
+        if (gateway.connectionState.value != GatewayConnectionState.Connected) {
+            if (entryChartsEntryId != entry.id) return
+            entryDailyBarsLoading = false
+            entryDailyBarsError = "Connect to market data to load daily history"
+            emitUiState()
+            return
+        }
+        val result = withContext(Dispatchers.Default) {
+            gateway.fetchDailyBars(entry.symbol, entry.instrument)
+        }
+        if (entryChartsEntryId != entry.id) return
+        entryDailyBarsLoading = false
+        result.fold(
+            onSuccess = {
+                entryDailyBars = it
+                entryDailyBarsError = null
+            },
+            onFailure = {
+                entryDailyBars = emptyList()
+                entryDailyBarsError = it.message ?: "Failed to load daily history"
+            }
+        )
+        emitUiState()
+    }
+
+    private fun recordEntryLivePrices() {
+        val editor = tradePlansEditorDraft ?: return
+        if (entryChartsEntryId != editor.entryId) return
+        if (!shouldRecordEntryLivePrices(editor)) return
+        val price = LiveMarkPriceResolver.resolve(editor.symbol, brokerPositions, brokerQuotes) ?: return
+        entryLivePriceHistory.record(System.currentTimeMillis(), price)
+    }
+
+    private fun shouldRecordEntryLivePrices(editor: WatchlistTradePlansEditorUi): Boolean {
+        val entry = findEntry(editor.entryId)
+        val hasPlacedBracket = entry?.tradePlans?.any { it.hasPlacedOrder } == true
+        val hasBracketDraft = bracketOrderDraft?.entryId == editor.entryId
+        val hasQuotes = LiveMarkPriceResolver.quoteForSymbol(editor.symbol, brokerQuotes) != null
+        val hasPosition = brokerPositions.any { SymbolMarkets.symbolsMatch(editor.symbol, it.symbol) }
+        return hasPlacedBracket || hasBracketDraft || hasQuotes || hasPosition
+    }
+
+    private fun syncExecutedBracketLegsFromFills() {
+        val editor = tradePlansEditorDraft ?: return
+        val entry = findEntry(editor.entryId) ?: return
+        val plan = WatchlistChartLevels.activePlacedPlan(
+            entry = entry,
+            bracketDraft = bracketOrderDraft?.takeIf { it.entryId == editor.entryId }
+        ) ?: return
+        val detected = WatchlistChartExecution.executedLevels(
+            symbol = editor.symbol,
+            entry = entry,
+            fills = brokerFills,
+            bracketDraft = bracketOrderDraft?.takeIf { it.entryId == editor.entryId },
+            planEditors = editor.plans
+        )
+        val merged = WatchlistChartExecution.mergeDetectedExecutedLegs(plan, detected)
+        if (merged == plan.executedBracketLegs) return
+        val watchlist = selectedWatchlist() ?: return
+        repository.updateWatchlist(watchlist.id) { current ->
+            current.copy(
+                entries = current.entries.map { watchlistEntry ->
+                    if (watchlistEntry.id != entry.id) watchlistEntry else {
+                        watchlistEntry.copy(
+                            tradePlans = watchlistEntry.tradePlans.map { tradePlan ->
+                                if (tradePlan.id != plan.id) tradePlan else tradePlan.copy(executedBracketLegs = merged)
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    private fun buildEntryChartsUi(editor: WatchlistTradePlansEditorUi): WatchlistEntryChartsUi {
+        val entry = findEntry(editor.entryId)
+        val quote = LiveMarkPriceResolver.quoteForSymbol(editor.symbol, brokerQuotes)
+        val currentPrice = LiveMarkPriceResolver.resolve(editor.symbol, brokerPositions, brokerQuotes)
+        val hasLiveQuote = quote?.bid?.let { it > 0.0 } == true ||
+            quote?.ask?.let { it > 0.0 } == true ||
+            quote?.last?.let { it > 0.0 } == true
+        val history = entryLivePriceHistory.snapshot()
+        val bracketDraft = bracketOrderDraft?.takeIf { it.entryId == editor.entryId }
+        val orderLevels = WatchlistChartLevels.forEntry(
+            symbol = editor.symbol,
+            entry = entry,
+            openOrders = brokerOpenOrders,
+            bracketDraft = bracketDraft,
+            planEditors = editor.plans
+        )
+        val executedLevels = WatchlistChartExecution.executedLevels(
+            symbol = editor.symbol,
+            entry = entry,
+            fills = brokerFills,
+            bracketDraft = bracketDraft,
+            planEditors = editor.plans
+        )
+        val hasOrderLevels = orderLevels.isNotEmpty()
+        val liveAvailable = hasLiveQuote || history.isNotEmpty() || currentPrice != null || hasOrderLevels
+        val liveStatusLabel = when {
+            liveAvailable -> null
+            marketDataConnection != GatewayConnectionState.Connected ->
+                "Connect to market data for live prices"
+            else -> "Waiting for live quotes…"
+        }
+        return WatchlistEntryChartsUi(
+            symbol = editor.symbol,
+            currencyCode = editor.currencyCode,
+            dailyBars = entryDailyBars,
+            dailyLoading = entryDailyBarsLoading,
+            dailyError = entryDailyBarsError,
+            livePriceHistory = history,
+            liveCurrentPrice = currentPrice,
+            liveAvailable = liveAvailable,
+            liveStatusLabel = liveStatusLabel,
+            liveQuoteStrip = TouchTurnQuoteStripUiMapper.from(
+                quote = quote,
+                currencyCode = editor.currencyCode,
+                bracketSetup = null,
+                levels = orderLevels
+            ),
+            orderLevels = orderLevels,
+            executedLevels = executedLevels,
+            listingExch = null
+        )
+    }
+
     private fun findEntry(entryId: String): WatchlistEntry? =
         selectedWatchlist()?.entries?.find { it.id == entryId }
 
@@ -1258,6 +1485,7 @@ class WatchlistViewModel(
                 sortDirection = sortDirection,
                 showAddDialog = showAddDialog,
                 tradePlansEditor = tradePlansEditorDraft,
+                entryCharts = tradePlansEditorDraft?.let(::buildEntryChartsUi),
                 planDiaryEditor = planDiaryEditorDraft,
                 pendingDiaryNotification = dueDiaryNotificationQueue.firstOrNull()
                     ?.takeIf { it.diaryEntry.id != diaryNotificationSnoozedForView }

@@ -32,7 +32,7 @@ class VolumeExhaustionBufferMonitorTest {
             marketData = marketData,
             execution = execution,
             scope = scope,
-            nowEpochMillis = clock::now,
+            nowEpochMillis = clock::nowEpochMillis,
             delayMillis = { delay(1) }
         )
 
@@ -60,7 +60,7 @@ class VolumeExhaustionBufferMonitorTest {
             marketData = marketData,
             execution = execution,
             scope = scope,
-            nowEpochMillis = clock::now,
+            nowEpochMillis = clock::nowEpochMillis,
             delayMillis = { delay(1) }
         )
 
@@ -71,7 +71,7 @@ class VolumeExhaustionBufferMonitorTest {
             volumeThreshold = 100.0
         )
         delay(50)
-        volumeTicks.emit(VolumeTick(symbol = "AAPL", volumeDelta = 150.0, epochMillis = clock.now()))
+        volumeTicks.emit(VolumeTick(symbol = "AAPL", volumeDelta = 150.0, epochMillis = clock.nowEpochMillis()))
         delay(200)
 
         assertEquals(listOf(7), execution.cancelledOrderIds)

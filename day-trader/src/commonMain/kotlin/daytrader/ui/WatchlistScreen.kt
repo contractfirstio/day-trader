@@ -49,27 +49,6 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
         )
     }
 
-    uiState.tradePlansEditor?.let { editor ->
-        WatchlistTradePlansDialog(
-            editor = editor,
-            onDismiss = viewModel::onDismissTradePlans,
-            onSave = viewModel::onSaveTradePlans,
-            onSideChange = viewModel::onUpdatePlanSide,
-            onSizingModeChange = viewModel::onUpdatePlanSizingMode,
-            onProximityEnabledChange = viewModel::onUpdatePlanProximityEnabled,
-            onProximityModeChange = viewModel::onUpdatePlanProximityMode,
-            onFieldChange = viewModel::onUpdatePlanField,
-            onGroupInputChange = viewModel::onEditorGroupInputChange,
-            onAddGroup = viewModel::onAddEditorGroup,
-            onRemoveGroup = viewModel::onRemoveEditorGroup,
-            onCreateStrategyDeployment = viewModel::onCreateStrategyDeployment,
-            onRemoveStrategy = viewModel::onRemoveStrategy,
-            onPlaceBracket = viewModel::onOpenBracketOrder,
-            onReactivatePlan = viewModel::onReactivatePlan,
-            onOpenDiary = viewModel::onOpenPlanDiary
-        )
-    }
-
     uiState.planDiaryEditor?.let { editor ->
         WatchlistPlanDiaryDialog(
             editor = editor,
@@ -91,8 +70,6 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             order = order,
             connectionLabel = uiState.connectionLabel,
             onDismiss = viewModel::onDismissBracketOrder,
-            onSideChange = viewModel::onUpdateBracketOrderSide,
-            onFieldChange = viewModel::onUpdateBracketOrderField,
             onSubmit = viewModel::onSubmitBracketOrder
         )
     }
@@ -102,6 +79,31 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             insight = insight,
             onDismiss = viewModel::onDismissReversalScoreInsight
         )
+    }
+
+    val entryEditor = uiState.tradePlansEditor
+    if (entryEditor != null) {
+        WatchlistEntryDetailPanel(
+            editor = entryEditor,
+            charts = uiState.entryCharts,
+            onBack = viewModel::onDismissTradePlans,
+            onSave = viewModel::onSaveTradePlans,
+            onSideChange = viewModel::onUpdatePlanSide,
+            onSizingModeChange = viewModel::onUpdatePlanSizingMode,
+            onProximityEnabledChange = viewModel::onUpdatePlanProximityEnabled,
+            onProximityModeChange = viewModel::onUpdatePlanProximityMode,
+            onFieldChange = viewModel::onUpdatePlanField,
+            onGroupInputChange = viewModel::onEditorGroupInputChange,
+            onAddGroup = viewModel::onAddEditorGroup,
+            onRemoveGroup = viewModel::onRemoveEditorGroup,
+            onCreateStrategyDeployment = viewModel::onCreateStrategyDeployment,
+            onRemoveStrategy = viewModel::onRemoveStrategy,
+            onPlaceBracket = viewModel::onOpenBracketOrder,
+            onReactivatePlan = viewModel::onReactivatePlan,
+            onOpenDiary = viewModel::onOpenPlanDiary,
+            modifier = Modifier.fillMaxSize().padding(16.dp)
+        )
+        return
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {

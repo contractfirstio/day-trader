@@ -36,8 +36,10 @@ object TradingPanelRecap {
         instance: StrategyDeployment,
         dismissedRecapSessionIdByDeployment: Map<String, String>,
         historicRunId: String? = null,
+        marketDataCaptureActive: Boolean = false,
     ): Boolean {
         if (instance.status == DeploymentStatus.RUNNING) return true
+        if (marketDataCaptureActive) return true
         if (!instance.isTouchTurn) return false
         return showsSessionRecap(instance, dismissedRecapSessionIdByDeployment, historicRunId)
     }

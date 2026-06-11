@@ -16,9 +16,10 @@ class ReplaySessionRunner(
         val runtime = ReplayHybridRuntime(bundle, clock, scope)
         runtime.start()
         val engine = runtime.createEngine(repository)
+        runtime.playbackOrchestrator.attach(engine, repository)
         engine.start()
         return try {
-            val controller = ReplaySessionController(bundle, runtime, repository, engine, scope)
+            val controller = ReplaySessionController(runtime, repository, engine, scope)
             controller.runReplay()
         } finally {
             runtime.shutdown()

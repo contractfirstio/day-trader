@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.strategies.LiveBrokerUiState
+import daytrader.presentation.strategies.SessionMarketDataCaptureUi
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
@@ -86,6 +88,43 @@ fun TradingTabLiveMarketStrip(broker: LiveBrokerUiState) {
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun SessionMarketDataCaptureBar(
+    capture: SessionMarketDataCaptureUi,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(TableHeaderBg)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Recording market data · ${capture.symbol}",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = GainGreen
+            )
+            Text(
+                text = "Session ${capture.sessionId} · appends to prices.jsonl until stopped",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        OutlinedButton(
+            onClick = onStop,
+            modifier = Modifier.testTag("StopMarketDataCaptureButton")
+        ) {
+            Text("Stop recording", fontSize = 11.sp)
         }
     }
 }

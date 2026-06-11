@@ -50,5 +50,15 @@ class StartBlockedAlertMapperTest {
         assertContains(alert.positionDetails, "Long")
         assertContains(alert.reason, "flat")
         assertContains(alert.reason, "deployment")
+        assertNotNull(alert.position)
+    }
+
+    @Test
+    fun replayCaptureNotFoundAlertDescribesDeploymentSymbol() {
+        val alert = StartBlockedAlertMapper.fromReplayCaptureNotFound(instance)
+        assertNull(alert.position)
+        assertContains(alert.summary, "700")
+        assertContains(alert.positionDetails, "700")
+        assertContains(alert.reason, "hybrid")
     }
 }

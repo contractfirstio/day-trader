@@ -106,6 +106,18 @@ class TradingPanelRecapTest {
         )
     }
 
+    @Test
+    fun showsLiveMarketQuotes_whenPostSessionCaptureActive() {
+        val deployment = stoppedTouchTurnWithHistory(sessionId = "run-1")
+        assertTrue(
+            TradingPanelRecap.showsLiveMarketQuotes(
+                deployment,
+                dismissedRecapSessionIdByDeployment = mapOf(deployment.id to "run-1"),
+                marketDataCaptureActive = true
+            )
+        )
+    }
+
     private fun stoppedTouchTurnWithHistory(sessionId: String): StrategyDeployment {
         val session = StrategySession(
             id = sessionId,

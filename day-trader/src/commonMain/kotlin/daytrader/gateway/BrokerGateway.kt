@@ -112,6 +112,20 @@ interface BrokerGateway {
         instrument: InstrumentIdentity? = null
     ): Result<Double>
 
+    /** Daily OHLC bars for watchlist charts (~one month of trading days). */
+    suspend fun fetchDailyBars(
+        symbol: String,
+        instrument: InstrumentIdentity? = null,
+        tradingDays: Int = daytrader.presentation.watchlist.WatchlistDailyBars.TRADING_DAYS_ONE_MONTH
+    ): Result<List<OhlcBar>> {
+        val snapshot = fetchReversalScoreSymbolSnapshot(symbol, instrument).getOrElse { return Result.failure(it) }
+        val closes = snapshot.historical.dailyCloses.takeLast(tradingDays)
+        if (closes.isEmpty()) {
+            return Result.failure(IllegalStateException("No daily bars for $symbol"))
+        }
+        return Result.success(daytrader.presentation.watchlist.WatchlistDailyBars.fromDailyCloses(closes))
+    }
+
     /** Live + historical symbol inputs for reversal score (IB reqMktData + reqHistoricalData). */
     suspend fun fetchReversalScoreSymbolSnapshot(
         symbol: String,

@@ -14,4 +14,11 @@ object LiveMarketDataLifecycle {
             deployment.status == DeploymentStatus.RUNNING &&
                 SymbolMarkets.symbolsMatch(deployment.symbol, symbol)
         }
+
+    fun anyDeploymentNeedsQuotes(
+        symbol: String,
+        deployments: List<StrategyDeployment>
+    ): Boolean =
+        anyRunningDeploymentNeedsQuotes(symbol, deployments) ||
+            SessionMarketDataCapture.targetsForSymbol(symbol).isNotEmpty()
 }

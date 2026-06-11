@@ -1,34 +1,36 @@
 package daytrader.replay
 
+import daytrader.platform.MutableTradingClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
 /**
  * Virtual wall clock for session replay. [advanceBy] and [advanceTo] move replay time explicitly.
- * [delayMillis] yields without advancing [nowMs] so background engine poll loops cannot drift
- * virtual time past orchestrated milestones (bar close, close-confirmation window, etc.).
+ * [delayMillis] advances virtual time so engine settle/retry waits can reach bar-close milestones.
+ * Background poll loops in replay should use wall [delay], not [delayMillis], so only orchestrator
+ * steps and intentional settle waits move session time.
  */
-class ReplayClock(initialEpochMs: Long) {
+class ReplayClock(initialEpochMs: Long) : MutableTradingClock {
     @Volatile
-    var nowMs: Long = initialEpochMs
-        private set
+    private var nowMs: Long = initialEpochMs
 
-    fun now(): Long = nowMs
+    override fun nowEpochMillis(): Long = nowMs
 
-    fun reset(epochMs: Long) {
+    override fun reset(epochMs: Long) {
         nowMs = epochMs
     }
 
-    fun advanceBy(deltaMs: Long) {
+    override fun advanceBy(deltaMs: Long) {
         if (deltaMs > 0) nowMs += deltaMs
     }
 
-    fun advanceTo(epochMs: Long) {
+    override fun advanceTo(epochMs: Long) {
         if (epochMs > nowMs) nowMs = epochMs
     }
 
-    suspend fun delayMillis(ms: Long) {
+    override suspend fun delayMillis(ms: Long) {
         if (ms <= 0) return
+        advanceBy(ms)
         yield()
         delay(1L)
     }
