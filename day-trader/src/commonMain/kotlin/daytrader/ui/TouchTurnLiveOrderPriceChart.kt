@@ -348,6 +348,9 @@ fun TouchTurnLiveOrderPriceChart(
                 LiveOrderChartLegendDot("Entry", EntryLevelColor)
                 LiveOrderChartLegendDot("TP", GainGreen)
                 LiveOrderChartLegendDot("SL", LossRed)
+                if (chart.levels.any { it.kind == TouchTurnOrderLevelKind.TRAIL_TRIGGER }) {
+                    LiveOrderChartLegendDot("Trigger", TrailTriggerLevelColor)
+                }
                 Text(
                     if (showThrob) "Pulsing lines = filled" else "Dashed lines = working orders",
                     fontSize = 9.sp,
@@ -405,9 +408,12 @@ private fun LiveOrderChartLegendDot(label: String, color: Color) {
     }
 }
 
+private val TrailTriggerLevelColor = Color(0xFFFFB74D)
+
 private fun levelColor(kind: TouchTurnOrderLevelKind): Color = when (kind) {
     TouchTurnOrderLevelKind.ENTRY -> EntryLevelColor
     TouchTurnOrderLevelKind.TAKE_PROFIT -> GainGreen
     TouchTurnOrderLevelKind.STOP_LOSS -> LossRed
+    TouchTurnOrderLevelKind.TRAIL_TRIGGER -> TrailTriggerLevelColor
     TouchTurnOrderLevelKind.OTHER -> TextSecondary
 }

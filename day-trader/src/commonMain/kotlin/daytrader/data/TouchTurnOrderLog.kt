@@ -79,7 +79,7 @@ object TouchTurnOrderLog {
             }
             BrokerId.INTERACTIVE_BROKERS -> {
                 brokerGateway.placeTouchTurnBracket(plan)
-                line("  (IB — entry LMT + take-profit LMT + stop STP bracket queued; fills coalesced on fill)")
+                line("  (IB — entry LMT + take-profit LMT + adjustable stop STP→TRAIL bracket queued)")
             }
             else -> line("  (preview only — connect a broker to submit)")
         }
@@ -91,8 +91,16 @@ object TouchTurnOrderLog {
             TouchTurnOrderRole.TAKE_PROFIT -> "TAKE_PROFIT"
             TouchTurnOrderRole.STOP_LOSS -> "STOP_LOSS"
         }
+        val trailSuffix = if (order.role == TouchTurnOrderRole.STOP_LOSS &&
+            order.trailTriggerPrice != null &&
+            order.trailAmount != null
+        ) {
+            "  trail@${fmt(order.trailTriggerPrice, currency)}  amt=${fmt(order.trailAmount, currency)}"
+        } else {
+            ""
+        }
         return "  #$index $role  ${order.action}  ${order.quantity}  ${order.orderType}  " +
-            "${order.timeInForce}  @  ${fmt(order.price, currency)}"
+            "${order.timeInForce}  @  ${fmt(order.price, currency)}$trailSuffix"
     }
 
     private fun fmt(price: Double, currency: String): String = Formatters.moneyPlain(price, currency)

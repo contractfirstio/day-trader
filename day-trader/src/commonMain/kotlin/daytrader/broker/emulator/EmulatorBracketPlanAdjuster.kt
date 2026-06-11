@@ -1,5 +1,6 @@
 package daytrader.broker.emulator
 
+import daytrader.domain.TouchTurnAdjustableStop
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
@@ -11,11 +12,24 @@ internal object EmulatorBracketPlanAdjuster {
     fun widenExits(plan: TouchTurnOrderPlan, spreadWidenFactor: Double): TouchTurnOrderPlan {
         if (spreadWidenFactor <= 1.0) return plan
         val entry = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY }?.price ?: return plan
+        val takeProfit = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.TAKE_PROFIT }?.price
         return plan.copy(
             orders = plan.orders.map { leg ->
                 when (leg.role) {
-                    TouchTurnOrderRole.TAKE_PROFIT, TouchTurnOrderRole.STOP_LOSS ->
+                    TouchTurnOrderRole.TAKE_PROFIT ->
                         leg.copy(price = widenFromEntry(entry, leg.price, spreadWidenFactor))
+                    TouchTurnOrderRole.STOP_LOSS -> {
+                        val widenedStop = widenFromEntry(entry, leg.price, spreadWidenFactor)
+                        val widenedTp = takeProfit?.let { widenFromEntry(entry, it, spreadWidenFactor) }
+                        val trail = widenedTp?.let {
+                            TouchTurnAdjustableStop.compute(entry, widenedStop, it)
+                        }
+                        leg.copy(
+                            price = widenedStop,
+                            trailTriggerPrice = trail?.triggerPrice,
+                            trailAmount = trail?.trailAmount
+                        )
+                    }
                     else -> leg
                 }
             }

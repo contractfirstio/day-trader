@@ -45,6 +45,7 @@ object WatchlistChartExecution {
                 TouchTurnOrderLevelKind.ENTRY -> TouchTurnOrderRole.ENTRY
                 TouchTurnOrderLevelKind.TAKE_PROFIT -> TouchTurnOrderRole.TAKE_PROFIT
                 TouchTurnOrderLevelKind.STOP_LOSS -> TouchTurnOrderRole.STOP_LOSS
+                TouchTurnOrderLevelKind.TRAIL_TRIGGER -> null
                 TouchTurnOrderLevelKind.OTHER -> null
             }
         }.forEach { merged.add(it) }

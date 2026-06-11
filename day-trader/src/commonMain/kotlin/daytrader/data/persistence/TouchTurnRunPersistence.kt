@@ -148,7 +148,8 @@ internal object TouchTurnRunPersistence {
             side = parseTradeSide(side),
             entry = entry,
             stopLoss = stopLoss,
-            takeProfit = takeProfit
+            takeProfit = takeProfit,
+            trailTriggerPrice = trailTriggerPrice
         )
 
     private fun TouchTurnPlannedBracket.toRecord(): TouchTurnPlannedBracketRecord =
@@ -156,7 +157,8 @@ internal object TouchTurnRunPersistence {
             side = side.name,
             entry = entry,
             stopLoss = stopLoss,
-            takeProfit = takeProfit
+            takeProfit = takeProfit,
+            trailTriggerPrice = trailTriggerPrice
         )
 
     private fun parseStartedBy(value: String): TouchTurnSessionStartedBy =

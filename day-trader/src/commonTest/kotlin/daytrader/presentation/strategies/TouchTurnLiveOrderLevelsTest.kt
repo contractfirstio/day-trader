@@ -49,6 +49,28 @@ class TouchTurnLiveOrderLevelsTest {
     }
 
     @Test
+    fun chartLevels_overlaysLiveTrailingStopPrice() {
+        val bracket = TouchTurnPlannedBracket(
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0,
+            trailTriggerPrice = 105.0
+        )
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
+            openOrders = listOf(
+                workingOrder(orderId = 3, stop = 103.5, parentId = 1, orderType = "TRAIL")
+            ),
+            plannedBracket = bracket,
+            bracketSetup = null
+        )
+        val stop = levels.first { it.kind == TouchTurnOrderLevelKind.STOP_LOSS }
+        assertEquals(103.5, stop.price, 0.001)
+        assertEquals("Trailing stop", stop.label)
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TRAIL_TRIGGER && it.price == 105.0 })
+    }
+
+    @Test
     fun chartLevels_withoutPlannedBracket_fallsBackToOpenOrders() {
         val bracket = TouchTurnPlannedBracket(
             side = TouchTurnTradeSide.LONG,
@@ -69,7 +91,8 @@ class TouchTurnLiveOrderLevelsTest {
         orderId: Int,
         limit: Double? = null,
         stop: Double? = null,
-        parentId: Int = 0
+        parentId: Int = 0,
+        orderType: String? = null
     ): WorkingOrder = WorkingOrder(
         orderId = orderId,
         symbol = "SPY",
@@ -77,7 +100,7 @@ class TouchTurnLiveOrderLevelsTest {
         quantity = 10,
         filled = 0,
         remaining = 10,
-        orderType = if (stop != null) "STP" else "LMT",
+        orderType = orderType ?: if (stop != null) "STP" else "LMT",
         limitPrice = limit,
         stopPrice = stop,
         status = "Submitted",

@@ -198,7 +198,11 @@ internal data class EmulatorOrder(
     val stopPrice: Double?,
     val status: String,
     val currency: String,
-    val parentId: Int = 0
+    val parentId: Int = 0,
+    val trailTriggerPrice: Double? = null,
+    val trailAmount: Double? = null,
+    val trailingArmed: Boolean = false,
+    val trailAnchorPrice: Double? = null
 ) {
     fun toWorkingOrder(): daytrader.gateway.WorkingOrder = daytrader.gateway.WorkingOrder(
         orderId = orderId,
@@ -213,7 +217,9 @@ internal data class EmulatorOrder(
         limitPrice = limitPrice,
         stopPrice = stopPrice,
         status = status,
-        currency = currency
+        currency = currency,
+        trailTriggerPrice = trailTriggerPrice,
+        trailAmount = trailAmount
     )
 
     fun isTerminal(): Boolean = status in TERMINAL_STATUSES

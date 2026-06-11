@@ -10,6 +10,7 @@ enum class TouchTurnOrderLevelKind {
     ENTRY,
     TAKE_PROFIT,
     STOP_LOSS,
+    TRAIL_TRIGGER,
     OTHER
 }
 
@@ -25,15 +26,66 @@ object TouchTurnLiveOrderLevels {
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?
     ): List<TouchTurnOrderLevelUi> {
-        plannedBracket?.let { return levelsFromPlannedBracket(it) }
+        val entry = plannedBracket?.entry ?: bracketSetup?.entry
+        val takeProfit = plannedBracket?.takeProfit ?: bracketSetup?.takeProfit
+        val initialStop = plannedBracket?.stopLoss ?: bracketSetup?.stopLoss
+        if (entry != null && takeProfit != null && initialStop != null) {
+            return mergedBracketLevels(
+                openOrders = openOrders,
+                entry = entry,
+                takeProfit = takeProfit,
+                initialStop = initialStop,
+                trailTrigger = plannedBracket?.trailTriggerPrice
+                    ?: openOrders.firstOrNull { !it.isTrailAdjustment && it.trailTriggerPrice != null }
+                        ?.trailTriggerPrice
+            )
+        }
         return fromWorkingOrders(openOrders, plannedBracket, bracketSetup)
     }
 
+    private fun mergedBracketLevels(
+        openOrders: List<WorkingOrder>,
+        entry: Double,
+        takeProfit: Double,
+        initialStop: Double,
+        trailTrigger: Double?
+    ): List<TouchTurnOrderLevelUi> {
+        val stopOrder = openOrders.firstOrNull { order ->
+            !order.isTrailAdjustment &&
+                (order.orderType.equals("STP", ignoreCase = true) ||
+                    order.orderType.equals("TRAIL", ignoreCase = true))
+        }
+        val liveStop = stopOrder?.stopPrice?.takeIf { it > 0.0 }
+        val stopPrice = liveStop ?: initialStop
+        val stopLabel = if (stopOrder?.orderType.equals("TRAIL", ignoreCase = true)) {
+            "Trailing stop"
+        } else {
+            "Stop loss"
+        }
+        val levels = mutableListOf(
+            TouchTurnOrderLevelUi(entry, "Entry", TouchTurnOrderLevelKind.ENTRY),
+            TouchTurnOrderLevelUi(takeProfit, "Take profit", TouchTurnOrderLevelKind.TAKE_PROFIT),
+            TouchTurnOrderLevelUi(stopPrice, stopLabel, TouchTurnOrderLevelKind.STOP_LOSS)
+        )
+        trailTrigger?.let { trigger ->
+            levels.add(
+                TouchTurnOrderLevelUi(
+                    price = trigger,
+                    label = "Trail trigger",
+                    kind = TouchTurnOrderLevelKind.TRAIL_TRIGGER
+                )
+            )
+        }
+        return levels
+    }
+
     fun levelsFromPlannedBracket(bracket: TouchTurnPlannedBracket): List<TouchTurnOrderLevelUi> =
-        listOf(
-            TouchTurnOrderLevelUi(bracket.entry, "Entry", TouchTurnOrderLevelKind.ENTRY),
-            TouchTurnOrderLevelUi(bracket.takeProfit, "Take profit", TouchTurnOrderLevelKind.TAKE_PROFIT),
-            TouchTurnOrderLevelUi(bracket.stopLoss, "Stop loss", TouchTurnOrderLevelKind.STOP_LOSS)
+        mergedBracketLevels(
+            openOrders = emptyList(),
+            entry = bracket.entry,
+            takeProfit = bracket.takeProfit,
+            initialStop = bracket.stopLoss,
+            trailTrigger = bracket.trailTriggerPrice
         )
 
     fun fromWorkingOrders(
@@ -41,7 +93,9 @@ object TouchTurnLiveOrderLevels {
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?
     ): List<TouchTurnOrderLevelUi> =
-        openOrders.mapNotNull { order -> levelFor(order, plannedBracket, bracketSetup) }
+        openOrders
+            .filter { !it.isTrailAdjustment }
+            .mapNotNull { order -> levelFor(order, plannedBracket, bracketSetup) }
 
     private fun levelFor(
         order: WorkingOrder,
@@ -62,6 +116,12 @@ object TouchTurnLiveOrderLevels {
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?
     ): TouchTurnOrderLevelKind {
+        plannedBracket?.trailTriggerPrice?.let { trigger ->
+            if (pricesNear(price, trigger)) return TouchTurnOrderLevelKind.TRAIL_TRIGGER
+        }
+        order.trailTriggerPrice?.let { trigger ->
+            if (pricesNear(price, trigger)) return TouchTurnOrderLevelKind.TRAIL_TRIGGER
+        }
         plannedBracket?.let { bracket ->
             when {
                 pricesNear(price, bracket.entry) -> return TouchTurnOrderLevelKind.ENTRY
@@ -77,6 +137,7 @@ object TouchTurnLiveOrderLevels {
             }
         }
         return when {
+            order.orderType.equals("TRAIL", ignoreCase = true) -> TouchTurnOrderLevelKind.STOP_LOSS
             order.orderType.equals("STP", ignoreCase = true) -> TouchTurnOrderLevelKind.STOP_LOSS
             order.parentOrderId == 0 -> TouchTurnOrderLevelKind.ENTRY
             else -> TouchTurnOrderLevelKind.TAKE_PROFIT
@@ -86,7 +147,9 @@ object TouchTurnLiveOrderLevels {
     private fun labelFor(kind: TouchTurnOrderLevelKind, order: WorkingOrder): String = when (kind) {
         TouchTurnOrderLevelKind.ENTRY -> "Entry"
         TouchTurnOrderLevelKind.TAKE_PROFIT -> "Take profit"
-        TouchTurnOrderLevelKind.STOP_LOSS -> "Stop loss"
+        TouchTurnOrderLevelKind.STOP_LOSS ->
+            if (order.orderType.equals("TRAIL", ignoreCase = true)) "Trailing stop" else "Stop loss"
+        TouchTurnOrderLevelKind.TRAIL_TRIGGER -> "Trail trigger"
         TouchTurnOrderLevelKind.OTHER -> "${order.action} ${order.orderType}"
     }
 

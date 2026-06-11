@@ -41,6 +41,11 @@ object WatchlistBracketOrderPlanner {
             TradeSide.LONG -> "BUY"
             TradeSide.SHORT -> "SELL"
         }
+        val adjustableStop = TouchTurnAdjustableStop.compute(
+            entry = entryPrice,
+            stopLoss = stopPrice,
+            takeProfit = targetPrice
+        )
         return Result.success(
             TouchTurnOrderPlan(
                 symbol = symbol.trim().uppercase(),
@@ -68,7 +73,9 @@ object WatchlistBracketOrderPlanner {
                         action = exitAction,
                         orderType = "STP",
                         quantity = quantity,
-                        price = stopPrice
+                        price = stopPrice,
+                        trailTriggerPrice = adjustableStop?.triggerPrice,
+                        trailAmount = adjustableStop?.trailAmount
                     )
                 )
             )

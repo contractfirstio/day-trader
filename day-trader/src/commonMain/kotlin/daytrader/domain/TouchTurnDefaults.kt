@@ -51,6 +51,10 @@ object TouchTurnDefaults {
     const val CLOSE_POSITION_LONG_MIN = 0.55
     /** Maximum minutes after RTH open before auto-stop when [openDeadline] is enabled. */
     const val STOP_AFTER_OPEN_MINUTES = 90
+    /** Favorable move (fraction of entry→take-profit) before stop converts to trailing. */
+    const val TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP = 0.5
+    /** Trailing distance as a fraction of |entry−stop|; sent to IB as a nominal amount. */
+    const val TRAILING_STOP_TRAIL_FRACTION_OF_ENTRY_TO_STOP = 0.5
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
 }

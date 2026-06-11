@@ -1,6 +1,7 @@
 package daytrader.presentation.watchlist
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.TouchTurnAdjustableStop
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TradeSide
@@ -56,40 +57,39 @@ object WatchlistChartLevels {
     }
 
     private fun WatchlistBracketOrderUi.toPlannedBracket(): TouchTurnPlannedBracket? {
-        val entryPrice = entryPriceText.toDoubleOrNull() ?: return null
-        val stopPrice = stopPriceText.toDoubleOrNull() ?: return null
-        val targetPrice = targetPriceText.toDoubleOrNull() ?: return null
-        return TouchTurnPlannedBracket(
-            side = side.toTouchTurnTradeSide(),
-            entry = entryPrice,
-            stopLoss = stopPrice,
-            takeProfit = targetPrice
-        )
+        val entry = entryPriceText.toDoubleOrNull() ?: return null
+        val stop = stopPriceText.toDoubleOrNull() ?: return null
+        val target = targetPriceText.toDoubleOrNull() ?: return null
+        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
     }
 
     private fun WatchlistPlanEditorUi.toPlannedBracket(side: TradeSide): TouchTurnPlannedBracket? {
-        val entryPrice = entryPriceText.toDoubleOrNull() ?: return null
-        val stopPrice = stopPriceText.toDoubleOrNull() ?: return null
-        val targetPrice = targetPriceText.toDoubleOrNull() ?: return null
-        return TouchTurnPlannedBracket(
-            side = side.toTouchTurnTradeSide(),
-            entry = entryPrice,
-            stopLoss = stopPrice,
-            takeProfit = targetPrice
-        )
+        val entry = entryPriceText.toDoubleOrNull() ?: return null
+        val stop = stopPriceText.toDoubleOrNull() ?: return null
+        val target = targetPriceText.toDoubleOrNull() ?: return null
+        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
     }
 
     private fun WatchlistTradePlan.toPlannedBracket(): TouchTurnPlannedBracket? {
-        val entryPrice = entryPrice ?: return null
-        val stopPrice = stopPrice ?: return null
-        val targetPrice = targetPrice ?: return null
-        return TouchTurnPlannedBracket(
-            side = side.toTouchTurnTradeSide(),
-            entry = entryPrice,
-            stopLoss = stopPrice,
-            takeProfit = targetPrice
-        )
+        val entry = entryPrice ?: return null
+        val stop = stopPrice ?: return null
+        val target = targetPrice ?: return null
+        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
     }
+
+    private fun buildPlannedBracket(
+        side: TouchTurnTradeSide,
+        entry: Double,
+        stopLoss: Double,
+        takeProfit: Double
+    ): TouchTurnPlannedBracket =
+        TouchTurnPlannedBracket(
+            side = side,
+            entry = entry,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            trailTriggerPrice = TouchTurnAdjustableStop.compute(entry, stopLoss, takeProfit)?.triggerPrice
+        )
 
     private fun TradeSide.toTouchTurnTradeSide(): TouchTurnTradeSide = when (this) {
         TradeSide.LONG -> TouchTurnTradeSide.LONG

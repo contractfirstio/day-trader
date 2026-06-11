@@ -39,10 +39,11 @@ class WatchlistChartLevelsTest {
             entry = entry,
             openOrders = emptyList()
         )
-        assertEquals(3, levels.size)
+        assertEquals(4, levels.size)
         assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.ENTRY && it.price == 100.0 })
         assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.STOP_LOSS && it.price == 95.0 })
         assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TAKE_PROFIT && it.price == 110.0 })
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TRAIL_TRIGGER && it.price == 105.0 })
     }
 
     @Test
@@ -76,8 +77,9 @@ class WatchlistChartLevelsTest {
                 workingOrder(orderId = 3, symbol = "AAPL", stop = 95.0, parentId = 1)
             )
         )
-        assertEquals(3, levels.size)
+        assertEquals(4, levels.size)
         assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.ENTRY && it.price == 100.0 })
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TRAIL_TRIGGER && it.price == 105.0 })
     }
 
     @Test
@@ -112,7 +114,8 @@ class WatchlistChartLevelsTest {
                 workingOrder(orderId = 3, symbol = "AAPL", stop = 95.0, parentId = 1)
             )
         )
-        assertEquals(3, levels.size)
+        assertEquals(4, levels.size)
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.TRAIL_TRIGGER && it.price == 105.0 })
     }
 
     private fun workingOrder(

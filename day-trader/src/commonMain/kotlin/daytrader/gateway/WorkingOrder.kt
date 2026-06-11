@@ -15,5 +15,11 @@ data class WorkingOrder(
     val limitPrice: Double?,
     val stopPrice: Double?,
     val status: String,
-    val currency: String
+    val currency: String,
+    /** IB adjustable-stop attachment — hidden from chart level overlays. */
+    val isTrailAdjustment: Boolean = false,
+    /** Favorable-move trigger that arms trailing (from plan; static on stop leg). */
+    val trailTriggerPrice: Double? = null,
+    /** Nominal trail distance once trailing is armed. */
+    val trailAmount: Double? = null
 )

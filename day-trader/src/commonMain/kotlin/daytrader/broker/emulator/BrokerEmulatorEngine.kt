@@ -998,15 +998,69 @@ class BrokerEmulatorEngine(
         }
 
     private fun evaluateOrderFillsOnTick() {
+        updateTrailingStops()
         orders.values.toList().forEach { order ->
             if (!bracketManagedOrderIds.contains(order.orderId)) return@forEach
             if (order.isTerminal() || order.remaining <= 0 || !isOrderActiveForFill(order)) return@forEach
             when (order.orderType) {
                 "LMT" -> maybeFillLimitOrder(order)
-                "STP" -> maybeFillStopOrder(order)
+                "STP", "TRAIL" -> maybeFillStopOrder(order)
             }
         }
     }
+
+    private fun updateTrailingStops() {
+        orders.values.forEach { order ->
+            if (!bracketManagedOrderIds.contains(order.orderId)) return@forEach
+            if (order.trailTriggerPrice == null || order.trailAmount == null) return@forEach
+            if (order.isTerminal() || order.remaining <= 0 || !isOrderActiveForFill(order)) return@forEach
+            val updated = advanceTrailingStop(order) ?: return@forEach
+            if (updated == order) return@forEach
+            updateOrder(updated)
+            syncOrderToOpenBook(order.orderId)
+            publishOrders()
+        }
+    }
+
+    private fun advanceTrailingStop(order: EmulatorOrder): EmulatorOrder? {
+        val trigger = order.trailTriggerPrice ?: return null
+        val trailAmount = order.trailAmount ?: return null
+        val quote = quoteBook.quoteOrNull(order.symbol) ?: return null
+        if (!order.trailingArmed) {
+            val crossed = when (order.action.uppercase()) {
+                "SELL" -> quote.bid >= trigger
+                "BUY" -> quote.ask <= trigger
+                else -> false
+            }
+            if (!crossed) return order
+            val anchor = when (order.action.uppercase()) {
+                "SELL" -> quote.bid
+                "BUY" -> quote.ask
+                else -> return order
+            }
+            return order.copy(
+                trailingArmed = true,
+                orderType = "TRAIL",
+                trailAnchorPrice = anchor,
+                stopPrice = computeTrailingStopPrice(order.action, anchor, trailAmount)
+            )
+        }
+        val anchor = when (order.action.uppercase()) {
+            "SELL" -> maxOf(order.trailAnchorPrice ?: quote.bid, quote.bid)
+            "BUY" -> minOf(order.trailAnchorPrice ?: quote.ask, quote.ask)
+            else -> return order
+        }
+        val newStop = computeTrailingStopPrice(order.action, anchor, trailAmount)
+        if (anchor == order.trailAnchorPrice && newStop == order.stopPrice) return order
+        return order.copy(trailAnchorPrice = anchor, stopPrice = newStop)
+    }
+
+    private fun computeTrailingStopPrice(action: String, anchor: Double, trailAmount: Double): Double =
+        when (action.uppercase()) {
+            "SELL" -> anchor - trailAmount
+            "BUY" -> anchor + trailAmount
+            else -> anchor
+        }
 
     private fun isOrderActiveForFill(order: EmulatorOrder): Boolean {
         if (order.status == "PreSubmitted") return false
@@ -1062,7 +1116,9 @@ class BrokerEmulatorEngine(
         stopPrice = planned.price.takeIf { planned.orderType == "STP" },
         status = status,
         currency = currency,
-        parentId = parentId
+        parentId = parentId,
+        trailTriggerPrice = planned.trailTriggerPrice,
+        trailAmount = planned.trailAmount
     )
 
     private fun refreshPositionMarks() {

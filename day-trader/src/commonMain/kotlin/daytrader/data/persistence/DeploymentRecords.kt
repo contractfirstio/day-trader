@@ -250,7 +250,8 @@ data class TouchTurnPlannedBracketRecord(
     val side: String,
     val entry: Double,
     val stopLoss: Double,
-    val takeProfit: Double
+    val takeProfit: Double,
+    val trailTriggerPrice: Double? = null
 )
 
 @Serializable

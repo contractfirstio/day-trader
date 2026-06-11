@@ -58,7 +58,9 @@ data class TouchTurnPlannedBracket(
     val side: TouchTurnTradeSide,
     val entry: Double,
     val stopLoss: Double,
-    val takeProfit: Double
+    val takeProfit: Double,
+    /** Favorable-move price that arms the adjustable trailing stop (null when trailing disabled). */
+    val trailTriggerPrice: Double? = null
 )
 
 @Serializable
@@ -117,13 +119,16 @@ data class TouchTurnRunRecord(
     val rules: TouchTurnRuleConfig? = null
 )
 
-fun TouchTurnOrderPlan.toPlannedBracket(): TouchTurnPlannedBracket =
-    TouchTurnPlannedBracket(
+fun TouchTurnOrderPlan.toPlannedBracket(): TouchTurnPlannedBracket {
+    val stopLeg = orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+    return TouchTurnPlannedBracket(
         side = side,
         entry = orders.first { it.role == TouchTurnOrderRole.ENTRY }.price,
-        stopLoss = orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.price,
-        takeProfit = orders.first { it.role == TouchTurnOrderRole.TAKE_PROFIT }.price
+        stopLoss = stopLeg.price,
+        takeProfit = orders.first { it.role == TouchTurnOrderRole.TAKE_PROFIT }.price,
+        trailTriggerPrice = stopLeg.trailTriggerPrice
     )
+}
 
 fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnSessionOutcome {
     session.decisionOutcome?.let { return it }

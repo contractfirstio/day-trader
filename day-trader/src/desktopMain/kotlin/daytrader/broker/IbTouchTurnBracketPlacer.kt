@@ -4,17 +4,22 @@ import com.ib.client.Contract
 import com.ib.client.Decimal
 import com.ib.client.EClientSocket
 import com.ib.client.Order
+import com.ib.client.OrderType
 import com.ib.client.Types
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
 
 /**
- * Builds a Touch Turn bracket for IB: parent entry LMT, take-profit LMT child, stop STP child.
- * [IbTouchTurnBracketSubmission] must be sent with three separate paced [placeOrder] calls.
+ * Builds a Touch Turn bracket for IB: parent entry LMT, take-profit LMT child, stop STP child,
+ * and optional adjustable-stop attachment that converts the stop to TRAIL at [TouchTurnPlannedOrder.trailTriggerPrice].
+ * [IbTouchTurnBracketSubmission] must be sent with separate paced [placeOrder] calls.
  */
 internal object IbTouchTurnBracketPlacer {
-    private const val LEG_COUNT = 3
+    private const val BRACKET_LEG_COUNT = 3
+    private const val ADJUSTABLE_STOP_LEG_COUNT = 4
+    /** IB [Order.adjustableTrailingUnit]: 0 = nominal amount, 100 = percent. */
+    private const val TRAIL_UNIT_NOMINAL_AMOUNT = 0
 
     fun build(
         client: EClientSocket,
@@ -38,15 +43,29 @@ internal object IbTouchTurnBracketPlacer {
             return null
         }
 
-        val parentOrderId = allocateOrderIds(LEG_COUNT) ?: run {
+        val hasAdjustableStop = stopLoss.trailTriggerPrice != null && stopLoss.trailAmount != null
+        val legCount = if (hasAdjustableStop) ADJUSTABLE_STOP_LEG_COUNT else BRACKET_LEG_COUNT
+        val parentOrderId = allocateOrderIds(legCount) ?: run {
             IbGatewayLog.touchTurnBracketSkipped("Order id not ready (await nextValidId)")
             return null
         }
         val takeProfitOrderId = parentOrderId + 1
         val stopLossOrderId = parentOrderId + 2
+        val adjustableStopOrderId = if (hasAdjustableStop) parentOrderId + 3 else null
 
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
+
+        val stopTransmit = !hasAdjustableStop
+        val adjustableStop = adjustableStopOrderId?.let { adjId ->
+            buildAdjustableStopOrder(
+                config = config,
+                stopLoss = stopLoss,
+                orderId = adjId,
+                stopLossOrderId = stopLossOrderId,
+                transmit = true
+            )
+        }
 
         return IbTouchTurnBracketSubmission(
             symbol = symbol,
@@ -54,9 +73,11 @@ internal object IbTouchTurnBracketPlacer {
             parentOrderId = parentOrderId,
             takeProfitOrderId = takeProfitOrderId,
             stopLossOrderId = stopLossOrderId,
+            adjustableStopOrderId = adjustableStopOrderId,
             parent = buildOrder(config, entry, parentOrderId, parentOrderId = 0, transmit = false),
             takeProfit = buildOrder(config, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false),
-            stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = true)
+            stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit),
+            adjustableStop = adjustableStop
         )
     }
 
@@ -100,6 +121,38 @@ internal object IbTouchTurnBracketPlacer {
         }
         return order
     }
+
+    private fun buildAdjustableStopOrder(
+        config: IbGatewayConfig,
+        stopLoss: TouchTurnPlannedOrder,
+        orderId: Int,
+        stopLossOrderId: Int,
+        transmit: Boolean
+    ): Order {
+        val triggerPrice = stopLoss.trailTriggerPrice!!
+        val trailAmount = stopLoss.trailAmount!!
+        val order = Order()
+        order.orderId(orderId)
+        order.clientId(config.clientId)
+        order.action(stopLoss.action)
+        order.orderType("STP")
+        order.totalQuantity(Decimal.get(stopLoss.quantity.toLong()))
+        order.tif(Types.TimeInForce.DAY)
+        order.goodTillDate("")
+        order.outsideRth(false)
+        order.transmit(transmit)
+        order.parentId(stopLossOrderId)
+        order.auxPrice(stopLoss.price)
+        order.triggerPrice(triggerPrice)
+        order.adjustedOrderType(OrderType.TRAIL)
+        order.adjustedStopPrice(stopLoss.price)
+        order.adjustableTrailingUnit(TRAIL_UNIT_NOMINAL_AMOUNT)
+        order.adjustedTrailingAmount(trailAmount)
+        if (config.accountCode.isNotBlank()) {
+            order.account(config.accountCode)
+        }
+        return order
+    }
 }
 
 internal data class IbTouchTurnBracketSubmission(
@@ -108,7 +161,9 @@ internal data class IbTouchTurnBracketSubmission(
     val parentOrderId: Int,
     val takeProfitOrderId: Int,
     val stopLossOrderId: Int,
+    val adjustableStopOrderId: Int?,
     val parent: Order,
     val takeProfit: Order,
-    val stopLoss: Order
+    val stopLoss: Order,
+    val adjustableStop: Order?
 )

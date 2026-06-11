@@ -120,6 +120,13 @@ class DesktopIbGatewayConnection(
     private val fillsByExecId = ConcurrentHashMap<String, BrokerFill>()
     /** Maps fill [BrokerFill.orderId] to bracket parent order id (0 = entry/parent leg). */
     private val orderParentByOrderId = ConcurrentHashMap<Int, Int>()
+    private val trailAdjustmentOrderIds = ConcurrentHashMap.newKeySet<Int>()
+    private val stopTrailParamsByOrderId = ConcurrentHashMap<Int, StopTrailParams>()
+
+    private data class StopTrailParams(
+        val triggerPrice: Double,
+        val trailAmount: Double
+    )
     private val executionsReqId = AtomicInteger(9_001)
     private val nextOrderId = AtomicInteger(0)
     @Volatile
@@ -2073,6 +2080,8 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         fillsByExecId.clear()
         orderParentByOrderId.clear()
+        trailAdjustmentOrderIds.clear()
+        stopTrailParamsByOrderId.clear()
         emit(GatewayEvent.FillsSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
         openOrdersLoadFinished = false
@@ -2180,10 +2189,19 @@ class DesktopIbGatewayConnection(
             return
         }
         registerBracketOrderIds(
-            submission.parentOrderId,
-            submission.takeProfitOrderId,
-            submission.stopLossOrderId
+            parentOrderId = submission.parentOrderId,
+            takeProfitOrderId = submission.takeProfitOrderId,
+            stopLossOrderId = submission.stopLossOrderId,
+            adjustableStopOrderId = submission.adjustableStopOrderId
         )
+        plan.orders.firstOrNull { it.role == daytrader.domain.TouchTurnOrderRole.STOP_LOSS }?.let { stopLeg ->
+            val trigger = stopLeg.trailTriggerPrice
+            val trail = stopLeg.trailAmount
+            if (trigger != null && trail != null) {
+                stopTrailParamsByOrderId[submission.stopLossOrderId] =
+                    StopTrailParams(triggerPrice = trigger, trailAmount = trail)
+            }
+        }
         paced {
             if (!client.isConnected) return@paced
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
@@ -2195,6 +2213,12 @@ class DesktopIbGatewayConnection(
         paced {
             if (!client.isConnected) return@paced
             client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            submission.adjustableStop?.let { adjustable ->
+                client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
+            }
             IbGatewayLog.touchTurnBracketPlaced(
                 submission.symbol,
                 submission.parentOrderId,
@@ -2206,11 +2230,12 @@ class DesktopIbGatewayConnection(
                 GatewayEvent.TouchTurnBracketPlaced(
                     daytrader.gateway.TouchTurnBracketAck(
                         symbol = submission.symbol,
-                        orderIds = listOf(
-                            submission.parentOrderId,
-                            submission.takeProfitOrderId,
-                            submission.stopLossOrderId
-                        ),
+                        orderIds = buildList {
+                            add(submission.parentOrderId)
+                            add(submission.takeProfitOrderId)
+                            add(submission.stopLossOrderId)
+                            submission.adjustableStopOrderId?.let { add(it) }
+                        },
                         result = Result.success(Unit),
                         plan = plan
                     )
@@ -2275,11 +2300,16 @@ class DesktopIbGatewayConnection(
     private fun registerBracketOrderIds(
         parentOrderId: Int,
         takeProfitOrderId: Int,
-        stopLossOrderId: Int
+        stopLossOrderId: Int,
+        adjustableStopOrderId: Int?
     ) {
         orderParentByOrderId[parentOrderId] = 0
         orderParentByOrderId[takeProfitOrderId] = parentOrderId
         orderParentByOrderId[stopLossOrderId] = parentOrderId
+        adjustableStopOrderId?.let { adjId ->
+            trailAdjustmentOrderIds.add(adjId)
+            orderParentByOrderId[adjId] = stopLossOrderId
+        }
     }
 
     private fun trackOrderParent(orderId: Int, parentOrderId: Int) {
@@ -2383,8 +2413,12 @@ class DesktopIbGatewayConnection(
     ): WorkingOrder {
         val total = decimalToInt(order.totalQuantity())
         val filled = decimalToInt(order.filledQuantity())
+        val orderType = order.getOrderType().orEmpty()
         val limit = order.lmtPrice().takeIf { it > 0 }
-        val stop = order.auxPrice().takeIf { it > 0 }
+        val stop = resolveStopPrice(order, orderType)
+        val isTrailAdjustment = trailAdjustmentOrderIds.contains(orderId)
+        val trailParams = stopTrailParamsByOrderId[orderId]
+        val existing = openOrdersById[orderId]
         return WorkingOrder(
             orderId = orderId,
             permId = order.permId(),
@@ -2394,12 +2428,23 @@ class DesktopIbGatewayConnection(
             quantity = total,
             filled = filled,
             remaining = (total - filled).coerceAtLeast(0),
-            orderType = order.getOrderType().orEmpty(),
+            orderType = orderType,
             limitPrice = limit,
             stopPrice = stop,
             status = orderStatusLabel(orderState),
-            currency = contract.currency().orEmpty().ifBlank { "USD" }
+            currency = contract.currency().orEmpty().ifBlank { "USD" },
+            isTrailAdjustment = isTrailAdjustment,
+            trailTriggerPrice = trailParams?.triggerPrice ?: existing?.trailTriggerPrice,
+            trailAmount = trailParams?.trailAmount ?: existing?.trailAmount
         )
+    }
+
+    private fun resolveStopPrice(order: Order, orderType: String): Double? {
+        if (orderType.equals("TRAIL", ignoreCase = true)) {
+            return order.trailStopPrice().takeIf { it > 0 }
+                ?: order.auxPrice().takeIf { it > 0 }
+        }
+        return order.auxPrice().takeIf { it > 0 }
     }
 
     private fun orderStatusLabel(orderState: OrderState): String =
