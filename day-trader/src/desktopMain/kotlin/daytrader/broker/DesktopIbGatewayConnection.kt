@@ -285,6 +285,18 @@ class DesktopIbGatewayConnection(
                     }
                     is GatewayCommand.ResolveInstrument ->
                         scope.launch { requestInstrumentResolve(command.requestId, command.symbol) }
+                    is GatewayCommand.ResizeTouchTurnBracket -> {
+                        if (!marketDataOnly) {
+                            resizeTouchTurnBracket(command.requestId, command.request)
+                        } else {
+                            emit(
+                                GatewayEvent.TouchTurnBracketResized(
+                                    requestId = command.requestId,
+                                    result = Result.failure(IllegalStateException("market_data_only_connection"))
+                                )
+                            )
+                        }
+                    }
                     is GatewayCommand.PlaceTouchTurnBracket -> {
                         if (marketDataOnly) {
                             IbGatewayLog.touchTurnBracketSkipped(
@@ -2166,6 +2178,55 @@ class DesktopIbGatewayConnection(
     private fun publishOpenOrders() {
         if (marketDataOnly) return
         emit(GatewayEvent.OpenOrdersSnapshot(openOrdersById.values.sortedBy { it.orderId }))
+    }
+
+    private fun resizeTouchTurnBracket(
+        requestId: Long,
+        request: daytrader.domain.TouchTurnBracketResizeRequest
+    ) {
+        val submission = IbTouchTurnBracketPlacer.buildResize(
+            config = config,
+            plan = request.plan,
+            orderIds = request.orderIds
+        ) ?: run {
+            emit(
+                GatewayEvent.TouchTurnBracketResized(
+                    requestId = requestId,
+                    result = Result.failure(IllegalStateException("bracket_resize_build_failed"))
+                )
+            )
+            return
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
+        }
+        paced {
+            if (!client.isConnected) return@paced
+            submission.adjustableStop?.let { adjustable ->
+                client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
+            }
+            IbGatewayLog.touchTurnBracketResized(
+                submission.symbol,
+                request.plan.quantity,
+                submission.parentOrderId
+            )
+            scheduleExecutionsRefresh()
+            emit(
+                GatewayEvent.TouchTurnBracketResized(
+                    requestId = requestId,
+                    result = Result.success(request.plan.quantity)
+                )
+            )
+        }
     }
 
     private fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {

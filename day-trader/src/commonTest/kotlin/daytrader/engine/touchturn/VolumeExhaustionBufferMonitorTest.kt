@@ -119,6 +119,10 @@ class VolumeExhaustionBufferMonitorTest {
         override fun placeTouchTurnBracket(plan: daytrader.domain.TouchTurnOrderPlan) =
             daytrader.execution.BracketPlacementResult(entryOrderId = null, plan = plan)
 
+        override suspend fun resizeTouchTurnBracket(
+            request: daytrader.domain.TouchTurnBracketResizeRequest
+        ): Result<Unit> = Result.success(Unit)
+
         override fun refreshFills() = Unit
     }
 }

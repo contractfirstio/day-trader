@@ -91,6 +91,10 @@ internal object IbGatewayLog {
         info("Touch Turn bracket not placed: $reason")
     }
 
+    fun touchTurnBracketResized(symbol: String, quantity: Int, parentOrderId: Int) {
+        info("Touch Turn bracket resized symbol=$symbol qty=$quantity parentOrderId=$parentOrderId")
+    }
+
     fun sessionOrdersCancelled(symbol: String, orderIds: List<Int>) {
         info("Session stop — cancel requested for $symbol orders=$orderIds")
     }

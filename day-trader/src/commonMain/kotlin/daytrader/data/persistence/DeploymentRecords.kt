@@ -62,7 +62,11 @@ data class TouchTurnSessionRecord(
     val milestones: TouchTurnMilestoneTimestampsRecord? = null,
     val decisionOutcome: String? = null,
     val plannedQuantity: Int? = null,
-    val plannedBracket: TouchTurnPlannedBracketRecord? = null
+    val plannedBracket: TouchTurnPlannedBracketRecord? = null,
+    val bracketParentOrderId: Int? = null,
+    val bracketTakeProfitOrderId: Int? = null,
+    val bracketStopLossOrderId: Int? = null,
+    val bracketAdjustableStopOrderId: Int? = null
 )
 
 @Serializable

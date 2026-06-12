@@ -168,6 +168,16 @@ class EmulatorBrokerAdapter(
                         )
                         controlChannel.send(EmulatorControlMessage.PlaceTouchTurnBracket(command.plan))
                     }
+                    is GatewayCommand.ResizeTouchTurnBracket ->
+                        scope.launch {
+                            val result = withEngine { engine.resizeTouchTurnBracket(command.request) }
+                            emit(
+                                GatewayEvent.TouchTurnBracketResized(
+                                    requestId = command.requestId,
+                                    result = result
+                                )
+                            )
+                        }
                     is GatewayCommand.CancelOpenOrdersForSymbol ->
                         controlChannel.send(EmulatorControlMessage.CancelOpenOrders(command.symbol))
                     is GatewayCommand.CloseOpenPositionForSymbol ->

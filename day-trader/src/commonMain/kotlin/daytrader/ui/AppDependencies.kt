@@ -2,9 +2,11 @@ package daytrader.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import daytrader.data.FileLiquidityBucketRepository
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
+import daytrader.data.LiquidityBucketRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.data.ReversalScoreService
@@ -25,9 +27,11 @@ import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.presentation.markets.MarketFilterState
+import daytrader.presentation.liquidity.LiquidityAllocatorViewModel
 import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
+import daytrader.execution.ExecutionManager
 import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.diagnostics.SessionTrace
 import daytrader.replay.ReplayBundleResolver
@@ -51,6 +55,7 @@ data class AppDependencies(
     val positionsViewModel: PositionsViewModel,
     val ordersViewModel: OrdersViewModel,
     val watchlistViewModel: WatchlistViewModel,
+    val liquidityAllocatorViewModel: LiquidityAllocatorViewModel,
     val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
@@ -75,6 +80,7 @@ fun rememberAppDependencies(
     tradingClock: TradingClock = WallClock
 ): AppDependencies {
     val strategyRepository = remember { FileStrategyDeploymentRepository() }
+    val liquidityBucketRepository = remember { FileLiquidityBucketRepository() }
     val watchlistRepository = remember(brokerKind) { FileWatchlistRepository(brokerKind = brokerKind) }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
@@ -82,6 +88,7 @@ fun rememberAppDependencies(
     SessionPriceLog.install { strategyRepository.deployments.value }
     return remember(
         strategyRepository,
+        liquidityBucketRepository,
         watchlistRepository,
         appStateRepository,
         marketFilter,
@@ -145,6 +152,14 @@ fun rememberAppDependencies(
             } else {
                 null
             }
+        val executionManager: ExecutionManager? = (brokerGateway ?: sessionGateway)?.let { executionGateway ->
+            val baseExecution = BrokerGatewayExecutionManager(executionGateway)
+            if (executionGateway.brokerId == BrokerId.INTERACTIVE_BROKERS) {
+                baseExecution
+            } else {
+                LoggingExecutionManager(baseExecution, executionGateway.brokerId)
+            }
+        }
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
             val executionGateway = brokerGateway ?: session
             val marketDataGateway = if (
@@ -161,12 +176,7 @@ fun rememberAppDependencies(
                 ensureLiveMarketData = ensureLiveMarketData,
                 releaseLiveMarketData = releaseLiveMarketData
             )
-            val baseExecution = BrokerGatewayExecutionManager(executionGateway)
-            val execution = if (executionGateway.brokerId == BrokerId.INTERACTIVE_BROKERS) {
-                baseExecution
-            } else {
-                LoggingExecutionManager(baseExecution, executionGateway.brokerId)
-            }
+            val execution = executionManager ?: BrokerGatewayExecutionManager(executionGateway)
             val engine = TouchTurnEngine(
                 marketData = marketData,
                 execution = execution,
@@ -179,7 +189,8 @@ fun rememberAppDependencies(
                 onReplaySessionStarting = onReplaySessionStarting,
                 activateReplayCapture = activateReplayCapture,
                 sessionGateway = session,
-                executionGateway = executionGateway
+                executionGateway = executionGateway,
+                liquidityBucketRepository = liquidityBucketRepository
             )
             if (TouchTurnEngineConfig.shadowLogEnabled()) {
                 LoggingTouchTurnEngine(engine)
@@ -201,6 +212,13 @@ fun rememberAppDependencies(
             onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
             watchlistRepository = watchlistRepository,
             tradingClock = tradingClock
+        )
+        val liquidityAllocatorViewModel = LiquidityAllocatorViewModel(
+            deploymentRepository = strategyRepository,
+            openOrderRepository = openOrderRepository,
+            liquidityBucketRepository = liquidityBucketRepository,
+            brokerGateway = brokerGateway ?: touchTurnSessionGateway,
+            executionManager = executionManager
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,
@@ -247,6 +265,7 @@ fun rememberAppDependencies(
                 brokerKind = brokerKind
             ),
             watchlistViewModel = watchlistViewModel,
+            liquidityAllocatorViewModel = liquidityAllocatorViewModel,
             watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,

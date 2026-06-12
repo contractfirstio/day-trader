@@ -435,6 +435,33 @@ class BrokerEmulatorEngine(
         publishOrders()
     }
 
+    fun resizeTouchTurnBracket(request: daytrader.domain.TouchTurnBracketResizeRequest): Result<Int> {
+        if (!connected) {
+            return Result.failure(IllegalStateException("not_connected"))
+        }
+        val parent = orders[request.orderIds.parentOrderId]
+            ?: return Result.failure(IllegalArgumentException("parent_order_missing"))
+        if (parent.filled > 0 || parent.remaining <= 0) {
+            return Result.failure(IllegalStateException("entry_already_filled"))
+        }
+        val newQty = request.plan.quantity
+        if (newQty <= 0) {
+            return Result.failure(IllegalArgumentException("invalid_quantity"))
+        }
+        request.orderIds.allIds.forEach { orderId ->
+            val order = orders[orderId] ?: return Result.failure(IllegalArgumentException("leg_missing_$orderId"))
+            if (order.filled > 0) {
+                return Result.failure(IllegalStateException("leg_partially_filled"))
+            }
+            val updated = order.copy(quantity = newQty, remaining = newQty)
+            orders[orderId] = updated
+            syncOrderToOpenBook(orderId)
+        }
+        publishOrders()
+        EmulatorLog.bracketResized(request.symbol, newQty, request.orderIds.allIds)
+        return Result.success(newQty)
+    }
+
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         val symbolForAck = SymbolMarkets.normalizeSymbol(plan.symbol)
         if (!connected) {

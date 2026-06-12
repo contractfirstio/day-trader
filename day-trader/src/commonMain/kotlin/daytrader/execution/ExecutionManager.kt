@@ -1,5 +1,6 @@
 package daytrader.execution
 
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
@@ -21,6 +22,8 @@ interface ExecutionManager {
     val fills: StateFlow<List<BrokerFill>>
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan): BracketPlacementResult
+
+    suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit>
 
     suspend fun cancelOrder(orderId: Int): Boolean
 

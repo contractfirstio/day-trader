@@ -8,6 +8,7 @@ import daytrader.domain.ReversalScoreSymbolSnapshot
 import daytrader.domain.HomeMarketMacroBenchmark
 import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.SpyRegimeSnapshot
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.diagnostics.ExecutionGatewayLog
@@ -65,6 +66,7 @@ class QueuedBrokerGateway(
     private val pendingReversalScoreMacro = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreMacroVolSnapshot>>>()
     private val pendingSpyRegime = mutableMapOf<Long, CompletableDeferred<Result<SpyRegimeSnapshot>>>()
     private val pendingHomeMarketRegime = mutableMapOf<Long, CompletableDeferred<Result<MacroRegimeSnapshot>>>()
+    private val pendingBracketResize = mutableMapOf<Long, CompletableDeferred<Result<Unit>>>()
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
@@ -109,6 +111,19 @@ class QueuedBrokerGateway(
 
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         sendCommand(GatewayCommand.PlaceTouchTurnBracket(plan))
+    }
+
+    override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<Unit>>()
+        pendingBracketResize[requestId] = deferred
+        sendCommand(GatewayCommand.ResizeTouchTurnBracket(requestId, request))
+        return try {
+            withTimeout(BRACKET_RESIZE_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingBracketResize.remove(requestId)
+            Result.failure(e)
+        }
     }
 
     override fun cancelOrder(orderId: Int) {
@@ -315,10 +330,14 @@ class QueuedBrokerGateway(
             is GatewayEvent.HomeMarketRegimeSnapshotReady -> {
                 pendingHomeMarketRegime.remove(event.requestId)?.complete(event.result)
             }
+            is GatewayEvent.TouchTurnBracketResized -> {
+                pendingBracketResize.remove(event.requestId)?.complete(event.result.map { Unit })
+            }
         }
     }
 
     companion object {
+        const val BRACKET_RESIZE_TIMEOUT_MS = 20_000L
         const val HISTORICAL_REQUEST_TIMEOUT_MS = 30_000L
         /** IB composite aborts first with pending-leg detail; gateway waits slightly longer. */
         const val SIGNAL_CONTEXT_REQUEST_TIMEOUT_MS =

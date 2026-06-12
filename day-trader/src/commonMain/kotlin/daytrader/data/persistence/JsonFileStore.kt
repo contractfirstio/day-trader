@@ -45,6 +45,13 @@ object JsonFileStore {
         write(AppDataFiles.WATCHLISTS, document)
     }
 
+    fun readLiquidityBuckets(): LiquidityBucketsDocument? =
+        read<LiquidityBucketsDocument>(AppDataFiles.LIQUIDITY_BUCKETS)
+
+    fun writeLiquidityBuckets(document: LiquidityBucketsDocument) {
+        write(AppDataFiles.LIQUIDITY_BUCKETS, document)
+    }
+
     fun appendSessionTraceLine(relativePath: String, line: String) {
         AppFileSystem.appendLine(relativePath, "$line\n")
     }

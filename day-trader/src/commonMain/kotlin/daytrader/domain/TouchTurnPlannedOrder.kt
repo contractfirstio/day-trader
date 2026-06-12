@@ -73,7 +73,7 @@ object TouchTurnOrderPlanner {
             TouchTurnTradeSide.SHORT -> "SELL"
             TouchTurnTradeSide.LONG -> "BUY"
         }
-        val adjustableStop = TouchTurnAdjustableStop.compute(
+        val adjustableStop = rules.computeAdjustableStop(
             entry = setup.entry,
             stopLoss = setup.stopLoss,
             takeProfit = setup.takeProfit

@@ -3,6 +3,7 @@ package daytrader.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Star
@@ -192,6 +193,17 @@ fun App(
                             )
                         )
                         NavigationRailItem(
+                            selected = currentScreen == AppScreen.LIQUIDITY,
+                            onClick = { currentScreen = AppScreen.LIQUIDITY },
+                            icon = { Icon(Icons.Default.AccountBalance, "Liquidity") },
+                            label = { Text("Liquidity") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
                             selected = currentScreen == AppScreen.ORDERS,
                             onClick = { currentScreen = AppScreen.ORDERS },
                             icon = { Icon(Icons.Default.List, "Orders") },
@@ -220,6 +232,9 @@ fun App(
                         AppScreen.POSITIONS -> PositionsScreen(
                             viewModel = dependencies.positionsViewModel,
                             connectionState = connectionState
+                        )
+                        AppScreen.LIQUIDITY -> LiquidityAllocatorScreen(
+                            viewModel = dependencies.liquidityAllocatorViewModel
                         )
                         AppScreen.ORDERS -> OrdersScreen(
                             viewModel = dependencies.ordersViewModel,

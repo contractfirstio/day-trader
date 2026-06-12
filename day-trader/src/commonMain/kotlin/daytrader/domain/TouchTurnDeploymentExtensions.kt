@@ -199,7 +199,10 @@ fun StrategyDeployment.withTouchTurnDecisionOutcome(outcome: TouchTurnSessionOut
     return copy(touchTurnSession = session.copy(decisionOutcome = outcome))
 }
 
-fun StrategyDeployment.withOrdersPlacedForSession(plan: TouchTurnOrderPlan? = null): StrategyDeployment {
+fun StrategyDeployment.withOrdersPlacedForSession(
+    plan: TouchTurnOrderPlan? = null,
+    bracketOrderIds: TouchTurnBracketOrderIds? = null
+): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
     val at = currentSessionTimestampIso()
@@ -213,6 +216,7 @@ fun StrategyDeployment.withOrdersPlacedForSession(plan: TouchTurnOrderPlan? = nu
             decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             plannedQuantity = plan?.quantity ?: session.plannedQuantity,
             plannedBracket = bracket ?: session.plannedBracket,
+            bracketOrderIds = bracketOrderIds ?: session.bracketOrderIds,
             milestones = milestones
         )
     )

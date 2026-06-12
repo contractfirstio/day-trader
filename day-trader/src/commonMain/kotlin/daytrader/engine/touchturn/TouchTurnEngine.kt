@@ -1,6 +1,7 @@
 package daytrader.engine
 
 import daytrader.data.DeploymentSessionStopEvaluator
+import daytrader.data.LiquidityBucketRepository
 import daytrader.data.MarketOpenAutoStartLogic
 import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.StrategyDeploymentRepository
@@ -21,6 +22,7 @@ import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.TouchTurnVolumeCheckPhase
+import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
@@ -107,7 +109,8 @@ class TouchTurnEngine(
     private val activateReplayCapture: ((StrategyDeployment) -> Boolean)? = null,
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
-    private val executionGateway: BrokerGateway? = null
+    private val executionGateway: BrokerGateway? = null,
+    private val liquidityBucketRepository: LiquidityBucketRepository? = null
 ) : TouchTurnEnginePort {
     private val commandQueue = Channel<TouchTurnCommand>(Channel.UNLIMITED)
     private val eventFlow = MutableSharedFlow<TouchTurnEvent>(extraBufferCapacity = 64)
@@ -286,7 +289,10 @@ class TouchTurnEngine(
             openOrdersTotal = openOrders.size,
             openOrderSummary = openSummary
         )
-        repository.update(instanceId) { it.withOrdersPlacedForSession(plan) }
+        val bracketOrderIds = TouchTurnBracketOrderIds.fromAckOrderIds(ack.orderIds)
+        repository.update(instanceId) {
+            it.withOrdersPlacedForSession(plan = plan, bracketOrderIds = bracketOrderIds)
+        }
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         val entryOrderId = ack.orderIds.firstOrNull()
             ?: openForSymbol.firstOrNull { it.orderId in ack.orderIds }?.orderId
@@ -453,6 +459,17 @@ class TouchTurnEngine(
             gateway = gateway,
             explicitTrigger = command.trigger
         )
+        instance.inProgressSession()?.let { sessionRow ->
+            liquidityBucketRepository?.creditNoTradeSession(
+                sessionId = sessionRow.id,
+                deploymentId = instance.id,
+                symbol = instance.symbol,
+                currencyCode = instance.currencyCode,
+                sessionDate = instance.touchTurnSession?.sessionDate ?: sessionRow.date,
+                maxDollars = instance.maxDollars,
+                touchTurn = instance.touchTurnSession
+            )
+        }
         val stopped = result.stoppedDeployment
         repository.update(command.instanceId) { stopped }
         repository.flushPersistence()

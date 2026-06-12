@@ -1,6 +1,7 @@
 package daytrader.execution
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.gateway.BrokerGateway
@@ -27,6 +28,9 @@ class BrokerGatewayExecutionManager(
         val entryOrderId = resolveEntryOrderId(plan, beforeIds)
         return BracketPlacementResult(entryOrderId = entryOrderId, plan = plan)
     }
+
+    override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
+        gateway.resizeTouchTurnBracket(request)
 
     override suspend fun cancelOrder(orderId: Int): Boolean {
         if (!awaitOrderSubmitted(orderId)) return false

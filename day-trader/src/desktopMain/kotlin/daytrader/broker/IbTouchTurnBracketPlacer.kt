@@ -6,6 +6,7 @@ import com.ib.client.EClientSocket
 import com.ib.client.Order
 import com.ib.client.OrderType
 import com.ib.client.Types
+import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
@@ -78,6 +79,65 @@ internal object IbTouchTurnBracketPlacer {
             takeProfit = buildOrder(config, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false),
             stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit),
             adjustableStop = adjustableStop
+        )
+    }
+
+    fun buildResize(
+        config: IbGatewayConfig,
+        plan: TouchTurnOrderPlan,
+        orderIds: TouchTurnBracketOrderIds
+    ): IbTouchTurnBracketSubmission? {
+        val entry = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY }
+        val takeProfit = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.TAKE_PROFIT }
+        val stopLoss = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.STOP_LOSS }
+        if (entry == null || takeProfit == null || stopLoss == null) {
+            IbGatewayLog.touchTurnBracketSkipped("Missing bracket leg in resize plan")
+            return null
+        }
+        if (entry.quantity <= 0) {
+            IbGatewayLog.touchTurnBracketSkipped("Invalid resize quantity")
+            return null
+        }
+        val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
+        val contract = contractFor(plan, symbol)
+        val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
+            stopLoss.trailAmount != null &&
+            orderIds.adjustableStopOrderId != null
+        val adjustableStop = orderIds.adjustableStopOrderId?.let { adjId ->
+            buildAdjustableStopOrder(
+                config = config,
+                stopLoss = stopLoss,
+                orderId = adjId,
+                stopLossOrderId = orderIds.stopLossOrderId,
+                transmit = false
+            )
+        }
+        return IbTouchTurnBracketSubmission(
+            symbol = symbol,
+            contract = contract,
+            parentOrderId = orderIds.parentOrderId,
+            takeProfitOrderId = orderIds.takeProfitOrderId,
+            stopLossOrderId = orderIds.stopLossOrderId,
+            adjustableStopOrderId = orderIds.adjustableStopOrderId,
+            parent = buildOrder(config, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false),
+            takeProfit = buildOrder(
+                config,
+                takeProfit,
+                orderIds.takeProfitOrderId,
+                parentOrderId = orderIds.parentOrderId,
+                transmit = false
+            ),
+            stopLoss = buildOrder(
+                config,
+                stopLoss,
+                orderIds.stopLossOrderId,
+                parentOrderId = orderIds.parentOrderId,
+                transmit = !hasAdjustableStop
+            ),
+            adjustableStop = adjustableStop?.let { order ->
+                order.transmit(true)
+                order
+            }
         )
     }
 

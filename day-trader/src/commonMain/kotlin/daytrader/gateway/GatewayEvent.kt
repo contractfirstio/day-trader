@@ -21,6 +21,11 @@ sealed interface GatewayEvent {
      */
     data class TouchTurnBracketPlaced(val ack: TouchTurnBracketAck) : GatewayEvent
 
+    data class TouchTurnBracketResized(
+        val requestId: Long,
+        val result: Result<Int>
+    ) : GatewayEvent
+
     data class FillsSnapshot(val fills: List<BrokerFill>) : GatewayEvent
 
     /** Live quote snapshots for UI display (bid/ask/last). */

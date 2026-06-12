@@ -24,7 +24,9 @@ data class TouchTurnRuleEnables(
     /** SPY vs 200-SMA must align with fade direction (green→bear, red→bull). */
     val macroTrendAlignment: Boolean = false,
     /** Symbol vs 20-SMA must align with fade direction (green→down, red→up). */
-    val stockTrendAlignment: Boolean = false
+    val stockTrendAlignment: Boolean = false,
+    /** After a favorable move, convert the bracket stop to an IB adjustable trailing stop. */
+    val adjustableTrailingStop: Boolean = true
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
@@ -86,6 +88,12 @@ data class TouchTurnRuleConfig(
     val volumeBufferObservationMs: Long = TouchTurnDefaults.VOLUME_BUFFER_OBSERVATION_MS,
     /** Minutes after RTH open before auto-stop when [TouchTurnRuleEnables.openDeadline] is enabled. */
     val stopAfterOpenMinutes: Int = TouchTurnDefaults.STOP_AFTER_OPEN_MINUTES,
+    /** Favorable move (fraction of entry→take-profit) before stop converts to trailing. */
+    val trailingStopTriggerFractionOfEntryToTp: Double =
+        TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
+    /** Trailing distance as a fraction of |entry−stop|; sent to IB as a nominal amount. */
+    val trailingStopTrailFractionOfEntryToStop: Double =
+        TouchTurnDefaults.TRAILING_STOP_TRAIL_FRACTION_OF_ENTRY_TO_STOP,
     /** Which entry-gate rules are enforced for this deployment. */
     val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT
 ) {
@@ -170,6 +178,12 @@ data class TouchTurnRuleConfig(
                 label = "Stock trend alignment",
                 description = "Only fade when the symbol's daily trend matches the opening bar: green short requires " +
                     "downtrend (below 20-SMA), red long requires uptrend (above 20-SMA)."
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "adjustableTrailingStop",
+                label = "Adjustable trailing stop",
+                description = "After price reaches the trail-arm level, convert the stop leg to an IB adjustable " +
+                    "trailing stop using the configured trail distance."
             )
         )
 
@@ -287,6 +301,23 @@ data class TouchTurnRuleConfig(
                 description = "When RTH open deadline is enabled, the session auto-stops and flattens broker " +
                     "orders/position this many minutes after the session's RTH open anchor.",
                 kind = TouchTurnRuleFieldKind.INTEGER
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "trailingStopTriggerFractionOfEntryToTp",
+                label = "Trail arm (fraction to TP)",
+                description = "When adjustable trailing is enabled, price must reach entry plus this fraction of " +
+                    "the entry-to-take-profit distance before the stop converts to trailing. Default 0.5 = halfway " +
+                    "to target. Must be between 0 and 1, and at least (trail distance − 1) ÷ take-profit:stop ratio " +
+                    "so trailing does not widen beyond the initial fixed stop when it arms.",
+                kind = TouchTurnRuleFieldKind.RATIO
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "trailingStopTrailFractionOfEntryToStop",
+                label = "Trail distance (fraction of risk)",
+                description = "Nominal trailing distance as a fraction of |entry−stop| once trailing is armed. " +
+                    "Default 0.5 = half the initial risk. Must fit the trail arm and take-profit:stop ratio " +
+                    "(trail arm × ratio ≥ trail distance − 1).",
+                kind = TouchTurnRuleFieldKind.RATIO
             )
         )
 
@@ -308,6 +339,10 @@ data class TouchTurnRuleConfig(
             "closedBarRefetchSettleMs" -> config.closedBarRefetchSettleMs.toString()
             "volumeBufferObservationMs" -> config.volumeBufferObservationMs.toString()
             "stopAfterOpenMinutes" -> config.stopAfterOpenMinutes.toString()
+            "trailingStopTriggerFractionOfEntryToTp" ->
+                config.trailingStopTriggerFractionOfEntryToTp.toString()
+            "trailingStopTrailFractionOfEntryToStop" ->
+                config.trailingStopTrailFractionOfEntryToStop.toString()
             else -> ""
         }
 
@@ -355,8 +390,25 @@ data class TouchTurnRuleConfig(
                                     config.copy(entryTouchBufferRatioOfRange = doubleValue)
                                 "takeProfitFibRatioGreen" -> config.copy(takeProfitFibRatioGreen = doubleValue)
                                 "takeProfitFibRatioRed" -> config.copy(takeProfitFibRatioRed = doubleValue)
-                                "takeProfitToStopLossRatio" ->
-                                    config.copy(takeProfitToStopLossRatio = doubleValue)
+                                "takeProfitToStopLossRatio" -> {
+                                    val candidate = config.copy(takeProfitToStopLossRatio = doubleValue)
+                                    if (candidate.trailingStopFractionsInvalid()) return null
+                                    candidate
+                                }
+                                "trailingStopTriggerFractionOfEntryToTp" -> {
+                                    val candidate = config.copy(
+                                        trailingStopTriggerFractionOfEntryToTp = doubleValue
+                                    )
+                                    if (candidate.trailingStopFractionsInvalid()) return null
+                                    candidate
+                                }
+                                "trailingStopTrailFractionOfEntryToStop" -> {
+                                    val candidate = config.copy(
+                                        trailingStopTrailFractionOfEntryToStop = doubleValue
+                                    )
+                                    if (candidate.trailingStopFractionsInvalid()) return null
+                                    candidate
+                                }
                                 else -> null
                             }
                         }
@@ -381,6 +433,7 @@ data class TouchTurnRuleConfig(
             "openDeadline" -> config.enables.openDeadline
             "macroTrendAlignment" -> config.enables.macroTrendAlignment
             "stockTrendAlignment" -> config.enables.stockTrendAlignment
+            "adjustableTrailingStop" -> config.enables.adjustableTrailingStop
             else -> true
         }
 
@@ -400,11 +453,39 @@ data class TouchTurnRuleConfig(
                 "openDeadline" -> config.enables.copy(openDeadline = enabled)
                 "macroTrendAlignment" -> config.enables.copy(macroTrendAlignment = enabled)
                 "stockTrendAlignment" -> config.enables.copy(stockTrendAlignment = enabled)
+                "adjustableTrailingStop" -> config.enables.copy(adjustableTrailingStop = enabled)
                 else -> config.enables
             }
             return config.copy(enables = enables)
         }
     }
+
+    /** IB adjustable-stop parameters when [enables.adjustableTrailingStop] is on; null when trailing disabled. */
+    fun computeAdjustableStop(
+        entry: Double,
+        stopLoss: Double,
+        takeProfit: Double
+    ): TouchTurnAdjustableStopParams? {
+        if (!enables.adjustableTrailingStop) return null
+        if (trailingStopFractionsInvalid()) return null
+        return TouchTurnAdjustableStop.compute(
+            entry = entry,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            triggerFraction = trailingStopTriggerFractionOfEntryToTp,
+            trailFraction = trailingStopTrailFractionOfEntryToStop
+        )
+    }
+
+    /** Human-readable reason when trailing fractions disagree with [takeProfitToStopLossRatio]; null if valid. */
+    fun trailingStopFractionsValidationError(): String? =
+        TouchTurnAdjustableStop.validateFractions(
+            triggerFraction = trailingStopTriggerFractionOfEntryToTp,
+            trailFraction = trailingStopTrailFractionOfEntryToStop,
+            takeProfitToStopLossRatio = takeProfitToStopLossRatio
+        )
+
+    private fun trailingStopFractionsInvalid(): Boolean = trailingStopFractionsValidationError() != null
 }
 
 @Serializable

@@ -7,6 +7,7 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnNoPositionCancelOutcome
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnPlannedBracket
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
@@ -32,7 +33,8 @@ internal object TouchTurnPersistence {
             milestones = record.milestones?.toDomain() ?: TouchTurnMilestoneTimestamps(),
             decisionOutcome = parseOutcome(record.decisionOutcome),
             plannedQuantity = record.plannedQuantity,
-            plannedBracket = record.plannedBracket?.toDomain()
+            plannedBracket = record.plannedBracket?.toDomain(),
+            bracketOrderIds = record.toBracketOrderIds()
         )
     }
 
@@ -55,7 +57,23 @@ internal object TouchTurnPersistence {
             milestones = context.milestones.toRecord(),
             decisionOutcome = context.decisionOutcome?.name?.lowercase(),
             plannedQuantity = context.plannedQuantity,
-            plannedBracket = context.plannedBracket?.toRecord()
+            plannedBracket = context.plannedBracket?.toRecord(),
+            bracketParentOrderId = context.bracketOrderIds?.parentOrderId,
+            bracketTakeProfitOrderId = context.bracketOrderIds?.takeProfitOrderId,
+            bracketStopLossOrderId = context.bracketOrderIds?.stopLossOrderId,
+            bracketAdjustableStopOrderId = context.bracketOrderIds?.adjustableStopOrderId
+        )
+    }
+
+    private fun TouchTurnSessionRecord.toBracketOrderIds(): TouchTurnBracketOrderIds? {
+        val parent = bracketParentOrderId ?: return null
+        val tp = bracketTakeProfitOrderId ?: return null
+        val stop = bracketStopLossOrderId ?: return null
+        return TouchTurnBracketOrderIds(
+            parentOrderId = parent,
+            takeProfitOrderId = tp,
+            stopLossOrderId = stop,
+            adjustableStopOrderId = bracketAdjustableStopOrderId
         )
     }
 

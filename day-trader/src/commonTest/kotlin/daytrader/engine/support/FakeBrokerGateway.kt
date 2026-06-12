@@ -10,6 +10,7 @@ import daytrader.domain.MacroRegimeEvaluator
 import daytrader.domain.MacroRegimeSnapshot
 import daytrader.domain.MacroTrendState
 import daytrader.domain.SpyRegimeSnapshot
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.AccountPosition
@@ -182,6 +183,9 @@ class FakeBrokerGateway(
             )
         )
     }
+
+    override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
+        Result.success(Unit)
 
     override fun cancelOpenOrdersForSymbol(symbol: String) = Unit
 

@@ -178,6 +178,8 @@ data class TouchTurnSessionContext(
     val decisionOutcome: TouchTurnSessionOutcome? = null,
     val plannedQuantity: Int? = null,
     val plannedBracket: TouchTurnPlannedBracket? = null,
+    /** Broker order ids after bracket submit (parent, take-profit, stop, optional adjustable stop). */
+    val bracketOrderIds: TouchTurnBracketOrderIds? = null,
     /** Filled legs for a closed run (from persisted run record or derived from fills). */
     val executedBracketLegs: List<TouchTurnOrderRole> = emptyList(),
     /** Rule thresholds snapshotted from deployment at session start. */

@@ -1,6 +1,7 @@
 package daytrader.gateway
 
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnRuleConfig
 
@@ -46,6 +47,11 @@ sealed interface GatewayCommand {
     ) : GatewayCommand
 
     data class PlaceTouchTurnBracket(val plan: TouchTurnOrderPlan) : GatewayCommand
+
+    data class ResizeTouchTurnBracket(
+        val requestId: Long,
+        val request: TouchTurnBracketResizeRequest
+    ) : GatewayCommand
 
     /** Cancel all non-terminal working orders for [symbol] (session stop cleanup). */
     data class CancelOpenOrdersForSymbol(val symbol: String) : GatewayCommand

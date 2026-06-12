@@ -4,5 +4,6 @@ enum class AppScreen {
     POSITIONS,
     ORDERS,
     STRATEGIES,
-    WATCHLIST
+    WATCHLIST,
+    LIQUIDITY
 }

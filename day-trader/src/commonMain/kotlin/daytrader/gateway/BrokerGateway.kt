@@ -17,6 +17,7 @@ import daytrader.domain.StockTrendEvaluator
 import daytrader.domain.StockTrendSnapshot
 import daytrader.domain.StockTrendState
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnSignalContext
 import kotlinx.coroutines.flow.Flow
@@ -90,6 +91,10 @@ interface BrokerGateway {
     suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution>
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan)
+
+    /** Modify quantities on an unfilled Touch Turn bracket (paced multi-leg at IB). */
+    suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
+        Result.failure(UnsupportedOperationException("resize_not_supported"))
 
     /** Cancel a single working order (buffer-zone exhaustion). */
     fun cancelOrder(orderId: Int)

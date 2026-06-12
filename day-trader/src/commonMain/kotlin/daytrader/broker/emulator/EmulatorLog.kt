@@ -101,6 +101,17 @@ internal object EmulatorLog {
         )
     }
 
+    fun bracketResized(symbol: String, quantity: Int, orderIds: List<Int>) {
+        event(
+            type = "bracket_resized",
+            symbol = symbol,
+            details = mapOf(
+                "quantity" to quantity.toString(),
+                "orderIds" to orderIds.joinToString(",")
+            )
+        )
+    }
+
     fun bracketExitWalkStarted(symbol: String, floor: Double, ceiling: Double) {
         event(
             type = "bracket_exit_walk_started",
