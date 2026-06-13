@@ -75,7 +75,7 @@ object WatchlistBracketOrderPlanner {
                         quantity = quantity,
                         price = stopPrice,
                         trailTriggerPrice = adjustableStop?.triggerPrice,
-                        trailAmount = adjustableStop?.trailAmount
+                        trailArmStopPrice = adjustableStop?.armStopPrice
                     )
                 )
             )

@@ -23,6 +23,7 @@ object TouchTurnFormingBarPriceChartUiMapper {
         priceHistory: List<Double>,
         currentPrice: Double?,
         statusHint: String? = null,
+        statusHintIsWarning: Boolean = false,
         quote: LiveQuote? = null,
         closestApproach: TouchTurnClosestApproachUi? = null
     ): TouchTurnLiveOrderChartUiState? {
@@ -54,6 +55,7 @@ object TouchTurnFormingBarPriceChartUiMapper {
             levels = levels,
             context = TouchTurnPriceChartContext.OPENING_BAR_FORMING,
             statusHint = statusHint,
+            statusHintIsWarning = statusHintIsWarning,
             quoteStrip = quoteStrip
         )
     }

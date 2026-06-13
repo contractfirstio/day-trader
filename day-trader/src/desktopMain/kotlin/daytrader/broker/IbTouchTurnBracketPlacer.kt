@@ -44,7 +44,7 @@ internal object IbTouchTurnBracketPlacer {
             return null
         }
 
-        val hasAdjustableStop = stopLoss.trailTriggerPrice != null && stopLoss.trailAmount != null
+        val hasAdjustableStop = stopLoss.trailTriggerPrice != null && stopLoss.trailArmStopPrice != null
         val legCount = if (hasAdjustableStop) ADJUSTABLE_STOP_LEG_COUNT else BRACKET_LEG_COUNT
         val parentOrderId = allocateOrderIds(legCount) ?: run {
             IbGatewayLog.touchTurnBracketSkipped("Order id not ready (await nextValidId)")
@@ -101,7 +101,7 @@ internal object IbTouchTurnBracketPlacer {
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
         val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
-            stopLoss.trailAmount != null &&
+            stopLoss.trailArmStopPrice != null &&
             orderIds.adjustableStopOrderId != null
         val adjustableStop = orderIds.adjustableStopOrderId?.let { adjId ->
             buildAdjustableStopOrder(
@@ -190,7 +190,6 @@ internal object IbTouchTurnBracketPlacer {
         transmit: Boolean
     ): Order {
         val triggerPrice = stopLoss.trailTriggerPrice!!
-        val trailAmount = stopLoss.trailAmount!!
         val order = Order()
         order.orderId(orderId)
         order.clientId(config.clientId)
@@ -205,9 +204,9 @@ internal object IbTouchTurnBracketPlacer {
         order.auxPrice(stopLoss.price)
         order.triggerPrice(triggerPrice)
         order.adjustedOrderType(OrderType.TRAIL)
-        order.adjustedStopPrice(stopLoss.price)
+        order.adjustedStopPrice(stopLoss.trailArmStopPrice ?: stopLoss.price)
         order.adjustableTrailingUnit(TRAIL_UNIT_NOMINAL_AMOUNT)
-        order.adjustedTrailingAmount(trailAmount)
+        order.adjustedTrailingAmount(0.0)
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }

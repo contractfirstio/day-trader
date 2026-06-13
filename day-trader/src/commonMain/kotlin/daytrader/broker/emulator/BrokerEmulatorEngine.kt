@@ -1039,7 +1039,7 @@ class BrokerEmulatorEngine(
     private fun updateTrailingStops() {
         orders.values.forEach { order ->
             if (!bracketManagedOrderIds.contains(order.orderId)) return@forEach
-            if (order.trailTriggerPrice == null || order.trailAmount == null) return@forEach
+            if (order.trailTriggerPrice == null || order.trailArmStopPrice == null) return@forEach
             if (order.isTerminal() || order.remaining <= 0 || !isOrderActiveForFill(order)) return@forEach
             val updated = advanceTrailingStop(order) ?: return@forEach
             if (updated == order) return@forEach
@@ -1051,7 +1051,6 @@ class BrokerEmulatorEngine(
 
     private fun advanceTrailingStop(order: EmulatorOrder): EmulatorOrder? {
         val trigger = order.trailTriggerPrice ?: return null
-        val trailAmount = order.trailAmount ?: return null
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return null
         if (!order.trailingArmed) {
             val crossed = when (order.action.uppercase()) {
@@ -1060,7 +1059,8 @@ class BrokerEmulatorEngine(
                 else -> false
             }
             if (!crossed) return order
-            val anchor = when (order.action.uppercase()) {
+            val armStop = order.trailArmStopPrice ?: return order
+            val armReference = when (order.action.uppercase()) {
                 "SELL" -> quote.bid
                 "BUY" -> quote.ask
                 else -> return order
@@ -1068,26 +1068,33 @@ class BrokerEmulatorEngine(
             return order.copy(
                 trailingArmed = true,
                 orderType = "TRAIL",
-                trailAnchorPrice = anchor,
-                stopPrice = computeTrailingStopPrice(order.action, anchor, trailAmount)
+                trailAnchorPrice = armReference,
+                trailExtremePrice = armReference,
+                stopPrice = armStop
             )
         }
-        val anchor = when (order.action.uppercase()) {
-            "SELL" -> maxOf(order.trailAnchorPrice ?: quote.bid, quote.bid)
-            "BUY" -> minOf(order.trailAnchorPrice ?: quote.ask, quote.ask)
-            else -> return order
+        val armReference = order.trailAnchorPrice ?: return order
+        val entry = order.trailArmStopPrice ?: return order
+        return when (order.action.uppercase()) {
+            "SELL" -> {
+                val extreme = maxOf(order.trailExtremePrice ?: armReference, quote.bid)
+                val progress = extreme - armReference
+                val candidateStop = entry + progress
+                val newStop = maxOf(order.stopPrice ?: entry, candidateStop)
+                if (newStop == order.stopPrice && extreme == order.trailExtremePrice) return order
+                order.copy(trailExtremePrice = extreme, stopPrice = newStop)
+            }
+            "BUY" -> {
+                val extreme = minOf(order.trailExtremePrice ?: armReference, quote.ask)
+                val progress = armReference - extreme
+                val candidateStop = entry - progress
+                val newStop = minOf(order.stopPrice ?: entry, candidateStop)
+                if (newStop == order.stopPrice && extreme == order.trailExtremePrice) return order
+                order.copy(trailExtremePrice = extreme, stopPrice = newStop)
+            }
+            else -> order
         }
-        val newStop = computeTrailingStopPrice(order.action, anchor, trailAmount)
-        if (anchor == order.trailAnchorPrice && newStop == order.stopPrice) return order
-        return order.copy(trailAnchorPrice = anchor, stopPrice = newStop)
     }
-
-    private fun computeTrailingStopPrice(action: String, anchor: Double, trailAmount: Double): Double =
-        when (action.uppercase()) {
-            "SELL" -> anchor - trailAmount
-            "BUY" -> anchor + trailAmount
-            else -> anchor
-        }
 
     private fun isOrderActiveForFill(order: EmulatorOrder): Boolean {
         if (order.status == "PreSubmitted") return false
@@ -1145,7 +1152,7 @@ class BrokerEmulatorEngine(
         currency = currency,
         parentId = parentId,
         trailTriggerPrice = planned.trailTriggerPrice,
-        trailAmount = planned.trailAmount
+        trailArmStopPrice = planned.trailArmStopPrice
     )
 
     private fun refreshPositionMarks() {

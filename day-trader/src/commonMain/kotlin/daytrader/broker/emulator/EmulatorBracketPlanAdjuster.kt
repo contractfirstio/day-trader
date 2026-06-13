@@ -1,9 +1,7 @@
 package daytrader.broker.emulator
 
-import daytrader.domain.TouchTurnAdjustableStop
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
-import daytrader.domain.TouchTurnPlannedOrder
 import kotlin.math.abs
 
 /**
@@ -23,7 +21,7 @@ internal object EmulatorBracketPlanAdjuster {
                         val widenedStop = widenFromEntry(entry, leg.price, spreadWidenFactor)
                         val widenedTp = takeProfit?.let { widenFromEntry(entry, it, spreadWidenFactor) }
                         val trail = when {
-                            leg.trailTriggerPrice == null || leg.trailAmount == null -> null
+                            leg.trailTriggerPrice == null -> null
                             widenedTp == null || takeProfit == null -> null
                             else -> {
                                 val triggerFraction = inferTriggerFraction(
@@ -31,28 +29,21 @@ internal object EmulatorBracketPlanAdjuster {
                                     takeProfit = takeProfit,
                                     trailTriggerPrice = leg.trailTriggerPrice
                                 )
-                                val trailFraction = inferTrailFraction(
-                                    entry = entry,
-                                    stopLoss = leg.price,
-                                    trailAmount = leg.trailAmount
-                                )
-                                if (triggerFraction == null || trailFraction == null) {
+                                if (triggerFraction == null) {
                                     null
                                 } else {
-                                    TouchTurnAdjustableStop.compute(
-                                        entry = entry,
-                                        stopLoss = widenedStop,
-                                        takeProfit = widenedTp,
-                                        triggerFraction = triggerFraction,
-                                        trailFraction = trailFraction
-                                    )
+                                    val triggerPrice = entry + triggerFraction * (widenedTp - entry)
+                                    val armStopPrice = leg.trailArmStopPrice?.let {
+                                        widenFromEntry(entry, it, spreadWidenFactor)
+                                    } ?: entry
+                                    Pair(triggerPrice, armStopPrice)
                                 }
                             }
                         }
                         leg.copy(
                             price = widenedStop,
-                            trailTriggerPrice = trail?.triggerPrice,
-                            trailAmount = trail?.trailAmount
+                            trailTriggerPrice = trail?.first,
+                            trailArmStopPrice = trail?.second
                         )
                     }
                     else -> leg
@@ -82,12 +73,6 @@ internal object EmulatorBracketPlanAdjuster {
         val entryToTp = takeProfit - entry
         if (abs(entryToTp) < 1e-9) return null
         return (trailTriggerPrice - entry) / entryToTp
-    }
-
-    private fun inferTrailFraction(entry: Double, stopLoss: Double, trailAmount: Double): Double? {
-        val entryToStop = stopLoss - entry
-        if (abs(entryToStop) < 1e-9) return null
-        return trailAmount / abs(entryToStop)
     }
 
     /** +1 when price must rise to reach take-profit, -1 when it must fall. */

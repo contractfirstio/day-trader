@@ -27,8 +27,10 @@ import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.TouchTurnEvent
+import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnTrailingStopWarnings
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
@@ -1254,7 +1256,8 @@ class StrategiesViewModel(
             session = session,
             priceHistory = history,
             currentPrice = currentPrice,
-            statusHint = fillReadinessHint(deployment.symbol),
+            statusHint = touchTurnChartStatusHint(deployment, session),
+            statusHintIsWarning = TouchTurnTrailingStopWarnings.validationError(session) != null,
             quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
             closestApproach = closestApproachFor(deployment)
         )
@@ -1311,12 +1314,21 @@ class StrategiesViewModel(
             openOrders = symbolOrders,
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup,
-            statusHint = fillReadinessHint(deployment.symbol),
+            statusHint = touchTurnChartStatusHint(deployment, session),
+            statusHintIsWarning = TouchTurnTrailingStopWarnings.validationError(session) != null,
             quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
             closestApproach = closestApproachFor(deployment),
             executedLevels = executedLevels
         )
     }
+
+    private fun touchTurnChartStatusHint(
+        deployment: StrategyDeployment,
+        session: TouchTurnSessionContext
+    ): String? = TouchTurnTrailingStopWarnings.combineChartHints(
+        fillReadinessHint(deployment.symbol),
+        TouchTurnTrailingStopWarnings.chartHint(session)
+    )
 
     private fun recordTouchTurnEngineSync(
         deploymentId: String,

@@ -8,6 +8,7 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnTrailingStopWarnings
 import daytrader.domain.requiresLiquidityRange
 
 enum class TouchTurnReasonSeverity {
@@ -367,6 +368,15 @@ object TouchTurnSessionReasonUi {
         TouchTurnOrderLifecyclePhase.CLOSED_NO_FILL ->
             "Bracket ended without an entry fill (cancelled, expired, or session stopped)."
         TouchTurnOrderLifecyclePhase.CLOSED -> null
+    }
+
+    fun forTrailingStopInvalid(session: TouchTurnSessionContext): TouchTurnSessionStatusUi? {
+        val error = TouchTurnTrailingStopWarnings.validationError(session) ?: return null
+        return TouchTurnSessionStatusUi(
+            headline = "Trailing stop not applied",
+            detail = "$error Bracket orders are still submitted with a fixed stop only.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
     }
 
     private fun inPositionStatus(hasOpenOrders: Boolean): TouchTurnSessionStatusUi =

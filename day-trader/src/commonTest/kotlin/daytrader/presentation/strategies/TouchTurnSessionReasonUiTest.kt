@@ -1,10 +1,14 @@
 package daytrader.presentation.strategies
 
+import daytrader.domain.FirstCandleColor
+import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.TouchTurnTradeSide
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -152,16 +156,28 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
-    fun stopTrigger_noTrade_usesDecisionHeadline() {
-        val ui = TouchTurnSessionReasonUi.forStopTrigger(
-            trigger = TouchTurnSessionStopTrigger.NO_TRADE_DECISION,
-            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
+    fun forTrailingStopInvalid_returnsWarningWhenEntryOnWrongSideOfStop() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-12",
+            status = TouchTurnCandleStatus.READY,
+            setup = TouchTurnBracketSetup(
+                range = 9.2,
+                rangeThreshold = 3.0,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.LONG,
+                entry = 382.034,
+                stopLoss = 382.724,
+                takeProfit = 388.244
+            ),
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                trailingStopTriggerFractionOfEntryToTp = 0.4,
+                takeProfitToStopLossRatio = 8.0
+            )
         )
-        assertEquals(
-            TouchTurnSessionReasonUi.forDecisionOutcome(
-                TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
-            ).headline,
-            ui.headline
-        )
+        val ui = TouchTurnSessionReasonUi.forTrailingStopInvalid(session)
+        assertNotNull(ui)
+        assertEquals("Trailing stop not applied", ui.headline)
+        assertContains(ui.detail!!, "fixed stop only")
     }
 }

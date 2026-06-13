@@ -122,8 +122,9 @@ fun TouchTurnLiveOrderPriceChart(
             Text(
                 text = hint,
                 fontSize = 10.sp,
-                color = TextSecondary,
-                modifier = Modifier.padding(top = 2.dp)
+                color = if (chart.statusHintIsWarning) TrailTriggerLevelColor else TextSecondary,
+                lineHeight = 13.sp,
+                modifier = Modifier.padding(top = 2.dp).testTag("TouchTurnLiveOrderPriceChartStatusHint")
             )
         }
         chart.quoteStrip?.let { strip ->

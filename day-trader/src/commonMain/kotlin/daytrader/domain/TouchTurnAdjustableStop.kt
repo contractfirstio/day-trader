@@ -1,40 +1,47 @@
 package daytrader.domain
 
 import kotlin.math.abs
+import kotlin.math.max
 
 /** IB adjustable-stop parameters for Touch Turn bracket stop legs (Option A). */
 data class TouchTurnAdjustableStopParams(
     val triggerPrice: Double,
-    /** Nominal trail distance sent to IB with [adjustableTrailingUnit] = amount (0). */
-    val trailAmount: Double
+    /** Stop price when trailing arms — entry. */
+    val armStopPrice: Double
 )
 
 object TouchTurnAdjustableStop {
     /**
-     * Returns a human-readable rejection reason, or null when [triggerFraction] and [trailFraction]
-     * are compatible with [takeProfitToStopLossRatio] (entry-to-TP : entry-to-stop reward:risk).
-     *
-     * Ensures the first trailing stop at arm time is not worse than the initial fixed stop:
-     * `triggerFraction × RR ≥ trailFraction − 1`.
+     * Opening-bar range proxy when only bracket prices are available (e.g. watchlist manual brackets).
+     * Uses the larger of entry-to-target and entry-to-stop distances.
      */
-    fun validateFractions(
-        triggerFraction: Double,
-        trailFraction: Double,
-        takeProfitToStopLossRatio: Double
+    fun inferBarRange(entry: Double, stopLoss: Double, takeProfit: Double): Double =
+        max(abs(takeProfit - entry), abs(entry - stopLoss)).coerceAtLeast(1e-9)
+
+    fun computeArmStopPrice(entry: Double): Double = entry
+
+    fun validate(
+        entry: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        triggerFraction: Double
     ): String? {
         if (triggerFraction < 0.0 || triggerFraction > 1.0) {
             return "Trail arm must be between 0 and 1 (fraction of entry-to-take-profit)."
         }
-        if (trailFraction <= 0.0) {
-            return "Trail distance must be greater than 0."
+        val entryToTp = takeProfit - entry
+        if (abs(entryToTp) < 1e-9) {
+            return "Entry and take-profit must differ."
         }
-        if (takeProfitToStopLossRatio <= 0.0) {
-            return "Take profit : stop loss ratio must be greater than 0."
+        val armStop = computeArmStopPrice(entry)
+        val invalidAtArm = if (entryToTp > 0.0) {
+            armStop + 1e-9 < stopLoss
+        } else {
+            armStop - 1e-9 > stopLoss
         }
-        val minTriggerFraction = (trailFraction - 1.0) / takeProfitToStopLossRatio
-        if (triggerFraction + 1e-9 < minTriggerFraction) {
-            return "Trail arm is too early for this trail distance: when trailing activates, " +
-                "the stop would sit beyond the initial fixed stop. Increase trail arm or reduce trail distance."
+        if (invalidAtArm) {
+            return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
+                "(long: entry above stop; short: entry below stop)."
         }
         return null
     }
@@ -43,17 +50,22 @@ object TouchTurnAdjustableStop {
         entry: Double,
         stopLoss: Double,
         takeProfit: Double,
-        triggerFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
-        trailFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRAIL_FRACTION_OF_ENTRY_TO_STOP
+        triggerFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP
     ): TouchTurnAdjustableStopParams? {
+        if (validate(
+                entry = entry,
+                stopLoss = stopLoss,
+                takeProfit = takeProfit,
+                triggerFraction = triggerFraction
+            ) != null
+        ) {
+            return null
+        }
         val entryToTp = takeProfit - entry
-        val entryToStop = stopLoss - entry
-        if (abs(entryToTp) < 1e-9 || abs(entryToStop) < 1e-9) return null
-        val takeProfitToStopLossRatio = abs(entryToTp) / abs(entryToStop)
-        if (validateFractions(triggerFraction, trailFraction, takeProfitToStopLossRatio) != null) return null
         val triggerPrice = entry + triggerFraction * entryToTp
-        val trailAmount = trailFraction * abs(entryToStop)
-        if (trailAmount <= 0.0) return null
-        return TouchTurnAdjustableStopParams(triggerPrice = triggerPrice, trailAmount = trailAmount)
+        return TouchTurnAdjustableStopParams(
+            triggerPrice = triggerPrice,
+            armStopPrice = computeArmStopPrice(entry)
+        )
     }
 }

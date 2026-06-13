@@ -693,6 +693,12 @@ fun TouchTurnPipelineSectionOrdersPreview(
             )
             return@Column
         }
+        TouchTurnSessionReasonUi.forTrailingStopInvalid(session)?.let { warning ->
+            TouchTurnSessionStatusBanner(
+                status = warning,
+                modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
+            )
+        }
         val computedSetup = remember(session, tick) {
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
@@ -750,6 +756,12 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 fontWeight = FontWeight.SemiBold,
                 color = GainGreen
             )
+            TouchTurnSessionReasonUi.forTrailingStopInvalid(session)?.let { warning ->
+                TouchTurnSessionStatusBanner(
+                    status = warning,
+                    modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
+                )
+            }
         } else {
             session.decisionOutcome?.let { outcome ->
                 TouchTurnSessionStatusBanner(
@@ -811,6 +823,12 @@ fun TouchTurnPipelineSectionRules(
                 status = TouchTurnSessionReasonUi.forDecisionOutcome(outcome, session)
             )
         }
+        TouchTurnSessionReasonUi.forTrailingStopInvalid(session)?.let { warning ->
+            TouchTurnSessionStatusBanner(
+                status = warning,
+                modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
+            )
+        }
         formingBarPriceChart?.let { chart ->
             TouchTurnPipelineLiveOrderChart(chart = chart)
         }
@@ -862,7 +880,8 @@ private fun RuleCheckRow(
     verboseExplanations: Boolean
 ) {
     var expanded by rememberSaveable(check.key) { mutableStateOf(false) }
-    val canExpand = verboseExplanations && check.enabled && check.explanationSteps.isNotEmpty()
+    val canExpand = check.enabled && check.explanationSteps.isNotEmpty() &&
+        (verboseExplanations || check.passed == false)
     val (icon, color) = when {
         !check.enabled -> "—" to TextSecondary
         check.passed == true -> "✓" to GainGreen
@@ -899,7 +918,13 @@ private fun RuleCheckRow(
             Text(icon, fontSize = 12.sp, color = color, fontWeight = FontWeight.Bold)
             Text(check.label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Color.White)
             check.detail?.let { detail ->
-                Text(detail, fontSize = 10.sp, color = TextSecondary, modifier = Modifier.weight(1f))
+                Text(
+                    detail,
+                    fontSize = 10.sp,
+                    color = if (check.passed == false) Color(0xFFFFB74D) else TextSecondary,
+                    modifier = Modifier.weight(1f),
+                    maxLines = if (check.passed == false) 4 else 1
+                )
             }
         }
         Text(

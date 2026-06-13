@@ -88,7 +88,11 @@ object WatchlistChartLevels {
             entry = entry,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
-            trailTriggerPrice = TouchTurnAdjustableStop.compute(entry, stopLoss, takeProfit)?.triggerPrice
+            trailTriggerPrice = TouchTurnAdjustableStop.compute(
+                entry,
+                stopLoss,
+                takeProfit
+            )?.triggerPrice
         )
 
     private fun TradeSide.toTouchTurnTradeSide(): TouchTurnTradeSide = when (this) {

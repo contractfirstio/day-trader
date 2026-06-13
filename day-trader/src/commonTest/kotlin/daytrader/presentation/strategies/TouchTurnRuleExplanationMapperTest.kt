@@ -59,6 +59,36 @@ class TouchTurnRuleExplanationMapperTest {
     }
 
     @Test
+    fun buildChecks_failedTrailingKeepsStepsDuringLiveReview() {
+        val session = sampleSession().copy(
+            setup = TouchTurnBracketSetup(
+                range = 9.2,
+                rangeThreshold = 2.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.LONG,
+                entry = 382.034,
+                stopLoss = 382.724,
+                takeProfit = 388.244
+            ),
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                trailingStopTriggerFractionOfEntryToTp = 0.4,
+                takeProfitToStopLossRatio = 8.0
+            )
+        )
+        val checks = TouchTurnRuleExplanationMapper.buildChecks(
+            session = session,
+            evaluationInstant = barEndPlusOne(),
+            verboseExplanations = false,
+            requireLivePriceChecks = false
+        )
+        val trailing = checks.first { it.key == "adjustableTrailingStop" }
+        assertEquals(false, trailing.passed)
+        assertTrue(trailing.explanationSteps.isNotEmpty())
+        assertTrue(trailing.detail!!.contains("favorable side"))
+    }
+
+    @Test
     fun rulesEvaluation_populatesStepsForClosedSessionReview() {
         val session = sampleSession()
         val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(

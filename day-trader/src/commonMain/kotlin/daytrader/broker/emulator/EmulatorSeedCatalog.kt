@@ -202,7 +202,12 @@ internal data class EmulatorOrder(
     val trailTriggerPrice: Double? = null,
     val trailAmount: Double? = null,
     val trailingArmed: Boolean = false,
-    val trailAnchorPrice: Double? = null
+    /** Bid/ask when trailing first armed — baseline for measuring further favorable movement. */
+    val trailAnchorPrice: Double? = null,
+    /** Best bid (long) or ask (short) since trailing armed. */
+    val trailExtremePrice: Double? = null,
+    /** Stop price when trailing first arms (entry). */
+    val trailArmStopPrice: Double? = null
 ) {
     fun toWorkingOrder(): daytrader.gateway.WorkingOrder = daytrader.gateway.WorkingOrder(
         orderId = orderId,

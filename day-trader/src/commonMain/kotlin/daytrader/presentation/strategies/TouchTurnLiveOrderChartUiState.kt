@@ -24,6 +24,8 @@ data class TouchTurnLiveOrderChartUiState(
     val executedLevels: Set<TouchTurnOrderLevelKind> = emptySet(),
     /** Shown under the chart title when live bid/ask are required for paper fills. */
     val statusHint: String? = null,
+    /** When true, [statusHint] is rendered in warning color (e.g. trailing config invalid). */
+    val statusHintIsWarning: Boolean = false,
     /** Bid/ask/last and distance to entry — rendered under the chart canvas. */
     val quoteStrip: TouchTurnQuoteStripUi? = null
 )
@@ -42,6 +44,7 @@ object TouchTurnLiveOrderChartUiMapper {
         plannedBracket: TouchTurnPlannedBracket?,
         bracketSetup: TouchTurnBracketSetup?,
         statusHint: String? = null,
+        statusHintIsWarning: Boolean = false,
         quote: LiveQuote? = null,
         closestApproach: TouchTurnClosestApproachUi? = null,
         executedLevels: Set<TouchTurnOrderLevelKind> = emptySet()
@@ -69,6 +72,7 @@ object TouchTurnLiveOrderChartUiMapper {
             context = TouchTurnPriceChartContext.ORDERS_AND_POSITION,
             executedLevels = executedLevels,
             statusHint = statusHint,
+            statusHintIsWarning = statusHintIsWarning,
             quoteStrip = quoteStrip
         )
     }

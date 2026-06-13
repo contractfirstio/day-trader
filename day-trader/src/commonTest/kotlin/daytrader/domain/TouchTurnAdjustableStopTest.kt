@@ -7,7 +7,7 @@ import kotlin.test.assertNotNull
 class TouchTurnAdjustableStopTest {
 
     @Test
-    fun compute_longBracket_triggerAtHalfTp_trailHalfRisk() {
+    fun compute_longBracket_triggerAtHalfTp_armsAtEntry() {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 95.0,
@@ -15,11 +15,11 @@ class TouchTurnAdjustableStopTest {
         )
         assertNotNull(params)
         assertEquals(105.0, params.triggerPrice, 0.001)
-        assertEquals(2.5, params.trailAmount, 0.001)
+        assertEquals(100.0, params.armStopPrice, 0.001)
     }
 
     @Test
-    fun compute_shortBracket_triggerAtHalfTp_trailHalfRisk() {
+    fun compute_shortBracket_triggerAtHalfTp_armsAtEntry() {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 105.0,
@@ -27,6 +27,12 @@ class TouchTurnAdjustableStopTest {
         )
         assertNotNull(params)
         assertEquals(95.0, params.triggerPrice, 0.001)
-        assertEquals(2.5, params.trailAmount, 0.001)
+        assertEquals(100.0, params.armStopPrice, 0.001)
+    }
+
+    @Test
+    fun inferBarRange_usesLargerBracketLeg() {
+        assertEquals(10.0, TouchTurnAdjustableStop.inferBarRange(100.0, 95.0, 110.0), 0.001)
+        assertEquals(3.0, TouchTurnAdjustableStop.inferBarRange(100.0, 99.0, 103.0), 0.001)
     }
 }

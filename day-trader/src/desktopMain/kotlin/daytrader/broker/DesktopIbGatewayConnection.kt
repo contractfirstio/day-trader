@@ -2252,10 +2252,10 @@ class DesktopIbGatewayConnection(
         )
         plan.orders.firstOrNull { it.role == daytrader.domain.TouchTurnOrderRole.STOP_LOSS }?.let { stopLeg ->
             val trigger = stopLeg.trailTriggerPrice
-            val trail = stopLeg.trailAmount
-            if (trigger != null && trail != null) {
+            val armStop = stopLeg.trailArmStopPrice
+            if (trigger != null && armStop != null) {
                 stopTrailParamsByOrderId[submission.stopLossOrderId] =
-                    StopTrailParams(triggerPrice = trigger, trailAmount = trail)
+                    StopTrailParams(triggerPrice = trigger, trailAmount = 0.0)
             }
         }
         paced {

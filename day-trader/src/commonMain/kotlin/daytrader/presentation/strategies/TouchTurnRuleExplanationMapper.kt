@@ -8,6 +8,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStopLogic
+import daytrader.domain.TouchTurnTrailingStopWarnings
 import daytrader.presentation.Formatters
 
 /**
@@ -59,7 +60,13 @@ object TouchTurnRuleExplanationMapper {
                     enabled = enabled
                 )
             }
-            if (verboseExplanations && enabled) check else check.copy(explanationSteps = emptyList())
+            if (verboseExplanations && enabled) {
+                check
+            } else if (check.enabled && check.passed == false && check.explanationSteps.isNotEmpty()) {
+                check
+            } else {
+                check.copy(explanationSteps = emptyList())
+            }
         }
     }
 
@@ -269,8 +276,13 @@ object TouchTurnRuleExplanationMapper {
         currency: String,
         enabled: Boolean
     ): RuleCheckUi {
-        val params = rules.computeAdjustableStop(setup.entry, setup.stopLoss, setup.takeProfit)
-        val validationError = rules.trailingStopFractionsValidationError()
+        val params = rules.computeAdjustableStop(
+            setup.entry,
+            setup.stopLoss,
+            setup.takeProfit,
+            setup.range
+        )
+        val validationError = TouchTurnTrailingStopWarnings.validationError(rules, setup)
         val passed = when {
             !enabled -> null
             validationError != null -> false
@@ -284,23 +296,25 @@ object TouchTurnRuleExplanationMapper {
             )
             add(
                 "Trail arm at ${rules.trailingStopTriggerFractionOfEntryToTp}× entry-to-target distance; " +
-                    "trail distance ${rules.trailingStopTrailFractionOfEntryToStop}× initial risk."
+                    "stop moves to entry when triggered, then ratchets with further favorable price — no trail offset."
             )
             validationError?.let { add("Configuration invalid: $it") }
             params?.let {
-                add("Trail arms at ${fmt(it.triggerPrice, currency)} with nominal trail ${fmt(it.trailAmount, currency)}.")
+                add(
+                    "Trail arms at ${fmt(it.triggerPrice, currency)} → stop ${fmt(it.armStopPrice, currency)} (entry)."
+                )
             }
             add(stepResult(passed))
         }
         return RuleCheckUi(
             key = "adjustableTrailingStop",
             label = "Adjustable trailing stop",
-            description = "After price reaches the trail-arm level, convert the stop leg to an IB adjustable " +
-                "trailing stop using the configured trail distance.",
+            description = "After price reaches the trail-arm level, move the stop to entry and ratchet it " +
+                "with further favorable price (no trail offset for now).",
             passed = passed,
             detail = when {
                 !enabled -> "Disabled"
-                validationError != null -> "Invalid fractions"
+                validationError != null -> validationError
                 params != null -> "Arms at ${fmt(params.triggerPrice, currency)}"
                 else -> "Not configured"
             },

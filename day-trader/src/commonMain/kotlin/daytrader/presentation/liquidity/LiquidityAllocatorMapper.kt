@@ -5,6 +5,7 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.LiquidityBucketState
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.TouchTurnAdjustableStop
 import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnLogic
@@ -213,10 +214,17 @@ object LiquidityAllocatorMapper {
             TouchTurnTradeSide.SHORT -> "SELL"
             TouchTurnTradeSide.LONG -> "BUY"
         }
+        val barRange = deployment.touchTurnSession?.setup?.range
+            ?: TouchTurnAdjustableStop.inferBarRange(
+                bracket.entry,
+                bracket.stopLoss,
+                bracket.takeProfit
+            )
         val adjustableStop = rules.computeAdjustableStop(
             entry = bracket.entry,
             stopLoss = bracket.stopLoss,
-            takeProfit = bracket.takeProfit
+            takeProfit = bracket.takeProfit,
+            barRange = barRange
         )
         return TouchTurnOrderPlan(
             symbol = deployment.symbol,
@@ -246,7 +254,7 @@ object LiquidityAllocatorMapper {
                     quantity = quantity,
                     price = bracket.stopLoss,
                     trailTriggerPrice = adjustableStop?.triggerPrice ?: bracket.trailTriggerPrice,
-                    trailAmount = adjustableStop?.trailAmount
+                    trailArmStopPrice = adjustableStop?.armStopPrice
                 )
             )
         )

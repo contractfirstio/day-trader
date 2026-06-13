@@ -92,10 +92,9 @@ object TouchTurnOrderLog {
             TouchTurnOrderRole.STOP_LOSS -> "STOP_LOSS"
         }
         val trailSuffix = if (order.role == TouchTurnOrderRole.STOP_LOSS &&
-            order.trailTriggerPrice != null &&
-            order.trailAmount != null
+            order.trailTriggerPrice != null
         ) {
-            "  trail@${fmt(order.trailTriggerPrice, currency)}  amt=${fmt(order.trailAmount, currency)}"
+            "  trail@${fmt(order.trailTriggerPrice, currency)}"
         } else {
             ""
         }
