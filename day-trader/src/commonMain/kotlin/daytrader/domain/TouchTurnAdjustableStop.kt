@@ -6,7 +6,7 @@ import kotlin.math.max
 /** IB adjustable-stop parameters for Touch Turn bracket stop legs (Option A). */
 data class TouchTurnAdjustableStopParams(
     val triggerPrice: Double,
-    /** Stop price when trailing arms — entry. */
+    /** Stop price when trailing arms — entry minus cushion (long) or plus cushion (short). */
     val armStopPrice: Double
 )
 
@@ -18,30 +18,53 @@ object TouchTurnAdjustableStop {
     fun inferBarRange(entry: Double, stopLoss: Double, takeProfit: Double): Double =
         max(abs(takeProfit - entry), abs(entry - stopLoss)).coerceAtLeast(1e-9)
 
-    fun computeArmStopPrice(entry: Double): Double = entry
+    fun computeArmStopPrice(
+        entry: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        barRange: Double,
+        armOffsetFraction: Double
+    ): Double {
+        val offset = armOffsetFraction * barRange.coerceAtLeast(1e-9)
+        val entryToTp = takeProfit - entry
+        return if (entryToTp > 0.0) entry - offset else entry + offset
+    }
 
     fun validate(
         entry: Double,
         stopLoss: Double,
         takeProfit: Double,
-        triggerFraction: Double
+        triggerFraction: Double,
+        barRange: Double,
+        armOffsetFraction: Double = 0.0
     ): String? {
         if (triggerFraction < 0.0 || triggerFraction > 1.0) {
             return "Trail arm must be between 0 and 1 (fraction of entry-to-take-profit)."
+        }
+        if (armOffsetFraction < 0.0) {
+            return "Trail arm cushion must be zero or positive (fraction of bar range)."
         }
         val entryToTp = takeProfit - entry
         if (abs(entryToTp) < 1e-9) {
             return "Entry and take-profit must differ."
         }
-        val armStop = computeArmStopPrice(entry)
+        if (entryToTp > 0.0 && entry + 1e-9 < stopLoss) {
+            return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
+                "(long: entry above stop; short: entry below stop)."
+        }
+        if (entryToTp < 0.0 && entry - 1e-9 > stopLoss) {
+            return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
+                "(long: entry above stop; short: entry below stop)."
+        }
+        val armStop = computeArmStopPrice(entry, stopLoss, takeProfit, barRange, armOffsetFraction)
         val invalidAtArm = if (entryToTp > 0.0) {
             armStop + 1e-9 < stopLoss
         } else {
             armStop - 1e-9 > stopLoss
         }
         if (invalidAtArm) {
-            return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
-                "(long: entry above stop; short: entry below stop)."
+            return "When trailing activates, the arm stop must stay above the initial fixed stop (long) " +
+                "or below it (short). Reduce trail arm cushion or widen the initial stop."
         }
         return null
     }
@@ -50,13 +73,17 @@ object TouchTurnAdjustableStop {
         entry: Double,
         stopLoss: Double,
         takeProfit: Double,
-        triggerFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP
+        barRange: Double,
+        triggerFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
+        armOffsetFraction: Double = TouchTurnDefaults.TRAILING_STOP_ARM_OFFSET_FRACTION_OF_BAR_RANGE
     ): TouchTurnAdjustableStopParams? {
         if (validate(
                 entry = entry,
                 stopLoss = stopLoss,
                 takeProfit = takeProfit,
-                triggerFraction = triggerFraction
+                triggerFraction = triggerFraction,
+                barRange = barRange,
+                armOffsetFraction = armOffsetFraction
             ) != null
         ) {
             return null
@@ -65,7 +92,7 @@ object TouchTurnAdjustableStop {
         val triggerPrice = entry + triggerFraction * entryToTp
         return TouchTurnAdjustableStopParams(
             triggerPrice = triggerPrice,
-            armStopPrice = computeArmStopPrice(entry)
+            armStopPrice = computeArmStopPrice(entry, stopLoss, takeProfit, barRange, armOffsetFraction)
         )
     }
 }

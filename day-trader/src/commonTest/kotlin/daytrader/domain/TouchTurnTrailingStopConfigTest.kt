@@ -28,6 +28,21 @@ class TouchTurnTrailingStopConfigTest {
     }
 
     @Test
+    fun buildOrderPlan_customArmCushion_appliesToStopLeg() {
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            trailingStopArmOffsetFractionOfBarRange = 0.05
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            longSetup(),
+            maxDollars = 1000,
+            rules = rules
+        )!!
+        val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        assertEquals(99.5, stop.trailArmStopPrice!!, 0.001)
+    }
+
+    @Test
     fun buildOrderPlan_trailingDisabled_hasNoTrailOnStopLeg() {
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(adjustableTrailingStop = false)
@@ -68,6 +83,12 @@ class TouchTurnTrailingStopConfigTest {
             "0.4"
         )!!
         assertEquals(0.4, config.trailingStopTriggerFractionOfEntryToTp)
+        config = TouchTurnRuleConfig.withFieldValue(
+            config,
+            "trailingStopArmOffsetFractionOfBarRange",
+            "0.05"
+        )!!
+        assertEquals(0.05, config.trailingStopArmOffsetFractionOfBarRange)
     }
 
     @Test
@@ -77,7 +98,8 @@ class TouchTurnTrailingStopConfigTest {
                 entry = 100.0,
                 stopLoss = 95.0,
                 takeProfit = 110.0,
-                triggerFraction = 0.5
+                triggerFraction = 0.5,
+                barRange = 10.0
             )
         )
         assertNull(TouchTurnRuleConfig.DEFAULT.trailingStopValidationError())
@@ -90,7 +112,8 @@ class TouchTurnTrailingStopConfigTest {
                 entry = 100.0,
                 stopLoss = 95.0,
                 takeProfit = 110.0,
-                triggerFraction = -0.1
+                triggerFraction = -0.1,
+                barRange = 10.0
             )
         )
         assertNotNull(
@@ -98,7 +121,8 @@ class TouchTurnTrailingStopConfigTest {
                 entry = 100.0,
                 stopLoss = 95.0,
                 takeProfit = 110.0,
-                triggerFraction = 1.1
+                triggerFraction = 1.1,
+                barRange = 10.0
             )
         )
         assertNull(
@@ -116,7 +140,8 @@ class TouchTurnTrailingStopConfigTest {
             entry = 94.0,
             stopLoss = 95.0,
             takeProfit = 110.0,
-            triggerFraction = 0.5
+            triggerFraction = 0.5,
+            barRange = 10.0
         )
         assertNotNull(error)
         assertTrue(error.contains("favorable side"))
@@ -128,7 +153,8 @@ class TouchTurnTrailingStopConfigTest {
             TouchTurnAdjustableStop.compute(
                 entry = 94.0,
                 stopLoss = 95.0,
-                takeProfit = 110.0
+                takeProfit = 110.0,
+                barRange = 10.0
             )
         )
         assertNull(
@@ -149,11 +175,12 @@ class TouchTurnTrailingStopConfigTest {
         assertNull(disabled.computeAdjustableStop(100.0, 95.0, 110.0, barRange = 10.0))
 
         val custom = TouchTurnRuleConfig.DEFAULT.copy(
-            trailingStopTriggerFractionOfEntryToTp = 0.25
+            trailingStopTriggerFractionOfEntryToTp = 0.25,
+            trailingStopArmOffsetFractionOfBarRange = 0.05
         )
         val params = custom.computeAdjustableStop(100.0, 95.0, 110.0, barRange = 10.0)
         assertNotNull(params)
         assertEquals(102.5, params.triggerPrice, 0.001)
-        assertEquals(100.0, params.armStopPrice, 0.001)
+        assertEquals(99.5, params.armStopPrice, 0.001)
     }
 }

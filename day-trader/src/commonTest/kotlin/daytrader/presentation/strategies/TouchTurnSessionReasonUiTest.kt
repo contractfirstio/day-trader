@@ -156,7 +156,7 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
-    fun forTrailingStopInvalid_returnsWarningWhenEntryOnWrongSideOfStop() {
+    fun forTrailingStopInvalid_returnsWarningWhenArmCushionTooWide() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-06-12",
             status = TouchTurnCandleStatus.READY,
@@ -166,12 +166,13 @@ class TouchTurnSessionReasonUiTest {
                 isLiquidityCandle = true,
                 candleColor = FirstCandleColor.RED,
                 side = TouchTurnTradeSide.LONG,
-                entry = 382.034,
-                stopLoss = 382.724,
+                entry = 382.724,
+                stopLoss = 382.034,
                 takeProfit = 388.244
             ),
             rules = TouchTurnRuleConfig.DEFAULT.copy(
                 trailingStopTriggerFractionOfEntryToTp = 0.4,
+                trailingStopArmOffsetFractionOfBarRange = 0.10,
                 takeProfitToStopLossRatio = 8.0
             )
         )

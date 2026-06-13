@@ -115,6 +115,7 @@ data class TouchTurnRuleConfigRecord(
     val closedBarRefetchSettleMs: Long = 3_000L,
     val stopAfterOpenMinutes: Int = 90,
     val trailingStopTriggerFractionOfEntryToTp: Double = 0.5,
+    val trailingStopArmOffsetFractionOfBarRange: Double = 0.0,
     val requiredExtremeBounceCount: Int = 2,
     val bounceTouchZoneRatioOfRange: Double = 0.05,
     val bounceRecoveryRatioOfRange: Double = 0.15,

@@ -78,4 +78,27 @@ class EmulatorBracketPlanAdjusterTest {
         assertEquals(103.375, widenedStop.trailTriggerPrice!!, 0.001)
         assertEquals(100.0, widenedStop.trailArmStopPrice!!, 0.001)
     }
+
+    @Test
+    fun widenExits_customArmCushion_recomputedOnWidenedBracket() {
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 2.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0
+        )
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            trailingStopArmOffsetFractionOfBarRange = 0.05
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, rules = rules)!!
+        val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        assertEquals(99.5, stop.trailArmStopPrice!!, 0.001)
+        val widened = EmulatorBracketPlanAdjuster.widenExits(plan, spreadWidenFactor = 1.35)
+        val widenedStop = widened.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        assertEquals(99.325, widenedStop.trailArmStopPrice!!, 0.001)
+    }
 }

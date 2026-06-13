@@ -296,12 +296,18 @@ object TouchTurnRuleExplanationMapper {
             )
             add(
                 "Trail arm at ${rules.trailingStopTriggerFractionOfEntryToTp}× entry-to-target distance; " +
-                    "stop moves to entry when triggered, then ratchets with further favorable price — no trail offset."
+                    "arm cushion ${rules.trailingStopArmOffsetFractionOfBarRange}× bar range below entry (long); " +
+                    "then ratchets 1:1 with further favorable price."
             )
             validationError?.let { add("Configuration invalid: $it") }
             params?.let {
+                val cushionNote = if (rules.trailingStopArmOffsetFractionOfBarRange > 0.0) {
+                    " (entry − ${rules.trailingStopArmOffsetFractionOfBarRange}× range)"
+                } else {
+                    " (entry)"
+                }
                 add(
-                    "Trail arms at ${fmt(it.triggerPrice, currency)} → stop ${fmt(it.armStopPrice, currency)} (entry)."
+                    "Trail arms at ${fmt(it.triggerPrice, currency)} → stop ${fmt(it.armStopPrice, currency)}$cushionNote."
                 )
             }
             add(stepResult(passed))
@@ -309,8 +315,8 @@ object TouchTurnRuleExplanationMapper {
         return RuleCheckUi(
             key = "adjustableTrailingStop",
             label = "Adjustable trailing stop",
-            description = "After price reaches the trail-arm level, move the stop to entry and ratchet it " +
-                "with further favorable price (no trail offset for now).",
+            description = "After price reaches the trail-arm level, move the stop to entry (minus optional " +
+                "cushion) and ratchet it with further favorable price.",
             passed = passed,
             detail = when {
                 !enabled -> "Disabled"

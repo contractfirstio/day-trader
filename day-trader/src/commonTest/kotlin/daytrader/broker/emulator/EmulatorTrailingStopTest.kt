@@ -138,6 +138,57 @@ class EmulatorTrailingStopTest {
     }
 
     @Test
+    fun trailingStop_armCushion_armsBelowEntry() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
+                bracketExitSpreadWidenFactor = 1.0
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0
+        )
+        val rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+            trailingStopArmOffsetFractionOfBarRange = 0.05
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 1000,
+            currencyCode = "USD",
+            rules = rules
+        )!!
+        assertEquals(99.5, plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.trailArmStopPrice!!, 0.001)
+        engine.placeTouchTurnBracket(plan)
+
+        engine.ingestLiveQuote(
+            "AAPL",
+            LiveQuote(symbol = "AAPL", bid = 106.0, ask = 106.2, last = 106.1),
+            priorClose = null
+        )
+        val stopPrice = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>()
+            .lastOrNull()
+            ?.orders
+            ?.firstOrNull { it.orderType.equals("TRAIL", ignoreCase = true) }
+            ?.stopPrice
+        assertEquals(99.5, stopPrice!!, 0.001)
+    }
+
+    @Test
     fun plan_includesAdjustableStopMetadata() {
         val setup = TouchTurnBracketSetup(
             range = 10.0,

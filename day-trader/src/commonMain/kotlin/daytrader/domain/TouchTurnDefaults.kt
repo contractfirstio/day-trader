@@ -59,6 +59,8 @@ object TouchTurnDefaults {
     const val STOP_AFTER_OPEN_MINUTES = 90
     /** Favorable move (fraction of entry→take-profit) before stop converts to trailing. */
     const val TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP = 0.5
+    /** Cushion below entry (long) / above entry (short) when trailing arms, as fraction of bar range. 0 = at entry. */
+    const val TRAILING_STOP_ARM_OFFSET_FRACTION_OF_BAR_RANGE = 0.0
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
 }

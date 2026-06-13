@@ -9,7 +9,9 @@ object TouchTurnTrailingStopWarnings {
             entry = setup.entry,
             stopLoss = setup.stopLoss,
             takeProfit = setup.takeProfit,
-            triggerFraction = rules.trailingStopTriggerFractionOfEntryToTp
+            triggerFraction = rules.trailingStopTriggerFractionOfEntryToTp,
+            barRange = setup.range,
+            armOffsetFraction = rules.trailingStopArmOffsetFractionOfBarRange
         )
     }
 
