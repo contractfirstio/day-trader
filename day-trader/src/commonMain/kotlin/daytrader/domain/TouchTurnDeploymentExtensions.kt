@@ -121,7 +121,8 @@ fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): Stra
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
 fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     enforceCloseConfirmation: Boolean = true,
-    nowEpochMillis: Long = System.currentTimeMillis()
+    nowEpochMillis: Long = System.currentTimeMillis(),
+    openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList()
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
@@ -136,6 +137,13 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         marketZoneId = session.marketZoneId,
         nowEpochMillis = nowEpochMillis,
         sessionDateIso = session.sessionDate,
+        rules = rules,
+        openingBarPriceSamples = openingBarPriceSamples
+    )
+    val bounceEval = TouchTurnLogic.extremeBounceEvaluation(
+        setup = setup,
+        candle = candle,
+        openingBarPriceSamples = openingBarPriceSamples,
         rules = rules
     )
     val closeConfirmation = gate.closeConfirmation
@@ -156,6 +164,8 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         setup = setup,
         entryOrdersPermitted = entryOrdersPermitted,
         decisionOutcome = decisionOutcome ?: session.decisionOutcome,
+        openingBarPriceSamples = openingBarPriceSamples,
+        extremeBounceCount = bounceEval.bounceCount.takeIf { rules.enables.bounceRejection },
         milestones = milestones
     )
     TouchTurnDecisionLog.liquidityEvaluated(
@@ -381,6 +391,8 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,

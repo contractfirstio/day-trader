@@ -17,6 +17,10 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_NOT_LIQUIDITY,
     NO_TRADE_DOJI,
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+    /** Opening-bar price samples insufficient for extreme bounce evaluation. */
+    NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
+    /** Extreme bounce count below the configured minimum when bounce rejection is enabled. */
+    NO_TRADE_BOUNCE_REJECTION_FAILED,
     /** Live tape no longer on the confirming side of entry at decision time (hybrid / live data). */
     NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
     /** Completed bar close and live bid/ask mid disagree beyond tolerance (hybrid / live data). */

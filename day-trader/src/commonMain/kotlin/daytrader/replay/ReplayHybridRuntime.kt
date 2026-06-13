@@ -1,6 +1,9 @@
 package daytrader.replay
 
+import daytrader.broker.SymbolMarkets
 import daytrader.broker.emulator.BrokerEmulatorConfig
+import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnOpeningBarPriceSample
 import daytrader.broker.emulator.EmulatorBrokerAdapter
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.engine.TouchTurnEngine
@@ -105,8 +108,37 @@ class ReplayHybridRuntime(
             activateReplayCapture = { deployment ->
                 if (deployment.id == bundle.deploymentId) bundle.sessionDate else null
             },
+            supplementalOpeningBarQuotes = { deployment, session ->
+                openingBarQuotes(deployment.symbol, session)
+            },
             sessionGateway = marketDataGateway,
             executionGateway = executionGateway
         )
+    }
+
+    /** Full captured quote timeline for the opening 15m bar (deterministic replay bounce input). */
+    fun openingBarQuotes(
+        symbol: String,
+        session: daytrader.domain.TouchTurnSessionContext
+    ): List<TouchTurnOpeningBarPriceSample> {
+        val barTime = session.resolvedOpeningBarTime() ?: return emptyList()
+        val zoneId = session.marketZoneId
+        val barStart = TouchTurnLogic.barStartEpochMillis(barTime, zoneId) ?: return emptyList()
+        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zoneId) ?: return emptyList()
+        val normalized = SymbolMarkets.normalizeSymbol(symbol)
+        return bundle.quoteEvents
+            .asSequence()
+            .filter { SymbolMarkets.normalizeSymbol(it.symbol) == normalized }
+            .filter { it.epochMs in barStart..barEnd }
+            .mapNotNull { event ->
+                TouchTurnLogic.resolveLiveMid(
+                    event.quote.bid,
+                    event.quote.ask,
+                    event.quote.last
+                )?.let { price ->
+                    TouchTurnOpeningBarPriceSample(epochMs = event.epochMs, price = price)
+                }
+            }
+            .toList()
     }
 }

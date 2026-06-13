@@ -110,6 +110,8 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Not liq."
         TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Doji"
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED -> "Close gate"
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED -> "Bounce gate"
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE -> "Bounce data"
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED -> "Live close"
         TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE -> "Bar/live gap"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE -> "No touch"

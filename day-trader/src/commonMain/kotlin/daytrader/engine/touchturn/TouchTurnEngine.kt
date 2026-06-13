@@ -19,6 +19,8 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnOpeningBarPriceSample
+import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnSessionOutcome
@@ -69,6 +71,7 @@ import daytrader.domain.TouchTurnOrderRole
 import daytrader.execution.ExecutionManager
 import daytrader.marketdata.MarketDataProvider
 import daytrader.engine.touchturn.TouchTurnPrepareRunner
+import daytrader.engine.touchturn.OpeningBarQuoteCapture
 import java.util.concurrent.ConcurrentHashMap
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.strategies.StartBlockedAlertMapper
@@ -101,6 +104,11 @@ class TouchTurnEngine(
     private val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? = null,
     /** Returns null when no hybrid capture exists; otherwise the captured session ISO date. */
     private val activateReplayCapture: ((StrategyDeployment) -> String?)? = null,
+    /** Returns captured replay quotes for the opening 15m bar window (empty when not replay). */
+    private val supplementalOpeningBarQuotes:
+        (StrategyDeployment, TouchTurnSessionContext) -> List<TouchTurnOpeningBarPriceSample> = { _, _ ->
+            emptyList()
+        },
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null,
@@ -118,6 +126,7 @@ class TouchTurnEngine(
     private val prepareJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
+    private val openingBarQuoteCapture = OpeningBarQuoteCapture()
 
     private data class PendingBracketPlacement(
         val plan: TouchTurnOrderPlan,
@@ -212,6 +221,11 @@ class TouchTurnEngine(
                         dispatch(TouchTurnCommand.BrokerConnected)
                     }
                     previous = connection
+                }
+            }
+            scope.launch {
+                gateway.quotes.collect { quotesMap ->
+                    recordOpeningBarQuotes(quotesMap)
                 }
             }
         }
@@ -376,6 +390,7 @@ class TouchTurnEngine(
             )
         }
         tracedFillExecIdsByInstance.remove(command.instanceId)
+        openingBarQuoteCapture.clear(command.instanceId)
         repository.flushPersistence()
         val updated = repository.deployments.value.find { it.id == command.instanceId } ?: return
         startSessionMarketDataCapture(updated)
@@ -1080,9 +1095,15 @@ class TouchTurnEngine(
             nowEpochMillis = evaluatedAt
         )
         repository.update(instanceId) { current ->
+            val samples = openingBarQuoteCapture.mergeForBarWindow(
+                deploymentId = instanceId,
+                session = session,
+                supplemental = supplementalOpeningBarQuotes(current, session)
+            )
             current.withLiquidityEvaluatedIfClosed(
                 enforceCloseConfirmation = enforceCloseConfirmation,
-                nowEpochMillis = evaluatedAt
+                nowEpochMillis = evaluatedAt,
+                openingBarPriceSamples = samples
             )
         }
         val afterEval = repository.deployments.value.find { it.id == instanceId } ?: return
@@ -1135,6 +1156,8 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
@@ -1515,6 +1538,17 @@ class TouchTurnEngine(
         val gateway = marketDataBrokerGateway() ?: return null
         val normalized = SymbolMarkets.normalizeSymbol(symbol)
         return gateway.quotes.value[normalized]
+    }
+
+    private fun recordOpeningBarQuotes(quotesMap: Map<String, LiveQuote>) {
+        if (quotesMap.isEmpty() || brokerKind == BrokerKind.REPLAY) return
+        val now = nowEpochMillis()
+        for (deployment in repository.deployments.value) {
+            if (!deployment.isTouchTurn || deployment.status != DeploymentStatus.RUNNING) continue
+            val session = deployment.touchTurnSession ?: continue
+            val quote = quotesMap[SymbolMarkets.normalizeSymbol(deployment.symbol)] ?: continue
+            openingBarQuoteCapture.recordQuote(deployment.id, session, quote, now)
+        }
     }
 
     private fun emit(event: TouchTurnEvent) {

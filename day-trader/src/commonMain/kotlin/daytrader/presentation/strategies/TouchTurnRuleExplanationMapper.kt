@@ -1,7 +1,9 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnExtremeBounceEvaluator
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
@@ -45,6 +47,9 @@ object TouchTurnRuleExplanationMapper {
                 )
                 "adjustableTrailingStop" -> adjustableTrailingStopCheck(
                     session, setup, rules, currency, enabled
+                )
+                "bounceRejection" -> bounceRejectionCheck(
+                    session, candle, setup, rules, enabled
                 )
                 else -> RuleCheckUi(
                     key = definition.key,
@@ -199,6 +204,58 @@ object TouchTurnRuleExplanationMapper {
                 remainingMs != null ->
                     "${rules.stopAfterOpenMinutes}m limit · ${remainingMs / 60_000}m remaining"
                 else -> null
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun bounceRejectionCheck(
+        session: TouchTurnSessionContext,
+        candle: OhlcBar,
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val bounce = TouchTurnExtremeBounceEvaluator.evaluate(
+            setup = setup,
+            bar = candle,
+            samples = session.openingBarPriceSamples,
+            rules = rules
+        )
+        val passed = when {
+            !enabled -> null
+            setup.candleColor == FirstCandleColor.DOJI -> false
+            !bounce.dataAvailable -> false
+            bounce.passed -> true
+            else -> false
+        }
+        val extremeLabel = when (setup.candleColor) {
+            FirstCandleColor.GREEN -> "high"
+            FirstCandleColor.RED -> "low"
+            FirstCandleColor.DOJI -> "n/a"
+        }
+        val steps = buildList {
+            add("Collect live/replay marks during the opening 15-minute bar.")
+            add(
+                "Count qualified bounces off the bar $extremeLabel: touch within " +
+                    "${rules.bounceTouchZoneRatioOfRange}× range, recover ${rules.bounceRecoveryRatioOfRange}× range away."
+            )
+            add(
+                "Observed ${bounce.bounceCount} bounce(s) from ${bounce.sampleCount} price sample(s); " +
+                    "need at least ${bounce.requiredBounces}."
+            )
+            add(stepResult(passed))
+        }
+        return RuleCheckUi(
+            key = "bounceRejection",
+            label = "Extreme bounce rejection",
+            description = "Price must bounce off the fade extreme during the opening bar before entry.",
+            passed = passed,
+            detail = when {
+                !enabled -> "Disabled"
+                !bounce.dataAvailable -> "No opening-bar samples"
+                else -> "${bounce.bounceCount}/${bounce.requiredBounces} bounces"
             },
             enabled = enabled,
             explanationSteps = steps

@@ -188,7 +188,11 @@ data class TouchTurnSessionContext(
     val macroBenchmarkSymbol: String? = null,
     val macroBenchmarkLabel: String? = null,
     /** Symbol daily trend at liquidity evaluation (when stock trend alignment rule is enabled). */
-    val stockTrendAtEntry: StockTrendState? = null
+    val stockTrendAtEntry: StockTrendState? = null,
+    /** Live/replay marks collected during the opening 15m bar for bounce rejection. */
+    val openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList(),
+    /** Qualified extreme bounces counted at liquidity evaluation when bounce rejection ran. */
+    val extremeBounceCount: Int? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 
@@ -234,7 +238,15 @@ data class TouchTurnSessionContext(
         TouchTurnLogic.entryWindowStatus(resolvedOpeningBarTime(), marketZoneId, nowEpochMillis)
 
     fun closeConfirmation(nowEpochMillis: Long = System.currentTimeMillis()): TouchTurnCloseConfirmation =
-        TouchTurnLogic.closeConfirmation(candle, setup, marketZoneId, nowEpochMillis, sessionDate, rules)
+        TouchTurnLogic.closeConfirmation(
+            candle,
+            setup,
+            marketZoneId,
+            nowEpochMillis,
+            sessionDate,
+            rules,
+            openingBarPriceSamples
+        )
 
     /**
      * Close confirmation for pipeline / UI — mirrors engine gates after liquidity evaluation.
@@ -252,6 +264,8 @@ data class TouchTurnSessionContext(
             true -> return TouchTurnCloseConfirmation.PASSED
             false -> return when (decisionOutcome) {
                 TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
+                TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
                 TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
                 TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE ->
                     TouchTurnCloseConfirmation.FAILED

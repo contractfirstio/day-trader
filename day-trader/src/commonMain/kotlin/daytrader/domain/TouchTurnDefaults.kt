@@ -49,6 +49,12 @@ object TouchTurnDefaults {
     const val CLOSE_POSITION_SHORT_MAX = 0.45
     /** For long setups (red liquidity candle), require close in the upper X of range. */
     const val CLOSE_POSITION_LONG_MIN = 0.55
+    /** Price within this fraction of bar range from the fade extreme counts as touching the level. */
+    const val BOUNCE_TOUCH_ZONE_RATIO_OF_RANGE = 0.05
+    /** After a touch, price must recover at least this fraction of bar range away to count one bounce. */
+    const val BOUNCE_RECOVERY_RATIO_OF_RANGE = 0.15
+    /** Default minimum qualified bounces off the fade extreme when bounce rejection is enabled. */
+    const val REQUIRED_EXTREME_BOUNCE_COUNT = 2
     /** Maximum minutes after RTH open before auto-stop when [openDeadline] is enabled. */
     const val STOP_AFTER_OPEN_MINUTES = 90
     /** Favorable move (fraction of entry→take-profit) before stop converts to trailing. */

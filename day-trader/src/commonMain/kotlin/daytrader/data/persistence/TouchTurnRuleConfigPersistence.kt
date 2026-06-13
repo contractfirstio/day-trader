@@ -17,10 +17,14 @@ object TouchTurnRuleConfigPersistence {
                 stopAfterOpenMinutes = it.stopAfterOpenMinutes,
                 trailingStopTriggerFractionOfEntryToTp = it.trailingStopTriggerFractionOfEntryToTp,
                 trailingStopTrailFractionOfEntryToStop = it.trailingStopTrailFractionOfEntryToStop,
+                requiredExtremeBounceCount = it.requiredExtremeBounceCount,
+                bounceTouchZoneRatioOfRange = it.bounceTouchZoneRatioOfRange,
+                bounceRecoveryRatioOfRange = it.bounceRecoveryRatioOfRange,
                 enables = TouchTurnRuleEnables(
                     liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
                     openDeadline = it.enableOpenDeadline,
-                    adjustableTrailingStop = it.enableAdjustableTrailingStop
+                    adjustableTrailingStop = it.enableAdjustableTrailingStop,
+                    bounceRejection = it.enableBounceRejection
                 )
             )
         } ?: TouchTurnRuleConfig.DEFAULT
@@ -37,8 +41,12 @@ object TouchTurnRuleConfigPersistence {
             stopAfterOpenMinutes = config.stopAfterOpenMinutes,
             trailingStopTriggerFractionOfEntryToTp = config.trailingStopTriggerFractionOfEntryToTp,
             trailingStopTrailFractionOfEntryToStop = config.trailingStopTrailFractionOfEntryToStop,
+            requiredExtremeBounceCount = config.requiredExtremeBounceCount,
+            bounceTouchZoneRatioOfRange = config.bounceTouchZoneRatioOfRange,
+            bounceRecoveryRatioOfRange = config.bounceRecoveryRatioOfRange,
             enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
             enableOpenDeadline = config.enables.openDeadline,
-            enableAdjustableTrailingStop = config.enables.adjustableTrailingStop
+            enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,
+            enableBounceRejection = config.enables.bounceRejection
         )
 }

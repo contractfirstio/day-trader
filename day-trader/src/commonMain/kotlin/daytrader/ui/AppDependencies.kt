@@ -16,6 +16,8 @@ import daytrader.data.RunningSessionShutdown
 import daytrader.diagnostics.SessionPriceLog
 import daytrader.domain.InstrumentIdentity
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.TouchTurnOpeningBarPriceSample
+import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.StrategyDeployment
 import daytrader.engine.LoggingTouchTurnEngine
@@ -185,6 +187,15 @@ fun rememberAppDependencies(
                 releaseLiveMarketData = releaseLiveMarketData
             )
             val execution = executionManager ?: BrokerGatewayExecutionManager(executionGateway)
+            val supplementalOpeningBarQuotes:
+                (StrategyDeployment, TouchTurnSessionContext) -> List<TouchTurnOpeningBarPriceSample> =
+                if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null) {
+                    { deployment, session ->
+                        replayHybridRuntime.openingBarQuotes(deployment.symbol, session)
+                    }
+                } else {
+                    { _, _ -> emptyList() }
+                }
             val engine = TouchTurnEngine(
                 marketData = marketData,
                 execution = execution,
@@ -196,6 +207,7 @@ fun rememberAppDependencies(
                 delayMillis = tradingClock::delayMillis,
                 onReplaySessionStarting = onReplaySessionStarting,
                 activateReplayCapture = activateReplayCapture,
+                supplementalOpeningBarQuotes = supplementalOpeningBarQuotes,
                 sessionGateway = session,
                 executionGateway = executionGateway,
                 liquidityBucketRepository = liquidityBucketRepository
