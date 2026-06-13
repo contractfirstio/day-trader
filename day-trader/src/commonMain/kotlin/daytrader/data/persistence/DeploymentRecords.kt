@@ -107,37 +107,18 @@ data class TouchTurnBracketSetupRecord(
 @Serializable
 data class TouchTurnRuleConfigRecord(
     val atrLiquidityRatio: Double = 0.25,
-    val volumeExhaustionRatio: Double = 1.5,
-    val atrLookbackPeriods: Int = 14,
-    val volumeSmaPeriods: Int = 20,
-    val closePositionShortMax: Double = 0.45,
-    val closePositionLongMin: Double = 0.55,
-    val barLiveDivergenceMaxRatioOfRange: Double = 0.25,
-    val entryTouchBufferRatioOfRange: Double = 0.05,
+    val dailyAtrLookbackPeriods: Int = 14,
     val entryInwardOffsetRatioOfRange: Double = 0.02,
     val takeProfitFibRatioGreen: Double = 0.382,
     val takeProfitFibRatioRed: Double = 0.382,
     val takeProfitToStopLossRatio: Double = 2.0,
-    val closeConfirmationAfterCloseMs: Long = 60_000L,
     val closedBarRefetchSettleMs: Long = 3_000L,
-    val volumeBufferObservationMs: Long = 60_000L,
-    val enableLiquidityRange: Boolean = true,
-    val enableLiquidityRange15mAtr: Boolean? = null,
+    val stopAfterOpenMinutes: Int = 90,
+    val trailingStopTriggerFractionOfEntryToTp: Double = 0.5,
+    val trailingStopTrailFractionOfEntryToStop: Double = 0.5,
     val enableLiquidityRangeDailyAtr: Boolean = false,
-    val dailyAtrLookbackPeriods: Int = 14,
-    val enableNotDoji: Boolean = false,
-    val enableVolumeExhaustion: Boolean = true,
-    val enableBarCloseTurn: Boolean = true,
-    val enableEntryWindow: Boolean = true,
-    val enableLiveQuoteRequired: Boolean = true,
-    val enableLiveBarAgreement: Boolean = true,
-    val enableLiveTurnConfirmation: Boolean = true,
-    val enableLiveEntryTouchable: Boolean = true,
-    val enablePostEntryVolumeBuffer: Boolean = true,
     val enableOpenDeadline: Boolean = false,
-    val enableMacroTrendAlignment: Boolean = false,
-    val enableStockTrendAlignment: Boolean = false,
-    val stopAfterOpenMinutes: Int = 90
+    val enableAdjustableTrailingStop: Boolean = true
 )
 
 @Serializable

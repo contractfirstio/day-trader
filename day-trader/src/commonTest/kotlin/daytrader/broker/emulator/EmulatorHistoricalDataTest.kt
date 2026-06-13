@@ -244,14 +244,11 @@ class EmulatorHistoricalDataTest {
             FirstCandleCloseStatus.FORMING,
             TouchTurnLogic.firstCandleCloseStatus(ctx.firstCandle, zone, now)
         )
-        assertTrue(
-            !TouchTurnLogic.isVolumeExhaustion(ctx.firstCandle.volume, ctx.volumeSma20),
-            "opening volume=${ctx.firstCandle.volume} sma=${ctx.volumeSma20}"
-        )
+        assertEquals(0.0, ctx.volumeSma20)
     }
 
     @Test
-    fun touchTurnSignalContext_acceleratedCandle_hasAtrAndVolumeSma() {
+    fun touchTurnSignalContext_acceleratedCandle_hasDailyAtrWhenEnabled() {
         val instrument = EmulatorSeedCatalog.instruments()["700"]
             ?: EmulatorSeedCatalog.instruments().values.first()
         val symbol = EmulatorSeedCatalog.instruments().entries
@@ -266,8 +263,8 @@ class EmulatorHistoricalDataTest {
         )
         assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
         val ctx = result.getOrThrow()
-        assertTrue(ctx.atr14 > 0.0)
-        assertTrue(ctx.volumeSma20 > 0.0)
+        assertEquals(0.0, ctx.atr14)
+        assertEquals(0.0, ctx.volumeSma20)
         assertTrue(ctx.firstCandle.volume > 0.0)
     }
 

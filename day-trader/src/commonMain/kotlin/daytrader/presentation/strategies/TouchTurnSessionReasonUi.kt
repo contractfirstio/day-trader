@@ -7,7 +7,6 @@ import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
-import daytrader.domain.TouchTurnTrendAlignment
 
 enum class TouchTurnReasonSeverity {
     Info,
@@ -59,19 +58,11 @@ object TouchTurnSessionReasonUi {
             detail = "Opening bar volume exceeded the exhaustion threshold (high-conviction breakout filter). Bracket orders were not placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
-        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED -> {
-            val macro = session?.macroTrendAtEntry?.name?.lowercase() ?: "unknown"
-            val benchmark = session?.macroBenchmarkLabel ?: "home market index"
-            val required = session?.setup?.let { setup ->
-                TouchTurnTrendAlignment.requiredMacroTrend(setup)?.name?.lowercase()
-            } ?: "aligned macro"
-            TouchTurnSessionStatusUi(
-                headline = "No trade — macro trend misaligned",
-                detail = "Macro trend alignment is enabled. $benchmark was $macro but this fade requires $required " +
-                    "(green short → bear, red long → bull). Bracket orders were not placed.",
-                severity = TouchTurnReasonSeverity.Warning
-            )
-        }
+        TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED -> TouchTurnSessionStatusUi(
+            headline = "No trade — macro trend misaligned",
+            detail = "Macro trend alignment blocked entry on a prior strategy version. Bracket orders were not placed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE -> {
             val benchmark = session?.macroBenchmarkLabel ?: "home market index"
             TouchTurnSessionStatusUi(
@@ -81,18 +72,11 @@ object TouchTurnSessionReasonUi {
                 severity = TouchTurnReasonSeverity.Warning
             )
         }
-        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED -> {
-            val stock = session?.stockTrendAtEntry?.name?.lowercase() ?: "unknown"
-            val required = session?.setup?.let { setup ->
-                TouchTurnTrendAlignment.requiredStockTrend(setup)?.name?.lowercase()
-            } ?: "aligned trend"
-            TouchTurnSessionStatusUi(
-                headline = "No trade — stock trend misaligned",
-                detail = "Stock trend alignment is enabled. The symbol was trending $stock but this fade requires " +
-                    "$required (green short → down, red long → up). Bracket orders were not placed.",
-                severity = TouchTurnReasonSeverity.Warning
-            )
-        }
+        TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED -> TouchTurnSessionStatusUi(
+            headline = "No trade — stock trend misaligned",
+            detail = "Stock trend alignment blocked entry on a prior strategy version. Bracket orders were not placed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE -> TouchTurnSessionStatusUi(
             headline = "No trade — stock trend unavailable",
             detail = "Stock trend alignment is enabled but daily trend data could not be gathered from IB. " +
@@ -330,13 +314,11 @@ object TouchTurnSessionReasonUi {
         return when {
             setup == null -> "Bracket setup is not ready yet."
             !setup.isLiquidityCandle -> "Bar failed the liquidity range check."
-            session.rules.enables.notDoji && !setup.isActionable ->
-                "Bar is not actionable (doji / flat)."
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.FAILED ->
                 "Close confirmation failed — entry band not satisfied."
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.EXPIRED ->
                 "Close confirmation window expired."
-            else -> "A gate blocked entry (volume exhaustion or confirmation still pending)."
+            else -> "A gate blocked entry (liquidity or confirmation still pending)."
         }
     }
 

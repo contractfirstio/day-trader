@@ -34,7 +34,6 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.requiresDailyHistoricalBootstrap
-import daytrader.domain.requiresDeep15mHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.AccountPosition
@@ -1805,11 +1804,7 @@ class DesktopIbGatewayConnection(
         if (rules.enables.requiresDailyHistoricalBootstrap()) {
             requestDailyBarsForSignalContext(gatewayRequestId, trimmed, instrument, marketZoneId)
         }
-        val fifteenMinuteDuration = if (rules.enables.requiresDeep15mHistoricalBootstrap()) {
-            TOUCH_TURN_HISTORICAL_DURATION
-        } else {
-            TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
-        }
+        val fifteenMinuteDuration = TOUCH_TURN_OPENING_BAR_HISTORY_DURATION
         val contract = IbContractMapper.contractForSymbol(trimmed, instrument)
         scheduleHistoricalRequestTimeout(reqId, TOUCH_TURN_HISTORICAL_TIMEOUT_MS) {
             cancelTouchTurnHistorical(reqId)

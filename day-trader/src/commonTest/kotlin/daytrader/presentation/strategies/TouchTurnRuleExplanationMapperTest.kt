@@ -34,7 +34,7 @@ class TouchTurnRuleExplanationMapperTest {
             verboseExplanations = true,
             requireLivePriceChecks = false
         )
-        val liquidity = checks.first { it.key == "liquidityRange15mAtr" }
+        val liquidity = checks.first { it.key == "liquidityRangeDailyAtr" }
         assertTrue(liquidity.enabled)
         assertTrue(liquidity.explanationSteps.size >= 4)
         assertTrue(liquidity.explanationSteps.last().startsWith("Result:"))
@@ -44,7 +44,7 @@ class TouchTurnRuleExplanationMapperTest {
     fun buildChecks_disabledRuleOmitsStepsWhenVerbose() {
         val session = sampleSession().copy(
             rules = TouchTurnRuleConfig.DEFAULT.copy(
-                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange15mAtr = false)
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = false)
             )
         )
         val checks = TouchTurnRuleExplanationMapper.buildChecks(
@@ -53,7 +53,7 @@ class TouchTurnRuleExplanationMapperTest {
             verboseExplanations = true,
             requireLivePriceChecks = false
         )
-        val liquidity = checks.first { it.key == "liquidityRange15mAtr" }
+        val liquidity = checks.first { it.key == "liquidityRangeDailyAtr" }
         assertFalse(liquidity.enabled)
         assertTrue(liquidity.explanationSteps.isEmpty())
     }
@@ -91,9 +91,12 @@ class TouchTurnRuleExplanationMapperTest {
             setup = setup,
             marketZoneId = "America/New_York",
             currencyCode = "USD",
-            atr14 = 10.0,
+            dailyAtr14 = 10.0,
             volumeSma20 = 40_000.0,
             rangeThreshold = 2.5,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+            ),
             entryOrdersPermitted = true,
             milestones = daytrader.domain.TouchTurnMilestoneTimestamps(
                 liquidityEvaluatedAt = "2026-05-22T09:45:01"

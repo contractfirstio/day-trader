@@ -52,7 +52,7 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val rules = touchTurnRules ?: TouchTurnRuleConfig.DEFAULT
-    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(atr14, dailyAtr14, rules)
+    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(dailyAtr14, rules)
     val priorSession = touchTurnSession
     val prior = priorSession?.milestones
     val prepareSnapshot = when {
@@ -81,7 +81,7 @@ fun StrategyDeployment.withFirstFifteenMinuteCandle(
             atr14 = atr14,
             dailyAtr14 = dailyAtr14,
             volumeSma20 = volumeSma20,
-            rangeThreshold = thresholds.threshold15mAtr ?: thresholds.primary,
+            rangeThreshold = thresholds.primary,
             rangeThresholdDailyAtr = thresholds.thresholdDailyAtr,
             rules = rules,
             milestones = TouchTurnMilestoneTimestamps(
@@ -121,15 +121,7 @@ fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): Stra
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
 fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     enforceCloseConfirmation: Boolean = true,
-    nowEpochMillis: Long = System.currentTimeMillis(),
-    liveBid: Double? = null,
-    liveAsk: Double? = null,
-    liveLast: Double? = null,
-    requireLivePriceChecks: Boolean = false,
-    macroTrend: MacroTrendState? = null,
-    stockTrend: StockTrendState? = null,
-    macroBenchmarkSymbol: String? = null,
-    macroBenchmarkLabel: String? = null
+    nowEpochMillis: Long = System.currentTimeMillis()
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
@@ -141,17 +133,9 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val gate = TouchTurnLogic.evaluateEntryGate(
         setup = setup,
         candle = candle,
-        volumeSma20 = session.volumeSma20 ?: 0.0,
         marketZoneId = session.marketZoneId,
         nowEpochMillis = nowEpochMillis,
         sessionDateIso = session.sessionDate,
-        enforceCloseConfirmation = enforceCloseConfirmation,
-        liveBid = liveBid,
-        liveAsk = liveAsk,
-        liveLast = liveLast,
-        requireLivePriceChecks = requireLivePriceChecks,
-        macroTrend = macroTrend,
-        stockTrend = stockTrend,
         rules = rules
     )
     val closeConfirmation = gate.closeConfirmation
@@ -172,10 +156,6 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         setup = setup,
         entryOrdersPermitted = entryOrdersPermitted,
         decisionOutcome = decisionOutcome ?: session.decisionOutcome,
-        macroTrendAtEntry = macroTrend ?: session.macroTrendAtEntry,
-        stockTrendAtEntry = stockTrend ?: session.stockTrendAtEntry,
-        macroBenchmarkSymbol = macroBenchmarkSymbol ?: session.macroBenchmarkSymbol,
-        macroBenchmarkLabel = macroBenchmarkLabel ?: session.macroBenchmarkLabel,
         milestones = milestones
     )
     TouchTurnDecisionLog.liquidityEvaluated(
@@ -359,11 +339,11 @@ fun StrategySession.toTouchTurnAnalysisContext(
     val adr = inputs?.adr14
     val atr = inputs?.atr14
     val dailyAtr = inputs?.dailyAtr14
-    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(atr, dailyAtr, rules).let { resolved ->
+    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(dailyAtr, rules).let { resolved ->
         if (resolved.primary > 0.0) resolved else {
-            val legacy = atr?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
+            val legacy = dailyAtr?.let { TouchTurnLogic.liquidityRangeThresholdFromDailyAtr(it, rules) }
                 ?: adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
-            TouchTurnLiquidityThresholds(threshold15mAtr = legacy)
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = legacy)
         }
     }
     val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, thresholds, rules) }
@@ -393,7 +373,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
         atr14 = atr,
         dailyAtr14 = dailyAtr,
         volumeSma20 = inputs?.volumeSma20,
-        rangeThreshold = thresholds.threshold15mAtr ?: thresholds.primary,
+        rangeThreshold = thresholds.primary,
         rangeThresholdDailyAtr = thresholds.thresholdDailyAtr,
         rules = rules,
         entryOrdersPermitted = when (outcome) {

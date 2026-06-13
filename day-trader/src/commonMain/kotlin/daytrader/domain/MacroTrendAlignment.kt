@@ -229,34 +229,6 @@ object StockTrendEvaluator {
     }
 }
 
-/**
- * Touch Turn fade alignment: green short only in bear/down tape, red long only in bull/up tape.
- * Does not implement continuation entries (e.g. bear + red short).
- */
-object TouchTurnTrendAlignment {
-    fun requiredMacroTrend(setup: TouchTurnBracketSetup): MacroTrendState? = when (setup.candleColor) {
-        FirstCandleColor.GREEN -> MacroTrendState.BEAR
-        FirstCandleColor.RED -> MacroTrendState.BULL
-        FirstCandleColor.DOJI -> null
-    }
-
-    fun requiredStockTrend(setup: TouchTurnBracketSetup): StockTrendState? = when (setup.candleColor) {
-        FirstCandleColor.GREEN -> StockTrendState.DOWN
-        FirstCandleColor.RED -> StockTrendState.UP
-        FirstCandleColor.DOJI -> null
-    }
-
-    fun macroTrendAligned(setup: TouchTurnBracketSetup, actual: MacroTrendState?): Boolean {
-        val required = requiredMacroTrend(setup) ?: return true
-        return actual == required
-    }
-
-    fun stockTrendAligned(setup: TouchTurnBracketSetup, actual: StockTrendState?): Boolean {
-        val required = requiredStockTrend(setup) ?: return true
-        return actual == required
-    }
-}
-
 object ContextualAlignmentEvaluator {
     fun badgeLabel(score: Int, macroTrend: MacroTrendState?): ReversalScoreAlignmentBadge {
         if (macroTrend == null || score in 21..79) {

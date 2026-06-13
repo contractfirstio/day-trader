@@ -82,10 +82,8 @@ data class TouchTurnRunMarketInputs(
     val atr14: Double? = null,
     /** Wilder daily ATR(14) on completed daily bars (ProReal-style liquidity input). */
     val dailyAtr14: Double? = null,
-    /** 20-period SMA of prior session-opening 15m bar volume. */
+    /** Legacy field — volume gates removed. */
     val volumeSma20: Double? = null,
-    /** Volume exhaustion gate at liquidity evaluation (if bar + SMA were available). */
-    val volumeCheck: TouchTurnVolumeCheck? = null,
     val currencyCode: String = "USD",
     val marketZoneId: String = "America/New_York",
     val dataErrorMessage: String? = null
@@ -137,7 +135,7 @@ fun resolveTouchTurnSessionOutcome(session: TouchTurnSessionContext): TouchTurnS
     val setup = session.setup ?: return TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
     val liquidityEvaluatedAt = session.milestones.liquidityEvaluatedAt?.let(::parseIsoToEpochMillis)
     val evalInstant = liquidityEvaluatedAt ?: System.currentTimeMillis()
-    TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted = false, session.rules)?.let { return it }
+    TouchTurnLogic.barSetupBlockOutcome(setup, session.rules)?.let { return it }
     when (session.entryOrdersPermitted) {
         true ->
             return if (session.ordersPlacedForSession) {
@@ -245,7 +243,6 @@ fun buildTouchTurnRunRecord(
             atr14 = touchTurnSession.atr14,
             dailyAtr14 = touchTurnSession.dailyAtr14,
             volumeSma20 = touchTurnSession.volumeSma20,
-            volumeCheck = TouchTurnVolumeCheck.fromSession(touchTurnSession),
             currencyCode = touchTurnSession.currencyCode,
             marketZoneId = touchTurnSession.marketZoneId,
             dataErrorMessage = touchTurnSession.errorMessage

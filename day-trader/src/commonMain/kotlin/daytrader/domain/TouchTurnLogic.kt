@@ -310,22 +310,23 @@ object TouchTurnLogic {
         FirstCandleCloseStatus.UNKNOWN -> "Close status unknown"
     }
 
+    /**
+     * Legacy entry-window helpers retained for pipeline UI labels on closed sessions.
+     */
     fun entryWindowDeadlineEpochMillis(
         barTime: String,
-        marketZoneId: String,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Long? = barEndEpochMillis(barTime, marketZoneId)?.plus(rules.closeConfirmationAfterCloseMs)
+        marketZoneId: String
+    ): Long? = barEndEpochMillis(barTime, marketZoneId)?.plus(60_000L)
 
     fun entryWindowStatus(
         barTime: String?,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis(),
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        nowEpochMillis: Long = System.currentTimeMillis()
     ): TouchTurnEntryWindowStatus {
         val time = barTime ?: return TouchTurnEntryWindowStatus.UNKNOWN
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return TouchTurnEntryWindowStatus.UNKNOWN
         if (nowEpochMillis < barEnd) return TouchTurnEntryWindowStatus.AWAITING_BAR_CLOSE
-        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId, rules)
+        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId)
             ?: return TouchTurnEntryWindowStatus.UNKNOWN
         return if (nowEpochMillis <= deadline) {
             TouchTurnEntryWindowStatus.WITHIN_WINDOW
@@ -337,13 +338,12 @@ object TouchTurnLogic {
     fun entryWindowRemainingMillis(
         barTime: String?,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis(),
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        nowEpochMillis: Long = System.currentTimeMillis()
     ): Long? {
         val time = barTime ?: return null
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return null
         if (nowEpochMillis < barEnd) return null
-        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId, rules) ?: return null
+        val deadline = entryWindowDeadlineEpochMillis(time, marketZoneId) ?: return null
         return (deadline - nowEpochMillis).coerceAtLeast(0)
     }
 
@@ -354,21 +354,14 @@ object TouchTurnLogic {
         TouchTurnEntryWindowStatus.UNKNOWN -> "Entry window unknown"
     }
 
-    /**
-     * Hybrid/live-IB liquidity eval needs streaming bid/ask. Defer until quotes arrive or the
-     * post-close entry window expires (avoids one-shot [NO_TRADE_LIVE_QUOTE_UNAVAILABLE] right after refetch).
-     */
+    /** Volume and live-quote gates removed — liquidity evaluation is never deferred. */
     fun deferLiquidityEvaluationForLiveQuotes(
         requireLivePriceChecks: Boolean,
         liveBid: Double?,
         liveAsk: Double?,
         entryWindowStatus: TouchTurnEntryWindowStatus,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean =
-        rules.enables.liveQuoteRequired &&
-            requireLivePriceChecks &&
-            (liveBid == null || liveAsk == null) &&
-            (!rules.enables.entryWindow || entryWindowStatus == TouchTurnEntryWindowStatus.WITHIN_WINDOW)
+    ): Boolean = false
 
     fun closeConfirmation(
         candle: OhlcBar?,
@@ -385,63 +378,49 @@ object TouchTurnLogic {
             return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         }
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
-        if ((rules.enables.requiresLiquidityRange() && !bracket.isLiquidityCandle) ||
-            (rules.enables.notDoji && !bracket.isActionable)
-        ) {
+        if (rules.enables.requiresLiquidityRange() && !bracket.isLiquidityCandle) {
             return TouchTurnCloseConfirmation.FAILED
         }
-        if (rules.enables.entryWindow &&
-            !closeConfirmationWithinDeadline(bar, marketZoneId, nowEpochMillis, rules)
-        ) {
-            return TouchTurnCloseConfirmation.EXPIRED
-        }
-        if (!rules.enables.barCloseTurn) {
-            return TouchTurnCloseConfirmation.PASSED
-        }
-        val passes = closeConfirmsTurn(bracket, bar, rules)
-        return if (passes) TouchTurnCloseConfirmation.PASSED else TouchTurnCloseConfirmation.FAILED
+        return TouchTurnCloseConfirmation.PASSED
     }
 
-    /** True when [nowEpochMillis] is within one minute after the 15m bar close. */
+    /** Legacy helper retained for pipeline UI on closed sessions. */
     fun closeConfirmationWithinDeadline(
         candle: OhlcBar,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis(),
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        nowEpochMillis: Long = System.currentTimeMillis()
     ): Boolean {
         val time = candle.time ?: return false
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return false
-        return nowEpochMillis >= barEnd &&
-            nowEpochMillis <= barEnd + rules.closeConfirmationAfterCloseMs
+        return nowEpochMillis >= barEnd && nowEpochMillis <= barEnd + 60_000L
     }
 
     fun closeConfirmationRemainingMillis(
         candle: OhlcBar?,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis(),
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        nowEpochMillis: Long = System.currentTimeMillis()
     ): Long? {
         val time = candle?.time ?: return null
         val barEnd = barEndEpochMillis(time, marketZoneId) ?: return null
         if (nowEpochMillis < barEnd) return null
-        val deadline = barEnd + rules.closeConfirmationAfterCloseMs
+        val deadline = barEnd + 60_000L
         return (deadline - nowEpochMillis).coerceAtLeast(0)
     }
 
     /**
-     * Close must sit in the turn zone of the 15m range: lower band for shorts (green),
-     * upper band for longs (red).
+     * Legacy turn-zone helpers retained for pipeline UI on closed sessions.
      */
     fun closePositionInTurnZone(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,
         price: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        closePositionShortMax: Double = 0.45,
+        closePositionLongMin: Double = 0.55
     ): Boolean {
         val ratio = closePositionRatioForPrice(bar, price) ?: return false
         return when (setup.candleColor) {
-            FirstCandleColor.GREEN -> ratio <= rules.closePositionShortMax
-            FirstCandleColor.RED -> ratio >= rules.closePositionLongMin
+            FirstCandleColor.GREEN -> ratio <= closePositionShortMax
+            FirstCandleColor.RED -> ratio >= closePositionLongMin
             FirstCandleColor.DOJI -> false
         }
     }
@@ -452,48 +431,33 @@ object TouchTurnLogic {
         return ((price - bar.low) / range).coerceIn(0.0, 1.0)
     }
 
-    /** Turn confirmed when [price] sits in the bar's turn zone. */
+    /** Legacy helper retained for pipeline UI on closed sessions. */
     fun confirmsTurnAtPrice(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,
-        price: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = closePositionInTurnZone(setup, bar, price, rules)
+        price: Double
+    ): Boolean = closePositionInTurnZone(setup, bar, price)
 
     fun closeConfirmsTurn(
         setup: TouchTurnBracketSetup,
-        bar: OhlcBar,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = confirmsTurnAtPrice(setup, bar, bar.close, rules)
+        bar: OhlcBar
+    ): Boolean = confirmsTurnAtPrice(setup, bar, bar.close)
 
-    fun entryTouchBuffer(
-        setup: TouchTurnBracketSetup,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double = setup.range * rules.entryTouchBufferRatioOfRange
-
-    /**
-     * True when a resting limit at [setup.entry] can still represent a touch fill (live price has not
-     * already blown through the level beyond [entryTouchBuffer]).
-     */
+    /** Legacy helper retained for liquidity allocator UI. */
     fun liveEntryTouchable(
         setup: TouchTurnBracketSetup,
         bid: Double,
-        ask: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean {
-        val buffer = entryTouchBuffer(setup, rules)
-        return when (setup.side) {
-            TouchTurnTradeSide.LONG -> ask >= setup.entry - buffer
-            TouchTurnTradeSide.SHORT -> bid <= setup.entry + buffer
-        }
+        ask: Double
+    ): Boolean = when (setup.side) {
+        TouchTurnTradeSide.LONG -> ask >= setup.entry
+        TouchTurnTradeSide.SHORT -> bid <= setup.entry
     }
 
     fun liveCloseConfirmsTurn(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,
-        livePrice: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = confirmsTurnAtPrice(setup, bar, livePrice, rules)
+        livePrice: Double
+    ): Boolean = confirmsTurnAtPrice(setup, bar, livePrice)
 
     /**
      * Single live price for close-confirmation gates: bid/ask mid when the spread is present,
@@ -504,18 +468,15 @@ object TouchTurnLogic {
         return last?.takeIf { it > 0.0 }
     }
 
-    /**
-     * True when [liveMid] is within [TouchTurnDefaults.BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE] of the
-     * completed bar's close — rejects trading a turn when the live tape has already gapped from the bar.
-     */
+    /** Legacy helper retained for pipeline UI on closed sessions. */
     fun barCloseAgreesWithLiveMid(
         bar: OhlcBar,
         liveMid: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        maxDivergenceRatioOfRange: Double = 0.25
     ): Boolean {
         val range = bar.range
         if (range <= 0.0) return false
-        val maxGap = range * rules.barLiveDivergenceMaxRatioOfRange
+        val maxGap = range * maxDivergenceRatioOfRange
         return kotlin.math.abs(bar.close - liveMid) <= maxGap
     }
 
@@ -523,51 +484,14 @@ object TouchTurnLogic {
     fun setupActionableForEntry(
         setup: TouchTurnBracketSetup,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = (setup.isLiquidityCandle || !rules.enables.requiresLiquidityRange()) &&
-        (setup.candleColor != FirstCandleColor.DOJI || !rules.enables.notDoji)
+    ): Boolean = setup.isLiquidityCandle || !rules.enables.requiresLiquidityRange()
 
     fun barSetupBlockOutcome(
         setup: TouchTurnBracketSetup,
-        volumeExhausted: Boolean,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnSessionOutcome? {
-        val enables = rules.enables
-        return when {
-            enables.volumeExhaustion && volumeExhausted -> TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION
-            enables.requiresLiquidityRange() && !setup.isLiquidityCandle -> TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-            enables.notDoji && !setup.isActionable -> TouchTurnSessionOutcome.NO_TRADE_DOJI
-            else -> null
-        }
-    }
-
-    fun trendAlignmentBlockOutcome(
-        setup: TouchTurnBracketSetup,
-        macroTrend: MacroTrendState?,
-        stockTrend: StockTrendState?,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): TouchTurnSessionOutcome? {
-        val enables = rules.enables
-        if (enables.macroTrendAlignment) {
-            when (TouchTurnTrendAlignment.requiredMacroTrend(setup)) {
-                null -> Unit
-                else -> when (macroTrend) {
-                    null -> return TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE
-                    else -> if (!TouchTurnTrendAlignment.macroTrendAligned(setup, macroTrend)) {
-                        return TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED
-                    }
-                }
-            }
-        }
-        if (enables.stockTrendAlignment) {
-            when (TouchTurnTrendAlignment.requiredStockTrend(setup)) {
-                null -> Unit
-                else -> when (stockTrend) {
-                    null -> return TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE
-                    else -> if (!TouchTurnTrendAlignment.stockTrendAligned(setup, stockTrend)) {
-                        return TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_MISALIGNED
-                    }
-                }
-            }
+        if (rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle) {
+            return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         }
         return null
     }
@@ -579,29 +503,15 @@ object TouchTurnLogic {
         val closeGatePassed: Boolean
     )
 
-    /**
-     * Consolidated go/no-go for bracket entry after the opening 15m bar closes.
-     * Layers: bar qualifies → volume → turn confirmation (bar + optional live) → entry viability.
-     */
+    /** Consolidated go/no-go for bracket entry after the opening 15m bar closes (liquidity only). */
     fun evaluateEntryGate(
         setup: TouchTurnBracketSetup,
         candle: OhlcBar,
-        volumeSma20: Double,
         marketZoneId: String,
         nowEpochMillis: Long,
         sessionDateIso: String?,
-        enforceCloseConfirmation: Boolean,
-        liveBid: Double?,
-        liveAsk: Double?,
-        liveLast: Double?,
-        requireLivePriceChecks: Boolean,
-        macroTrend: MacroTrendState? = null,
-        stockTrend: StockTrendState? = null,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): EntryGateResult {
-        val enables = rules.enables
-        val volumeExhausted = enables.volumeExhaustion &&
-            isVolumeExhaustion(candle.volume, volumeSma20, rules)
         val closeConfirmation = closeConfirmation(
             candle,
             setup,
@@ -610,7 +520,7 @@ object TouchTurnLogic {
             sessionDateIso,
             rules
         )
-        barSetupBlockOutcome(setup, volumeExhausted, rules)?.let { outcome ->
+        barSetupBlockOutcome(setup, rules)?.let { outcome ->
             return EntryGateResult(
                 entryOrdersPermitted = false,
                 decisionOutcome = outcome,
@@ -618,47 +528,11 @@ object TouchTurnLogic {
                 closeGatePassed = false
             )
         }
-        trendAlignmentBlockOutcome(setup, macroTrend, stockTrend, rules)?.let { outcome ->
-            return EntryGateResult(
-                entryOrdersPermitted = false,
-                decisionOutcome = outcome,
-                closeConfirmation = closeConfirmation,
-                closeGatePassed = false
-            )
-        }
-
-        val barCloseOk = !enables.barCloseTurn || !enforceCloseConfirmation ||
-            closeConfirmation == TouchTurnCloseConfirmation.PASSED
-        val liveGatePrice = resolveLiveMid(liveBid, liveAsk, liveLast)
-        val liveQuoteOk = !enables.liveQuoteRequired || !requireLivePriceChecks ||
-            (liveBid != null && liveAsk != null)
-        val liveCloseOk = !enables.liveTurnConfirmation || !requireLivePriceChecks ||
-            (liveGatePrice != null && confirmsTurnAtPrice(setup, candle, liveGatePrice, rules))
-        val liveEntryOk = !enables.liveEntryTouchable || !requireLivePriceChecks ||
-            (liveBid != null && liveAsk != null && liveEntryTouchable(setup, liveBid, liveAsk, rules))
-        val closeGatePassed = barCloseOk && liveCloseOk
-        val entryOrdersPermitted = setupActionableForEntry(setup, rules) &&
-            !volumeExhausted &&
-            closeGatePassed &&
-            liveQuoteOk &&
-            liveEntryOk
+        val closeGatePassed = closeConfirmation == TouchTurnCloseConfirmation.PASSED
+        val entryOrdersPermitted = setupActionableForEntry(setup, rules) && closeGatePassed
         val decisionOutcome = when {
-            enables.entryWindow && enforceCloseConfirmation &&
-                closeConfirmation == TouchTurnCloseConfirmation.EXPIRED ->
-                TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED
-            enables.barCloseTurn && enforceCloseConfirmation &&
-                closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
-                TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
-            enables.liveQuoteRequired && requireLivePriceChecks && !liveQuoteOk ->
-                TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
-            enables.liveBarAgreement && requireLivePriceChecks && liveGatePrice != null &&
-                !barCloseAgreesWithLiveMid(candle, liveGatePrice, rules) ->
-                TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE
-            enables.liveTurnConfirmation && requireLivePriceChecks && liveGatePrice != null && !liveCloseOk ->
-                TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED
-            enables.liveEntryTouchable && requireLivePriceChecks && liveBid != null && liveAsk != null &&
-                !liveEntryOk ->
-                TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE
+            closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
+                TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
             else -> null
         }
         return EntryGateResult(
@@ -968,8 +842,10 @@ object TouchTurnLogic {
             candle,
             candle?.time,
             marketZoneId,
-            TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
-            TouchTurnRuleConfig.DEFAULT,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = rangeThreshold),
+            TouchTurnRuleConfig.DEFAULT.copy(
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+            ),
             nowEpochMillis,
             sessionDateIso
         )
@@ -986,8 +862,10 @@ object TouchTurnLogic {
             candle,
             barTime,
             marketZoneId,
-            TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
-            TouchTurnRuleConfig.DEFAULT,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = rangeThreshold),
+            TouchTurnRuleConfig.DEFAULT.copy(
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+            ),
             nowEpochMillis,
             sessionDateIso
         )
@@ -1018,15 +896,9 @@ object TouchTurnLogic {
     fun isLiquidityCandle(bar: OhlcBar, rangeThreshold: Double): Boolean = bar.range >= rangeThreshold
 
     fun resolveLiquidityThresholds(
-        atr14: Double?,
         dailyAtr14: Double?,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnLiquidityThresholds = TouchTurnLiquidityThresholds(
-        threshold15mAtr = if (rules.enables.liquidityRange15mAtr) {
-            atr14?.takeIf { it > 0.0 }?.let { liquidityRangeThresholdFromAtr(it, rules) }
-        } else {
-            null
-        },
         thresholdDailyAtr = if (rules.enables.liquidityRangeDailyAtr) {
             dailyAtr14?.takeIf { it > 0.0 }?.let { liquidityRangeThresholdFromDailyAtr(it, rules) }
         } else {
@@ -1045,10 +917,6 @@ object TouchTurnLogic {
     ): Boolean {
         val enables = rules.enables
         if (!enables.requiresLiquidityRange()) return true
-        if (enables.liquidityRange15mAtr) {
-            val threshold = liquidityThresholds.threshold15mAtr ?: return false
-            if (bar.range < threshold) return false
-        }
         if (enables.liquidityRangeDailyAtr) {
             val threshold = liquidityThresholds.thresholdDailyAtr ?: return false
             if (bar.range < threshold) return false
@@ -1116,11 +984,6 @@ object TouchTurnLogic {
         adr14: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Double = adr14 * rules.atrLiquidityRatio
-
-    fun liquidityRangeThresholdFromAtr(
-        atr14: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double = atr14 * rules.atrLiquidityRatio
 
     fun liquidityRangeThresholdFromDailyAtr(
         dailyAtr14: Double,
@@ -1192,52 +1055,6 @@ object TouchTurnLogic {
         return Result.success(atr)
     }
 
-    fun computeVolumeSma20(
-        bars: List<OhlcBar>,
-        period: Int = TouchTurnDefaults.VOLUME_SMA_PERIODS
-    ): Result<Double> {
-        val withVolume = bars.filter { it.volume > 0.0 }
-        if (withVolume.size < period) {
-            return Result.failure(
-                IllegalStateException(
-                    "Need $period session-opening 15m bars with volume for SMA, got ${withVolume.size} " +
-                        "usable (${bars.size} session days in history — request at least " +
-                        "${TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION} of 15m bars)"
-                )
-            )
-        }
-        return Result.success(withVolume.takeLast(period).map { it.volume }.average())
-    }
-
-    /**
-     * One 15m bar per prior RTH session (scheduled open when present), sorted oldest-first.
-     * Excludes [sessionDayYyyyMmdd].
-     */
-    fun priorSessionOpeningFifteenMinuteBars(
-        bars: List<OhlcBar>,
-        marketZoneId: String,
-        sessionDayYyyyMmdd: String
-    ): List<OhlcBar> =
-        bars
-            .mapNotNull { bar -> barDayKey(bar.time)?.let { day -> day to bar } }
-            .filter { (day, _) -> day < sessionDayYyyyMmdd }
-            .groupBy({ it.first }, { it.second })
-            .mapNotNull { (day, dayBars) ->
-                resolveSessionOpeningFifteenMinuteBar(dayBars, marketZoneId, day)
-            }
-            .sortedBy { barTimeSortKey(it.time) }
-
-    /** High-conviction breakout: opening bar volume above [ratio] × volume SMA. */
-    fun isVolumeExhaustion(
-        candleVolume: Double,
-        volumeSma20: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Boolean = volumeSma20 > 0.0 && candleVolume > volumeSma20 * rules.volumeExhaustionRatio
-
-    fun volumeExhaustionThreshold(
-        volumeSma20: Double,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): Double = volumeSma20 * rules.volumeExhaustionRatio
 
     /**
      * Derives signal inputs from 15-minute history.
@@ -1263,32 +1080,6 @@ object TouchTurnLogic {
                 )
             )
         }
-        val priorForAtr = if (first != null) {
-            val firstKey = barTimeSortKey(first.time)
-            bars
-                .filter { barTimeSortKey(it.time) < firstKey }
-                .sortedBy { barTimeSortKey(it.time) }
-        } else {
-            bars
-                .filter { bar ->
-                    val day = barDayKey(bar.time) ?: return@filter false
-                    day < sessionDayYyyyMmdd
-                }
-                .sortedBy { barTimeSortKey(it.time) }
-        }
-        val atrResult = if (rules.enables.liquidityRange15mAtr) {
-            computeAtr14(priorForAtr, rules.atrLookbackPeriods)
-        } else {
-            Result.success(0.0)
-        }
-        val volumeResult = if (rules.enables.volumeExhaustion) {
-            val priorOpenings = priorSessionOpeningFifteenMinuteBars(bars, marketZoneId, sessionDayYyyyMmdd)
-            computeVolumeSma20(priorOpenings, rules.volumeSmaPeriods)
-        } else {
-            Result.success(0.0)
-        }
-        if (atrResult.isFailure) return Result.failure(atrResult.exceptionOrNull()!!)
-        if (volumeResult.isFailure) return Result.failure(volumeResult.exceptionOrNull()!!)
         val dailyAtrResult = dailyBars?.let {
             computeDailyAtr14(it, rules.dailyAtrLookbackPeriods, excludeSessionDayYyyyMmdd = sessionDayYyyyMmdd)
         }
@@ -1306,9 +1097,9 @@ object TouchTurnLogic {
         return Result.success(
             TouchTurnSignalContext(
                 firstCandle = firstCandle,
-                atr14 = atrResult.getOrThrow(),
+                atr14 = 0.0,
                 dailyAtr14 = dailyAtrResult?.getOrNull(),
-                volumeSma20 = volumeResult.getOrThrow(),
+                volumeSma20 = 0.0,
                 todayOpeningBarPending = first == null
             )
         )
@@ -1397,15 +1188,15 @@ object TouchTurnLogic {
         )
     }
 
-    /** @param rangeThreshold Legacy single threshold (treated as 15m ATR gate). */
+    /** @param rangeThreshold Legacy single threshold (treated as daily ATR gate). */
     fun computeBracketSetup(
         bar: OhlcBar,
         rangeThreshold: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnBracketSetup = computeBracketSetup(
         bar,
-        TouchTurnLiquidityThresholds(threshold15mAtr = rangeThreshold),
-        rules
+        TouchTurnLiquidityThresholds(thresholdDailyAtr = rangeThreshold),
+        rules.copy(enables = rules.enables.copy(liquidityRangeDailyAtr = true))
     )
 
     fun computeBracketSetup(

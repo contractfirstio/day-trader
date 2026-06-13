@@ -87,9 +87,8 @@ class DeploymentPersistenceTest {
     fun configurationRoundTrip_persistsTouchTurnRuleEnables() {
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
-                volumeExhaustion = false,
-                postEntryVolumeBuffer = false
+                liquidityRangeDailyAtr = false,
+                adjustableTrailingStop = false
             )
         )
         val original = defaultStrategyDeployment(
@@ -100,26 +99,20 @@ class DeploymentPersistenceTest {
 
         val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
 
-        assertEquals(false, restored.touchTurnRules?.enables?.liquidityRange15mAtr)
-        assertEquals(false, restored.touchTurnRules?.enables?.volumeExhaustion)
-        assertEquals(false, restored.touchTurnRules?.enables?.postEntryVolumeBuffer)
-        assertEquals(false, restored.touchTurnRules?.enables?.notDoji)
+        assertEquals(false, restored.touchTurnRules?.enables?.liquidityRangeDailyAtr)
+        assertEquals(false, restored.touchTurnRules?.enables?.adjustableTrailingStop)
         assertEquals(false, restored.touchTurnRules?.enables?.openDeadline)
-        assertEquals(true, restored.touchTurnRules?.enables?.barCloseTurn)
     }
 
     @Test
-    fun configurationRoundTrip_migratesLegacyEnableNotDojiTrue() {
+    fun configurationRoundTrip_migratesLegacyEnableOpenDeadlineTrue() {
         val legacyRecord = TouchTurnRuleConfigRecord(
-            enableNotDoji = true,
             enableOpenDeadline = true
         )
         val restored = TouchTurnRuleConfigPersistence.toDomain(legacyRecord)
-        assertEquals(true, restored.enables.notDoji)
         assertEquals(true, restored.enables.openDeadline)
 
         val migrated = restored.withNewConfigurableRulesDisabled()
-        assertEquals(false, migrated.enables.notDoji)
         assertEquals(false, migrated.enables.openDeadline)
     }
 
@@ -132,7 +125,6 @@ class DeploymentPersistenceTest {
             brokerKind = daytrader.gateway.BrokerKind.EMULATOR
         )
         val record = DeploymentPersistence.toRecord(original).configuration.touchTurnRules
-        assertEquals(false, record?.enableNotDoji)
         assertEquals(false, record?.enableOpenDeadline)
         assertEquals(90, record?.stopAfterOpenMinutes)
     }

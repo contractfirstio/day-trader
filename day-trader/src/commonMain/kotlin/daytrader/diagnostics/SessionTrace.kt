@@ -13,7 +13,6 @@ import daytrader.domain.isTouchTurn
 import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRunRecord
-import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.dedupeByExecId
 import daytrader.domain.sessionRealizedPnL
 import daytrader.diagnostics.LogTimestamps
@@ -227,32 +226,7 @@ object SessionTrace {
                 adr14?.let { put("adr14", it.toString()) }
                 atr14?.let { put("atr14", it.toString()) }
                 volumeSma20?.let { put("volumeSma20", it.toString()) }
-                volumeSma20?.takeIf { it > 0.0 }?.let { sma ->
-                    put("exhaustionThreshold", TouchTurnLogic.volumeExhaustionThreshold(sma).toString())
-                }
                 barTime?.let { put("barTime", it) }
-            }
-        )
-    }
-
-    /** Volume exhaustion gate snapshot for post-hoc diagnosis (application.jsonl). */
-    fun touchTurnVolumeCheck(
-        deploymentId: String,
-        sessionId: String?,
-        symbol: String,
-        check: TouchTurnVolumeCheck,
-        atr14: Double? = null,
-        decisionOutcome: String? = null
-    ) {
-        log(
-            type = "touch_turn_volume_check",
-            deploymentId = deploymentId,
-            sessionId = sessionId,
-            symbol = symbol,
-            details = buildMap {
-                putAll(check.toTraceDetails())
-                atr14?.let { put("atr14", it.toString()) }
-                decisionOutcome?.let { put("decisionOutcome", it) }
             }
         )
     }
@@ -289,15 +263,6 @@ object SessionTrace {
                 reason?.let { put("reason", it) }
                 openingBarVolume?.let { put("openingBarVolume", it.toString()) }
                 volumeSma20?.let { put("volumeSma20", it.toString()) }
-                if (openingBarVolume != null && volumeSma20 != null && volumeSma20 > 0.0) {
-                    val threshold = TouchTurnLogic.volumeExhaustionThreshold(volumeSma20)
-                    put("volumeRatio", (openingBarVolume / volumeSma20).toString())
-                    put("exhaustionThreshold", threshold.toString())
-                    put(
-                        "volumeExhausted",
-                        TouchTurnLogic.isVolumeExhaustion(openingBarVolume, volumeSma20).toString()
-                    )
-                }
             }
         )
     }

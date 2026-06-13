@@ -1,5 +1,7 @@
 package daytrader.e2e
 
+import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withFirstFifteenMinuteCandle
@@ -18,11 +20,15 @@ class E2EDomainSmokeTest {
         repository.add(E2ETestFixtures.runningDeployment())
         val bar = E2ETestFixtures.nonLiquidityOpeningBar()
         repository.update(E2ETestFixtures.DEPLOYMENT_ID) { current ->
-            current
-                .withFirstFifteenMinuteCandle(
+            current.copy(
+                touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
+                    enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+                )
+            ).withFirstFifteenMinuteCandle(
                     sessionDate = E2ETestFixtures.SESSION_DATE,
                     candle = bar,
                     atr14 = E2ETestFixtures.ATR14,
+                    dailyAtr14 = E2ETestFixtures.ATR14,
                     volumeSma20 = E2ETestFixtures.VOLUME_SMA20
                 )
                 .withOpeningBarClosedMilestone()

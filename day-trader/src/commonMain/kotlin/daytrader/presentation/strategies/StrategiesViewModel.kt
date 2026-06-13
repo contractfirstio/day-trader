@@ -46,7 +46,6 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.clearTouchTurnPrepareIfInstrumentChanged
 import daytrader.domain.TouchTurnLogic
-import daytrader.domain.TouchTurnVolumeCheck
 import daytrader.domain.MarketSource
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
@@ -328,7 +327,6 @@ class StrategiesViewModel(
                     sessionId = sessionId,
                     details = buildMap {
                         put("outcome", event.outcome.name)
-                        putAll(TouchTurnVolumeCheck.traceDetailsFromSession(instance?.touchTurnSession))
                     }
                 )
                 recordTouchTurnEngineSync(
@@ -336,7 +334,6 @@ class StrategiesViewModel(
                     trigger = "engine_no_trade_decision",
                     triggerDetails = buildMap {
                         put("outcome", event.outcome.name)
-                        putAll(TouchTurnVolumeCheck.traceDetailsFromSession(instance?.touchTurnSession))
                     }
                 )
             }

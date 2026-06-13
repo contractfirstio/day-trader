@@ -365,11 +365,16 @@ class TouchTurnStatusBreadcrumbMapperTest {
         touchTurnSession = touchTurnSession
     )
 
+    private fun liquidityRules() = TouchTurnRuleConfig.DEFAULT.copy(
+        enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+    )
+
     private fun readySession(
         candle: OhlcBar,
         rangeThreshold: Double,
         now: Long
     ): TouchTurnSessionContext {
+        val dailyAtr = rangeThreshold / TouchTurnDefaults.ATR_LIQUIDITY_RATIO
         val session = TouchTurnSessionContext(
             sessionDate = "2026-05-22",
             status = TouchTurnCandleStatus.READY,
@@ -377,7 +382,9 @@ class TouchTurnStatusBreadcrumbMapperTest {
             candle = candle,
             marketZoneId = "America/New_York",
             rangeThreshold = rangeThreshold,
-            adr14 = rangeThreshold / 0.25,
+            dailyAtr14 = dailyAtr,
+            adr14 = dailyAtr,
+            rules = liquidityRules(),
             milestones = TouchTurnMilestoneTimestamps(
                 dataReadyAt = "2026-05-22T09:30:12",
                 barClosedAt = "2026-05-22T09:45:00"
@@ -545,7 +552,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, zone)!!
         val atLiquidity = barEnd + 4
         // Past confirmation deadline; keep within 90m-after-open auto-stop for graph timing.
-        val pastConfirmationDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
+        val pastConfirmationDeadline = barEnd + 60_000L + 1
         val graphNow = barEnd + 90_000
         val bar = OhlcBar(open = 105.0, high = 110.0, low = 100.0, close = 104.0, time = barTime)
         val session = TouchTurnSessionContext(
@@ -554,7 +561,9 @@ class TouchTurnStatusBreadcrumbMapperTest {
             candle = bar,
             marketZoneId = zone,
             rangeThreshold = 0.01,
-            adr14 = 0.04
+            dailyAtr14 = 0.04,
+            adr14 = 0.04,
+            rules = liquidityRules()
         )
         val withLiquidity = deployment(session).withLiquidityEvaluatedIfClosed(
             enforceCloseConfirmation = false,
@@ -563,7 +572,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
         val withOrders = withLiquidity.withOrdersPlacedForSession(null)
         val liveSession = withOrders.touchTurnSession!!
         assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, liveSession.decisionOutcome)
-        assertEquals(TouchTurnCloseConfirmation.EXPIRED, liveSession.closeConfirmation(pastConfirmationDeadline))
+        assertEquals(TouchTurnCloseConfirmation.PASSED, liveSession.closeConfirmation(pastConfirmationDeadline))
 
         val graph = TouchTurnStatusBreadcrumbMapper.graph(
             instance = withOrders,
@@ -586,38 +595,6 @@ class TouchTurnStatusBreadcrumbMapperTest {
         assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[3].state)
         assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[4].state)
         assertEquals(TouchTurnPipelineNodeId.Orders, graph.activePath.last())
-    }
-
-    @Test
-    fun graph_confirmationExpired_activePathSkipsOrders() {
-        val barTime = "20260522  09:30:00"
-        val barEnd = barEnd(barTime)
-        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
-        val bar = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime)
-        val base = deployment(
-            readySession(candle = bar, rangeThreshold = 0.01, now = barEnd + 1)
-        )
-        val evaluated = base.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = now
-        )
-        val session = evaluated.touchTurnSession!!
-        assertEquals(TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED, session.decisionOutcome)
-        assertEquals(TouchTurnCloseConfirmation.EXPIRED, session.closeConfirmation(now))
-
-        val graph = TouchTurnStatusBreadcrumbMapper.graph(
-            instance = evaluated,
-            hasOpenPosition = false,
-            nowEpochMillis = now
-        )
-        assertTrue(TouchTurnPipelineNodeId.Rules in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Close in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Orders !in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Position !in graph.activePath)
-        assertEquals(
-            TouchTurnBreadcrumbStepState.FAILED,
-            graph.nodes.first { it.id == TouchTurnPipelineNodeId.Rules }.state
-        )
     }
 
     @Test
@@ -652,43 +629,6 @@ class TouchTurnStatusBreadcrumbMapperTest {
         )
         assertTrue(TouchTurnPipelineNodeId.Close in graph.activePath)
         assertTrue(TouchTurnPipelineNodeId.Orders !in graph.activePath)
-    }
-
-    @Test
-    fun graph_confirmationExpired_afterSessionStop_activePathSkipsOrders() {
-        val barTime = "20260522  09:30:00"
-        val barEnd = barEnd(barTime)
-        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
-        val bar = OhlcBar(open = 105.0, high = 106.0, low = 99.0, close = 104.0, time = barTime)
-        val afterEval = deployment(
-            readySession(candle = bar, rangeThreshold = 0.01, now = barEnd + 1)
-        ).withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = now
-        )
-        val stopped = afterEval.copy(
-            status = DeploymentStatus.STOPPED,
-            touchTurnSession = afterEval.touchTurnSession?.copy(
-                milestones = afterEval.touchTurnSession!!.milestones.copy(
-                    closingSessionAt = "2026-05-22T10:55:05"
-                )
-            )
-        )
-
-        val graph = TouchTurnStatusBreadcrumbMapper.graph(
-            instance = stopped,
-            hasOpenPosition = false,
-            nowEpochMillis = now
-        )
-        assertTrue(TouchTurnPipelineNodeId.Rules in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Close in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Orders !in graph.activePath)
-        assertTrue(TouchTurnPipelineNodeId.Position !in graph.activePath)
-        val rulesToOrders = graph.edges.first {
-            it.from == TouchTurnPipelineNodeId.Rules &&
-                it.to == TouchTurnPipelineNodeId.Orders
-        }
-        assertEquals(TouchTurnPipelineEdgeState.Unreachable, rulesToOrders.state)
     }
 
     @Test

@@ -101,6 +101,10 @@ class ReplayHybridRuntime(
             brokerKind = BrokerKind.REPLAY,
             nowEpochMillis = clock::nowEpochMillis,
             delayMillis = clock::delayMillis,
+            onReplaySessionStarting = { _, _ -> prepareForSession() },
+            activateReplayCapture = { deployment ->
+                if (deployment.id == bundle.deploymentId) bundle.sessionDate else null
+            },
             sessionGateway = marketDataGateway,
             executionGateway = executionGateway
         )

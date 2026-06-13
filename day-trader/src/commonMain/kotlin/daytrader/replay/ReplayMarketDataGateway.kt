@@ -148,8 +148,13 @@ class ReplayMarketDataGateway(
         bundle.bootstrapContext ?: bundle.groundTruth?.runRecord?.marketInputs?.let { inputs ->
             val bar = inputs.openingBar ?: return null
             val atr = inputs.atr14 ?: inputs.adr14 ?: return null
-            val volumeSma = inputs.volumeSma20 ?: return null
-            TouchTurnSignalContext(firstCandle = bar, atr14 = atr, volumeSma20 = volumeSma)
+            val dailyAtr = inputs.dailyAtr14 ?: atr
+            TouchTurnSignalContext(
+                firstCandle = bar,
+                atr14 = atr,
+                dailyAtr14 = dailyAtr,
+                volumeSma20 = inputs.volumeSma20 ?: 0.0
+            )
         }
 
     private fun resolveAcceptedRefetchContext(): TouchTurnSignalContext? =

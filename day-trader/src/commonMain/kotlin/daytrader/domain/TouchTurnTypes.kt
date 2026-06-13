@@ -88,14 +88,12 @@ data class OhlcBar(
     val range: Double get() = high - low
 }
 
-/** Liquidity range thresholds derived from 15m ATR and/or daily ATR(14). */
+/** Liquidity range thresholds derived from daily ATR(14). */
 @Serializable
 data class TouchTurnLiquidityThresholds(
-    val threshold15mAtr: Double? = null,
     val thresholdDailyAtr: Double? = null,
 ) {
-    /** Primary threshold for legacy display (15m when present, else daily). */
-    val primary: Double get() = threshold15mAtr ?: thresholdDailyAtr ?: 0.0
+    val primary: Double get() = thresholdDailyAtr ?: 0.0
 }
 
 /** Intended trade direction after a liquidity opening bar. */
@@ -158,15 +156,14 @@ data class TouchTurnSessionContext(
     val marketZoneId: String = "America/New_York",
     /** Average daily range (high − low) over the last 14 completed sessions (legacy display). */
     val adr14: Double? = null,
-    /** 14-period ATR on 15-minute bars used for liquidity range threshold. */
+    /** Legacy 15m ATR metric from persisted runs (no longer used for liquidity gates). */
     val atr14: Double? = null,
     /** Wilder daily ATR(14) on completed daily bars (ProReal-style liquidity input). */
     val dailyAtr14: Double? = null,
     /** 20-period SMA of prior session-opening 15m bar volume (apples-to-apples vs today's open). */
     val volumeSma20: Double? = null,
-    /** 15m ATR liquidity threshold = [atr14] × ratio (25% default). */
-    val rangeThreshold: Double = 0.0,
     /** Daily ATR liquidity threshold = [dailyAtr14] × ratio when daily gate is enabled. */
+    val rangeThreshold: Double = 0.0,
     val rangeThresholdDailyAtr: Double? = null,
     /** Set when the bar closes: true if a liquidity bracket was eligible to be logged/placed. */
     val entryOrdersPermitted: Boolean? = null,
@@ -201,16 +198,12 @@ data class TouchTurnSessionContext(
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED &&
             milestones.barClosedAt != null &&
             milestones.liquidityEvaluatedAt == null
-    val liquidityThresholdFromAtr: Double?
-        get() = atr14?.let { TouchTurnLogic.liquidityRangeThresholdFromAtr(it, rules) }
-
     val liquidityThresholds: TouchTurnLiquidityThresholds
         get() {
-            val resolved = TouchTurnLogic.resolveLiquidityThresholds(atr14, dailyAtr14, rules)
+            val resolved = TouchTurnLogic.resolveLiquidityThresholds(dailyAtr14, rules)
             if (resolved.primary > 0.0) return resolved
             return TouchTurnLiquidityThresholds(
-                threshold15mAtr = rangeThreshold.takeIf { it > 0.0 },
-                thresholdDailyAtr = rangeThresholdDailyAtr
+                thresholdDailyAtr = rangeThresholdDailyAtr ?: rangeThreshold.takeIf { it > 0.0 }
             )
         }
 

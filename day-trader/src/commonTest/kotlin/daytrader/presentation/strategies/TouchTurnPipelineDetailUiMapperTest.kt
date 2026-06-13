@@ -89,7 +89,7 @@ class TouchTurnPipelineDetailUiMapperTest {
             nowEpochMillis = barEnd + 4
         ).withOrdersPlacedForSession(null).touchTurnSession!!
         assertEquals(TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED, session.decisionOutcome)
-        assertEquals(TouchTurnCloseConfirmation.EXPIRED, session.closeConfirmation(now))
+        assertEquals(TouchTurnCloseConfirmation.PASSED, session.closeConfirmation(now))
         val ui = TouchTurnPipelineDetailUiMapper.closeConfirmation(session, now)!!
         assertEquals(TouchTurnCloseConfirmation.PASSED, ui.confirmation)
         assertEquals(null, ui.remainingMillis)
@@ -116,11 +116,16 @@ class TouchTurnPipelineDetailUiMapperTest {
             setup = setup,
             marketZoneId = "America/New_York",
             rangeThreshold = 2.5,
-            adr14 = 10.0
+            dailyAtr14 = 10.0,
+            rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+                enables = daytrader.domain.TouchTurnRuleEnables.DEFAULT.copy(
+                    liquidityRangeDailyAtr = true
+                )
+            )
         )
         val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(session, now)
         assertNotNull(evaluation)
-        val liquidity = evaluation.checks.first { it.label == "Liquidity range (15m ATR)" }
+        val liquidity = evaluation.checks.first { it.label == "Liquidity range (daily ATR)" }
         assertEquals(true, liquidity.passed)
         assertEquals("OK", liquidity.detail)
         assertEquals(true, liquidity.enabled)

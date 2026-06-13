@@ -197,8 +197,7 @@ class TouchTurnRunRecordTest {
         val candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = barTime)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
-                volumeExhaustion = false
+                liquidityRangeDailyAtr = false
             )
         )
         val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold = 5.0, rules)
@@ -234,14 +233,11 @@ class TouchTurnRunRecordTest {
         val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, "America/New_York")!! + 1
         val evaluation = TouchTurnPipelineDetailUiMapper.rulesEvaluation(analysis, barEnd)
         requireNotNull(evaluation)
-        val liquidity = evaluation.checks.first { it.key == "liquidityRange15mAtr" }
-        val volume = evaluation.checks.first { it.key == "volumeExhaustion" }
+        val liquidity = evaluation.checks.first { it.key == "liquidityRangeDailyAtr" }
         assertFalse(liquidity.enabled)
         assertEquals("Disabled", liquidity.detail)
         assertNull(liquidity.passed)
-        assertFalse(volume.enabled)
-        assertEquals("Disabled", volume.detail)
-        assertNull(volume.passed)
+        assertEquals(3, evaluation.checks.size)
     }
 
     @Test

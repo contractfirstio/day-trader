@@ -9,7 +9,6 @@ import daytrader.data.persistence.LegacyDeploymentPersistence
 import daytrader.data.persistence.LegacyInstancesJsonPersistence
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.withNewConfigurableTouchTurnRulesDisabled
-import daytrader.domain.withDefaultCloseTurnZones
 import daytrader.domain.withEntryInwardOffsetForBrokerKind
 import daytrader.domain.withLiquidityGatesForBrokerKind
 import daytrader.gateway.BrokerKind
@@ -84,7 +83,6 @@ class FileStrategyDeploymentRepository(
         var updated = deployments.map { it.withNewConfigurableTouchTurnRulesDisabled() }
         updated = updated.map { it.withEntryInwardOffsetForBrokerKind(brokerKind) }
         updated = updated.map { it.withLiquidityGatesForBrokerKind(brokerKind) }
-        updated = updated.map { it.withDefaultCloseTurnZones() }
         if (updated != deployments) {
             writer.persistNow(updated)
         }

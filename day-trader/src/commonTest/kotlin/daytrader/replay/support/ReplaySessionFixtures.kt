@@ -8,6 +8,8 @@ import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnRunContext
 import daytrader.domain.TouchTurnRunMarketInputs
 import daytrader.domain.TouchTurnRunRecord
+import daytrader.domain.TouchTurnRuleConfig
+import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnSessionDecision
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
@@ -67,6 +69,9 @@ object ReplaySessionFixtures {
         ),
         decision = TouchTurnSessionDecision(
             outcome = TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+        ),
+        rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         ),
         stopEvent = TouchTurnStopEvent(
             stopTrigger = TouchTurnSessionStopTrigger.NO_TRADE_DECISION
@@ -136,7 +141,8 @@ object ReplaySessionFixtures {
                 volume = 800_000.0
             ),
             atr14 = 2.45,
-            volumeSma20 = 980_000.0
+            dailyAtr14 = 2.45,
+            volumeSma20 = 0.0
         )
         return historicalLine(
             epochMs = STARTED_EPOCH_MS + 5_000,
@@ -153,7 +159,8 @@ object ReplaySessionFixtures {
         val context = TouchTurnSignalContext(
             firstCandle = candle,
             atr14 = 2.45,
-            volumeSma20 = 980_000.0
+            dailyAtr14 = 2.45,
+            volumeSma20 = 0.0
         )
         return historicalLine(
             epochMs = BAR_END_EPOCH_MS + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + attempt * 2_000L,

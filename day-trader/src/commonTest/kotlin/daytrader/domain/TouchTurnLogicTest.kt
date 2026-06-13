@@ -129,32 +129,30 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun evaluatesLiquidityCandle_requiresBothGatesWhenBothEnabled() {
+    fun evaluatesLiquidityCandle_requiresDailyGateWhenEnabled() {
         val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0)
-        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 8.0)
-        val bothOn = TouchTurnRuleConfig.DEFAULT.copy(
+        val thresholds = TouchTurnLiquidityThresholds(thresholdDailyAtr = 8.0)
+        val dailyOn = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = true,
                 liquidityRangeDailyAtr = true
             )
         )
-        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, bothOn))
+        assertTrue(TouchTurnLogic.evaluatesLiquidityCandle(bar, thresholds, dailyOn))
         assertFalse(
             TouchTurnLogic.evaluatesLiquidityCandle(
                 bar,
                 thresholds.copy(thresholdDailyAtr = 12.0),
-                bothOn
+                dailyOn
             )
         )
     }
 
     @Test
-    fun evaluatesLiquidityCandle_passesWhenNeitherGateEnabled() {
+    fun evaluatesLiquidityCandle_passesWhenLiquidityGateDisabled() {
         val bar = OhlcBar(open = 100.0, high = 100.1, low = 99.9, close = 100.0)
-        val thresholds = TouchTurnLiquidityThresholds(threshold15mAtr = 5.0, thresholdDailyAtr = 5.0)
+        val thresholds = TouchTurnLiquidityThresholds(thresholdDailyAtr = 5.0)
         val neither = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
                 liquidityRangeDailyAtr = false
             )
         )
@@ -524,80 +522,19 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun deferLiquidityEvaluationForLiveQuotes_trueWhenBidAskMissingWithinEntryWindow() {
-        val barTime = "20250522  09:30:00"
-        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, "Asia/Hong_Kong")!!
-        val withinWindow = TouchTurnLogic.entryWindowStatus(
-            barTime = barTime,
-            marketZoneId = "Asia/Hong_Kong",
-            nowEpochMillis = barEnd + 5_000
-        )
-        assertEquals(TouchTurnEntryWindowStatus.WITHIN_WINDOW, withinWindow)
-        assertTrue(
-            TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
-                requireLivePriceChecks = true,
-                liveBid = null,
-                liveAsk = 400.0,
-                entryWindowStatus = withinWindow
-            )
-        )
-    }
-
-    @Test
-    fun deferLiquidityEvaluationForLiveQuotes_falseWhenQuotesPresentOrWindowExpired() {
-        val barTime = "20250522  09:30:00"
-        val barEnd = TouchTurnLogic.barEndEpochMillis(barTime, "Asia/Hong_Kong")!!
-        val withinWindow = TouchTurnEntryWindowStatus.WITHIN_WINDOW
-        assertFalse(
-            TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
-                requireLivePriceChecks = true,
-                liveBid = 399.5,
-                liveAsk = 400.5,
-                entryWindowStatus = withinWindow
-            )
-        )
-        assertFalse(
-            TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
-                requireLivePriceChecks = false,
-                liveBid = null,
-                liveAsk = null,
-                entryWindowStatus = withinWindow
-            )
-        )
-        val expired = TouchTurnLogic.entryWindowStatus(
-            barTime = barTime,
-            marketZoneId = "Asia/Hong_Kong",
-            nowEpochMillis = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
-        )
-        assertEquals(TouchTurnEntryWindowStatus.EXPIRED, expired)
+    fun deferLiquidityEvaluationForLiveQuotes_alwaysFalse() {
         assertFalse(
             TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
                 requireLivePriceChecks = true,
                 liveBid = null,
                 liveAsk = null,
-                entryWindowStatus = expired
+                entryWindowStatus = TouchTurnEntryWindowStatus.WITHIN_WINDOW
             )
         )
     }
 
     @Test
-    fun deferLiquidityEvaluationForLiveQuotes_falseWhenLiveQuoteRequiredDisabled() {
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(liveQuoteRequired = false)
-        )
-        assertFalse(
-            TouchTurnLogic.deferLiquidityEvaluationForLiveQuotes(
-                requireLivePriceChecks = true,
-                liveBid = null,
-                liveAsk = null,
-                entryWindowStatus = TouchTurnEntryWindowStatus.WITHIN_WINDOW,
-                rules = rules
-            )
-        )
-    }
-
-    @Test
-    fun closeConfirmation_notExpiredWhenEntryWindowDisabledPastDeadline() {
+    fun closeConfirmation_passesForLiquidityCandleAfterBarClose() {
         val bar = OhlcBar(
             open = 400.0,
             high = 410.0,
@@ -607,36 +544,29 @@ class TouchTurnLogicTest {
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val pastDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(entryWindow = false)
-        )
         assertEquals(
             TouchTurnCloseConfirmation.PASSED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", pastDeadline, rules = rules)
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
         )
     }
 
     @Test
-    fun enforcesCloseConfirmation_followsEnabledRules() {
-        val allOff = TouchTurnRuleEnables.DEFAULT.copy(
-            barCloseTurn = false,
-            entryWindow = false,
-            liveQuoteRequired = false,
-            liveBarAgreement = false,
-            liveTurnConfirmation = false,
-            liveEntryTouchable = false
+    fun closeConfirmation_failsWhenNotLiquidityCandle() {
+        val bar = OhlcBar(
+            open = 400.0,
+            high = 400.5,
+            low = 399.5,
+            close = 400.2,
+            time = "20250522  09:30:00"
         )
-        assertFalse(TouchTurnRuleConfig.DEFAULT.copy(enables = allOff).enforcesCloseConfirmation(true))
-        assertTrue(
-            TouchTurnRuleConfig.DEFAULT.copy(
-                enables = allOff.copy(barCloseTurn = true)
-            ).enforcesCloseConfirmation(false)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         )
-        assertTrue(
-            TouchTurnRuleConfig.DEFAULT.copy(
-                enables = allOff.copy(liveTurnConfirmation = true)
-            ).enforcesCloseConfirmation(true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        assertEquals(
+            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000, rules = rules)
         )
     }
 
@@ -711,39 +641,6 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun withLiquidityEvaluatedIfClosed_barLiveDivergence_blocks3690StyleSession() {
-        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val instance = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "3690",
-            maxDollars = 10_000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                openingBarTime = bar.time,
-                candle = bar,
-                adr14 = 0.56,
-                rangeThreshold = 0.1,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = 83.35,
-            liveAsk = 83.4,
-            liveLast = 85.55,
-            requireLivePriceChecks = true
-        )
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
-    }
-
-    @Test
     fun liveCloseConfirmsTurn_long_falseWhenLiveMidBelowEntryBand() {
         val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20260603  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
@@ -752,75 +649,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun withLiquidityEvaluatedIfClosed_liveGatesBlock3690StyleGap() {
-        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.0, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val instance = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "3690",
-            maxDollars = 10_000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                openingBarTime = bar.time,
-                candle = bar,
-                adr14 = 0.56,
-                rangeThreshold = 0.1,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = 83.35,
-            liveAsk = 83.4,
-            liveLast = 83.4,
-            requireLivePriceChecks = true
-        )
-        assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_liveCloseUsesMidNotStaleLastMatchingBar() {
-        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val instance = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "3690",
-            maxDollars = 10_000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                openingBarTime = bar.time,
-                candle = bar,
-                adr14 = 0.56,
-                rangeThreshold = 0.1,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = false,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = 83.35,
-            liveAsk = 83.4,
-            liveLast = 85.55,
-            requireLivePriceChecks = true
-        )
-        assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_liveGatesBlockWhenBarCloseInUpperRangeButLiveMidDiverges() {
+    fun withLiquidityEvaluatedIfClosed_ignoresRemovedLiveGates() {
         val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
         val instance = defaultStrategyDeployment(
@@ -840,96 +669,10 @@ class TouchTurnLogicTest {
         )
         val evaluated = instance.withLiquidityEvaluatedIfClosed(
             enforceCloseConfirmation = true,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = 83.35,
-            liveAsk = 83.4,
-            liveLast = 83.4,
-            requireLivePriceChecks = true
+            nowEpochMillis = barEnd + 10_000
         )
-        assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_liveCloseFailsBeforeEntryWhenAskDivergesFromStaleLast() {
-        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
-        val instance = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "3690",
-            maxDollars = 10_000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                candle = bar,
-                adr14 = 0.56,
-                rangeThreshold = 0.1,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        val liveAsk = 84.74
-        val liveBid = 85.55 * 2.0 - liveAsk
-        val liveMid = TouchTurnLogic.resolveLiveMid(liveBid, liveAsk, 85.55)!!
-        assertTrue(TouchTurnLogic.barCloseAgreesWithLiveMid(bar, liveMid))
-        assertTrue(TouchTurnLogic.liveCloseConfirmsTurn(setup, bar, liveMid))
-        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = liveBid,
-            liveAsk = liveAsk,
-            liveLast = 85.55,
-            requireLivePriceChecks = true
-        )
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_entryNotTouchableWhenLiveMidConfirmsButAskBelowEntry() {
-        val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 85.55, time = "20250522  09:30:00")
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
-        val instance = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "3690",
-            maxDollars = 10_000
-        ).copy(
-            touchTurnSession = TouchTurnSessionContext(
-                sessionDate = "2025-05-22",
-                status = TouchTurnCandleStatus.READY,
-                openingBarTime = bar.time,
-                candle = bar,
-                adr14 = 0.56,
-                rangeThreshold = 0.1,
-                marketZoneId = "Asia/Hong_Kong"
-            )
-        )
-        val liveAsk = 84.74
-        val liveMid = 85.55
-        val liveBid = liveMid * 2.0 - liveAsk
-        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        assertTrue(TouchTurnLogic.liveCloseConfirmsTurn(setup, bar, liveMid))
-        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, liveBid, liveAsk))
-        val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = barEnd + 10_000,
-            liveBid = liveBid,
-            liveAsk = liveAsk,
-            requireLivePriceChecks = true
-        )
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
+        assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
+        assertNull(evaluated.touchTurnSession?.decisionOutcome)
     }
 
     @Test
@@ -975,9 +718,9 @@ class TouchTurnLogicTest {
         assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
         val pastDeadline = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
         val lateEval = instance.withLiquidityEvaluatedIfClosed(nowEpochMillis = pastDeadline)
-        assertEquals(false, lateEval.touchTurnSession?.entryOrdersPermitted)
+        assertEquals(true, lateEval.touchTurnSession?.entryOrdersPermitted)
         assertEquals(
-            TouchTurnCloseConfirmation.EXPIRED,
+            TouchTurnCloseConfirmation.PASSED,
             lateEval.touchTurnSession?.closeConfirmation(pastDeadline)
         )
     }
@@ -1050,16 +793,22 @@ class TouchTurnLogicTest {
     @Test
     fun noPlannedOrders_whenNotLiquidity() {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
-        assertNull(TouchTurnOrderPlanner.buildOrderPlan("SPY", setup, maxDollars = 5000))
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0, rules)
+        assertNull(TouchTurnOrderPlanner.buildOrderPlan("SPY", setup, maxDollars = 5000, rules = rules))
     }
 
     @Test
     fun setupActionableForEntry_requiresLiquidityWhenLiquidityRangeEnabled() {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0, rules)
         assertFalse(setup.isLiquidityCandle)
-        assertFalse(TouchTurnLogic.setupActionableForEntry(setup, TouchTurnRuleConfig.DEFAULT))
+        assertFalse(TouchTurnLogic.setupActionableForEntry(setup, rules))
     }
 
     @Test
@@ -1067,27 +816,26 @@ class TouchTurnLogicTest {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRange15mAtr = false)
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = false)
         )
         assertTrue(TouchTurnLogic.setupActionableForEntry(setup, rules))
     }
 
     @Test
-    fun barSetupBlockOutcome_skipsDisabledRules() {
+    fun barSetupBlockOutcome_blocksNonLiquidityWhenGateEnabled() {
         val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
-                volumeExhaustion = false,
-                notDoji = false
-            )
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         )
-        assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, volumeExhausted = true, rules))
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
     }
 
     @Test
-    fun evaluateEntryGate_allowsWhenVolumeExhaustionDisabled() {
+    fun evaluateEntryGate_allowsLiquidityCandle() {
         val bar = OhlcBar(
             open = 400.0,
             high = 410.0,
@@ -1097,65 +845,20 @@ class TouchTurnLogicTest {
             time = "20250522  09:30:00"
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                volumeExhaustion = false,
-                barCloseTurn = false
-            )
-        )
-        assertTrue(TouchTurnLogic.isVolumeExhaustion(bar.volume, 100.0, rules))
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
         val result = TouchTurnLogic.evaluateEntryGate(
             setup = setup,
             candle = bar,
-            volumeSma20 = 100.0,
             marketZoneId = "America/New_York",
             nowEpochMillis = barEnd + 1_000,
-            sessionDateIso = "2025-05-22",
-            enforceCloseConfirmation = true,
-            liveBid = null,
-            liveAsk = null,
-            liveLast = null,
-            requireLivePriceChecks = false,
-            rules = rules
+            sessionDateIso = "2025-05-22"
         )
         assertTrue(result.entryOrdersPermitted)
         assertNull(result.decisionOutcome)
     }
 
     @Test
-    fun evaluateEntryGate_blocksWhenEntryWindowExpiredAndEnforced() {
-        val bar = OhlcBar(
-            open = 591.6,
-            high = 593.2,
-            low = 587.2,
-            close = 592.8,
-            volume = 489_555.0,
-            time = "20260608  08:00:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.5)
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Europe/London")!!
-        val lateAfterClose = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 120_000L
-        val result = TouchTurnLogic.evaluateEntryGate(
-            setup = setup,
-            candle = bar,
-            volumeSma20 = 819_255.1,
-            marketZoneId = "Europe/London",
-            nowEpochMillis = lateAfterClose,
-            sessionDateIso = "2026-06-08",
-            enforceCloseConfirmation = true,
-            liveBid = 592.5,
-            liveAsk = 592.7,
-            liveLast = 592.6,
-            requireLivePriceChecks = true
-        )
-        assertEquals(false, result.entryOrdersPermitted)
-        assertEquals(TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED, result.decisionOutcome)
-        assertEquals(TouchTurnCloseConfirmation.EXPIRED, result.closeConfirmation)
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_blocksLateManualIbSessionStart() {
+    fun withLiquidityEvaluatedIfClosed_permitsLiquidityBarAfterClose() {
         val bar = OhlcBar(
             open = 591.6,
             high = 593.2,
@@ -1184,18 +887,11 @@ class TouchTurnLogicTest {
             )
         )
         val evaluated = instance.withLiquidityEvaluatedIfClosed(
-            enforceCloseConfirmation = true,
-            nowEpochMillis = lateAfterClose,
-            liveBid = 592.5,
-            liveAsk = 592.7,
-            liveLast = 592.6,
-            requireLivePriceChecks = true
+            enforceCloseConfirmation = false,
+            nowEpochMillis = lateAfterClose
         )
-        assertEquals(false, evaluated.touchTurnSession?.entryOrdersPermitted)
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
-            evaluated.touchTurnSession?.decisionOutcome
-        )
+        assertEquals(true, evaluated.touchTurnSession?.entryOrdersPermitted)
+        assertNull(evaluated.touchTurnSession?.decisionOutcome)
     }
 
     @Test
@@ -1208,27 +904,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun closeConfirmation_passesWhenGreenCloseBelowEntryWithinOneMinuteOfBarClose() {
-        val bar = OhlcBar(
-            open = 400.0,
-            high = 410.0,
-            low = 400.0,
-            close = 403.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + 30_000
-        assertEquals(
-            TouchTurnCloseConfirmation.PASSED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
-        )
-        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        assertTrue(TouchTurnLogic.closeConfirmationWithinDeadline(bar, "Asia/Hong_Kong", now))
-    }
-
-    @Test
-    fun closeConfirmation_failsWhenGreenCloseAtOrAboveEntry() {
+    fun closeConfirmation_legacyTurnZoneHelpers_stillAvailable() {
         val bar = OhlcBar(
             open = 400.0,
             high = 410.0,
@@ -1238,48 +914,9 @@ class TouchTurnLogicTest {
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + 30_000
-        assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
-        )
-        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-    }
-
-    @Test
-    fun closeConfirmation_passesWhenRedCloseAboveEntryWithinOneMinuteOfBarClose() {
-        val bar = OhlcBar(
-            open = 410.0,
-            high = 410.0,
-            low = 400.0,
-            close = 407.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + 30_000
         assertEquals(
             TouchTurnCloseConfirmation.PASSED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
-        )
-        assertTrue(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-    }
-
-    @Test
-    fun closeConfirmation_failsWhenRedCloseAtOrBelowEntry() {
-        val bar = OhlcBar(
-            open = 410.0,
-            high = 410.0,
-            low = 400.0,
-            close = 400.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + 30_000
-        assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
+            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
         )
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
     }
@@ -1308,7 +945,7 @@ class TouchTurnLogicTest {
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
         assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
         assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
+            TouchTurnCloseConfirmation.PASSED,
             session.closeConfirmation(barEnd + 10_000)
         )
         assertEquals(
@@ -1326,149 +963,9 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun closeConfirmation_failsWhenGreenCloseOutsideTurnZone() {
-        val bar = OhlcBar(
-            open = 400.0,
-            high = 410.0,
-            low = 400.0,
-            close = 409.5,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
-        )
-    }
-
-    @Test
-    fun closeConfirmation_failsWhenRedCloseOutsideTurnZone() {
-        val bar = OhlcBar(
-            open = 410.0,
-            high = 410.0,
-            low = 400.0,
-            close = 400.5,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        assertFalse(TouchTurnLogic.closeConfirmsTurn(setup, bar))
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", barEnd + 30_000)
-        )
-    }
-
-    @Test
-    fun closeConfirmation_expiredWhenMoreThanOneMinuteAfterBarClose() {
-        val bar = OhlcBar(
-            open = 400.0,
-            high = 410.0,
-            low = 400.0,
-            close = 405.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
-        val now = barEnd + TouchTurnDefaults.CLOSE_CONFIRMATION_AFTER_CLOSE_MS + 1
-        assertEquals(
-            TouchTurnCloseConfirmation.EXPIRED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Asia/Hong_Kong", now)
-        )
-        assertFalse(TouchTurnLogic.closeConfirmationWithinDeadline(bar, "Asia/Hong_Kong", now))
-    }
-
-    @Test
-    fun closeConfirmation_allowsDojiWhenNotDojiRuleDisabled() {
-        val bar = OhlcBar(
-            open = 592.6,
-            high = 593.2,
-            low = 587.2,
-            close = 592.6,
-            time = "20260608  08:00:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.5)
-        assertFalse(setup.isActionable)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                notDoji = false,
-                barCloseTurn = false
-            )
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Europe/London")!!
-        val now = barEnd + 30_000
-        assertEquals(
-            TouchTurnCloseConfirmation.PASSED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Europe/London", now, rules = rules)
-        )
-    }
-
-    @Test
-    fun closeConfirmation_failsDojiWhenNotDojiRuleEnabled() {
-        val bar = OhlcBar(
-            open = 592.6,
-            high = 593.2,
-            low = 587.2,
-            close = 592.6,
-            time = "20260608  08:00:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.5)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(notDoji = true)
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Europe/London")!!
-        val now = barEnd + 30_000
-        assertEquals(
-            TouchTurnCloseConfirmation.FAILED,
-            TouchTurnLogic.closeConfirmation(bar, setup, "Europe/London", now, rules = rules)
-        )
-    }
-
-    @Test
-    fun ruleEnables_notDojiDisabledByDefault() {
-        assertFalse(TouchTurnRuleEnables.DEFAULT.notDoji)
-        assertFalse(TouchTurnRuleConfig.DEFAULT.enables.notDoji)
+    fun ruleEnables_openDeadlineDisabledByDefault() {
         assertFalse(TouchTurnRuleEnables.DEFAULT.openDeadline)
         assertFalse(TouchTurnRuleConfig.DEFAULT.enables.openDeadline)
-    }
-
-    @Test
-    fun priorSessionOpeningFifteenMinuteBars_oneBarPerPriorRthDay() {
-        val zone = "America/New_York"
-        val session = "20260522"
-        var day = LocalDate.of(2026, 5, 21)
-        val bars = buildList {
-            repeat(3) {
-                val ymd = "%04d%02d%02d".format(day.year, day.monthValue, day.dayOfMonth)
-                add(
-                    OhlcBar(
-                        open = 1.0,
-                        high = 2.0,
-                        low = 0.5,
-                        close = 1.5,
-                        time = "$ymd  09:30:00",
-                        volume = 1_000.0
-                    )
-                )
-                add(
-                    OhlcBar(
-                        open = 1.0,
-                        high = 2.0,
-                        low = 0.5,
-                        close = 1.5,
-                        time = "$ymd  10:00:00",
-                        volume = 100.0
-                    )
-                )
-                day = TouchTurnLogic.previousRthTradingDay(day.minusDays(1))
-            }
-        }
-        val openings = TouchTurnLogic.priorSessionOpeningFifteenMinuteBars(bars, zone, session)
-        assertEquals(3, openings.size)
-        assertTrue(openings.all { it.time?.contains("09:30:00") == true })
-        assertEquals(listOf(1_000.0, 1_000.0, 1_000.0), openings.map { it.volume })
     }
 
     @Test
@@ -1499,36 +996,9 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun deriveTouchTurnSignalContext_failsWhenFewerThanTwentyPriorSessionOpens() {
+    fun deriveTouchTurnSignalContext_succeedsWithoutVolumeHistory() {
         val zone = "Europe/London"
         val session = "20260604"
-        var day = LocalDate.of(2026, 6, 3)
-        val priorOpenings = buildList {
-            repeat(19) {
-                val ymd = "%04d%02d%02d".format(day.year, day.monthValue, day.dayOfMonth)
-                add(
-                    OhlcBar(
-                        open = 100.0,
-                        high = 101.0,
-                        low = 99.0,
-                        close = 100.5,
-                        time = "$ymd  08:00:00",
-                        volume = 10_000.0
-                    )
-                )
-                day = TouchTurnLogic.previousRthTradingDay(day.minusDays(1))
-            }
-        }
-        val atrBars = (1..TouchTurnDefaults.ATR_LOOKBACK_PERIODS).map { slot ->
-            OhlcBar(
-                open = 100.0,
-                high = 100.2,
-                low = 99.8,
-                close = 100.1,
-                time = "20260603  %02d:%02d:00".format(8 + (slot * 15) / 60, (slot * 15) % 60),
-                volume = 500.0
-            )
-        }
         val opening = OhlcBar(
             open = 100.0,
             high = 105.0,
@@ -1538,15 +1008,13 @@ class TouchTurnLogicTest {
             volume = 12_000.0
         )
         val result = TouchTurnLogic.deriveTouchTurnSignalContext(
-            bars = priorOpenings + atrBars + opening,
+            bars = listOf(opening),
             marketZoneId = zone,
-            sessionDayYyyyMmdd = session
+            sessionDayYyyyMmdd = session,
+            explicitFirstCandle = opening
         )
-        assertTrue(result.isFailure)
-        assertTrue(
-            result.exceptionOrNull()?.message?.contains("Need 20 session-opening") == true,
-            result.exceptionOrNull()?.message
-        )
+        assertTrue(result.isSuccess, result.exceptionOrNull()?.message)
+        assertEquals(0.0, result.getOrThrow().volumeSma20)
     }
 
     @Test
@@ -1635,11 +1103,7 @@ class TouchTurnLogicTest {
             )
         }
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
-                liquidityRangeDailyAtr = true,
-                volumeExhaustion = false
-            )
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         )
         val result = TouchTurnLogic.deriveTouchTurnSignalContext(
             bars = listOf(opening),
@@ -1668,11 +1132,7 @@ class TouchTurnLogicTest {
             volume = 12_000.0
         )
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
-                liquidityRangeDailyAtr = true,
-                volumeExhaustion = false
-            )
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         )
         val result = TouchTurnLogic.deriveTouchTurnSignalContext(
             bars = listOf(opening),
@@ -1704,157 +1164,5 @@ class TouchTurnLogicTest {
             result.exceptionOrNull()?.message?.contains("UK (LSE)") == true,
             result.exceptionOrNull()?.message
         )
-    }
-
-    @Test
-    fun trendAlignment_greenShortRequiresBearMacroAndDownStock() {
-        val setup = TouchTurnBracketSetup(
-            range = 10.0,
-            rangeThreshold = 1.0,
-            isLiquidityCandle = true,
-            candleColor = FirstCandleColor.GREEN,
-            side = TouchTurnTradeSide.SHORT,
-            entry = 109.0,
-            stopLoss = 112.0,
-            takeProfit = 105.0
-        )
-        assertEquals(MacroTrendState.BEAR, TouchTurnTrendAlignment.requiredMacroTrend(setup))
-        assertEquals(StockTrendState.DOWN, TouchTurnTrendAlignment.requiredStockTrend(setup))
-        assertTrue(TouchTurnTrendAlignment.macroTrendAligned(setup, MacroTrendState.BEAR))
-        assertFalse(TouchTurnTrendAlignment.macroTrendAligned(setup, MacroTrendState.BULL))
-        assertTrue(TouchTurnTrendAlignment.stockTrendAligned(setup, StockTrendState.DOWN))
-        assertFalse(TouchTurnTrendAlignment.stockTrendAligned(setup, StockTrendState.UP))
-    }
-
-    @Test
-    fun trendAlignment_redLongRequiresBullMacroAndUpStock() {
-        val setup = TouchTurnBracketSetup(
-            range = 10.0,
-            rangeThreshold = 1.0,
-            isLiquidityCandle = true,
-            candleColor = FirstCandleColor.RED,
-            side = TouchTurnTradeSide.LONG,
-            entry = 91.0,
-            stopLoss = 88.0,
-            takeProfit = 95.0
-        )
-        assertEquals(MacroTrendState.BULL, TouchTurnTrendAlignment.requiredMacroTrend(setup))
-        assertEquals(StockTrendState.UP, TouchTurnTrendAlignment.requiredStockTrend(setup))
-    }
-
-    @Test
-    fun trendAlignmentBlockOutcome_macroTrendNull_returnsDataUnavailable() {
-        val bar = OhlcBar(
-            open = 100.0,
-            high = 110.0,
-            low = 99.0,
-            close = 108.0,
-            volume = 1_000.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(macroTrendAlignment = true)
-        )
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
-            TouchTurnLogic.trendAlignmentBlockOutcome(setup, macroTrend = null, stockTrend = null, rules)
-        )
-    }
-
-    @Test
-    fun trendAlignmentBlockOutcome_stockTrendNull_returnsDataUnavailable() {
-        val bar = OhlcBar(
-            open = 100.0,
-            high = 101.0,
-            low = 90.0,
-            close = 92.0,
-            volume = 1_000.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(stockTrendAlignment = true)
-        )
-        assertEquals(
-            TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
-            TouchTurnLogic.trendAlignmentBlockOutcome(setup, macroTrend = null, stockTrend = null, rules)
-        )
-    }
-
-    @Test
-    fun evaluateEntryGate_blocksWhenMacroTrendMisaligned() {
-        val bar = OhlcBar(
-            open = 100.0,
-            high = 110.0,
-            low = 99.0,
-            close = 108.0,
-            volume = 1_000.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                macroTrendAlignment = true,
-                barCloseTurn = false,
-                entryWindow = false
-            )
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
-        val result = TouchTurnLogic.evaluateEntryGate(
-            setup = setup,
-            candle = bar,
-            volumeSma20 = 1_000.0,
-            marketZoneId = "America/New_York",
-            nowEpochMillis = barEnd + 1_000,
-            sessionDateIso = "2025-05-22",
-            enforceCloseConfirmation = false,
-            liveBid = null,
-            liveAsk = null,
-            liveLast = null,
-            requireLivePriceChecks = false,
-            macroTrend = MacroTrendState.BULL,
-            rules = rules
-        )
-        assertFalse(result.entryOrdersPermitted)
-        assertEquals(TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED, result.decisionOutcome)
-    }
-
-    @Test
-    fun evaluateEntryGate_allowsWhenStockTrendAligned() {
-        val bar = OhlcBar(
-            open = 100.0,
-            high = 101.0,
-            low = 90.0,
-            close = 92.0,
-            volume = 1_000.0,
-            time = "20250522  09:30:00"
-        )
-        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 1.0)
-        val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                stockTrendAlignment = true,
-                barCloseTurn = false,
-                entryWindow = false
-            )
-        )
-        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
-        val result = TouchTurnLogic.evaluateEntryGate(
-            setup = setup,
-            candle = bar,
-            volumeSma20 = 1_000.0,
-            marketZoneId = "America/New_York",
-            nowEpochMillis = barEnd + 1_000,
-            sessionDateIso = "2025-05-22",
-            enforceCloseConfirmation = false,
-            liveBid = null,
-            liveAsk = null,
-            liveLast = null,
-            requireLivePriceChecks = false,
-            stockTrend = StockTrendState.UP,
-            rules = rules
-        )
-        assertTrue(result.entryOrdersPermitted)
-        assertNull(result.decisionOutcome)
     }
 }

@@ -114,8 +114,7 @@ object LiquidityAllocatorMapper {
                 TouchTurnLogic.liveEntryTouchable(
                     setup = bracket.toSetup(session),
                     bid = bid,
-                    ask = ask,
-                    rules = session.rules
+                    ask = ask
                 )
             else -> null
         }

@@ -246,11 +246,7 @@ class BrokerModeSteps {
         world.repository.update(activeDeploymentId()) { current ->
             current.withLiquidityEvaluatedIfClosed(
                 enforceCloseConfirmation = false,
-                nowEpochMillis = E2ETestFixtures.BAR_CLOSE_EPOCH_MS,
-                liveBid = liveQuote?.bid,
-                liveAsk = liveQuote?.ask,
-                liveLast = liveQuote?.last,
-                requireLivePriceChecks = false
+                nowEpochMillis = E2ETestFixtures.BAR_CLOSE_EPOCH_MS
             )
         }
 

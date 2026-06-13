@@ -68,7 +68,6 @@ class ReplaySeedDeploymentTest {
     fun seedDeploymentIfNeeded_copiesTouchTurnRulesFromGroundTruth() {
         val sourceRules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRange15mAtr = false,
                 liquidityRangeDailyAtr = true,
                 openDeadline = true
             )
