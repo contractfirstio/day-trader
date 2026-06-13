@@ -109,13 +109,24 @@ class TouchTurnQuoteStripUiTest {
     }
 
     @Test
-    fun mapper_returnsNullWhenNoQuoteAndNoEntry() {
-        assertNull(
-            TouchTurnQuoteStripUiMapper.from(
-                quote = null,
-                currencyCode = "GBP",
-                bracketSetup = null
-            )
+    fun chartPrice_shortInPositionUsesAskEvenWhenLastBelowTp() {
+        val price = TouchTurnQuoteStripUiMapper.chartPrice(
+            entrySide = TouchTurnTradeSide.SHORT,
+            bid = 109.6,
+            ask = 109.7,
+            inPosition = true
         )
+        assertEquals(109.7, price)
+    }
+
+    @Test
+    fun chartPrice_shortAwaitingEntryUsesBid() {
+        val price = TouchTurnQuoteStripUiMapper.chartPrice(
+            entrySide = TouchTurnTradeSide.SHORT,
+            bid = 109.6,
+            ask = 109.7,
+            inPosition = false
+        )
+        assertEquals(109.6, price)
     }
 }

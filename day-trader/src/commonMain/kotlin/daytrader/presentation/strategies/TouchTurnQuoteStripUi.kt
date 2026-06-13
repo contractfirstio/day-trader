@@ -74,6 +74,32 @@ object TouchTurnQuoteStripUiMapper {
         TouchTurnTradeSide.SHORT -> bid?.takeIf { it > 0.0 }
         null -> ask?.takeIf { it > 0.0 } ?: bid?.takeIf { it > 0.0 }
     }
+
+    /** Exit-side quote for bracket legs (long → sell at bid, short → buy at ask). */
+    fun exitFillPrice(
+        entrySide: TouchTurnTradeSide?,
+        bid: Double?,
+        ask: Double?
+    ): Double? = when (entrySide) {
+        TouchTurnTradeSide.LONG -> bid?.takeIf { it > 0.0 }
+        TouchTurnTradeSide.SHORT -> ask?.takeIf { it > 0.0 }
+        null -> bid?.takeIf { it > 0.0 } ?: ask?.takeIf { it > 0.0 }
+    }
+
+    /**
+     * Price line for the Touch Turn chart once brackets are working: entry gap uses
+     * [fillPriceForGap]; open position uses [exitFillPrice] so the trace matches paper fills.
+     */
+    fun chartPrice(
+        entrySide: TouchTurnTradeSide?,
+        bid: Double?,
+        ask: Double?,
+        inPosition: Boolean
+    ): Double? = if (inPosition) {
+        exitFillPrice(entrySide, bid, ask)
+    } else {
+        fillPriceForGap(entrySide, bid, ask)
+    }
 }
 
 object TouchTurnQuoteStripFormat {

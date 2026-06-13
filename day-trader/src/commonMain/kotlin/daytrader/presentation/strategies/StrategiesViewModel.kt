@@ -1188,11 +1188,7 @@ class StrategiesViewModel(
             val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
             val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
             if (!recordForForming && !recordForOrders) continue
-            val price = LiveMarkPriceResolver.resolve(
-                deployment.symbol,
-                brokerPositions,
-                brokerQuotes
-            ) ?: continue
+            val price = touchTurnChartPrice(deployment) ?: continue
             touchTurnPriceHistoryFor(deployment.symbol).record(now, price)
         }
     }
@@ -1252,11 +1248,7 @@ class StrategiesViewModel(
         val session = deployment.touchTurnSession ?: return null
         val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
         val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
-        val currentPrice = LiveMarkPriceResolver.resolve(
-            deployment.symbol,
-            brokerPositions,
-            brokerQuotes
-        )
+        val currentPrice = touchTurnChartPrice(deployment)
         return TouchTurnFormingBarPriceChartUiMapper.build(
             deployment = deployment,
             session = session,
@@ -1274,6 +1266,19 @@ class StrategiesViewModel(
             requiresBidAskForFills = requiresBidAskForFills
         )
 
+    private fun touchTurnChartPrice(deployment: StrategyDeployment): Double? {
+        val session = deployment.touchTurnSession ?: return null
+        val hasOpenPosition = SymbolMarkets.hasOpenPosition(deployment, brokerPositions)
+        return LiveMarkPriceResolver.resolveForTouchTurnChart(
+            symbol = deployment.symbol,
+            positions = brokerPositions,
+            quotes = brokerQuotes,
+            entrySide = session.setup?.side,
+            ordersPlaced = session.ordersPlacedForSession,
+            inPosition = hasOpenPosition
+        )
+    }
+
     private fun buildTouchTurnLiveOrderChart(
         instance: StrategyDeployment?
     ): TouchTurnLiveOrderChartUiState? {
@@ -1289,11 +1294,7 @@ class StrategiesViewModel(
 
         val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
         val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
-        val currentPrice = LiveMarkPriceResolver.resolve(
-            deployment.symbol,
-            brokerPositions,
-            brokerQuotes
-        )
+        val currentPrice = touchTurnChartPrice(deployment)
         val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(deployment, brokerFills)
         val executedLevels = TouchTurnExecutedBracketLegs.resolve(
             trades = sessionTrades,
