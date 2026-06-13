@@ -7,8 +7,8 @@ object ReplayPlaybackConfig {
     /** Steps during forming fast-forward (smoother UI updates). */
     const val FORMING_STEPS = 20
 
-    /** Wall-clock gap between quote publishes after the opening bar closes. */
-    const val QUOTE_INTERVAL_MS = 10L
+    /** Default wall-clock gap between quote publishes after the opening bar closes. */
+    const val DEFAULT_QUOTE_INTERVAL_MS = 10L
 
     /** How often to nudge [daytrader.engine.TouchTurnCommand.PollLiquidity] during quote drip. */
     const val LIQUIDITY_NUDGE_EVERY_N_QUOTES = 50

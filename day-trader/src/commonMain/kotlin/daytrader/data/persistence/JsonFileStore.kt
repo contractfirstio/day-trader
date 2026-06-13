@@ -38,6 +38,13 @@ object JsonFileStore {
         write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
 
+    fun readReplaySettings(): ReplaySettingsDocument? =
+        read<ReplaySettingsDocument>(AppDataFiles.REPLAY_SETTINGS)
+
+    fun writeReplaySettings(document: ReplaySettingsDocument) {
+        write(AppDataFiles.REPLAY_SETTINGS, document)
+    }
+
     fun readWatchlists(): WatchlistsDocument? =
         read<WatchlistsDocument>(AppDataFiles.WATCHLISTS)
 

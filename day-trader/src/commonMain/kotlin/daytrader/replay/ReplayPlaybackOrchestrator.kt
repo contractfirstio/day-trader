@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
 class ReplayPlaybackOrchestrator(
     private val clock: MutableTradingClock,
     private val quoteFeeder: QuoteFeeder,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    defaultQuoteIntervalMs: () -> Long = { ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS }
 ) {
     private var engine: TouchTurnEnginePort? = null
     private var repository: StrategyDeploymentRepository? = null
@@ -36,6 +37,9 @@ class ReplayPlaybackOrchestrator(
 
     @Volatile
     var interactiveAutoStartEnabled: Boolean = true
+
+    @Volatile
+    var quoteIntervalMs: () -> Long = defaultQuoteIntervalMs
 
     private var playbackJob: Job? = null
     private var activeInstanceId: String? = null
@@ -47,11 +51,12 @@ class ReplayPlaybackOrchestrator(
 
     fun isPlaying(): Boolean = playbackJob?.isActive == true
 
-    /** Fallback for [ensureLiveMarketData] before interactive playback starts. */
-    fun ensureQuotesFlowing() {
-        if (isPlaying()) return
-        quoteFeeder.publishUpTo(clock.nowEpochMillis())
-    }
+    /**
+     * Satisfies [ensureLiveMarketData] during replay bootstrap without publishing captured quotes.
+     * [QuoteFeeder] is driven only by [fastForwardOpeningBar] and [dripQuotes] so prices stream
+     * on the replay cadence instead of being bulk-flushed ahead of virtual time.
+     */
+    fun ensureQuotesFlowing() = Unit
 
     fun onSessionStarted(instanceId: String) {
         bindQuotePublishSymbol(instanceId)
@@ -255,7 +260,7 @@ class ReplayPlaybackOrchestrator(
             mapOf(
                 "totalQuotes" to total.toString(),
                 "alreadyPublished" to published.toString(),
-                "quoteIntervalMs" to ReplayPlaybackConfig.QUOTE_INTERVAL_MS.toString(),
+                "quoteIntervalMs" to quoteIntervalMs().toString(),
                 "clockEpochMs" to clock.nowEpochMillis().toString()
             )
         )
@@ -281,7 +286,10 @@ class ReplayPlaybackOrchestrator(
             if (published % ReplayPlaybackConfig.LIQUIDITY_NUDGE_EVERY_N_QUOTES == 0) {
                 engine.dispatch(TouchTurnCommand.PollLiquidity(instanceId))
             }
-            delay(ReplayPlaybackConfig.QUOTE_INTERVAL_MS)
+            val intervalMs = quoteIntervalMs()
+            if (intervalMs > 0L) {
+                delay(intervalMs)
+            }
         }
         trace(
             instanceId,

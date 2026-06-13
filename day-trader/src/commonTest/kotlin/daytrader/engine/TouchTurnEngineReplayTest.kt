@@ -39,7 +39,7 @@ class TouchTurnEngineReplayTest {
             repository = repo,
             scope = scope,
             brokerKind = BrokerKind.REPLAY,
-            activateReplayCapture = { false },
+            activateReplayCapture = { null },
             sessionGateway = gateway,
             executionGateway = gateway
         )
@@ -81,7 +81,7 @@ class TouchTurnEngineReplayTest {
             repository = repo,
             scope = scope,
             brokerKind = BrokerKind.REPLAY,
-            activateReplayCapture = { true },
+            activateReplayCapture = { "2026-06-10" },
             sessionGateway = gateway,
             executionGateway = gateway
         )
@@ -102,5 +102,44 @@ class TouchTurnEngineReplayTest {
         delay(50)
         assertTrue(blocked.isEmpty())
         assertTrue(started.isNotEmpty())
+    }
+
+    @Test
+    fun startSession_usesCaptureSessionDateNotWallClockDate() = runBlocking {
+        val repo = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "WDC",
+            maxDollars = 500,
+            status = DeploymentStatus.STOPPED
+        )
+        repo.add(deployment)
+
+        val started = mutableListOf<TouchTurnEvent.SessionStarted>()
+        val engine = TouchTurnEngine(
+            marketData = BrokerGatewayMarketDataProvider(gateway),
+            execution = BrokerGatewayExecutionManager(gateway),
+            repository = repo,
+            scope = scope,
+            brokerKind = BrokerKind.REPLAY,
+            activateReplayCapture = { "2026-06-12" },
+            sessionGateway = gateway,
+            executionGateway = gateway
+        )
+        engine.events.onEach { event ->
+            if (event is TouchTurnEvent.SessionStarted) started += event
+        }.launchIn(scope)
+        engine.start()
+        engine.dispatch(
+            TouchTurnCommand.StartSession(
+                instanceId = deployment.id,
+                sessionDate = "2026-06-13"
+            )
+        )
+        delay(50)
+        assertEquals("2026-06-12", started.single().sessionDate)
+        assertEquals("2026-06-12", repo.deployments.value.single().touchTurnSession?.sessionDate)
     }
 }

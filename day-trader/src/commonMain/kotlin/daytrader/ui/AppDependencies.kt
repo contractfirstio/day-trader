@@ -3,9 +3,11 @@ package daytrader.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import daytrader.data.FileLiquidityBucketRepository
+import daytrader.data.FileReplaySettingsRepository
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
+import daytrader.data.ReplaySettingsRepository
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
@@ -59,7 +61,8 @@ data class AppDependencies(
     val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
-    val replayBundle: SessionBundle? = null
+    val replayBundle: SessionBundle? = null,
+    val replaySettingsRepository: ReplaySettingsRepository? = null
 )
 
 @Composable
@@ -85,12 +88,16 @@ fun rememberAppDependencies(
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
     val engineScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    val replaySettingsRepository = remember(brokerKind) {
+        if (brokerKind == BrokerKind.REPLAY) FileReplaySettingsRepository() else null
+    }
     SessionPriceLog.install { strategyRepository.deployments.value }
     return remember(
         strategyRepository,
         liquidityBucketRepository,
         watchlistRepository,
         appStateRepository,
+        replaySettingsRepository,
         marketFilter,
         positionRepository,
         openOrderRepository,
@@ -116,13 +123,13 @@ fun rememberAppDependencies(
             )
         }
         val mutableClock = tradingClock as? MutableTradingClock
-        val activateReplayCapture: ((StrategyDeployment) -> Boolean)? =
+        val activateReplayCapture: ((StrategyDeployment) -> String?)? =
             if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null) {
                 { deployment ->
                     val capture = ReplayBundleResolver.selectCapture(deployment, replayCaptureCatalog)
                     val bundle = capture?.let { loadReplayBundle(it.directoryPath).getOrNull() }
                     if (capture == null || bundle == null) {
-                        false
+                        null
                     } else {
                         val previous = replayHybridRuntime.bundle
                         replayHybridRuntime.swapBundle(bundle)
@@ -134,10 +141,11 @@ fun rememberAppDependencies(
                             details = mapOf(
                                 "captureDirectory" to capture.directoryPath,
                                 "captureSessionId" to bundle.sessionId,
-                                "previousSessionId" to previous.sessionId
+                                "previousSessionId" to previous.sessionId,
+                                "captureSessionDate" to (bundle.sessionDate ?: "null")
                             )
                         )
-                        true
+                        bundle.sessionDate
                     }
                 }
             } else {
@@ -239,6 +247,11 @@ fun rememberAppDependencies(
             }
         }
         if (replayHybridRuntime != null && touchTurnEngine != null) {
+            replaySettingsRepository?.let { settingsRepository ->
+                replayHybridRuntime.playbackOrchestrator.quoteIntervalMs = {
+                    settingsRepository.settings.value.quoteIntervalMs
+                }
+            }
             replayHybridRuntime.playbackOrchestrator.attach(touchTurnEngine, strategyRepository)
             ReplaySessionPlaybackBridge(
                 orchestrator = replayHybridRuntime.playbackOrchestrator,
@@ -269,7 +282,8 @@ fun rememberAppDependencies(
             watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
-            replayBundle = replayHybridRuntime?.bundle ?: replayBundle
+            replayBundle = replayHybridRuntime?.bundle ?: replayBundle,
+            replaySettingsRepository = replaySettingsRepository
         )
     }
 }

@@ -142,10 +142,12 @@ fun App(
                 }
                 val replayController = dependencies.replayController
                 val replaySessionBundle = replayHybridRuntime?.bundle ?: dependencies.replayBundle
-                if (replayController != null && replaySessionBundle != null) {
+                val replaySettingsRepository = dependencies.replaySettingsRepository
+                if (replayController != null && replaySessionBundle != null && replaySettingsRepository != null) {
                     ReplayControlBar(
                         bundle = replaySessionBundle,
-                        controller = replayController
+                        controller = replayController,
+                        replaySettingsRepository = replaySettingsRepository
                     )
                 }
                 Row(modifier = Modifier.fillMaxSize()) {

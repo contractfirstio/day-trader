@@ -7,6 +7,8 @@ object AppDataFiles {
     const val DEPLOYMENTS = "deployments.json"
     const val DEPLOYMENTS_BACKUP = "deployments.json.bak"
     const val STRATEGIES_SCREEN = "strategies-screen.json"
+    /** Replay-only UI preferences (quote drip speed, etc.) — not deployment config. */
+    const val REPLAY_SETTINGS = "replay-settings.json"
     const val LIQUIDITY_BUCKETS = "liquidity-buckets.json"
     /** Broker-scoped: `{broker-scope}/watchlists.json` (separate file per emulator / hybrid / IB / replay). */
     const val WATCHLISTS = "watchlists.json"

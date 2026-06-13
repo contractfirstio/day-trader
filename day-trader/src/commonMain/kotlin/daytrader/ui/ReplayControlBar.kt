@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -23,11 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import daytrader.data.ReplaySettingsRepository
 import daytrader.replay.ReplayComparison
 import daytrader.replay.ReplayFillComparison
-import daytrader.replay.ReplayPlaybackConfig
 import daytrader.replay.ReplayPlaybackState
+import daytrader.replay.ReplayQuoteSpeed
 import daytrader.replay.ReplaySessionController
+import daytrader.replay.ReplaySettings
 import daytrader.replay.SessionBundle
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
@@ -39,6 +44,7 @@ import kotlinx.coroutines.launch
 fun ReplayControlBar(
     bundle: SessionBundle,
     controller: ReplaySessionController,
+    replaySettingsRepository: ReplaySettingsRepository,
     modifier: Modifier = Modifier
 ) {
     var running by remember { mutableStateOf(false) }
@@ -46,6 +52,8 @@ fun ReplayControlBar(
     var fillComparison by remember { mutableStateOf<ReplayFillComparison?>(controller.lastFillComparison) }
     val scope = rememberCoroutineScope()
     val playbackState by controller.runtime.playbackOrchestrator.state.collectAsState()
+    val replaySettings by replaySettingsRepository.settings.collectAsState()
+    val selectedSpeed = ReplayQuoteSpeed.closest(replaySettings.quoteIntervalMs)
 
     Row(
         modifier = modifier
@@ -67,7 +75,7 @@ fun ReplayControlBar(
                 color = TextSecondary
             )
             Text(
-                text = playbackStatusLabel(playbackState),
+                text = playbackStatusLabel(playbackState, replaySettings),
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
@@ -89,41 +97,92 @@ fun ReplayControlBar(
                 )
             }
         }
-        Button(
-            onClick = {
-                if (running) return@Button
-                running = true
-                scope.launch {
-                    runCatching { controller.runReplay() }
-                        .onSuccess {
-                            comparison = it
-                            fillComparison = controller.lastFillComparison
-                        }
-                        .onFailure { error ->
-                            comparison = null
-                            fillComparison = null
-                        }
-                    running = false
-                }
-            },
-            enabled = !running,
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = GainGreen,
-                contentColor = Color.Black,
-                disabledContainerColor = Color(0xFF3A3D48)
-            )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(if (running) "Replaying…" else "Run Replay")
+            ReplayQuoteSpeedPicker(
+                selected = selectedSpeed,
+                enabled = !running,
+                onSelect = { speed ->
+                    replaySettingsRepository.update { settings ->
+                        settings.copy(quoteIntervalMs = speed.intervalMs)
+                    }
+                }
+            )
+            Button(
+                onClick = {
+                    if (running) return@Button
+                    running = true
+                    scope.launch {
+                        runCatching { controller.runReplay() }
+                            .onSuccess {
+                                comparison = it
+                                fillComparison = controller.lastFillComparison
+                            }
+                            .onFailure {
+                                comparison = null
+                                fillComparison = null
+                            }
+                        running = false
+                    }
+                },
+                enabled = !running,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = GainGreen,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color(0xFF3A3D48)
+                )
+            ) {
+                Text(if (running) "Replaying…" else "Run Replay")
+            }
         }
     }
 }
 
-private fun playbackStatusLabel(state: ReplayPlaybackState): String = when (state) {
-    ReplayPlaybackState.Idle -> "Playback idle — start a session or run regression replay"
-    is ReplayPlaybackState.FastForming ->
-        "Opening bar fast-forward (${state.step}/${state.totalSteps})"
-    ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…"
-    is ReplayPlaybackState.DrippingQuotes ->
-        "Quotes ${state.published}/${state.total} · ${ReplayPlaybackConfig.QUOTE_INTERVAL_MS} ms"
+@Composable
+private fun ReplayQuoteSpeedPicker(
+    selected: ReplayQuoteSpeed,
+    enabled: Boolean,
+    onSelect: (ReplayQuoteSpeed) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text("Speed: ${selected.label}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ReplayQuoteSpeed.entries.forEach { speed ->
+                DropdownMenuItem(
+                    text = { Text(speed.label) },
+                    onClick = {
+                        expanded = false
+                        onSelect(speed)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun playbackStatusLabel(state: ReplayPlaybackState, settings: ReplaySettings): String {
+    val intervalLabel = if (settings.quoteIntervalMs <= 0L) {
+        "instant"
+    } else {
+        "${settings.quoteIntervalMs} ms"
+    }
+    return when (state) {
+        ReplayPlaybackState.Idle -> "Playback idle — quote speed $intervalLabel"
+        is ReplayPlaybackState.FastForming ->
+            "Opening bar fast-forward (${state.step}/${state.totalSteps})"
+        ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…"
+        is ReplayPlaybackState.DrippingQuotes ->
+            "Quotes ${state.published}/${state.total} · $intervalLabel"
+    }
 }

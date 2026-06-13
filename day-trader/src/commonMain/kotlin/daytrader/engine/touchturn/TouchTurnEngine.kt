@@ -105,8 +105,8 @@ class TouchTurnEngine(
     private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
     private val delayMillis: suspend (Long) -> Unit = { delay(it) },
     private val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? = null,
-    /** Returns false when no hybrid capture exists for the deployment (session start is blocked). */
-    private val activateReplayCapture: ((StrategyDeployment) -> Boolean)? = null,
+    /** Returns null when no hybrid capture exists; otherwise the captured session ISO date. */
+    private val activateReplayCapture: ((StrategyDeployment) -> String?)? = null,
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null,
@@ -377,8 +377,9 @@ class TouchTurnEngine(
             uiEffects.showStartBlockedAlert(alert)
             return
         }
-        if (brokerKind == BrokerKind.REPLAY) {
-            if (activateReplayCapture?.invoke(existing) == false) {
+        val sessionDate = if (brokerKind == BrokerKind.REPLAY) {
+            val replaySessionDate = activateReplayCapture?.invoke(existing)
+            if (replaySessionDate == null) {
                 val alert = StartBlockedAlertMapper.fromReplayCaptureNotFound(existing)
                 SessionTrace.log(
                     type = "session_start_blocked",
@@ -393,12 +394,15 @@ class TouchTurnEngine(
                 uiEffects.showStartBlockedAlert(alert)
                 return
             }
-            onReplaySessionStarting?.invoke(existing, command.sessionDate)
+            onReplaySessionStarting?.invoke(existing, replaySessionDate)
+            replaySessionDate
+        } else {
+            command.sessionDate
         }
         repository.update(command.instanceId) { current ->
             DeploymentSessionController.start(
                 instance = current,
-                sessionDate = command.sessionDate,
+                sessionDate = sessionDate,
                 markAutoStarted = command.startedBy == TouchTurnSessionStartedBy.AUTO_MARKET_OPEN,
             )
         }
@@ -411,7 +415,7 @@ class TouchTurnEngine(
                 TouchTurnEvent.SessionStarted(
                     instanceId = command.instanceId,
                     sessionId = session.id,
-                    sessionDate = command.sessionDate,
+                    sessionDate = sessionDate,
                     startedBy = command.startedBy
                 )
             )
@@ -424,7 +428,7 @@ class TouchTurnEngine(
             uiEffects.selectDeployment(command.instanceId, tab)
         }
         if (updated.isTouchTurn) {
-            dispatch(TouchTurnCommand.LoadFirstCandle(command.instanceId, command.sessionDate))
+            dispatch(TouchTurnCommand.LoadFirstCandle(command.instanceId, sessionDate))
         }
     }
 

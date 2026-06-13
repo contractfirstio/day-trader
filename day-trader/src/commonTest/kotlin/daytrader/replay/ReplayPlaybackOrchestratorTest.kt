@@ -49,23 +49,38 @@ class ReplayPlaybackOrchestratorTest {
     }
 
     @Test
-    fun dripQuotes_publishesOneQuotePerInterval() = runBlocking {
+    fun ensureQuotesFlowing_doesNotPrePublishCapturedQuotes() {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val clock = ReplayClock(bundle.timeline.sessionStartedEpochMs)
         val gateway = ReplayMarketDataGateway(bundle)
         val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
         val orchestrator = ReplayPlaybackOrchestrator(clock, feeder, scope)
+        assertTrue(feeder.totalQuoteCount > 0)
+
+        orchestrator.ensureQuotesFlowing()
+
+        assertEquals(0, feeder.publishedQuoteCount)
+    }
+
+    @Test
+    fun dripQuotes_publishesOneQuotePerInterval() = runBlocking {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val scope = CoroutineScope(coroutineContext + SupervisorJob())
+        val clock = ReplayClock(bundle.timeline.sessionStartedEpochMs)
+        val gateway = ReplayMarketDataGateway(bundle)
+        val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
+        val orchestrator = ReplayPlaybackOrchestrator(clock, feeder, scope)
         orchestrator.attach(RecordingEngine(), InMemoryStrategyDeploymentRepository())
 
-        val dripJob = scope.launch {
+        val dripJob = launch {
             orchestrator.dripQuotes(bundle.deploymentId)
         }
 
         delay(1L)
         assertEquals(1, feeder.publishedQuoteCount)
 
-        delay(ReplayPlaybackConfig.QUOTE_INTERVAL_MS + 5L)
+        delay(ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS + 5L)
         assertEquals(2, feeder.publishedQuoteCount)
 
         dripJob.cancel()
