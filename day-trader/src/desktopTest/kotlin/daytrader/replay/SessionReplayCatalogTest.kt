@@ -31,6 +31,8 @@ class SessionReplayCatalogTest {
             assertEquals("2026-06-04", entries.single().sessionDate)
             assertEquals(1_780_579_800_000L, entries.single().sessionStartedEpochMs)
             assertNotNull(entries.single().sessionStartedAtLabel)
+            assertNotNull(entries.single().captureSummary)
+            assertEquals(0.0, entries.single().captureSummary!!.pnl)
             assertTrue(entries.single().directoryPath.endsWith("${AppDataFiles.SESSIONS_DIR}/dep-1/sess-1"))
         } finally {
             root.toFile().deleteRecursively()
@@ -104,6 +106,19 @@ class SessionReplayCatalogTest {
     }
 
     @Test
+    fun filterBySymbol_matchesCompanyNameAndWildcards() {
+        val entries = listOf(
+            entry(symbol = "META", companyName = "Meta Platforms Inc.", sessionDate = "2026-06-04"),
+            entry(symbol = "AAPL", companyName = "Apple Inc.", sessionDate = "2026-06-05")
+        )
+        assertEquals(1, SessionReplayCatalog.filterBySymbol(entries, "meta").size)
+        assertEquals("META", SessionReplayCatalog.filterBySymbol(entries, "meta").single().symbol)
+        assertEquals(1, SessionReplayCatalog.filterBySymbol(entries, "*platform*").size)
+        assertEquals(1, SessionReplayCatalog.filterBySymbol(entries, "M*A").size)
+        assertEquals(1, SessionReplayCatalog.filterBySymbol(entries, "apple").size)
+    }
+
+    @Test
     fun distinctSymbols_returnsSortedUniqueSymbols() {
         val entries = listOf(
             entry(symbol = "TSCO"),
@@ -140,6 +155,7 @@ class SessionReplayCatalogTest {
 
     private fun entry(
         symbol: String? = "AAPL",
+        companyName: String? = null,
         sessionDate: String = "2026-06-04",
         sessionStartedEpochMs: Long? = 1_780_579_800_000L
     ) = SessionReplayEntry(
@@ -148,6 +164,7 @@ class SessionReplayCatalogTest {
         deploymentId = "dep-1",
         sessionId = "sess-1",
         symbol = symbol,
+        companyName = companyName,
         sessionDate = sessionDate,
         sessionStartedEpochMs = sessionStartedEpochMs,
         label = "$symbol · $sessionDate · sess-1 (paper-live-ib)"

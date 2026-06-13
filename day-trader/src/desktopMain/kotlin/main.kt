@@ -30,6 +30,7 @@ import daytrader.ui.App
 import daytrader.ui.ApplicationQuitConfirmDialog
 import daytrader.ui.ApplicationQuitCoordinator
 import daytrader.ui.BrokerSelectionScreen
+import daytrader.ui.ChangeBrokerModeConfirmDialog
 import daytrader.ui.IbGatewaySettingsDialog
 import daytrader.ui.SessionReplayPickerScreen
 
@@ -51,6 +52,7 @@ fun main() {
         var pendingSelection by remember { mutableStateOf(BrokerKind.fromEnvironment()) }
         var applicationQuit by remember { mutableStateOf<ApplicationQuitCoordinator?>(null) }
         var showQuitConfirm by remember { mutableStateOf(false) }
+        var showChangeModeConfirm by remember { mutableStateOf(false) }
         var showIbSettings by remember { mutableStateOf(false) }
         var ibGatewayConfig by remember { mutableStateOf(IbGatewayConfig.load()) }
 
@@ -60,6 +62,28 @@ fun main() {
                 (phase as StartupPhase.Running).runtime.shutdown()
             }
             exitApplication()
+        }
+
+        fun performChangeBrokerMode() {
+            val currentKind = (phase as? StartupPhase.Running)?.runtime?.kind
+            if (phase is StartupPhase.Running) {
+                applicationQuit?.stopRunningSessions?.invoke()
+                (phase as StartupPhase.Running).runtime.shutdown()
+            }
+            if (currentKind != null) {
+                pendingSelection = currentKind
+            }
+            applicationQuit = null
+            phase = StartupPhase.ChooseBroker
+        }
+
+        fun requestChangeBrokerMode() {
+            val quit = applicationQuit
+            if (phase is StartupPhase.Running && quit != null && quit.hasRunningSessions()) {
+                showChangeModeConfirm = true
+            } else {
+                performChangeBrokerMode()
+            }
         }
 
         fun requestApplicationQuit() {
@@ -90,6 +114,7 @@ fun main() {
             }
             MacApplicationMenu.onQuitRequest = { requestApplicationQuit() }
             MacApplicationMenu.onOpenIbSettings = { showIbSettings = true }
+            MacApplicationMenu.onChangeBrokerMode = { requestChangeBrokerMode() }
         }
         LaunchedEffect(Unit) {
             if (Desktop.isDesktopSupported()) {
@@ -132,6 +157,16 @@ fun main() {
                             performApplicationQuit()
                         },
                         onDismiss = { showQuitConfirm = false }
+                    )
+                }
+                if (showChangeModeConfirm) {
+                    ChangeBrokerModeConfirmDialog(
+                        runningSymbols = applicationQuit?.runningSymbols?.invoke().orEmpty(),
+                        onConfirmChange = {
+                            showChangeModeConfirm = false
+                            performChangeBrokerMode()
+                        },
+                        onDismiss = { showChangeModeConfirm = false }
                     )
                 }
                 if (showIbSettings) {
@@ -216,7 +251,8 @@ fun main() {
                             replayCaptureCatalog = current.runtime.replayCaptureCatalog,
                             loadReplayBundle = SessionBundleDirectoryReader::loadReplayableFromDirectory,
                             tradingClock = current.runtime.clock,
-                            onRegisterApplicationQuit = { applicationQuit = it }
+                            onRegisterApplicationQuit = { applicationQuit = it },
+                            onChangeBrokerMode = { requestChangeBrokerMode() }
                         )
                     }
                 }

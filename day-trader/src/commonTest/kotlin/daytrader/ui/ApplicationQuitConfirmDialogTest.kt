@@ -23,4 +23,16 @@ class ApplicationQuitConfirmDialogTest {
             message
         )
     }
+
+    @Test
+    fun buildRunningSessionsWarningMessage_changeMode_usesCustomConsequence() {
+        val message = buildRunningSessionsWarningMessage(
+            count = 1,
+            symbolList = "AAPL",
+            consequenceText = "Changing mode will stop those sessions, cancel any working orders, " +
+                "and close open positions at market."
+        )
+        assertTrue(message.contains("Changing mode will stop"))
+        assertTrue(message.contains("AAPL"))
+    }
 }

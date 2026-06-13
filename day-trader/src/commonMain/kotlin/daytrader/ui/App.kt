@@ -51,7 +51,8 @@ fun App(
         Result.failure(IllegalStateException("Replay bundle loader not configured"))
     },
     tradingClock: TradingClock = WallClock,
-    onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null
+    onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null,
+    onChangeBrokerMode: (() -> Unit)? = null
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
@@ -111,7 +112,8 @@ fun App(
                     },
                     selectedMarketZoneId = selectedMarketZoneId,
                     onMarketClick = dependencies.marketFilter::toggle,
-                    onOpenPriceFeedTester = { showPriceFeedTester = true }
+                    onOpenPriceFeedTester = { showPriceFeedTester = true },
+                    onChangeBrokerMode = onChangeBrokerMode
                 )
                 if (showPriceFeedTester) {
                     PriceFeedTesterDialog(

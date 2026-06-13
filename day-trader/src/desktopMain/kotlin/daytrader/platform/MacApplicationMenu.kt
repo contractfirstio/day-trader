@@ -13,6 +13,7 @@ object MacApplicationMenu {
     var onAbout: () -> Unit = { showDefaultAboutDialog(applicationName) }
     var onQuitRequest: () -> Unit = {}
     var onOpenIbSettings: () -> Unit = {}
+    var onChangeBrokerMode: () -> Unit = {}
 
     fun install(applicationName: String) {
         if (!isMacOs()) return
@@ -42,6 +43,12 @@ object MacApplicationMenu {
                 )
             }
             val settingsMenu = JMenu("Settings").apply {
+                add(
+                    JMenuItem("Change Broker Mode…").apply {
+                        addActionListener { onChangeBrokerMode() }
+                    }
+                )
+                addSeparator()
                 add(
                     JMenuItem("Interactive Brokers…").apply {
                         addActionListener { onOpenIbSettings() }

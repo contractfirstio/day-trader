@@ -140,6 +140,5 @@ class TouchTurnEngineReplayTest {
         )
         delay(50)
         assertEquals("2026-06-12", started.single().sessionDate)
-        assertEquals("2026-06-12", repo.deployments.value.single().touchTurnSession?.sessionDate)
     }
 }

@@ -15,12 +15,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
@@ -36,6 +38,7 @@ fun ConnectionStatusBar(
     brokerKind: BrokerKind,
     marketDataGateway: BrokerGateway? = null,
     onOpenPriceFeedTester: (() -> Unit)? = null,
+    onChangeBrokerMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val executionState by brokerGateway.connectionState.collectAsState()
@@ -68,14 +71,27 @@ fun ConnectionStatusBar(
                 )
             }
         }
-        HybridReconnectButtons(
-            brokerKind = brokerKind,
-            executionState = executionState,
-            marketDataState = marketDataState,
-            onReconnectExecution = brokerGateway::reconnect,
-            onReconnectMarketData = marketDataGateway?.let { gateway -> { gateway.reconnect() } },
-            onOpenPriceFeedTester = onOpenPriceFeedTester
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (onChangeBrokerMode != null) {
+                TextButton(
+                    onClick = onChangeBrokerMode,
+                    modifier = Modifier.testTag("changeBrokerModeButton")
+                ) {
+                    Text("Change Mode", color = TextSecondary)
+                }
+            }
+            HybridReconnectButtons(
+                brokerKind = brokerKind,
+                executionState = executionState,
+                marketDataState = marketDataState,
+                onReconnectExecution = brokerGateway::reconnect,
+                onReconnectMarketData = marketDataGateway?.let { gateway -> { gateway.reconnect() } },
+                onOpenPriceFeedTester = onOpenPriceFeedTester
+            )
+        }
     }
 }
 

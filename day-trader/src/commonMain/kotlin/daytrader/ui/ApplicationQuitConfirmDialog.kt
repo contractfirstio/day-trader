@@ -22,27 +22,71 @@ fun ApplicationQuitConfirmDialog(
     onConfirmQuit: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    RunningSessionsConfirmDialog(
+        runningSymbols = runningSymbols,
+        title = "Quit Day Trader?",
+        confirmButtonText = "Quit and stop sessions",
+        consequenceText = "Quitting will stop those sessions, cancel any working orders, " +
+            "and close open positions at market.",
+        onConfirm = onConfirmQuit,
+        onDismiss = onDismiss
+    )
+}
+
+/**
+ * Shown when the user tries to change broker mode while [runningSymbols] is non-empty.
+ */
+@Composable
+fun ChangeBrokerModeConfirmDialog(
+    runningSymbols: List<String>,
+    onConfirmChange: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    RunningSessionsConfirmDialog(
+        runningSymbols = runningSymbols,
+        title = "Change broker mode?",
+        confirmButtonText = "Stop sessions and change mode",
+        consequenceText = "Changing mode will stop those sessions, cancel any working orders, " +
+            "and close open positions at market.",
+        onConfirm = onConfirmChange,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+private fun RunningSessionsConfirmDialog(
+    runningSymbols: List<String>,
+    title: String,
+    confirmButtonText: String,
+    consequenceText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
     val count = runningSymbols.size
     val symbolList = runningSymbols.joinToString(", ")
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = SurfaceDark,
         title = {
-            Text("Quit Day Trader?", color = Color.White, fontWeight = FontWeight.Bold)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
             Text(
-                buildQuitWarningMessage(count = count, symbolList = symbolList),
+                buildRunningSessionsWarningMessage(
+                    count = count,
+                    symbolList = symbolList,
+                    consequenceText = consequenceText
+                ),
                 color = TextSecondary,
                 fontSize = 14.sp
             )
         },
         confirmButton = {
             Button(
-                onClick = onConfirmQuit,
+                onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed)
             ) {
-                Text("Quit and stop sessions")
+                Text(confirmButtonText)
             }
         },
         dismissButton = {
@@ -53,16 +97,26 @@ fun ApplicationQuitConfirmDialog(
     )
 }
 
-internal fun buildQuitWarningMessage(count: Int, symbolList: String): String {
+internal fun buildQuitWarningMessage(count: Int, symbolList: String): String =
+    buildRunningSessionsWarningMessage(
+        count = count,
+        symbolList = symbolList,
+        consequenceText = "Quitting will stop those sessions, cancel any working orders, " +
+            "and close open positions at market."
+    )
+
+internal fun buildRunningSessionsWarningMessage(
+    count: Int,
+    symbolList: String,
+    consequenceText: String
+): String {
     val sessionWord = if (count == 1) "session" else "sessions"
     return buildString {
         append("You have $count running strategy $sessionWord")
         if (symbolList.isNotBlank()) {
             append(" ($symbolList)")
         }
-        append(
-            ". Quitting will stop those sessions, cancel any working orders, " +
-                "and close open positions at market."
-        )
+        append(". ")
+        append(consequenceText)
     }
 }

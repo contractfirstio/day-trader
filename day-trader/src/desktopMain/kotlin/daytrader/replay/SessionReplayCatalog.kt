@@ -1,12 +1,17 @@
 package daytrader.replay
 
+import daytrader.broker.SymbolMarkets
+import daytrader.broker.emulator.EmulatorSymbolLookup
 import daytrader.data.persistence.AppDataFiles
+import daytrader.data.persistence.DeploymentsDocument
+import daytrader.data.persistence.WatchlistsDocument
 import daytrader.gateway.BrokerKind
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.serialization.json.Json
 
 /**
  * A captured session directory that can be loaded for desktop replay.
@@ -17,9 +22,11 @@ data class SessionReplayEntry(
     val deploymentId: String,
     val sessionId: String,
     val symbol: String?,
+    val companyName: String? = null,
     val sessionDate: String?,
     val sessionStartedEpochMs: Long?,
-    val label: String
+    val label: String,
+    val captureSummary: SessionReplayCaptureSummary? = null
 ) {
     val sessionStartedAtLabel: String?
         get() = sessionStartedEpochMs?.let(SessionReplayCatalog::formatSessionStartedAt)
@@ -30,6 +37,11 @@ data class SessionReplayEntry(
  * Excludes `emulator/` and `replay/` — only hybrid and IB captures are listed.
  */
 object SessionReplayCatalog {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = false
+    }
+
     private val brokerScopes = listOf(
         BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA.dataDirectorySegment,
         BrokerKind.INTERACTIVE_BROKERS.dataDirectorySegment
@@ -47,13 +59,20 @@ object SessionReplayCatalog {
     fun discoverUnderScope(scopeRoot: Path, brokerScope: String): List<SessionReplayEntry> {
         val sessionsRoot = scopeRoot.resolve(AppDataFiles.SESSIONS_DIR)
         if (!Files.isDirectory(sessionsRoot)) return emptyList()
+        val deploymentCompanyNames = loadDeploymentCompanyNames(scopeRoot)
+        val watchlistCompanyNames = loadWatchlistCompanyNames(scopeRoot)
         return sessionsRoot.toFile().listFiles()?.asSequence()
             ?.filter { it.isDirectory }
             ?.flatMap { deploymentDir ->
                 deploymentDir.listFiles()?.asSequence()
                     ?.filter { it.isDirectory }
                     ?.mapNotNull { sessionDir ->
-                        toEntry(sessionDir.toPath(), brokerScope)
+                        toEntry(
+                            sessionDir = sessionDir.toPath(),
+                            brokerScope = brokerScope,
+                            deploymentCompanyNames = deploymentCompanyNames,
+                            watchlistCompanyNames = watchlistCompanyNames
+                        )
                     }
                     .orEmpty()
             }
@@ -64,7 +83,15 @@ object SessionReplayCatalog {
     fun entryFromDirectory(sessionDirectoryPath: String, brokerScope: String = "custom"): SessionReplayEntry? =
         toEntry(Path.of(sessionDirectoryPath), brokerScope)
 
-    fun toEntry(sessionDir: Path, brokerScope: String): SessionReplayEntry? {
+    fun toEntry(sessionDir: Path, brokerScope: String): SessionReplayEntry? =
+        toEntry(sessionDir, brokerScope, emptyMap(), emptyMap())
+
+    fun toEntry(
+        sessionDir: Path,
+        brokerScope: String,
+        deploymentCompanyNames: Map<String, String>,
+        watchlistCompanyNames: Map<String, String>
+    ): SessionReplayEntry? {
         val application = sessionDir.resolve(AppDataFiles.SESSION_APPLICATION_LOG)
         val manifest = sessionDir.resolve(AppDataFiles.SESSION_MANIFEST)
         if (!Files.exists(application) && !Files.exists(manifest)) return null
@@ -75,6 +102,12 @@ object SessionReplayCatalog {
         }.getOrNull()
         if (bundle != null && !ReplaySourceValidation.isSupportedReplayCapture(bundle.brokerKind)) return null
         val symbol = bundle?.symbol
+        val companyName = resolveCompanyName(
+            deploymentId = deploymentId,
+            symbol = symbol,
+            deploymentCompanyNames = deploymentCompanyNames,
+            watchlistCompanyNames = watchlistCompanyNames
+        )
         val sessionDate = bundle?.sessionDate
         val sessionStartedEpochMs = bundle?.timeline?.sessionStartedEpochMs
         val label = buildString {
@@ -90,9 +123,11 @@ object SessionReplayCatalog {
             deploymentId = deploymentId,
             sessionId = sessionId,
             symbol = symbol,
+            companyName = companyName,
             sessionDate = sessionDate,
             sessionStartedEpochMs = sessionStartedEpochMs,
-            label = label
+            label = label,
+            captureSummary = bundle?.toReplayCaptureSummary()
         )
     }
 
@@ -115,7 +150,14 @@ object SessionReplayCatalog {
         val query = symbolQuery.trim()
         if (query.isEmpty()) return entries
         return entries.filter { entry ->
-            entry.symbol?.contains(query, ignoreCase = true) == true
+            SessionReplaySearch.matches(
+                query = query,
+                symbol = entry.symbol,
+                companyName = entry.companyName,
+                deploymentId = entry.deploymentId,
+                sessionId = entry.sessionId,
+                label = entry.label
+            )
         }
     }
 
@@ -152,4 +194,48 @@ object SessionReplayCatalog {
 
     private fun formatSessionStartedTime(epochMs: Long): String =
         startedAtTimeFormatter.format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+
+    private fun loadDeploymentCompanyNames(scopeRoot: Path): Map<String, String> {
+        val path = scopeRoot.resolve(AppDataFiles.DEPLOYMENTS)
+        if (!Files.exists(path)) return emptyMap()
+        return runCatching {
+            json.decodeFromString<DeploymentsDocument>(Files.readString(path))
+                .deployments
+                .mapNotNull { record ->
+                    record.configuration.companyName?.trim()?.takeIf { it.isNotEmpty() }
+                        ?.let { name -> record.id to name }
+                }
+                .toMap()
+        }.getOrElse { emptyMap() }
+    }
+
+    private fun loadWatchlistCompanyNames(scopeRoot: Path): Map<String, String> {
+        val path = scopeRoot.resolve(AppDataFiles.WATCHLISTS)
+        if (!Files.exists(path)) return emptyMap()
+        return runCatching {
+            json.decodeFromString<WatchlistsDocument>(Files.readString(path))
+                .watchlists
+                .flatMap { watchlist -> watchlist.entries }
+                .mapNotNull { entry ->
+                    entry.companyName?.trim()?.takeIf { it.isNotEmpty() }
+                        ?.let { name -> SymbolMarkets.normalizeSymbol(entry.symbol) to name }
+                }
+                .toMap()
+        }.getOrElse { emptyMap() }
+    }
+
+    private fun resolveCompanyName(
+        deploymentId: String,
+        symbol: String?,
+        deploymentCompanyNames: Map<String, String>,
+        watchlistCompanyNames: Map<String, String>
+    ): String? {
+        deploymentCompanyNames[deploymentId]?.let { return it }
+        symbol?.let { sym ->
+            val normalized = SymbolMarkets.normalizeSymbol(sym)
+            watchlistCompanyNames[normalized]?.let { return it }
+            EmulatorSymbolLookup.companyName(sym)?.let { return it }
+        }
+        return null
+    }
 }
