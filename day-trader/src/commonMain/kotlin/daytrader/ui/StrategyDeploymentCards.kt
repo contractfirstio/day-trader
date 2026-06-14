@@ -319,7 +319,6 @@ internal fun CompactAutoStartToggle(
 @Composable
 internal fun FilteredDeploymentsSummaryPanel(
     summary: FilteredDeploymentsSummaryUi,
-    deploymentCount: Int,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -331,15 +330,6 @@ internal fun FilteredDeploymentsSummaryPanel(
             .padding(horizontal = 6.dp, vertical = 5.dp)
             .testTag("FilteredDeploymentsSummary")
     ) {
-        Text(
-            "Filtered total · $deploymentCount deployments",
-            color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.height(4.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
