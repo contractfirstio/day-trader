@@ -1,5 +1,7 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentPositionOutcomeCalculator
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
 import daytrader.data.StrategyCatalog
@@ -9,6 +11,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.riskReward
 import daytrader.domain.instanceDisplayName
 import daytrader.domain.inProgressSession
+import daytrader.domain.lastClosed
 import daytrader.domain.rollups
 import daytrader.presentation.Formatters
 
@@ -27,11 +30,20 @@ object StrategyUiMapper {
         brokerPosition: AccountPosition? = null
     ): StrategyDeploymentRowUi {
         val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
+        val lastClosedSession = closedSessions.lastClosed()
         val rollup = closedSessions.rollups(sessionDate)
         val hasOpenPosition = brokerPosition != null ||
             (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
                 instance.live.state == ExecutionState.FILLED)
         val positionPnL = positionUnrealizedPnL(instance, brokerPosition, brokerUnrealizedPnL)
+        val positionOutcome = if (hasOpenPosition) {
+            DeploymentPositionOutcomeCalculator.resolve(instance, brokerPosition, brokerOpenOrders)
+        } else {
+            null
+        }
+        val currency = brokerPosition?.currency
+            ?: instance.instrument?.currency
+            ?: SymbolMarkets.currencyCode(instance.symbol)
         val card = DeploymentCardStateMapper.resolve(
             instance,
             sessionDate,
@@ -64,12 +76,23 @@ object StrategyUiMapper {
                 rollup.winDays * 2 >= rollup.closedDays -> true
                 else -> false
             },
+            formattedLastSessionPnL = lastClosedSession?.let {
+                Formatters.money(it.pnl, currency, showSign = true)
+            } ?: "—",
+            isPositiveLastSessionPnL = lastClosedSession?.let { it.pnl >= 0 },
             autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
             hasOpenPosition = hasOpenPosition,
             formattedPositionPnL = positionPnL?.let {
-                Formatters.money(it, brokerPosition?.currency ?: "USD", showSign = true)
+                Formatters.money(it, currency, showSign = true)
             },
-            isPositivePositionPnL = positionPnL?.let { it >= 0 }
+            isPositivePositionPnL = positionPnL?.let { it >= 0 },
+            formattedMaxProfit = positionOutcome?.maxProfit?.let {
+                Formatters.money(it, currency, showSign = true)
+            },
+            formattedStopOutcome = positionOutcome?.stopOutcome?.let {
+                Formatters.money(it, currency, showSign = true)
+            },
+            stopOutcomeIsMinWin = positionOutcome?.stopIsMinWin == true
         )
     }
 

@@ -317,6 +317,117 @@ internal fun CompactAutoStartToggle(
 }
 
 @Composable
+internal fun FilteredDeploymentsSummaryPanel(
+    summary: FilteredDeploymentsSummaryUi,
+    deploymentCount: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(DarkBackground.copy(alpha = 0.65f))
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp)
+            .testTag("FilteredDeploymentsSummary")
+    ) {
+        Text(
+            "Filtered total · $deploymentCount deployments",
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(
+                "Session",
+                color = TextSecondary.copy(alpha = 0.9f),
+                fontSize = 7.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.4.sp,
+                lineHeight = 8.sp
+            )
+            Text(
+                buildString {
+                    append("${summary.runningCount} running")
+                    if (summary.openPositionCount > 0) {
+                        append(" · ${summary.openPositionCount} open")
+                    }
+                },
+                color = TextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        if (summary.showLiveBand) {
+            DeploymentCardMetricBand(
+                title = "Live",
+                subtitle = "open positions",
+                accent = TradeBlueBorder,
+                surfaceColor = TradeBlueSurface.copy(alpha = 0.92f),
+                showPulseDot = true,
+                modifier = Modifier.testTag("FilteredDeploymentsLiveBand")
+            ) {
+                CompactInstanceStat(
+                    label = "Unrealized",
+                    value = summary.formattedUnrealized,
+                    valueColor = summary.isPositiveUnrealized?.let {
+                        if (it) GainGreen else LossRed
+                    } ?: Color.White
+                )
+                summary.formattedMaxProfit?.let { maxProfit ->
+                    CompactInstanceStat(
+                        label = "Max profit",
+                        value = maxProfit,
+                        valueColor = GainGreen
+                    )
+                }
+                summary.formattedStopOutcome?.let { stopOutcome ->
+                    CompactInstanceStat(
+                        label = if (summary.stopOutcomeIsMinWin) "Min win" else "Max loss",
+                        value = stopOutcome,
+                        valueColor = if (summary.stopOutcomeIsMinWin) GainGreen else LossRed
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        DeploymentCardMetricBand(
+            title = "All-time",
+            subtitle = "closed sessions",
+            accent = TextSecondary,
+            surfaceColor = TableHeaderBg.copy(alpha = 0.55f),
+            showPulseDot = false,
+            modifier = Modifier.testTag("FilteredDeploymentsAllTimeBand")
+        ) {
+            CompactInstanceStat(
+                label = "Last session",
+                value = summary.formattedLastSessionPnL,
+                valueColor = lastSessionPnLColor(summary.isPositiveLastSessionPnL)
+            )
+            CompactInstanceStat(
+                label = "Win %",
+                value = summary.formattedWinRate,
+                valueColor = winRateColor(summary.winRateIsPositive)
+            )
+            CompactInstanceStat(
+                label = "Net P&L",
+                value = summary.formattedNetPnL,
+                valueColor = lastSessionPnLColor(summary.isPositiveNetPnL)
+            )
+        }
+    }
+}
+
+@Composable
 internal fun StrategyDeploymentCard(
     row: StrategyDeploymentRowUi,
     isSelected: Boolean,
@@ -382,23 +493,74 @@ internal fun StrategyDeploymentCard(
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
+                Text(
+                    "Session",
+                    color = TextSecondary.copy(alpha = 0.9f),
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.4.sp,
+                    lineHeight = 8.sp
+                )
                 InstanceStateChip(
                     label = row.statusChipLabel,
                     accent = row.cardAccent,
                     compact = true
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                if (row.hasOpenPosition && row.formattedPositionPnL != null) {
-                    CompactInstanceStat(
-                        label = "Position",
-                        value = row.formattedPositionPnL,
-                        valueColor = if (row.isPositivePositionPnL == true) GainGreen else LossRed
-                    )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            if (row.hasOpenPosition &&
+                (row.formattedPositionPnL != null ||
+                    row.formattedMaxProfit != null ||
+                    row.formattedStopOutcome != null)
+            ) {
+                DeploymentCardMetricBand(
+                    title = "Live",
+                    subtitle = "open position",
+                    accent = TradeBlueBorder,
+                    surfaceColor = TradeBlueSurface.copy(alpha = 0.92f),
+                    showPulseDot = true,
+                    modifier = Modifier.testTag("DeploymentCardLiveBand-${row.id}")
+                ) {
+                    row.formattedPositionPnL?.let { positionPnL ->
+                        CompactInstanceStat(
+                            label = "Unrealized",
+                            value = positionPnL,
+                            valueColor = if (row.isPositivePositionPnL == true) GainGreen else LossRed
+                        )
+                    }
+                    row.formattedMaxProfit?.let { maxProfit ->
+                        CompactInstanceStat(
+                            label = "Max profit",
+                            value = maxProfit,
+                            valueColor = GainGreen
+                        )
+                    }
+                    row.formattedStopOutcome?.let { stopOutcome ->
+                        CompactInstanceStat(
+                            label = if (row.stopOutcomeIsMinWin) "Min win" else "Max loss",
+                            value = stopOutcome,
+                            valueColor = if (row.stopOutcomeIsMinWin) GainGreen else LossRed
+                        )
+                    }
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+            DeploymentCardMetricBand(
+                title = "All-time",
+                subtitle = "closed sessions",
+                accent = TextSecondary,
+                surfaceColor = TableHeaderBg.copy(alpha = 0.55f),
+                showPulseDot = false,
+                modifier = Modifier.testTag("DeploymentCardAllTimeBand-${row.id}")
+            ) {
+                CompactInstanceStat(
+                    label = "Last session",
+                    value = row.formattedLastSessionPnL,
+                    valueColor = lastSessionPnLColor(row.isPositiveLastSessionPnL)
+                )
                 CompactInstanceStat(
                     label = "Win %",
                     value = row.formattedWinRate,
@@ -414,9 +576,84 @@ internal fun StrategyDeploymentCard(
     }
 }
 
+@Composable
+internal fun DeploymentCardMetricBand(
+    title: String,
+    subtitle: String,
+    accent: Color,
+    surfaceColor: Color,
+    showPulseDot: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    val bandShape = RoundedCornerShape(4.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(bandShape)
+            .background(surfaceColor)
+            .border(1.dp, accent.copy(alpha = 0.4f), bandShape)
+            .padding(horizontal = 5.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (showPulseDot) {
+                DeploymentCardLivePulseDot(color = accent)
+            }
+            Text(
+                title.uppercase(),
+                color = accent,
+                fontSize = 7.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp,
+                lineHeight = 8.sp
+            )
+            Text(
+                subtitle,
+                color = TextSecondary.copy(alpha = 0.85f),
+                fontSize = 7.sp,
+                lineHeight = 8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun DeploymentCardLivePulseDot(color: Color) {
+    val transition = rememberInfiniteTransition(label = "deploymentCardLiveDot")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Reverse),
+        label = "deploymentCardLiveDotAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .size(5.dp)
+            .background(color.copy(alpha = alpha), RoundedCornerShape(50))
+    )
+}
+
 internal fun winRateColor(winRateIsPositive: Boolean?): Color = when (winRateIsPositive) {
     true -> MarketOpenBorder
     false -> TradeRedBorder
+    null -> TextSecondary
+}
+
+internal fun lastSessionPnLColor(isPositive: Boolean?): Color = when (isPositive) {
+    true -> GainGreen
+    false -> LossRed
     null -> TextSecondary
 }
 

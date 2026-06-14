@@ -163,6 +163,14 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    uiState.filteredSummary?.let { summary ->
+                        FilteredDeploymentsSummaryPanel(
+                            summary = summary,
+                            deploymentCount = uiState.filteredCount
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
                     if (uiState.filteredRows.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(

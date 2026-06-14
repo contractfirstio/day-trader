@@ -38,14 +38,22 @@ data class StrategyDeploymentRowUi(
     val formattedWinRate: String,
     /** null when no closed runs; true when win rate is at least 50%. */
     val winRateIsPositive: Boolean? = null,
+    val formattedLastSessionPnL: String = "—",
+    /** null when there is no closed session yet. */
+    val isPositiveLastSessionPnL: Boolean? = null,
     val autoStartOnMarketOpen: Boolean = false,
     val hasOpenPosition: Boolean = false,
     val formattedPositionPnL: String? = null,
-    val isPositivePositionPnL: Boolean? = null
+    val isPositivePositionPnL: Boolean? = null,
+    val formattedMaxProfit: String? = null,
+    val formattedStopOutcome: String? = null,
+    /** When true, [formattedStopOutcome] is a guaranteed minimum win (trailing stop past entry). */
+    val stopOutcomeIsMinWin: Boolean = false
 )
 
 data class StrategiesUiState(
     val filteredRows: List<StrategyDeploymentRowUi> = emptyList(),
+    val filteredSummary: FilteredDeploymentsSummaryUi? = null,
     val filteredCount: Int = 0,
     val totalCount: Int = 0,
     val hasActiveFilters: Boolean = false,

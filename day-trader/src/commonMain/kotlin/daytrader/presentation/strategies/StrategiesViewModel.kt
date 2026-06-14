@@ -1349,6 +1349,12 @@ class StrategiesViewModel(
                 brokerPosition = brokerPosition
             )
         }
+        val filteredSummary = FilteredDeploymentsSummaryMapper.build(
+            instances = filtered,
+            sessionDate = sessionDate,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+        )
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.deploymentFilter != DeploymentFilter.ALL ||
             state.strategyTypeFilter != null ||
@@ -1401,6 +1407,7 @@ class StrategiesViewModel(
         _uiState.update {
             StrategiesUiState(
                 filteredRows = listRows,
+                filteredSummary = filteredSummary,
                 filteredCount = filtered.size,
                 totalCount = deployments.size,
                 hasActiveFilters = hasActiveFilters,
