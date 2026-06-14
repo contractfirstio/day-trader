@@ -56,6 +56,8 @@ data class StrategiesUiState(
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     val showAddDialog: Boolean = false,
     val addDialogPrefill: StrategyDeploymentAddPrefill? = null,
+    val showImportDialog: Boolean = false,
+    val symbolImport: DeploymentSymbolImportUiState? = null,
     val selectedDeploymentId: String? = null,
     val sessionHistory: SessionHistoryUiState? = null,
     val liveExecution: LiveExecutionUiState? = null,

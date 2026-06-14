@@ -91,6 +91,20 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         )
     }
 
+    uiState.symbolImport?.let { importState ->
+        if (uiState.showImportDialog) {
+            DeploymentSymbolImportDialog(
+                state = importState,
+                onDismiss = viewModel::onDismissImportDialog,
+                onPickFile = viewModel::onPickImportCsvFile,
+                onImportTargetChange = viewModel::onImportTargetChange,
+                onStrategyTypeChange = viewModel::onImportStrategyTypeChange,
+                onMaxDollarsChange = viewModel::onImportMaxDollarsChange,
+                onStartImport = viewModel::onStartSymbolImport
+            )
+        }
+    }
+
     uiState.startBlockedAlert?.let { alert ->
         StartBlockedByPositionDialog(
             alert = alert,
@@ -105,7 +119,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             onClearSearch = {
                 if (uiState.searchQuery.isNotEmpty()) viewModel.onSearchChange("")
             },
-            onAddInstance = viewModel::onShowAddDialog
+            onAddInstance = viewModel::onShowAddDialog,
+            onImportSymbols = viewModel::onShowImportDialog
         )
 
         Spacer(modifier = Modifier.height(8.dp))

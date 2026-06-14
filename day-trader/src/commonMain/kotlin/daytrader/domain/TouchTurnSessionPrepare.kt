@@ -156,3 +156,12 @@ fun StrategyDeployment.clearTouchTurnPrepareIfInstrumentChanged(
     }
     return this
 }
+
+fun StrategyDeployment.clearTouchTurnPrepareIfRulesChanged(
+    previousRules: TouchTurnRuleConfig
+): StrategyDeployment {
+    if (touchTurnRules != previousRules) {
+        return copy(touchTurnPrepare = null)
+    }
+    return this
+}

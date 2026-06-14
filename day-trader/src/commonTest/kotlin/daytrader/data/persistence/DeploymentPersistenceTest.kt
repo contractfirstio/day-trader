@@ -84,6 +84,24 @@ class DeploymentPersistenceTest {
     }
 
     @Test
+    fun configurationRoundTrip_persistsOpenDeadlineEnable() {
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(openDeadline = true)
+        )
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "0700",
+            maxDollars = 500
+        ).copy(touchTurnRules = rules)
+
+        val record = DeploymentPersistence.toRecord(original)
+        val restored = DeploymentPersistence.toDomain(record)
+
+        assertEquals(true, restored.touchTurnRules.enables.openDeadline)
+        assertEquals(true, record.configuration.touchTurnRules?.enableOpenDeadline)
+    }
+
+    @Test
     fun configurationRoundTrip_persistsTouchTurnRuleEnables() {
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             enables = TouchTurnRuleEnables.DEFAULT.copy(

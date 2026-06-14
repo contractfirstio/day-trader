@@ -168,7 +168,8 @@ internal fun StrategiesHeader(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onAddInstance: () -> Unit
+    onAddInstance: () -> Unit,
+    onImportSymbols: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -229,6 +230,24 @@ internal fun StrategiesHeader(
                     .height(32.dp)
                     .testTag("StrategySearchField")
             )
+            Button(
+                onClick = onImportSymbols,
+                colors = ButtonDefaults.buttonColors(containerColor = TableHeaderBg),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(32.dp)
+                    .testTag("ImportStrategyDeploymentsButton")
+            ) {
+                Icon(
+                    Icons.Default.Upload,
+                    contentDescription = "Import",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Import", color = Color.White, fontSize = 11.sp)
+            }
             Button(
                 onClick = onAddInstance,
                 colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
