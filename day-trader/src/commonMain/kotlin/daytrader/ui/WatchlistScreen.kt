@@ -311,7 +311,7 @@ private fun WatchlistGroupFilterBar(
 @Composable
 private fun WatchlistFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) BrandRed.copy(alpha = 0.25f) else DarkBackground
-    val borderColor = if (selected) BrandRed else TableHeaderBg
+    val borderColor = if (selected) SelectionBorder else TableHeaderBg
     Text(
         text = label,
         modifier = Modifier

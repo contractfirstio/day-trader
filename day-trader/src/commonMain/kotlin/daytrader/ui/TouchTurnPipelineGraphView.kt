@@ -43,6 +43,7 @@ import daytrader.presentation.strategies.isSelectable
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
+import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 
@@ -264,7 +265,7 @@ private fun DrawScope.drawPipelineNode(
         TouchTurnBreadcrumbStepState.UPCOMING -> TableHeaderBg.copy(alpha = 0.9f)
     }
     val borderColor = when {
-        isSelected -> BrandRed
+        isSelected -> SelectionBorder
         node.state == TouchTurnBreadcrumbStepState.COMPLETED -> GainGreen
         node.state == TouchTurnBreadcrumbStepState.CURRENT -> Color.White
         node.state == TouchTurnBreadcrumbStepState.FAILED -> LossRed

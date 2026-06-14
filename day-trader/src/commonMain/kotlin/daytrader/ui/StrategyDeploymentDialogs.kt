@@ -462,7 +462,7 @@ internal fun StrategyTypePickerCard(
     onSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val borderColor = if (selected) BrandRed else TableHeaderBg
+    val borderColor = if (selected) SelectionBorder else TableHeaderBg
     val backgroundColor = if (selected) BrandRed.copy(alpha = 0.12f) else DarkBackground
     Column(
         modifier = modifier

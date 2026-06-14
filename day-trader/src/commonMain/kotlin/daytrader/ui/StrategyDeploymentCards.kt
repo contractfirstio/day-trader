@@ -58,7 +58,7 @@ internal fun InstanceCardChrome(
     val style = instanceCardStyle(accent)
     val pulseAlpha = animatedCardPulseAlpha(accent)
     val accentBorder = style.borderColor.copy(alpha = style.borderColor.alpha * pulseAlpha)
-    val borderColor = if (isSelected) BrandRed else accentBorder
+    val borderColor = if (isSelected) SelectionBorder else accentBorder
     val borderWidth = if (isSelected) 2.dp else style.borderWidth
     Box(
         modifier = modifier
@@ -273,7 +273,7 @@ internal fun StrategiesHeader(
 @Composable
 internal fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val bg = if (selected) BrandRed.copy(alpha = 0.25f) else DarkBackground
-    val borderColor = if (selected) BrandRed else TableHeaderBg
+    val borderColor = if (selected) SelectionBorder else TableHeaderBg
     Text(
         text = label,
         modifier = Modifier
