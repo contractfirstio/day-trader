@@ -38,7 +38,10 @@ data class StrategyDeploymentRowUi(
     val formattedWinRate: String,
     /** null when no closed runs; true when win rate is at least 50%. */
     val winRateIsPositive: Boolean? = null,
-    val autoStartOnMarketOpen: Boolean = false
+    val autoStartOnMarketOpen: Boolean = false,
+    val hasOpenPosition: Boolean = false,
+    val formattedPositionPnL: String? = null,
+    val isPositivePositionPnL: Boolean? = null
 )
 
 data class StrategiesUiState(

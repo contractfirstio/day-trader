@@ -1311,12 +1311,18 @@ class StrategiesViewModel(
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
         }
+        val selectedHasOpenPosition = selected?.let { instance ->
+            SymbolMarkets.hasOpenPosition(instance, brokerPositions)
+        } == true
         val selectedCardPresentation = selected?.let { instance ->
             DeploymentCardStateMapper.resolve(
                 instance,
                 sessionDate,
                 selectedBrokerPnL,
-                brokerOpenOrders
+                brokerOpenOrders,
+                hasOpenPosition = selectedHasOpenPosition ||
+                    (instance.status == DeploymentStatus.RUNNING &&
+                        instance.live.state == ExecutionState.FILLED)
             )
         }
         val sessionHistory = selected?.let { instance ->
@@ -1332,14 +1338,15 @@ class StrategiesViewModel(
         }
 
         val listRows = filtered.map { instance ->
-            val brokerPnL = SymbolMarkets.findOpenPosition(instance, brokerPositions)
+            val brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
-                ?.totalUnrealizedPnL
+            val brokerPnL = brokerPosition?.totalUnrealizedPnL
             StrategyUiMapper.toRowUi(
                 instance,
                 sessionDate,
                 brokerUnrealizedPnL = brokerPnL,
-                brokerOpenOrders = brokerOpenOrders
+                brokerOpenOrders = brokerOpenOrders,
+                brokerPosition = brokerPosition
             )
         }
         val hasActiveFilters = state.searchQuery.isNotBlank() ||

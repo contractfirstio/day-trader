@@ -1,9 +1,12 @@
 package daytrader.presentation.strategies
 
+import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
 import daytrader.data.StrategyCatalog
+import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.riskReward
 import daytrader.domain.instanceDisplayName
 import daytrader.domain.inProgressSession
 import daytrader.domain.rollups
@@ -20,15 +23,21 @@ object StrategyUiMapper {
         instance: StrategyDeployment,
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
-        brokerOpenOrders: List<WorkingOrder> = emptyList()
+        brokerOpenOrders: List<WorkingOrder> = emptyList(),
+        brokerPosition: AccountPosition? = null
     ): StrategyDeploymentRowUi {
         val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         val rollup = closedSessions.rollups(sessionDate)
+        val hasOpenPosition = brokerPosition != null ||
+            (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
+                instance.live.state == ExecutionState.FILLED)
+        val positionPnL = positionUnrealizedPnL(instance, brokerPosition, brokerUnrealizedPnL)
         val card = DeploymentCardStateMapper.resolve(
             instance,
             sessionDate,
             brokerUnrealizedPnL,
-            brokerOpenOrders
+            brokerOpenOrders,
+            hasOpenPosition = hasOpenPosition
         )
         return StrategyDeploymentRowUi(
             id = instance.id,
@@ -55,8 +64,26 @@ object StrategyUiMapper {
                 rollup.winDays * 2 >= rollup.closedDays -> true
                 else -> false
             },
-            autoStartOnMarketOpen = instance.autoStartOnMarketOpen
+            autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
+            hasOpenPosition = hasOpenPosition,
+            formattedPositionPnL = positionPnL?.let {
+                Formatters.money(it, brokerPosition?.currency ?: "USD", showSign = true)
+            },
+            isPositivePositionPnL = positionPnL?.let { it >= 0 }
         )
+    }
+
+    private fun positionUnrealizedPnL(
+        instance: StrategyDeployment,
+        brokerPosition: AccountPosition?,
+        brokerUnrealizedPnL: Double?
+    ): Double? {
+        if (brokerPosition != null) return brokerUnrealizedPnL ?: brokerPosition.totalUnrealizedPnL
+        if (instance.live.state != ExecutionState.FILLED) return null
+        return instance.live.riskReward(
+            maxDollars = instance.maxDollars,
+            rewardMultiple = StrategyCatalog.rewardMultiple(instance.strategyType)
+        ).unrealizedPnL
     }
 
     fun strategyDisplayName(instance: StrategyDeployment): String =

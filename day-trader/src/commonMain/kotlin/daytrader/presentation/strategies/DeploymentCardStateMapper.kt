@@ -16,7 +16,8 @@ object DeploymentCardStateMapper {
         instance: StrategyDeployment,
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
-        brokerOpenOrders: List<WorkingOrder> = emptyList()
+        brokerOpenOrders: List<WorkingOrder> = emptyList(),
+        hasOpenPosition: Boolean = false
     ): DeploymentCardPresentation {
         if (instance.status == DeploymentStatus.ERROR) {
             return DeploymentCardPresentation(
@@ -24,13 +25,41 @@ object DeploymentCardStateMapper {
                 chipLabel = "Error"
             )
         }
+        if (hasActivePosition(instance, hasOpenPosition)) {
+            return openPositionPresentation(instance, brokerUnrealizedPnL)
+        }
         openOrdersPresentation(instance, brokerOpenOrders)?.let { return it }
         return when (instance.status) {
             DeploymentStatus.STOPPED -> stoppedPresentation(instance, sessionDate)
-            DeploymentStatus.RUNNING -> runningPresentation(instance, brokerUnrealizedPnL)
+            DeploymentStatus.RUNNING -> DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_FLAT,
+                chipLabel = "Active"
+            )
             DeploymentStatus.ERROR -> DeploymentCardPresentation(
                 accent = DeploymentCardAccent.ERROR,
                 chipLabel = "Error"
+            )
+        }
+    }
+
+    private fun hasActivePosition(instance: StrategyDeployment, brokerHasPosition: Boolean): Boolean =
+        brokerHasPosition ||
+            (instance.status == DeploymentStatus.RUNNING && instance.live.state == ExecutionState.FILLED)
+
+    private fun openPositionPresentation(
+        instance: StrategyDeployment,
+        brokerUnrealizedPnL: Double?
+    ): DeploymentCardPresentation {
+        val unrealized = openPositionUnrealizedPnL(instance, brokerUnrealizedPnL) ?: 0.0
+        return if (unrealized >= 0) {
+            DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_IN_THE_MONEY,
+                chipLabel = "In the money"
+            )
+        } else {
+            DeploymentCardPresentation(
+                accent = DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY,
+                chipLabel = "Out of the money"
             )
         }
     }
@@ -74,36 +103,6 @@ object DeploymentCardStateMapper {
             else -> DeploymentCardPresentation(
                 accent = DeploymentCardAccent.STOPPED_NEUTRAL,
                 chipLabel = "Neutral"
-            )
-        }
-    }
-
-    private fun runningPresentation(
-        instance: StrategyDeployment,
-        brokerUnrealizedPnL: Double?
-    ): DeploymentCardPresentation {
-        if (instance.live.state != ExecutionState.FILLED) {
-            return DeploymentCardPresentation(
-                accent = DeploymentCardAccent.RUNNING_FLAT,
-                chipLabel = "Active"
-            )
-        }
-        val unrealized = openPositionUnrealizedPnL(instance, brokerUnrealizedPnL)
-        if (unrealized == null) {
-            return DeploymentCardPresentation(
-                accent = DeploymentCardAccent.RUNNING_FLAT,
-                chipLabel = "Active"
-            )
-        }
-        return if (unrealized >= 0) {
-            DeploymentCardPresentation(
-                accent = DeploymentCardAccent.RUNNING_IN_THE_MONEY,
-                chipLabel = "In the money"
-            )
-        } else {
-            DeploymentCardPresentation(
-                accent = DeploymentCardAccent.RUNNING_OUT_OF_THE_MONEY,
-                chipLabel = "Out of the money"
             )
         }
     }

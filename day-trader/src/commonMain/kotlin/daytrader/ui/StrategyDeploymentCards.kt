@@ -392,6 +392,13 @@ internal fun StrategyDeploymentCard(
                     compact = true
                 )
                 Spacer(modifier = Modifier.weight(1f))
+                if (row.hasOpenPosition && row.formattedPositionPnL != null) {
+                    CompactInstanceStat(
+                        label = "Position",
+                        value = row.formattedPositionPnL,
+                        valueColor = if (row.isPositivePositionPnL == true) GainGreen else LossRed
+                    )
+                }
                 CompactInstanceStat(
                     label = "Win %",
                     value = row.formattedWinRate,
