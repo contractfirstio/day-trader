@@ -154,6 +154,11 @@ data class SessionRollups(
     val closedDays: Int
 )
 
+/** Most recently stopped closed run, by [StrategySession.stoppedAt] then [StrategySession.startedAt]. */
+fun List<StrategySession>.lastClosed(): StrategySession? =
+    filter { it.status == SessionStatus.CLOSED }
+        .maxByOrNull { it.stoppedAt.ifBlank { it.startedAt } }
+
 fun List<StrategySession>.rollups(asOfSessionDate: String): SessionRollups {
     val asOf = asOfSessionDate.toSessionDayOrdinal()
     val relevant = filter { session ->

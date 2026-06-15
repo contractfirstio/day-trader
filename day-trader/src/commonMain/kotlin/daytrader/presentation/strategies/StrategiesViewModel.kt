@@ -39,7 +39,9 @@ import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.touchTurnAnalysisSessionForRun
 import daytrader.domain.touchTurnRecapRun
+import daytrader.domain.DEFAULT_WATCHLIST_ID
 import daytrader.domain.defaultStrategyDeployment
+import daytrader.domain.newWatchlistEntry
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
 import daytrader.domain.sessionRealizedPnL
@@ -47,14 +49,19 @@ import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.clearTouchTurnPrepareIfInstrumentChanged
+import daytrader.domain.clearTouchTurnPrepareIfRulesChanged
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.MarketSource
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.DeploymentSymbolResolver
 import daytrader.domain.InstrumentListingCandidates
 import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
+import daytrader.domain.SymbolImportCsvParser
+import daytrader.domain.SymbolImportExchange
+import daytrader.platform.PlatformFilePicker
 import daytrader.domain.withClosedPosition
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
@@ -101,6 +108,9 @@ class StrategiesViewModel(
     private var appState = StrategiesAppState()
     private var showAddDialog = false
     private var addDialogPrefill: StrategyDeploymentAddPrefill? = null
+    private var showImportDialog = false
+    private var symbolImport: DeploymentSymbolImportUiState? = null
+    private var importJobActive = false
     private var deployments: List<StrategyDeployment> = emptyList()
     private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
@@ -543,6 +553,292 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun onShowImportDialog() {
+        if (importJobActive) return
+        showImportDialog = true
+        symbolImport = DeploymentSymbolImportUiState(
+            maxDollarsText = defaultMaxDollarsFor(StrategyType.TOUCH_AND_TURN_SCALPER).toString(),
+            brokerConnected = isBrokerConnectedForResolve(),
+            watchlistImportEnabled = watchlistRepository != null
+        )
+        emitUiState()
+    }
+
+    fun onDismissImportDialog() {
+        if (importJobActive) return
+        showImportDialog = false
+        symbolImport = null
+        emitUiState()
+    }
+
+    fun onImportStrategyTypeChange(strategyType: StrategyType) {
+        val import = symbolImport ?: return
+        symbolImport = import.copy(
+            strategyType = strategyType,
+            maxDollarsText = defaultMaxDollarsFor(strategyType).toString()
+        )
+        emitUiState()
+    }
+
+    fun onImportMaxDollarsChange(text: String) {
+        val import = symbolImport ?: return
+        symbolImport = import.copy(maxDollarsText = text)
+        emitUiState()
+    }
+
+    fun onImportTargetChange(target: SymbolImportTarget) {
+        val import = symbolImport ?: return
+        if (target == SymbolImportTarget.WATCHLIST && watchlistRepository == null) return
+        symbolImport = import.copy(
+            target = target,
+            rows = reannotateImportRows(import.rows, target)
+        )
+        emitUiState()
+    }
+
+    fun onPickImportCsvFile() {
+        if (importJobActive) return
+        val path = PlatformFilePicker.pickCsvFile("Select symbol CSV")
+        if (path == null) return
+        val text = PlatformFilePicker.readText(path)
+        if (text == null) {
+            symbolImport = symbolImport?.copy(
+                filePath = path,
+                parseErrors = listOf(
+                    daytrader.domain.SymbolImportParseError(0, path, "Could not read file")
+                ),
+                rows = emptyList()
+            )
+            emitUiState()
+            return
+        }
+        val parsed = SymbolImportCsvParser.parse(text)
+        val target = symbolImport?.target ?: SymbolImportTarget.DEPLOYMENT
+        symbolImport = symbolImport?.copy(
+            filePath = path,
+            parseErrors = parsed.errors,
+            rows = reannotateImportRows(parsed.rows.map { it.toImportRowUi() }, target)
+        )
+        emitUiState()
+    }
+
+    fun onStartSymbolImport() {
+        val import = symbolImport ?: return
+        if (!import.canStartImport || importJobActive) return
+        val maxDollars = when (import.target) {
+            SymbolImportTarget.DEPLOYMENT -> import.maxDollarsText.toIntOrNull() ?: return
+            SymbolImportTarget.WATCHLIST -> 0
+        }
+        scope.launch {
+            importJobActive = true
+            val rows = import.rows
+            symbolImport = import.copy(
+                phase = DeploymentImportPhase.IMPORTING,
+                total = rows.size,
+                completed = 0,
+                succeeded = 0,
+                failed = 0,
+                skipped = 0
+            )
+            emitUiState()
+            var succeeded = 0
+            var failed = 0
+            var skipped = 0
+            val resolveGateway = sessionGateway ?: brokerGateway
+            val connected = isBrokerConnectedForResolve()
+            for ((index, _) in rows.withIndex()) {
+                val currentRow = symbolImport?.rows?.getOrNull(index) ?: rows[index]
+                if (currentRow.status == DeploymentImportRowStatus.SKIPPED) {
+                    skipped++
+                    symbolImport = symbolImport?.copy(
+                        completed = index + 1,
+                        succeeded = succeeded,
+                        failed = failed,
+                        skipped = skipped
+                    )
+                    emitUiState()
+                    continue
+                }
+                updateImportRow(index) {
+                    it.copy(status = DeploymentImportRowStatus.RESOLVING, detail = "Resolving via IB…")
+                }
+                emitUiState()
+                val outcome = importSingleRow(
+                    row = rows[index],
+                    target = import.target,
+                    strategyType = import.strategyType,
+                    maxDollars = maxDollars,
+                    resolveGateway = resolveGateway,
+                    connected = connected
+                )
+                when (outcome) {
+                    is ImportRowOutcome.Success -> {
+                        succeeded++
+                        val successDetail = when (import.target) {
+                            SymbolImportTarget.DEPLOYMENT -> "Deployment created"
+                            SymbolImportTarget.WATCHLIST -> "Added to watchlist"
+                        }
+                        updateImportRow(index) {
+                            it.copy(
+                                status = DeploymentImportRowStatus.SUCCESS,
+                                detail = successDetail,
+                                companyName = outcome.companyName
+                            )
+                        }
+                    }
+                    is ImportRowOutcome.Skipped -> {
+                        skipped++
+                        updateImportRow(index) {
+                            it.copy(
+                                status = DeploymentImportRowStatus.SKIPPED,
+                                detail = outcome.reason
+                            )
+                        }
+                    }
+                    is ImportRowOutcome.Failed -> {
+                        failed++
+                        updateImportRow(index) {
+                            it.copy(
+                                status = DeploymentImportRowStatus.FAILED,
+                                detail = outcome.message
+                            )
+                        }
+                    }
+                }
+                symbolImport = symbolImport?.copy(
+                    completed = index + 1,
+                    succeeded = succeeded,
+                    failed = failed,
+                    skipped = skipped
+                )
+                emitUiState()
+            }
+            symbolImport = symbolImport?.copy(phase = DeploymentImportPhase.COMPLETE)
+            importJobActive = false
+            emitUiState()
+        }
+    }
+
+    private fun isBrokerConnectedForResolve(): Boolean {
+        val resolveGateway = sessionGateway ?: brokerGateway
+        return resolveGateway?.connectionState?.value == GatewayConnectionState.Connected
+    }
+
+    private fun updateImportRow(index: Int, transform: (DeploymentImportRowUi) -> DeploymentImportRowUi) {
+        val import = symbolImport ?: return
+        if (index !in import.rows.indices) return
+        val updated = import.rows.toMutableList()
+        updated[index] = transform(updated[index])
+        symbolImport = import.copy(rows = updated)
+    }
+
+    private sealed class ImportRowOutcome {
+        data class Success(val companyName: String?) : ImportRowOutcome()
+        data class Skipped(val reason: String) : ImportRowOutcome()
+        data class Failed(val message: String) : ImportRowOutcome()
+    }
+
+    private suspend fun importSingleRow(
+        row: DeploymentImportRowUi,
+        target: SymbolImportTarget,
+        strategyType: StrategyType,
+        maxDollars: Int,
+        resolveGateway: BrokerGateway?,
+        connected: Boolean
+    ): ImportRowOutcome {
+        val zoneId = SymbolImportExchange.toMarketZoneId(row.exchangeCode)
+            ?: return ImportRowOutcome.Failed("Unknown exchange ${row.exchangeCode}")
+        if (symbolExistsForImportTarget(row.symbol, target)) {
+            return ImportRowOutcome.Skipped(skipReasonForImportTarget(target))
+        }
+        val resolved = DeploymentSymbolResolver.resolveForImport(
+            symbol = row.symbol,
+            expectedZoneId = zoneId,
+            gateway = resolveGateway,
+            connected = connected
+        ).getOrElse { error ->
+            return ImportRowOutcome.Failed(error.message ?: "Resolve failed")
+        }
+        return when (target) {
+            SymbolImportTarget.DEPLOYMENT -> {
+                val instance = defaultStrategyDeployment(
+                    strategyType = strategyType,
+                    symbol = row.symbol,
+                    maxDollars = maxDollars,
+                    marketZoneId = resolved.marketZoneId,
+                    currencyCode = resolved.currencyCode,
+                    marketSource = resolved.source,
+                    companyName = resolved.companyName,
+                    instrument = resolved.identity,
+                    brokerKind = brokerKind
+                )
+                repository.add(instance)
+                onDeploymentCreated?.invoke(instance.id)
+                ImportRowOutcome.Success(resolved.companyName)
+            }
+            SymbolImportTarget.WATCHLIST -> {
+                val watchlistRepo = watchlistRepository
+                    ?: return ImportRowOutcome.Failed("Watchlist not available")
+                val watchlistId = defaultWatchlistId(watchlistRepo)
+                    ?: return ImportRowOutcome.Failed("No watchlist available")
+                val entry = newWatchlistEntry(
+                    symbol = row.symbol,
+                    marketZoneId = resolved.marketZoneId,
+                    currencyCode = resolved.currencyCode,
+                    companyName = resolved.companyName,
+                    instrument = resolved.identity
+                )
+                watchlistRepo.addEntry(watchlistId, entry)
+                ImportRowOutcome.Success(resolved.companyName)
+            }
+        }
+    }
+
+    private fun reannotateImportRows(
+        rows: List<DeploymentImportRowUi>,
+        target: SymbolImportTarget
+    ): List<DeploymentImportRowUi> = rows.map { row ->
+        if (symbolExistsForImportTarget(row.symbol, target)) {
+            row.copy(
+                status = DeploymentImportRowStatus.SKIPPED,
+                detail = skipReasonForImportTarget(target)
+            )
+        } else {
+            row.copy(status = DeploymentImportRowStatus.PENDING, detail = null, companyName = null)
+        }
+    }
+
+    private fun symbolExistsForImportTarget(symbol: String, target: SymbolImportTarget): Boolean =
+        when (target) {
+            SymbolImportTarget.DEPLOYMENT -> deploymentExistsForSymbol(symbol)
+            SymbolImportTarget.WATCHLIST -> watchlistEntryExistsForSymbol(symbol)
+        }
+
+    private fun skipReasonForImportTarget(target: SymbolImportTarget): String =
+        when (target) {
+            SymbolImportTarget.DEPLOYMENT -> "Already exists in deployments"
+            SymbolImportTarget.WATCHLIST -> "Already in watchlist"
+        }
+
+    private fun deploymentExistsForSymbol(symbol: String): Boolean =
+        repository.deployments.value.any { deployment ->
+            SymbolMarkets.symbolsMatch(deployment.symbol, symbol)
+        }
+
+    private fun watchlistEntryExistsForSymbol(symbol: String): Boolean {
+        val repo = watchlistRepository ?: return false
+        return repo.watchlists.value.any { watchlist ->
+            watchlist.entries.any { entry ->
+                SymbolMarkets.symbolsMatch(entry.symbol, symbol)
+            }
+        }
+    }
+
+    private fun defaultWatchlistId(repo: WatchlistRepository): String? {
+        val lists = repo.watchlists.value
+        return lists.find { it.id == DEFAULT_WATCHLIST_ID }?.id ?: lists.firstOrNull()?.id
+    }
+
     fun resolveInstrumentForSymbol(
         symbol: String,
         onResult: (Result<InstrumentResolution>) -> Unit
@@ -739,9 +1035,36 @@ class StrategiesViewModel(
         val previousInstrumentKey = before?.let {
             DeploymentMarket.effectiveInstrument(it).dedupeKey()
         }
+        val previousRules = before?.touchTurnRules
         repository.update(id) { current ->
-            transform(current).clearTouchTurnPrepareIfInstrumentChanged(previousInstrumentKey)
+            transform(current)
+                .clearTouchTurnPrepareIfInstrumentChanged(previousInstrumentKey)
+                .let { updated ->
+                    if (previousRules != null) {
+                        updated.clearTouchTurnPrepareIfRulesChanged(previousRules)
+                    } else {
+                        updated
+                    }
+                }
         }
+        if (before != null && previousRules != null) {
+            val after = repository.deployments.value.find { it.id == id }
+            if (after != null && after.touchTurnRules != previousRules) {
+                UiActionLog.forDeployment(
+                    deployment = after,
+                    action = "update_touch_turn_rules",
+                    details = mapOf(
+                        "openDeadline" to after.touchTurnRules.enables.openDeadline.toString(),
+                        "liquidityRangeDailyAtr" to after.touchTurnRules.enables.liquidityRangeDailyAtr.toString(),
+                        "adjustableTrailingStop" to after.touchTurnRules.enables.adjustableTrailingStop.toString(),
+                        "bounceRejection" to after.touchTurnRules.enables.bounceRejection.toString()
+                    )
+                )
+            }
+        }
+        // User edits must hit disk immediately: hybrid/replay engines keep updating running
+        // deployments and would otherwise starve the shared debounced deployments writer.
+        repository.flushPersistence()
     }
 
     fun onCopyTouchTurnRulesToAllOther(sourceId: String) {
@@ -758,6 +1081,7 @@ class StrategiesViewModel(
         for (target in targets) {
             repository.update(target.id) { it.copy(touchTurnRules = rules) }
         }
+        repository.flushPersistence()
     }
 
     fun onPrepareSession(id: String) {
@@ -987,12 +1311,18 @@ class StrategiesViewModel(
                 ?.takeIf { it.quantity != 0 }
                 ?.totalUnrealizedPnL
         }
+        val selectedHasOpenPosition = selected?.let { instance ->
+            SymbolMarkets.hasOpenPosition(instance, brokerPositions)
+        } == true
         val selectedCardPresentation = selected?.let { instance ->
             DeploymentCardStateMapper.resolve(
                 instance,
                 sessionDate,
                 selectedBrokerPnL,
-                brokerOpenOrders
+                brokerOpenOrders,
+                hasOpenPosition = selectedHasOpenPosition ||
+                    (instance.status == DeploymentStatus.RUNNING &&
+                        instance.live.state == ExecutionState.FILLED)
             )
         }
         val sessionHistory = selected?.let { instance ->
@@ -1008,16 +1338,23 @@ class StrategiesViewModel(
         }
 
         val listRows = filtered.map { instance ->
-            val brokerPnL = SymbolMarkets.findOpenPosition(instance, brokerPositions)
+            val brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
                 ?.takeIf { it.quantity != 0 }
-                ?.totalUnrealizedPnL
+            val brokerPnL = brokerPosition?.totalUnrealizedPnL
             StrategyUiMapper.toRowUi(
                 instance,
                 sessionDate,
                 brokerUnrealizedPnL = brokerPnL,
-                brokerOpenOrders = brokerOpenOrders
+                brokerOpenOrders = brokerOpenOrders,
+                brokerPosition = brokerPosition
             )
         }
+        val filteredSummary = FilteredDeploymentsSummaryMapper.build(
+            instances = filtered,
+            sessionDate = sessionDate,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+        )
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.deploymentFilter != DeploymentFilter.ALL ||
             state.strategyTypeFilter != null ||
@@ -1070,6 +1407,7 @@ class StrategiesViewModel(
         _uiState.update {
             StrategiesUiState(
                 filteredRows = listRows,
+                filteredSummary = filteredSummary,
                 filteredCount = filtered.size,
                 totalCount = deployments.size,
                 hasActiveFilters = hasActiveFilters,
@@ -1083,6 +1421,8 @@ class StrategiesViewModel(
                 detailTab = state.detailTab,
                 showAddDialog = showAddDialog,
                 addDialogPrefill = addDialogPrefill,
+                showImportDialog = showImportDialog,
+                symbolImport = symbolImport,
                 selectedDeploymentId = selected?.id,
                 sessionHistory = sessionHistory,
                 liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState),

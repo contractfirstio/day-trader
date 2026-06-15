@@ -368,7 +368,7 @@ fun TouchTurnRuleConfig.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): To
     return if (entryInwardOffsetRatioOfRange == target) this else copy(entryInwardOffsetRatioOfRange = target)
 }
 
-/** Ensures legacy [openDeadline] stays off on persisted configs that still have it enabled. */
+/** One-off migration helper for legacy records that still had [openDeadline] enabled before it was configurable. */
 fun TouchTurnRuleConfig.withNewConfigurableRulesDisabled(): TouchTurnRuleConfig {
     val normalizedEnables = enables.copy(openDeadline = false)
     return if (normalizedEnables == enables) this else copy(enables = normalizedEnables)
@@ -406,7 +406,7 @@ fun StrategyDeployment.withEntryInwardOffsetForBrokerKind(kind: BrokerKind): Str
     return copy(touchTurnRules = rules, touchTurnSession = session, sessionHistory = history)
 }
 
-/** Patches deployment and in-flight session rules so [openDeadline] stays disabled on legacy configs. */
+/** One-off migration helper for legacy in-flight session rules. Prefer [StrategyDeployment.touchTurnRules]. */
 fun StrategyDeployment.withNewConfigurableTouchTurnRulesDisabled(): StrategyDeployment {
     val rules = touchTurnRules.withNewConfigurableRulesDisabled()
     val session = touchTurnSession?.let { ctx ->

@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +62,7 @@ fun TouchTurnRulesConfigDialog(
     onSave: (TouchTurnRuleConfig) -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(TouchTurnRulesConfigTab.RULES.ordinal) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     val fieldValues = remember(initialRules) {
         mutableStateMapOf<String, String>().apply {
             TouchTurnRuleConfig.fieldDefinitions.forEach { field ->
@@ -179,6 +181,16 @@ fun TouchTurnRulesConfigDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+                saveError?.let { message ->
+                    Text(
+                        message,
+                        color = LossRed,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.testTag("TouchTurnRulesSaveError")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -205,15 +217,20 @@ fun TouchTurnRulesConfigDialog(
                         }
                         TextButton(
                             onClick = {
+                                saveError = null
                                 var updated = initialRules
-                                for (field in TouchTurnRuleConfig.fieldDefinitions) {
-                                    val raw = fieldValues[field.key].orEmpty()
-                                    updated = TouchTurnRuleConfig.withFieldValue(updated, field.key, raw)
-                                        ?: return@TextButton
-                                }
                                 for (toggle in TouchTurnRuleConfig.toggleDefinitions) {
                                     val checked = toggleValues[toggle.key] ?: true
                                     updated = TouchTurnRuleConfig.withToggleEnabled(updated, toggle.key, checked)
+                                }
+                                for (field in TouchTurnRuleConfig.fieldDefinitions) {
+                                    val raw = fieldValues[field.key].orEmpty()
+                                    val next = TouchTurnRuleConfig.withFieldValue(updated, field.key, raw)
+                                    if (next == null) {
+                                        saveError = "Invalid value for \"${field.label}\"."
+                                        return@TextButton
+                                    }
+                                    updated = next
                                 }
                                 onSave(updated)
                             },

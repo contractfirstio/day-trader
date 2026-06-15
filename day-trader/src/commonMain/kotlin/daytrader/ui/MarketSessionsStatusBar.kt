@@ -42,6 +42,7 @@ import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.MarketOpenBorder
 import daytrader.ui.theme.MarketOpenGlow
 import daytrader.ui.theme.MarketOpenSurface
+import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 
@@ -92,7 +93,7 @@ private fun MarketSessionCard(
     modifier: Modifier = Modifier
 ) {
     val sessionBorderColor = if (market.isOpen) MarketOpenBorder else ClosedBorder
-    val borderColor = if (isFilterSelected) BrandRed else sessionBorderColor
+    val borderColor = if (isFilterSelected) SelectionBorder else sessionBorderColor
     val borderWidth = if (isFilterSelected) 2.dp else 1.dp
     val surfaceBrush = if (market.isOpen) {
         Brush.verticalGradient(listOf(MarketOpenSurface, MarketOpenGlow))

@@ -122,7 +122,7 @@ class DeploymentCardStateMapperTest {
     }
 
     @Test
-    fun openOrders_overridesInTheMoney_whenFilledAndOrdersWorking() {
+    fun openPosition_overridesOpenOrders_whenFilledAndBracketWorking() {
         val instance = deployment(
             status = DeploymentStatus.RUNNING,
             live = ActiveExecution(
@@ -165,10 +165,37 @@ class DeploymentCardStateMapperTest {
             instance,
             sessionDate,
             brokerUnrealizedPnL = 42.0,
-            brokerOpenOrders = orders
+            brokerOpenOrders = orders,
+            hasOpenPosition = true
         )
-        assertEquals(DeploymentCardAccent.OPEN_ORDERS, card.accent)
-        assertEquals("2 open orders", card.chipLabel)
+        assertEquals(DeploymentCardAccent.RUNNING_IN_THE_MONEY, card.accent)
+        assertEquals("In the money", card.chipLabel)
+    }
+
+    @Test
+    fun stopped_inTheMoney_whenBrokerHasOpenPosition() {
+        val instance = deployment(status = DeploymentStatus.STOPPED, live = ActiveExecution.flat())
+        val card = DeploymentCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            brokerUnrealizedPnL = 15.0,
+            hasOpenPosition = true
+        )
+        assertEquals(DeploymentCardAccent.RUNNING_IN_THE_MONEY, card.accent)
+        assertEquals("In the money", card.chipLabel)
+    }
+
+    @Test
+    fun running_inTheMoney_whenBrokerHasPositionButLiveIsFlat() {
+        val instance = deployment(status = DeploymentStatus.RUNNING, live = ActiveExecution.flat())
+        val card = DeploymentCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            brokerUnrealizedPnL = 10.0,
+            hasOpenPosition = true
+        )
+        assertEquals(DeploymentCardAccent.RUNNING_IN_THE_MONEY, card.accent)
+        assertEquals("In the money", card.chipLabel)
     }
 
     @Test

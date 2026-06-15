@@ -26,6 +26,7 @@ import daytrader.domain.ResolvedInstrument
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.LossRed
+import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
 
@@ -59,7 +60,7 @@ fun InstrumentListingPicker(
         candidates.forEach { candidate ->
             val label = InstrumentListingCandidates.listingLabel(candidate)
             val picked = selected?.identity?.dedupeKey() == candidate.identity?.dedupeKey()
-            val borderColor = if (picked) BrandRed else TableHeaderBg
+            val borderColor = if (picked) SelectionBorder else TableHeaderBg
             val background = if (picked) BrandRed.copy(alpha = 0.2f) else DarkBackground
             Row(
                 modifier = Modifier

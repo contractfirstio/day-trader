@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import daytrader.gateway.BrokerKind
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
+import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TextSecondary
 
@@ -152,7 +153,7 @@ private fun BrokerOptionCard(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val borderColor = if (selected) GainGreen else Color(0xFF4A4E5C)
+    val borderColor = if (selected) SelectionBorder else Color(0xFF4A4E5C)
     val containerColor = if (selected) Color(0xFF152218) else Color(0xFF1C1D24)
 
     Card(

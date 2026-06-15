@@ -8,10 +8,6 @@ import daytrader.data.persistence.LegacyDataCleanup
 import daytrader.data.persistence.LegacyDeploymentPersistence
 import daytrader.data.persistence.LegacyInstancesJsonPersistence
 import daytrader.domain.StrategyDeployment
-import daytrader.domain.withNewConfigurableTouchTurnRulesDisabled
-import daytrader.domain.withEntryInwardOffsetForBrokerKind
-import daytrader.domain.withLiquidityGatesForBrokerKind
-import daytrader.gateway.BrokerKind
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -54,39 +50,37 @@ class FileStrategyDeploymentRepository(
 
     private fun loadInitial(): List<StrategyDeployment> {
         AppFileSystem.ensureAppDataDirectory()
-        val fromNew = JsonFileStore.readDeployments()
-            ?.deployments
-            ?.map(DeploymentPersistence::toDomain)
-        if (fromNew != null) {
-            if (fromNew.isNotEmpty()) {
+        val document = JsonFileStore.readDeployments()
+        if (document != null) {
+            if (document.deployments.isNotEmpty()) {
                 LegacyDataCleanup.removeOrphanedLegacyFiles()
             }
-            return normalizeDeployments(fromNew)
+            val brokerKind = AppFileSystem.currentDataScope()
+            val loaded = document.deployments.map(DeploymentPersistence::toDomain)
+            val normalized = document.deployments.map { record ->
+                DeploymentLoadNormalizer.normalize(
+                    deployment = DeploymentPersistence.toDomain(record),
+                    hadPersistedTouchTurnRules = record.configuration.touchTurnRules != null,
+                    brokerKind = brokerKind
+                )
+            }
+            if (normalized != loaded) {
+                writer.persistNow(normalized)
+            }
+            return normalized
         }
 
         val fromLegacy = LegacyDeploymentPersistence.load()
             ?: LegacyInstancesJsonPersistence.load()
         if (fromLegacy != null) {
-            val normalized = normalizeDeployments(fromLegacy)
+            val brokerKind = AppFileSystem.currentDataScope()
+            val normalized = DeploymentLoadNormalizer.normalizeLegacy(fromLegacy, brokerKind)
             writer.persistNow(normalized)
             LegacyDataCleanup.removeOrphanedLegacyFiles()
             return normalized
         }
 
         return emptyList()
-    }
-
-    private fun normalizeDeployments(deployments: List<StrategyDeployment>): List<StrategyDeployment> {
-        val brokerKind = AppFileSystem.currentDataScope()
-        // Replay is a debugging surface: preserve user-edited Touch Turn rules across restarts.
-        if (brokerKind == BrokerKind.REPLAY) return deployments
-        var updated = deployments.map { it.withNewConfigurableTouchTurnRulesDisabled() }
-        updated = updated.map { it.withEntryInwardOffsetForBrokerKind(brokerKind) }
-        updated = updated.map { it.withLiquidityGatesForBrokerKind(brokerKind) }
-        if (updated != deployments) {
-            writer.persistNow(updated)
-        }
-        return updated
     }
 
     private fun persistDeployments(deployments: List<StrategyDeployment>) {

@@ -52,6 +52,7 @@ import daytrader.replay.toReplayCaptureSummary
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
+import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
@@ -278,7 +279,7 @@ private fun SessionReplayEntryCard(
 ) {
     val resultStyle = replayResultStyle(entry.captureSummary)
     val borderColor = when {
-        selected -> GainGreen
+        selected -> SelectionBorder
         resultStyle != null -> resultStyle.borderColor
         else -> Color(0xFF4A4E5C)
     }

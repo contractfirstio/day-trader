@@ -109,4 +109,41 @@ class StrategySessionLogicTest {
         assertEquals("2026-05-22T09:30:00", closed.startedAt)
         assertEquals("2026-05-22T11:15:30", closed.stoppedAt)
     }
+
+    @Test
+    fun lastClosed_returnsMostRecentlyStoppedRun() {
+        val runs = listOf(
+            StrategySession(
+                id = "r1",
+                date = "2026-05-20",
+                startedAt = "2026-05-20T09:30:00",
+                stoppedAt = "2026-05-20T10:00:00",
+                pnl = 10.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED
+            ),
+            StrategySession(
+                id = "r2",
+                date = "2026-05-22",
+                startedAt = "2026-05-22T09:30:00",
+                stoppedAt = "2026-05-22T11:00:00",
+                pnl = -25.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED
+            ),
+            StrategySession(
+                id = "r3",
+                date = "2026-05-22",
+                startedAt = "2026-05-22T12:00:00",
+                pnl = 0.0,
+                trades = 0,
+                maxAtRisk = 500,
+                status = SessionStatus.IN_PROGRESS
+            ),
+        )
+        assertEquals("r2", runs.lastClosed()?.id)
+        assertEquals(-25.0, runs.lastClosed()?.pnl)
+    }
 }

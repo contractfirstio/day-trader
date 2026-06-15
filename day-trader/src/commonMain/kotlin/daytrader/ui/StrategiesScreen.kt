@@ -91,6 +91,20 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         )
     }
 
+    uiState.symbolImport?.let { importState ->
+        if (uiState.showImportDialog) {
+            DeploymentSymbolImportDialog(
+                state = importState,
+                onDismiss = viewModel::onDismissImportDialog,
+                onPickFile = viewModel::onPickImportCsvFile,
+                onImportTargetChange = viewModel::onImportTargetChange,
+                onStrategyTypeChange = viewModel::onImportStrategyTypeChange,
+                onMaxDollarsChange = viewModel::onImportMaxDollarsChange,
+                onStartImport = viewModel::onStartSymbolImport
+            )
+        }
+    }
+
     uiState.startBlockedAlert?.let { alert ->
         StartBlockedByPositionDialog(
             alert = alert,
@@ -105,18 +119,15 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
             onClearSearch = {
                 if (uiState.searchQuery.isNotEmpty()) viewModel.onSearchChange("")
             },
-            onAddInstance = viewModel::onShowAddDialog
+            onAddInstance = viewModel::onShowAddDialog,
+            onImportSymbols = viewModel::onShowImportDialog
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         StrategiesFilterPanel(
-            searchQuery = uiState.searchQuery,
             deploymentFilter = uiState.deploymentFilter,
             strategyTypeFilter = uiState.strategyTypeFilter,
-            selectedMarketLabel = uiState.selectedMarketLabel,
-            filteredCount = uiState.filteredCount,
-            totalCount = uiState.totalCount,
             hasActiveFilters = uiState.hasActiveFilters,
             onDeploymentFilterChange = viewModel::onDeploymentFilterChange,
             onStrategyTypeFilterChange = viewModel::onStrategyTypeFilterChange,
@@ -136,17 +147,19 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                         .testTag("StrategyDeploymentList")
                 ) {
-                    DeploymentsListHeader(
-                        title = if (uiState.hasActiveFilters) {
-                            "Deployments (${uiState.filteredCount} of ${uiState.totalCount})"
-                        } else {
-                            "Deployments (${uiState.totalCount})"
-                        },
-                        closedSessionHistoryCount = uiState.globalClosedSessionHistoryCount,
-                        hasInProgressSessions = uiState.globalHasInProgressSessions,
-                        onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistoryForAllDeployments
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    if (uiState.globalClosedSessionHistoryCount > 0) {
+                        DeploymentsListHeader(
+                            closedSessionHistoryCount = uiState.globalClosedSessionHistoryCount,
+                            hasInProgressSessions = uiState.globalHasInProgressSessions,
+                            onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistoryForAllDeployments
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    uiState.filteredSummary?.let { summary ->
+                        FilteredDeploymentsSummaryPanel(summary = summary)
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
 
                     if (uiState.filteredRows.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -312,12 +325,8 @@ private fun StrategyDeploymentDetailPanel(
 
 @Composable
 private fun StrategiesFilterPanel(
-    searchQuery: String,
     deploymentFilter: DeploymentFilter,
     strategyTypeFilter: StrategyType?,
-    selectedMarketLabel: String?,
-    filteredCount: Int,
-    totalCount: Int,
     hasActiveFilters: Boolean,
     onDeploymentFilterChange: (DeploymentFilter) -> Unit,
     onStrategyTypeFilterChange: (StrategyType?) -> Unit,
@@ -331,22 +340,6 @@ private fun StrategiesFilterPanel(
             .padding(horizontal = 8.dp, vertical = 5.dp)
             .testTag("StrategiesFilterPanel")
     ) {
-        if (hasActiveFilters) {
-            ActiveFiltersSummaryRow(
-                searchQuery = searchQuery,
-                deploymentFilter = deploymentFilter,
-                strategyTypeFilter = strategyTypeFilter,
-                selectedMarketLabel = selectedMarketLabel,
-                filteredCount = filteredCount,
-                totalCount = totalCount,
-                onClearFilters = onClearFilters
-            )
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 4.dp),
-                color = TableHeaderBg,
-                thickness = 1.dp
-            )
-        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -397,68 +390,15 @@ private fun StrategiesFilterPanel(
                     )
                 }
             }
-            if (!hasActiveFilters) {
-                Text(
-                    "$totalCount total",
-                    fontSize = 10.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(start = 6.dp)
-                )
+            if (hasActiveFilters) {
+                TextButton(
+                    onClick = onClearFilters,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(20.dp)
+                ) {
+                    Text("Clear", color = GainGreen, fontSize = 10.sp)
+                }
             }
-        }
-    }
-}
-
-@Composable
-private fun ActiveFiltersSummaryRow(
-    searchQuery: String,
-    deploymentFilter: DeploymentFilter,
-    strategyTypeFilter: StrategyType?,
-    selectedMarketLabel: String?,
-    filteredCount: Int,
-    totalCount: Int,
-    onClearFilters: () -> Unit
-) {
-    val parts = buildList {
-        selectedMarketLabel?.let { add("$it market") }
-        if (searchQuery.isNotBlank()) add("search \"$searchQuery\"")
-        if (deploymentFilter != DeploymentFilter.ALL) {
-            add(
-                when (deploymentFilter) {
-                    DeploymentFilter.RUNNING -> "active only"
-                    DeploymentFilter.STOPPED -> "stopped only"
-                    DeploymentFilter.ALL -> ""
-                }
-            )
-        }
-        strategyTypeFilter?.let { add(StrategyCatalog.displayName(it)) }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            buildString {
-                append("$filteredCount of $totalCount")
-                if (parts.isNotEmpty()) {
-                    append(" · ")
-                    append(parts.joinToString(", "))
-                }
-            },
-            color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        TextButton(
-            onClick = onClearFilters,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-            modifier = Modifier.height(20.dp)
-        ) {
-            Text("Clear", color = GainGreen, fontSize = 10.sp)
         }
     }
 }
@@ -2584,7 +2524,6 @@ private fun ClosePositionButton(
 
 @Composable
 private fun DeploymentsListHeader(
-    title: String,
     closedSessionHistoryCount: Int,
     hasInProgressSessions: Boolean,
     onDeleteAllSessionHistory: () -> Unit
@@ -2593,15 +2532,9 @@ private fun DeploymentsListHeader(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            title,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White
-        )
         if (closedSessionHistoryCount > 0) {
             TextButton(
                 onClick = { showDeleteAllConfirm = true },

@@ -6,6 +6,8 @@ val DarkBackground = Color(0xFF121318)
 val SurfaceDark = Color(0xFF1C1D24)
 val TableHeaderBg = Color(0xFF252730)
 val BrandRed = Color(0xFFD32F2F)
+/** Border for selected / highlighted selectable cards, filters, and pickers. */
+val SelectionBorder = Color.White
 val GainGreen = Color(0xFF00C853)
 /** P&L / loss text — orange-red for emphasis on dark backgrounds. */
 val LossRed = Color(0xFFFF3D00)
