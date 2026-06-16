@@ -30,7 +30,8 @@ object DeploymentPersistence {
             sessionHistory = record.sessionHistory.map { toSessionHistoryDomain(record.id, it) },
             touchTurnSession = TouchTurnPersistence.toDomain(record.touchTurnSession),
             touchTurnPrepare = TouchTurnPreparePersistence.toDomain(record.touchTurnPrepare),
-            touchTurnRules = TouchTurnRuleConfigPersistence.toDomain(record.configuration.touchTurnRules)
+            touchTurnRules = TouchTurnRuleConfigPersistence.toDomain(record.configuration.touchTurnRules),
+            invertTradeSide = record.configuration.invertTradeSide
         )
 
     fun toRecord(instance: StrategyDeployment): DeploymentRecord =
@@ -48,7 +49,8 @@ object DeploymentPersistence {
                 marketSource = marketSourceLabel(instance.marketSource),
                 companyName = instance.companyName,
                 instrument = InstrumentIdentityPersistence.toRecord(instance.instrument),
-                touchTurnRules = TouchTurnRuleConfigPersistence.toRecord(instance.touchTurnRules)
+                touchTurnRules = TouchTurnRuleConfigPersistence.toRecord(instance.touchTurnRules),
+                invertTradeSide = instance.invertTradeSide
             ),
             live = toLiveRecord(instance.live),
             sessionHistory = SessionPersistenceSlimmer

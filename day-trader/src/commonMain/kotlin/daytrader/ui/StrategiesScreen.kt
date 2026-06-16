@@ -664,6 +664,15 @@ private fun ConfigurationTab(
                 onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
             }
         )
+        if (instance.isTouchTurn) {
+            InvertTradeSideField(
+                checked = instance.invertTradeSide,
+                enabled = canEdit,
+                onCheckedChange = { enabled ->
+                    onUpdate { it.copy(invertTradeSide = enabled) }
+                }
+            )
+        }
         ConfigField(
             label = "Risk budget (\$)",
             value = instance.maxDollars.toString(),
@@ -1577,7 +1586,9 @@ private fun TouchTurnLivePipelineDetailHost(
                     formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart,
                     sessionEnded = sessionEnded,
                     requireLivePriceChecks = recapRun?.touchTurnRunRecord?.runContext?.brokerKind
-                        ?.usesLiveIbMarketData == true
+                        ?.usesLiveIbMarketData == true,
+                    invertTradeSide = instance.invertTradeSide ||
+                        recapRun?.touchTurnRunRecord?.runContext?.invertTradeSide == true
                 )
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
@@ -1612,7 +1623,9 @@ private fun TouchTurnLivePipelineDetailHost(
                             recapSessionPnl
                         } else {
                             liveSessionTrades?.sessionTrades?.sessionRealizedPnL()
-                        }
+                        },
+                        invertTradeSide = instance.invertTradeSide ||
+                            recapRun?.touchTurnRunRecord?.runContext?.invertTradeSide == true
                     )
                 }
             }
@@ -2833,6 +2846,47 @@ private fun ConfigDropdown(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun InvertTradeSideField(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("InvertTradeSideField"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(
+                checkedColor = BrandRed,
+                checkmarkColor = Color.White
+            ),
+            modifier = Modifier.testTag("InvertTradeSideCheckbox")
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Invert trade side (continuation)",
+                fontSize = 13.sp,
+                color = if (enabled) Color.White else TextSecondary,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "Same entry levels as Touch and Turn, but long where reversal would short and vice versa. " +
+                    "Bounce rejection is disabled in this mode.",
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp
+            )
         }
     }
 }

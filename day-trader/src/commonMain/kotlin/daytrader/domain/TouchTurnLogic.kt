@@ -1298,6 +1298,26 @@ object TouchTurnLogic {
         }
     }
 
+    /**
+     * Flips trade side at the same entry, preserving take-profit and stop-loss distances from entry.
+     */
+    fun invertBracketSetup(setup: TouchTurnBracketSetup): TouchTurnBracketSetup {
+        val newSide = when (setup.side) {
+            TouchTurnTradeSide.LONG -> TouchTurnTradeSide.SHORT
+            TouchTurnTradeSide.SHORT -> TouchTurnTradeSide.LONG
+        }
+        if (setup.candleColor == FirstCandleColor.DOJI) {
+            return setup.copy(side = newSide)
+        }
+        val tpDistance = kotlin.math.abs(setup.entry - setup.takeProfit)
+        val slDistance = kotlin.math.abs(setup.entry - setup.stopLoss)
+        val (newTakeProfit, newStopLoss) = when (newSide) {
+            TouchTurnTradeSide.LONG -> setup.entry + tpDistance to setup.entry - slDistance
+            TouchTurnTradeSide.SHORT -> setup.entry - tpDistance to setup.entry + slDistance
+        }
+        return setup.copy(side = newSide, takeProfit = newTakeProfit, stopLoss = newStopLoss)
+    }
+
     fun tradeSideLabel(side: TouchTurnTradeSide): String = when (side) {
         TouchTurnTradeSide.LONG -> "Long"
         TouchTurnTradeSide.SHORT -> "Short"
@@ -1313,13 +1333,15 @@ object TouchTurnLogic {
         val action = tradeSideLabel(setup.side).lowercase()
         val fibPct = takeProfitFibLabel(setup.candleColor)
         val stopDesc = stopLossDistanceDescription(setup)
+        val tpRelative = if (setup.takeProfit >= setup.entry) "above" else "below"
+        val slRelative = if (setup.stopLoss >= setup.entry) "above" else "below"
         return when (setup.candleColor) {
             FirstCandleColor.GREEN ->
-                "Green liquidity bar → $action below bar high (inward offset), take profit at $fibPct fib " +
-                    "retracement level, $stopDesc above entry."
+                "Green liquidity bar → $action below bar high (inward offset), take profit $tpRelative entry " +
+                    "($fibPct fib level), stop $slRelative entry ($stopDesc)."
             FirstCandleColor.RED ->
-                "Red liquidity bar → $action above bar low (inward offset), take profit at $fibPct of range " +
-                    "above entry, $stopDesc below entry."
+                "Red liquidity bar → $action above bar low (inward offset), take profit $tpRelative entry " +
+                    "($fibPct of range), stop $slRelative entry ($stopDesc)."
             FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."
         }
     }

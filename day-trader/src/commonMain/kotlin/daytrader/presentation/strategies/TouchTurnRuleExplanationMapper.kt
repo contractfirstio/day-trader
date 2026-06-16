@@ -31,11 +31,16 @@ object TouchTurnRuleExplanationMapper {
         session: TouchTurnSessionContext,
         evaluationInstant: Long,
         verboseExplanations: Boolean,
-        requireLivePriceChecks: Boolean
+        requireLivePriceChecks: Boolean,
+        invertTradeSide: Boolean = false
     ): List<RuleCheckUi> {
         val candle = session.candle ?: return emptyList()
         val setup = session.setup ?: return emptyList()
-        val rules = session.rules
+        val rules = if (invertTradeSide) {
+            session.rules.copy(enables = session.rules.enables.copy(bounceRejection = false))
+        } else {
+            session.rules
+        }
         val currency = session.currencyCode
         return TouchTurnRuleConfig.toggleDefinitions.map { definition ->
             val enabled = TouchTurnRuleConfig.isToggleEnabled(rules, definition.key)

@@ -1,5 +1,30 @@
 package daytrader.domain
 
+fun StrategyDeployment.effectiveTouchTurnRulesForEntry(): TouchTurnRuleConfig {
+    val rules = effectiveTouchTurnRules()
+    if (!isTouchTurn || !invertTradeSide) return rules
+    return rules.copy(enables = rules.enables.copy(bounceRejection = false))
+}
+
+fun StrategyDeployment.computeTouchTurnBracketSetup(
+    bar: OhlcBar,
+    liquidityThresholds: TouchTurnLiquidityThresholds,
+    rules: TouchTurnRuleConfig = effectiveTouchTurnRules()
+): TouchTurnBracketSetup {
+    val setup = TouchTurnLogic.computeBracketSetup(bar, liquidityThresholds, rules)
+    return if (invertTradeSide) TouchTurnLogic.invertBracketSetup(setup) else setup
+}
+
+fun StrategyDeployment.computeTouchTurnBracketSetup(
+    bar: OhlcBar,
+    rangeThreshold: Double,
+    rules: TouchTurnRuleConfig = effectiveTouchTurnRules()
+): TouchTurnBracketSetup = computeTouchTurnBracketSetup(
+    bar,
+    TouchTurnLiquidityThresholds(thresholdDailyAtr = rangeThreshold),
+    rules.copy(enables = rules.enables.copy(liquidityRangeDailyAtr = true))
+)
+
 fun StrategyDeployment.beginTouchTurnSession(sessionDate: String): StrategyDeployment {
     if (!isTouchTurn) return this
     val startedAt = inProgressSession()?.startedAt ?: currentSessionTimestampIso()
@@ -22,7 +47,7 @@ fun StrategyDeployment.withTouchTurnCandle(
     rangeThreshold: Double = TouchTurnLogic.liquidityRangeThreshold(adr14)
 ): StrategyDeployment {
     if (!isTouchTurn) return this
-    val setup = TouchTurnLogic.computeBracketSetup(candle, rangeThreshold)
+    val setup = computeTouchTurnBracketSetup(candle, rangeThreshold)
     return copy(
         touchTurnSession = TouchTurnSessionContext(
             sessionDate = sessionDate,
@@ -129,8 +154,8 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val candle = session.candle ?: return this
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
-    val rules = effectiveTouchTurnRules()
-    val setup = TouchTurnLogic.computeBracketSetup(candle, session.liquidityThresholds, rules)
+    val rules = effectiveTouchTurnRulesForEntry()
+    val setup = computeTouchTurnBracketSetup(candle, session.liquidityThresholds, rules)
     val gate = TouchTurnLogic.evaluateEntryGate(
         setup = setup,
         candle = candle,
@@ -332,7 +357,8 @@ fun StrategyDeployment.touchTurnAnalysisSessionForRun(run: StrategySession? = nu
     touchTurnSession?.let { return it }
     val closed = run ?: touchTurnPostStopSession() ?: return null
     val rules = closed.touchTurnRunRecord?.rules ?: effectiveTouchTurnRules()
-    return closed.toTouchTurnAnalysisContext(rules)
+    val invert = closed.touchTurnRunRecord?.runContext?.invertTradeSide ?: invertTradeSide
+    return closed.toTouchTurnAnalysisContext(rules, invertTradeSide = invert)
 }
 
 /** @see [touchTurnAnalysisSessionForRun] with the latest closed run. */
@@ -340,7 +366,8 @@ fun StrategyDeployment.touchTurnAnalysisSession(): TouchTurnSessionContext? =
     touchTurnAnalysisSessionForRun(touchTurnPostStopSession())
 
 fun StrategySession.toTouchTurnAnalysisContext(
-    rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
+    invertTradeSide: Boolean = false
 ): TouchTurnSessionContext? {
     val record = touchTurnRunRecord
     val milestones = touchTurnMilestones ?: record?.milestones ?: return null
@@ -356,7 +383,10 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnLiquidityThresholds(thresholdDailyAtr = legacy)
         }
     }
-    val setup = candle?.let { TouchTurnLogic.computeBracketSetup(it, thresholds, rules) }
+    val setup = candle?.let {
+        val base = TouchTurnLogic.computeBracketSetup(it, thresholds, rules)
+        if (invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
+    }
     val plannedBracket = record?.decision?.plannedBracket
     val outcome = record?.decision?.outcome
     val executedBracketLegs = record?.decision?.executedLegs?.takeIf { it.isNotEmpty() }

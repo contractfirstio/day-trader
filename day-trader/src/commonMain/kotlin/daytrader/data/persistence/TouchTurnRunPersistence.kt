@@ -27,7 +27,8 @@ internal object TouchTurnRunPersistence {
                 startedBy = parseStartedBy(record.runContext.startedBy),
                 brokerId = parseBrokerId(record.runContext.brokerId),
                 brokerKind = parseBrokerKind(record.runContext.brokerKind),
-                prepareSnapshot = record.runContext.prepareSnapshot?.toDomain()
+                prepareSnapshot = record.runContext.prepareSnapshot?.toDomain(),
+                invertTradeSide = record.runContext.invertTradeSide
             ),
             marketInputs = TouchTurnRunMarketInputs(
                 openingBar = record.marketInputs.openingBar?.toDomain(),
@@ -67,7 +68,8 @@ internal object TouchTurnRunPersistence {
                 startedBy = record.runContext.startedBy.name.lowercase(),
                 brokerId = record.runContext.brokerId.name.lowercase(),
                 brokerKind = record.runContext.brokerKind?.name?.lowercase(),
-                prepareSnapshot = record.runContext.prepareSnapshot?.toRecord()
+                prepareSnapshot = record.runContext.prepareSnapshot?.toRecord(),
+                invertTradeSide = record.runContext.invertTradeSide
             ),
             marketInputs = TouchTurnRunMarketInputsRecord(
                 openingBar = record.marketInputs.openingBar?.toRecord(),

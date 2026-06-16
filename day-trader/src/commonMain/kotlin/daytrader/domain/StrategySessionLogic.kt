@@ -94,7 +94,8 @@ fun StrategyDeployment.onSessionStopped(
                 brokerKind = stopParams.brokerKind,
                 brokerUnrealizedPnLAtStop = stopParams.brokerUnrealizedPnLAtStop,
                 stopErrorMessage = stopParams.stopErrorMessage,
-                sessionTrades = trades
+                sessionTrades = trades,
+                invertTradeSide = invertTradeSide
             )
         else -> null
     }

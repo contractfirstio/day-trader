@@ -75,7 +75,9 @@ data class TouchTurnRunContext(
     /** Startup broker mode (e.g. paper-live vs pure emulator); null on legacy rows. */
     val brokerKind: BrokerKind? = null,
     /** Pre-flight checks snapshotted when the session was started; null on legacy rows. */
-    val prepareSnapshot: TouchTurnPrepareSnapshot? = null
+    val prepareSnapshot: TouchTurnPrepareSnapshot? = null,
+    /** Continuation mode (inverted long/short at the same entry); null/false on legacy rows. */
+    val invertTradeSide: Boolean = false
 )
 
 @Serializable
@@ -212,7 +214,8 @@ fun buildTouchTurnRunRecord(
     brokerKind: BrokerKind? = null,
     brokerUnrealizedPnLAtStop: Double?,
     stopErrorMessage: String? = null,
-    sessionTrades: List<SessionTrade> = emptyList()
+    sessionTrades: List<SessionTrade> = emptyList(),
+    invertTradeSide: Boolean = false
 ): TouchTurnRunRecord {
     val outcome = resolveTouchTurnSessionOutcome(touchTurnSession)
     val plannedBracket = touchTurnSession.plannedBracket
@@ -239,7 +242,8 @@ fun buildTouchTurnRunRecord(
             startedBy = session.touchTurnStartedBy ?: TouchTurnSessionStartedBy.MANUAL,
             brokerId = brokerId,
             brokerKind = brokerKind,
-            prepareSnapshot = touchTurnSession.prepareSnapshot
+            prepareSnapshot = touchTurnSession.prepareSnapshot,
+            invertTradeSide = invertTradeSide
         ),
         marketInputs = TouchTurnRunMarketInputs(
             openingBar = touchTurnSession.candle,

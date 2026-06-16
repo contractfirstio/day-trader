@@ -136,7 +136,8 @@ data class ConfigurationRecord(
     val marketSource: String? = null,
     val companyName: String? = null,
     val instrument: InstrumentIdentityRecord? = null,
-    val touchTurnRules: TouchTurnRuleConfigRecord? = null
+    val touchTurnRules: TouchTurnRuleConfigRecord? = null,
+    val invertTradeSide: Boolean = false
 )
 
 @Serializable
@@ -187,7 +188,8 @@ data class TouchTurnRunContextRecord(
     val startedBy: String,
     val brokerId: String,
     val brokerKind: String? = null,
-    val prepareSnapshot: TouchTurnPrepareSnapshotRecord? = null
+    val prepareSnapshot: TouchTurnPrepareSnapshotRecord? = null,
+    val invertTradeSide: Boolean = false
 )
 
 @Serializable

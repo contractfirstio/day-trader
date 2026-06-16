@@ -146,4 +146,17 @@ class DeploymentPersistenceTest {
         assertEquals(false, record?.enableOpenDeadline)
         assertEquals(90, record?.stopAfterOpenMinutes)
     }
+
+    @Test
+    fun configurationRoundTrip_persistsInvertTradeSide() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(invertTradeSide = true)
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(true, restored.invertTradeSide)
+    }
 }

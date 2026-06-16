@@ -1165,4 +1165,90 @@ class TouchTurnLogicTest {
             result.exceptionOrNull()?.message
         )
     }
+
+    @Test
+    fun invertBracketSetup_greenBar_flipsSideAndPreservesDistances() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0)
+        val base = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)!!
+        assertEquals(TouchTurnTradeSide.SHORT, base.side)
+        val inverted = TouchTurnLogic.invertBracketSetup(base)
+        assertEquals(TouchTurnTradeSide.LONG, inverted.side)
+        assertEquals(base.entry, inverted.entry)
+        assertEquals(
+            kotlin.math.abs(base.entry - base.takeProfit),
+            kotlin.math.abs(inverted.takeProfit - inverted.entry),
+            1e-9
+        )
+        assertEquals(
+            kotlin.math.abs(base.entry - base.stopLoss),
+            kotlin.math.abs(inverted.stopLoss - inverted.entry),
+            1e-9
+        )
+        assertTrue(inverted.takeProfit > inverted.entry)
+        assertTrue(inverted.stopLoss < inverted.entry)
+    }
+
+    @Test
+    fun invertBracketSetup_redBar_flipsSideAndPreservesDistances() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 92.0)
+        val base = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)!!
+        assertEquals(TouchTurnTradeSide.LONG, base.side)
+        val inverted = TouchTurnLogic.invertBracketSetup(base)
+        assertEquals(TouchTurnTradeSide.SHORT, inverted.side)
+        assertEquals(base.entry, inverted.entry)
+        assertTrue(inverted.takeProfit < inverted.entry)
+        assertTrue(inverted.stopLoss > inverted.entry)
+    }
+
+    @Test
+    fun effectiveTouchTurnRulesForEntry_disablesBounceWhenInverted() {
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(
+            invertTradeSide = true,
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
+                enables = TouchTurnRuleEnables.DEFAULT.copy(bounceRejection = true)
+            )
+        )
+        assertFalse(deployment.effectiveTouchTurnRulesForEntry().enables.bounceRejection)
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_inverted_skipsBounceRejection() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0, time = "20260522  09:30:00")
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                bounceRejection = true,
+                liquidityRangeDailyAtr = true
+            )
+        )
+        var deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(
+            invertTradeSide = true,
+            touchTurnRules = rules,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-05-22",
+                status = TouchTurnCandleStatus.READY,
+                candle = bar,
+                adr14 = 10.0,
+                rangeThreshold = 5.0,
+                rules = rules,
+                marketZoneId = "America/New_York"
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
+        deployment = deployment.withLiquidityEvaluatedIfClosed(
+            nowEpochMillis = barEnd + 30_000,
+            openingBarPriceSamples = emptyList()
+        )
+        val session = deployment.touchTurnSession!!
+        assertEquals(TouchTurnTradeSide.LONG, session.setup?.side)
+        assertEquals(true, session.entryOrdersPermitted)
+        assertNull(session.decisionOutcome)
+    }
 }

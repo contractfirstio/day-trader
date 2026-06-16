@@ -648,6 +648,7 @@ fun TouchTurnPipelineSectionOrdersPreview(
     session: TouchTurnSessionContext?,
     sessionTrades: List<SessionTrade> = emptyList(),
     sessionPnl: Double? = null,
+    invertTradeSide: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val candle = session?.candle
@@ -699,9 +700,12 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
             )
         }
-        val computedSetup = remember(session, tick) {
+        val computedSetup = remember(session, tick, invertTradeSide) {
             session.setup?.takeIf { it.isLiquidityCandle }
-                ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
+                ?: run {
+                    val base = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
+                    if (invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
+                }
         }
         val isRecap = sessionTrades.isNotEmpty() || session.executedBracketLegs.isNotEmpty()
         val orderSetup = remember(session, computedSetup, isRecap) {
@@ -789,6 +793,7 @@ fun TouchTurnPipelineSectionRules(
     formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     sessionEnded: Boolean = false,
     requireLivePriceChecks: Boolean = false,
+    invertTradeSide: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (session?.candle == null) {
@@ -807,11 +812,12 @@ fun TouchTurnPipelineSectionRules(
             tick++
         }
     }
-    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks) {
+    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks, invertTradeSide) {
         TouchTurnPipelineDetailUiMapper.rulesEvaluation(
             session = session,
             verboseExplanations = sessionEnded,
-            requireLivePriceChecks = requireLivePriceChecks
+            requireLivePriceChecks = requireLivePriceChecks,
+            invertTradeSide = invertTradeSide
         )
     }
     Column(
