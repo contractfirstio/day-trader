@@ -71,6 +71,7 @@ import daytrader.execution.ExecutionManager
 import daytrader.marketdata.MarketDataProvider
 import daytrader.engine.touchturn.TouchTurnPrepareRunner
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.strategies.StartBlockedAlertMapper
 import daytrader.presentation.strategies.StrategyDetailTab
@@ -131,8 +132,13 @@ class TouchTurnEngine(
     private val brokerOpenOrders = MutableStateFlow<List<daytrader.gateway.WorkingOrder>>(emptyList())
     private val brokerFills = MutableStateFlow<List<daytrader.gateway.BrokerFill>>(emptyList())
     private var globalAutoStartEnabled = true
+    private val shutdownRequested = AtomicBoolean(false)
+    private var commandLoopJob: Job? = null
+    private var stopRulesPollJob: Job? = null
+    private var autoStartPollJob: Job? = null
 
     override fun dispatch(command: TouchTurnCommand) {
+        if (shutdownRequested.get()) return
         commandQueue.trySend(command)
     }
 
@@ -141,7 +147,8 @@ class TouchTurnEngine(
     }
 
     override fun start() {
-        scope.launch {
+        if (shutdownRequested.get()) return
+        commandLoopJob = scope.launch {
             for (command in commandQueue) {
                 if (TouchTurnEngineConfig.shadowLogEnabled()) {
                     TimestampedConsoleLog.line("TouchTurnEngine", "command=$command")
@@ -163,6 +170,15 @@ class TouchTurnEngine(
         }
         subscribeBrokerFlows()
         startTimers()
+    }
+
+    override fun shutdown() {
+        if (!shutdownRequested.compareAndSet(false, true)) return
+        cancelPerInstanceJobs()
+        stopRulesPollJob?.cancel()
+        autoStartPollJob?.cancel()
+        commandLoopJob?.cancel()
+        commandQueue.close()
     }
 
     private fun subscribeBrokerFlows() {
@@ -294,18 +310,31 @@ class TouchTurnEngine(
     }
 
     private fun startTimers() {
-        scope.launch {
+        stopRulesPollJob = scope.launch {
             while (isActive) {
                 delayPollLoop(TouchTurnEngineConfig.STOP_RULES_POLL_MS)
                 dispatch(TouchTurnCommand.PollStopRules)
             }
         }
-        scope.launch {
+        autoStartPollJob = scope.launch {
             while (isActive) {
                 delayPollLoop(TouchTurnEngineConfig.AUTO_START_POLL_MS)
                 dispatch(TouchTurnCommand.EvaluateAutoStart)
             }
         }
+    }
+
+    private fun cancelPerInstanceJobs() {
+        liquidityJobs.values.forEach { it.cancel() }
+        liquidityJobs.clear()
+        liquidityEvalJobs.values.forEach { it.cancel() }
+        liquidityEvalJobs.clear()
+        closedBarRefetchJobs.values.forEach { it.cancel() }
+        closedBarRefetchJobs.clear()
+        loadJobs.values.forEach { it.cancel() }
+        loadJobs.clear()
+        prepareJobs.values.forEach { it.cancel() }
+        prepareJobs.clear()
     }
 
     private suspend fun handle(command: TouchTurnCommand) {

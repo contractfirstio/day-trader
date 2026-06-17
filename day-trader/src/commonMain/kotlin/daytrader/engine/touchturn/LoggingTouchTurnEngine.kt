@@ -16,6 +16,8 @@ class LoggingTouchTurnEngine(
 
     override fun start() = delegate.start()
 
+    override fun shutdown() = delegate.shutdown()
+
     override fun updateGlobalAutoStartEnabled(enabled: Boolean) =
         delegate.updateGlobalAutoStartEnabled(enabled)
 }

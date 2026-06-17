@@ -1,6 +1,7 @@
 package daytrader.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import daytrader.data.FileLiquidityBucketRepository
 import daytrader.data.FileReplaySettingsRepository
@@ -88,12 +89,13 @@ fun rememberAppDependencies(
     val watchlistRepository = remember(brokerKind) { FileWatchlistRepository(brokerKind = brokerKind) }
     val appStateRepository = remember { FileStrategiesAppStateRepository() }
     val marketFilter = remember { MarketFilterState() }
-    val engineScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    val engineJob = remember { SupervisorJob() }
+    val engineScope = remember(engineJob) { CoroutineScope(engineJob + Dispatchers.Default) }
     val replaySettingsRepository = remember(brokerKind) {
         if (brokerKind == BrokerKind.REPLAY) FileReplaySettingsRepository() else null
     }
     SessionPriceLog.install { strategyRepository.deployments.value }
-    return remember(
+    val dependencies = remember(
         strategyRepository,
         liquidityBucketRepository,
         watchlistRepository,
@@ -287,4 +289,12 @@ fun rememberAppDependencies(
             replaySettingsRepository = replaySettingsRepository
         )
     }
+    DisposableEffect(dependencies, engineJob) {
+        onDispose {
+            dependencies.touchTurnEngine?.shutdown()
+            replayHybridRuntime?.playbackOrchestrator?.stop()
+            engineJob.cancel()
+        }
+    }
+    return dependencies
 }
