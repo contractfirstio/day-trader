@@ -161,14 +161,25 @@ fun TouchTurnSessionStartDetail(
         ui.detail?.let { detail ->
             Text(detail, fontSize = 11.sp, color = TextSecondary, lineHeight = 14.sp)
         }
-        TouchTurnSessionStartFactsCard(ui = ui)
         if (ui.prepareChecks.isNotEmpty()) {
-            TouchTurnPrepareChecksCard(
-                checks = ui.prepareChecks,
-                overallLabel = ui.prepareOverallLabel,
-                preparedAtLabel = ui.preparePreparedAtLabel
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                TouchTurnSessionStartFactsCard(
+                    ui = ui,
+                    modifier = Modifier.weight(1f)
+                )
+                TouchTurnPrepareChecksCard(
+                    checks = ui.prepareChecks,
+                    overallLabel = ui.prepareOverallLabel,
+                    preparedAtLabel = ui.preparePreparedAtLabel,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         } else {
+            TouchTurnSessionStartFactsCard(ui = ui)
             Text(
                 "Prepare was not run before Start — bootstrap loads when the session begins.",
                 fontSize = 10.sp,
@@ -184,9 +195,12 @@ fun TouchTurnSessionStartDetail(
 }
 
 @Composable
-private fun TouchTurnSessionStartFactsCard(ui: TouchTurnSessionStartUi) {
+private fun TouchTurnSessionStartFactsCard(
+    ui: TouchTurnSessionStartUi,
+    modifier: Modifier = Modifier
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(DarkBackground, RoundedCornerShape(8.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -861,9 +875,10 @@ private fun RulesEvaluationCard(
             fontWeight = FontWeight.SemiBold,
             color = TextSecondary
         )
-        evaluation.checks.forEach { check ->
-            RuleCheckRow(check = check, verboseExplanations = verboseExplanations)
-        }
+        TwoColumnRuleChecks(
+            checks = evaluation.checks,
+            verboseExplanations = verboseExplanations
+        )
         evaluation.entryOrdersPermitted?.let { permitted ->
             HorizontalDivider(color = TableHeaderBg)
             DataCaptureRow(
@@ -873,6 +888,41 @@ private fun RulesEvaluationCard(
                 emphasize = true,
                 testTag = "TouchTurnRulesEntryPermitted"
             )
+        }
+    }
+}
+
+@Composable
+private fun TwoColumnRuleChecks(
+    checks: List<RuleCheckUi>,
+    verboseExplanations: Boolean
+) {
+    if (checks.isEmpty()) return
+    if (checks.size == 1) {
+        RuleCheckRow(check = checks.first(), verboseExplanations = verboseExplanations)
+        return
+    }
+    val splitAt = (checks.size + 1) / 2
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            checks.take(splitAt).forEach { check ->
+                RuleCheckRow(check = check, verboseExplanations = verboseExplanations)
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            checks.drop(splitAt).forEach { check ->
+                RuleCheckRow(check = check, verboseExplanations = verboseExplanations)
+            }
         }
     }
 }

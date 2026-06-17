@@ -122,4 +122,12 @@ class SimulatedBrokerTouchTurnRulesTest {
         assertFalse(patched.touchTurnRules.enables.openDeadline)
         assertFalse(patched.touchTurnSession?.rules?.enables?.openDeadline ?: true)
     }
+
+    @Test
+    fun fieldsForCategoryDisplay_listsDefaultableThresholdsBeforeMandatoryOnes() {
+        val bracketFields = TouchTurnRuleConfig.fieldsForCategoryDisplay(TouchTurnRuleCategory.BRACKET)
+        assertEquals("entryInwardOffsetRatioOfRange", bracketFields.last().key)
+        assertTrue(bracketFields.dropLast(1).all { it.defaultable })
+        assertFalse(bracketFields.last().defaultable)
+    }
 }

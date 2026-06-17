@@ -840,17 +840,32 @@ private fun ConfigurationTab(
                 )
             }
             touchTurnPrepare?.let { prepare ->
-                TouchTurnPrepareChecklist(prepare = prepare)
-            }
-            TouchTurnMarketOpenTimers(deployment = instance)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    TouchTurnPrepareChecklist(
+                        prepare = prepare,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TouchTurnMarketOpenTimers(
+                        deployment = instance,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } ?: TouchTurnMarketOpenTimers(deployment = instance)
         }
     }
 }
 
 @Composable
-private fun TouchTurnPrepareChecklist(prepare: TouchTurnPrepareUiState) {
+private fun TouchTurnPrepareChecklist(
+    prepare: TouchTurnPrepareUiState,
+    modifier: Modifier = Modifier
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(SurfaceDark, RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -939,7 +954,10 @@ private fun touchTurnPrepareStatusColor(prepare: TouchTurnPrepareUiState): Color
 }
 
 @Composable
-private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeployment) {
+private fun TouchTurnMarketOpenTimers(
+    deployment: daytrader.domain.StrategyDeployment,
+    modifier: Modifier = Modifier
+) {
     val marketZone = DeploymentMarket.effectiveZoneId(deployment)
     var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(deployment.id, marketZone) {
@@ -950,7 +968,7 @@ private fun TouchTurnMarketOpenTimers(deployment: daytrader.domain.StrategyDeplo
     }
     val timers = remember(marketZone, tick) { TouchTurnScreenLabels.marketOpenTimers(marketZone) }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(SurfaceDark, RoundedCornerShape(6.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -1266,10 +1284,13 @@ internal fun TouchTurnPanelGroup(
     title: String,
     testTag: String,
     compact: Boolean = false,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    var expanded by rememberSaveable(testTag) { mutableStateOf(true) }
+    val collapsible = compact
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(SurfaceDark, RoundedCornerShape(6.dp))
             .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
@@ -1277,16 +1298,41 @@ internal fun TouchTurnPanelGroup(
             .testTag(testTag),
         verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)
     ) {
-        Text(
-            title,
-            fontSize = if (compact) 11.sp else 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = BrandRed
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (collapsible) {
+                        Modifier.clickable { expanded = !expanded }
+                    } else {
+                        Modifier
+                    }
+                ),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                title,
+                fontSize = if (compact) 11.sp else 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = BrandRed,
+                modifier = Modifier.weight(1f)
+            )
+            if (collapsible) {
+                Text(
+                    text = if (expanded) "▾" else "▸",
+                    fontSize = 10.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.testTag("$testTag-CollapseToggle")
+                )
+            }
+        }
         if (!compact) {
             HorizontalDivider(color = TableHeaderBg)
         }
-        content()
+        if (!collapsible || expanded) {
+            content()
+        }
     }
 }
 
@@ -2249,6 +2295,7 @@ private fun LiveBrokerSection(
     showPosition: Boolean = true,
     slimOrders: Boolean = false
 ) {
+    val ordersTitle = if (slimOrders) "Working bracket" else "Open orders (${broker.symbol})"
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2260,108 +2307,135 @@ private fun LiveBrokerSection(
         }
 
         if (showPosition) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                TouchTurnPanelGroup(
+                    title = "Broker position (${broker.symbol})",
+                    testTag = "LiveBrokerPositionGroup",
+                    compact = true,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    LiveBrokerPositionContent(broker = broker)
+                }
+                TouchTurnPanelGroup(
+                    title = ordersTitle,
+                    testTag = "LiveBrokerOrdersGroup",
+                    compact = true,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    LiveBrokerOrdersContent(broker = broker, slimOrders = slimOrders)
+                }
+            }
+        } else {
             TouchTurnPanelGroup(
-                title = "Broker position (${broker.symbol})",
-                testTag = "LiveBrokerPositionGroup",
+                title = ordersTitle,
+                testTag = "LiveBrokerOrdersGroup",
                 compact = true
             ) {
-                val position = broker.position
-                if (position == null) {
-                    Text(
-                        if (broker.isConnected) "No open position for this symbol." else "Position unavailable.",
-                        fontSize = 11.sp,
-                        color = TextSecondary,
-                        modifier = Modifier.testTag("LiveBrokerNoPosition")
-                    )
-                } else {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                LiveBrokerOrdersContent(broker = broker, slimOrders = slimOrders)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveBrokerPositionContent(broker: LiveBrokerUiState) {
+    val position = broker.position
+    if (position == null) {
+        Text(
+            if (broker.isConnected) "No open position for this symbol." else "Position unavailable.",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            modifier = Modifier.testTag("LiveBrokerNoPosition")
+        )
+    } else {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                position.companyName,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 1
+            )
+            Text(
+                "${position.sideLabel} ${position.quantity} · ${position.symbol}",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("LiveBrokerPositionSummary")
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TouchTurnMetric("Avg", position.formattedAvgPrice, Modifier.weight(1f), compact = true)
+            TouchTurnMetric("Mkt", position.formattedMarketPrice, Modifier.weight(1f), compact = true)
+            position.formattedDailyChange?.let { change ->
+                TouchTurnMetric("Day", change, Modifier.weight(1f), compact = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveBrokerOrdersContent(
+    broker: LiveBrokerUiState,
+    slimOrders: Boolean
+) {
+    if (broker.openOrders.isEmpty()) {
+        Text(
+            if (broker.isConnected) "No open orders for this symbol." else "Orders unavailable.",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            modifier = Modifier.testTag("LiveBrokerNoOrders")
+        )
+    } else {
+        broker.openOrders.forEachIndexed { index, order ->
+            if (index > 0) {
+                HorizontalDivider(color = TableHeaderBg.copy(alpha = 0.6f))
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("LiveBrokerOrder_${order.orderId}"),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    if (slimOrders) {
                         Text(
-                            position.companyName,
+                            "#${order.orderId} · ${order.action}",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
                             color = Color.White,
                             maxLines = 1
                         )
-                        Text(
-                            "${position.sideLabel} ${position.quantity} · ${position.symbol}",
-                            fontSize = 10.sp,
-                            color = TextSecondary,
-                            modifier = Modifier.testTag("LiveBrokerPositionSummary")
-                        )
+                    } else {
+                        Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TouchTurnMetric("Avg", position.formattedAvgPrice, Modifier.weight(1f), compact = true)
-                        TouchTurnMetric("Mkt", position.formattedMarketPrice, Modifier.weight(1f), compact = true)
-                        position.formattedDailyChange?.let { change ->
-                            TouchTurnMetric("Day", change, Modifier.weight(1f), compact = true)
+                    val orderMeta = buildString {
+                        if (!slimOrders) {
+                            append("#")
+                            append(order.orderId)
+                        }
+                        if (order.permId > 0L) {
+                            if (isNotEmpty()) append(" · ")
+                            append("perm ")
+                            append(order.permId)
                         }
                     }
+                    if (orderMeta.isNotEmpty()) {
+                        Text(orderMeta, fontSize = 9.sp, color = TextSecondary)
+                    }
                 }
-            }
-        }
-
-        val ordersTitle = if (slimOrders) "Working bracket" else "Open orders (${broker.symbol})"
-        TouchTurnPanelGroup(
-            title = ordersTitle,
-            testTag = "LiveBrokerOrdersGroup",
-            compact = true
-        ) {
-            if (broker.openOrders.isEmpty()) {
                 Text(
-                    if (broker.isConnected) "No open orders for this symbol." else "Orders unavailable.",
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.testTag("LiveBrokerNoOrders")
+                    order.status,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFFFB74D)
                 )
-            } else {
-                broker.openOrders.forEachIndexed { index, order ->
-                    if (index > 0) {
-                        HorizontalDivider(color = TableHeaderBg.copy(alpha = 0.6f))
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("LiveBrokerOrder_${order.orderId}"),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (slimOrders) {
-                                Text(
-                                    "#${order.orderId} · ${order.action}",
-                                    fontSize = 11.sp,
-                                    color = Color.White,
-                                    maxLines = 1
-                                )
-                            } else {
-                                Text(order.summary, fontSize = 11.sp, color = Color.White, maxLines = 2)
-                            }
-                            val orderMeta = buildString {
-                                if (!slimOrders) {
-                                    append("#")
-                                    append(order.orderId)
-                                }
-                                if (order.permId > 0L) {
-                                    if (isNotEmpty()) append(" · ")
-                                    append("perm ")
-                                    append(order.permId)
-                                }
-                            }
-                            if (orderMeta.isNotEmpty()) {
-                                Text(orderMeta, fontSize = 9.sp, color = TextSecondary)
-                            }
-                        }
-                        Text(
-                            order.status,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFFFB74D)
-                        )
-                    }
-                }
             }
         }
     }

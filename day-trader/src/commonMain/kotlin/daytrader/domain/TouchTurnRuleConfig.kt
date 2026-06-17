@@ -25,10 +25,25 @@ fun TouchTurnRuleEnables.requiresDailyHistoricalBootstrap(): Boolean =
     liquidityRangeDailyAtr
 
 @Serializable
+enum class TouchTurnRuleCategory(
+    val label: String,
+    val toggleKey: String?,
+    /** Threshold fields stay visible even when the category toggle is off. */
+    val fieldsAlwaysVisible: Boolean = false
+) {
+    LIQUIDITY("Liquidity", "liquidityRangeDailyAtr"),
+    BRACKET("Bracket sizing", null, fieldsAlwaysVisible = true),
+    SESSION_DEADLINE("Session deadline", "openDeadline"),
+    TRAILING_STOP("Trailing stop", "adjustableTrailingStop"),
+    TRADE_MODE("Trade mode", "invertTradeSide"),
+}
+
+@Serializable
 data class TouchTurnRuleToggleDefinition(
     val key: String,
     val label: String,
-    val description: String
+    val description: String,
+    val category: TouchTurnRuleCategory
 )
 
 /** Per-deployment Touch Turn rule thresholds (defaults match [TouchTurnDefaults]). */
@@ -74,25 +89,29 @@ data class TouchTurnRuleConfig(
             TouchTurnRuleToggleDefinition(
                 key = "liquidityRangeDailyAtr",
                 label = "Liquidity range (ATR)",
-                description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close."
+                description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close.",
+                category = TouchTurnRuleCategory.LIQUIDITY
             ),
             TouchTurnRuleToggleDefinition(
                 key = "openDeadline",
                 label = "RTH open deadline",
                 description = "Stop the session and flatten working orders/position after the configured maximum " +
-                    "minutes from regular-hours open."
+                    "minutes from regular-hours open.",
+                category = TouchTurnRuleCategory.SESSION_DEADLINE
             ),
             TouchTurnRuleToggleDefinition(
                 key = "adjustableTrailingStop",
                 label = "Adjustable trailing stop",
                 description = "After price reaches the trail-arm level, move the stop to entry (minus optional " +
-                    "cushion) and ratchet it up (long) or down (short) as price continues in your favor."
+                    "cushion) and ratchet it up (long) or down (short) as price continues in your favor.",
+                category = TouchTurnRuleCategory.TRAILING_STOP
             ),
             TouchTurnRuleToggleDefinition(
                 key = "invertTradeSide",
                 label = "Invert trade side (continuation)",
                 description = "Same entry levels as Touch and Turn, but long where reversal would short and vice " +
-                    "versa."
+                    "versa.",
+                category = TouchTurnRuleCategory.TRADE_MODE
             )
         )
 
@@ -102,46 +121,61 @@ data class TouchTurnRuleConfig(
                 label = "Liquidity range (× ATR)",
                 description = "Opening 15m bar range must be at least this multiple of ATR14 to count as a " +
                     "liquidity candle. Higher = stricter (fewer trades).",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.LIQUIDITY,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "dailyAtrLookbackPeriods",
                 label = "ATR lookback (daily bars)",
                 description = "Number of prior daily bars used to compute daily ATR(14) for the liquidity threshold.",
-                kind = TouchTurnRuleFieldKind.INTEGER
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "entryInwardOffsetRatioOfRange",
-                label = "Entry inward offset (× range)",
-                description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
-                    "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme.",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.INTEGER,
+                category = TouchTurnRuleCategory.LIQUIDITY,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioGreen",
                 label = "Take profit — green bar (× range)",
                 description = "Green liquidity bar (short): take-profit distance below entry as a fraction of bar range.",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.BRACKET,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioRed",
                 label = "Take profit — red bar (× range)",
                 description = "Red liquidity bar (long): take-profit distance above entry as a fraction of bar range.",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.BRACKET,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitToStopLossRatio",
                 label = "Take profit : stop loss ratio",
                 description = "Stop distance is entry-to-target distance divided by this ratio. Default 2 = stop at " +
                     "half the take-profit distance (2:1 reward:risk). Higher values tighten the stop (smaller loss).",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.BRACKET,
+                defaultable = true
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "entryInwardOffsetRatioOfRange",
+                label = "Entry inward offset (× range)",
+                description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
+                    "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme. " +
+                    "Depends on broker mode — not reset by the global defaults button.",
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.BRACKET,
+                defaultable = false
             ),
             TouchTurnRuleFieldDefinition(
                 key = "stopAfterOpenMinutes",
                 label = "Max minutes after RTH open",
                 description = "When RTH open deadline is enabled, the session auto-stops and flattens broker " +
                     "orders/position this many minutes after the session's RTH open anchor.",
-                kind = TouchTurnRuleFieldKind.INTEGER
+                kind = TouchTurnRuleFieldKind.INTEGER,
+                category = TouchTurnRuleCategory.SESSION_DEADLINE,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "trailingStopTriggerFractionOfEntryToTp",
@@ -149,7 +183,9 @@ data class TouchTurnRuleConfig(
                 description = "When adjustable trailing is enabled, price must reach entry plus this fraction of " +
                     "the entry-to-take-profit distance before the stop moves to the arm level and begins trailing. " +
                     "Default 0.5 = halfway to target. Must be between 0 and 1.",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.TRAILING_STOP,
+                defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "trailingStopArmOffsetFractionOfBarRange",
@@ -157,9 +193,23 @@ data class TouchTurnRuleConfig(
                 description = "When trailing activates, place the first trailing stop this fraction of the opening " +
                     "bar range below entry (long) or above entry (short) to tolerate retests. 0 = at entry. Must " +
                     "stay above the initial fixed stop (long) or below it (short).",
-                kind = TouchTurnRuleFieldKind.RATIO
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.TRAILING_STOP,
+                defaultable = true
             )
         )
+
+        fun fieldsForCategory(category: TouchTurnRuleCategory): List<TouchTurnRuleFieldDefinition> =
+            fieldDefinitions.filter { it.category == category }
+
+        /** Defaultable thresholds first, then mandatory fields without a global default. */
+        fun fieldsForCategoryDisplay(category: TouchTurnRuleCategory): List<TouchTurnRuleFieldDefinition> =
+            fieldsForCategory(category).sortedWith(
+                compareByDescending<TouchTurnRuleFieldDefinition> { it.defaultable }.thenBy { it.label }
+            )
+
+        fun toggleForCategory(category: TouchTurnRuleCategory): TouchTurnRuleToggleDefinition? =
+            category.toggleKey?.let { key -> toggleDefinitions.find { it.key == key } }
 
         fun valueForField(config: TouchTurnRuleConfig, key: String): String = when (key) {
             "atrLiquidityRatio" -> config.atrLiquidityRatio.toString()
@@ -302,7 +352,10 @@ data class TouchTurnRuleFieldDefinition(
     val key: String,
     val label: String,
     val description: String,
-    val kind: TouchTurnRuleFieldKind
+    val kind: TouchTurnRuleFieldKind,
+    val category: TouchTurnRuleCategory,
+    /** When false, the field has no single global default (e.g. broker-specific entry offset). */
+    val defaultable: Boolean = true
 )
 
 fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig =

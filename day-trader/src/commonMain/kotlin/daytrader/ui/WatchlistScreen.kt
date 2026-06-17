@@ -174,11 +174,21 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
         if (uiState.macroRegimeCards.isNotEmpty()) {
             Spacer(modifier = Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                uiState.macroRegimeCards.forEach { card ->
-                    WatchlistMacroRegimeCard(
-                        card = card,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                uiState.macroRegimeCards.chunked(2).forEach { rowCards ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowCards.forEach { card ->
+                            WatchlistMacroRegimeCard(
+                                card = card,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (rowCards.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
