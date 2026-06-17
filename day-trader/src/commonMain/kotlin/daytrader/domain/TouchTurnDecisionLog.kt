@@ -277,10 +277,9 @@ object TouchTurnDecisionLog {
                 )
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED ->
                 detail("  HINT: close did not confirm the turn vs entry (see closeConfirmation rule above)")
-            TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED ->
-                detail("  HINT: opening-bar extreme bounce count below requiredExtremeBounceCount")
+            TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE ->
-                detail("  HINT: bounce rejection enabled but no opening-bar price samples were captured")
+                detail("  HINT: legacy bounce-rejection outcome (rule removed)")
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED ->
                 detail(
                     "  HINT: completed bar passed but live bid/ask mid is no longer on the confirming side of entry"

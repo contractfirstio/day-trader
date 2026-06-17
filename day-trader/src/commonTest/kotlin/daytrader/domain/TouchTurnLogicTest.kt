@@ -1201,35 +1201,17 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun effectiveTouchTurnRulesForEntry_disablesBounceWhenInverted() {
-        val deployment = defaultStrategyDeployment(
-            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
-            symbol = "AAPL",
-            maxDollars = 500
-        ).copy(
-            invertTradeSide = true,
-            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
-                enables = TouchTurnRuleEnables.DEFAULT.copy(bounceRejection = true)
-            )
-        )
-        assertFalse(deployment.effectiveTouchTurnRulesForEntry().enables.bounceRejection)
-    }
-
-    @Test
-    fun withLiquidityEvaluatedIfClosed_inverted_skipsBounceRejection() {
+    fun withLiquidityEvaluatedIfClosed_inverted_flipsSide() {
         val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0, time = "20260522  09:30:00")
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                bounceRejection = true,
-                liquidityRangeDailyAtr = true
-            )
+            invertTradeSide = true,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
         )
         var deployment = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500
         ).copy(
-            invertTradeSide = true,
             touchTurnRules = rules,
             touchTurnSession = TouchTurnSessionContext(
                 sessionDate = "2026-05-22",
@@ -1243,8 +1225,7 @@ class TouchTurnLogicTest {
         )
         val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "America/New_York")!!
         deployment = deployment.withLiquidityEvaluatedIfClosed(
-            nowEpochMillis = barEnd + 30_000,
-            openingBarPriceSamples = emptyList()
+            nowEpochMillis = barEnd + 30_000
         )
         val session = deployment.touchTurnSession!!
         assertEquals(TouchTurnTradeSide.LONG, session.setup?.side)

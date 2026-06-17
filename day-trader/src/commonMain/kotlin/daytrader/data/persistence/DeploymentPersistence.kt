@@ -30,8 +30,14 @@ object DeploymentPersistence {
             sessionHistory = record.sessionHistory.map { toSessionHistoryDomain(record.id, it) },
             touchTurnSession = TouchTurnPersistence.toDomain(record.touchTurnSession),
             touchTurnPrepare = TouchTurnPreparePersistence.toDomain(record.touchTurnPrepare),
-            touchTurnRules = TouchTurnRuleConfigPersistence.toDomain(record.configuration.touchTurnRules),
-            invertTradeSide = record.configuration.invertTradeSide
+            touchTurnRules = TouchTurnRuleConfigPersistence.toDomain(record.configuration.touchTurnRules)
+                .let { rules ->
+                    if (record.configuration.invertTradeSide && !rules.invertTradeSide) {
+                        rules.copy(invertTradeSide = true)
+                    } else {
+                        rules
+                    }
+                }
         )
 
     fun toRecord(instance: StrategyDeployment): DeploymentRecord =
@@ -49,8 +55,7 @@ object DeploymentPersistence {
                 marketSource = marketSourceLabel(instance.marketSource),
                 companyName = instance.companyName,
                 instrument = InstrumentIdentityPersistence.toRecord(instance.instrument),
-                touchTurnRules = TouchTurnRuleConfigPersistence.toRecord(instance.touchTurnRules),
-                invertTradeSide = instance.invertTradeSide
+                touchTurnRules = TouchTurnRuleConfigPersistence.toRecord(instance.touchTurnRules)
             ),
             live = toLiveRecord(instance.live),
             sessionHistory = SessionPersistenceSlimmer

@@ -648,7 +648,6 @@ fun TouchTurnPipelineSectionOrdersPreview(
     session: TouchTurnSessionContext?,
     sessionTrades: List<SessionTrade> = emptyList(),
     sessionPnl: Double? = null,
-    invertTradeSide: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val candle = session?.candle
@@ -700,11 +699,11 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
             )
         }
-        val computedSetup = remember(session, tick, invertTradeSide) {
+        val computedSetup = remember(session, tick) {
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: run {
                     val base = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
-                    if (invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
+                    if (session.rules.invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
                 }
         }
         val isRecap = sessionTrades.isNotEmpty() || session.executedBracketLegs.isNotEmpty()
@@ -793,7 +792,6 @@ fun TouchTurnPipelineSectionRules(
     formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     sessionEnded: Boolean = false,
     requireLivePriceChecks: Boolean = false,
-    invertTradeSide: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (session?.candle == null) {
@@ -812,12 +810,11 @@ fun TouchTurnPipelineSectionRules(
             tick++
         }
     }
-    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks, invertTradeSide) {
+    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks) {
         TouchTurnPipelineDetailUiMapper.rulesEvaluation(
             session = session,
             verboseExplanations = sessionEnded,
-            requireLivePriceChecks = requireLivePriceChecks,
-            invertTradeSide = invertTradeSide
+            requireLivePriceChecks = requireLivePriceChecks
         )
     }
     Column(

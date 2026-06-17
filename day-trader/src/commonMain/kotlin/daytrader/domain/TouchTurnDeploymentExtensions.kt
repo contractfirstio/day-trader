@@ -1,18 +1,12 @@
 package daytrader.domain
 
-fun StrategyDeployment.effectiveTouchTurnRulesForEntry(): TouchTurnRuleConfig {
-    val rules = effectiveTouchTurnRules()
-    if (!isTouchTurn || !invertTradeSide) return rules
-    return rules.copy(enables = rules.enables.copy(bounceRejection = false))
-}
-
 fun StrategyDeployment.computeTouchTurnBracketSetup(
     bar: OhlcBar,
     liquidityThresholds: TouchTurnLiquidityThresholds,
     rules: TouchTurnRuleConfig = effectiveTouchTurnRules()
 ): TouchTurnBracketSetup {
     val setup = TouchTurnLogic.computeBracketSetup(bar, liquidityThresholds, rules)
-    return if (invertTradeSide) TouchTurnLogic.invertBracketSetup(setup) else setup
+    return if (rules.invertTradeSide) TouchTurnLogic.invertBracketSetup(setup) else setup
 }
 
 fun StrategyDeployment.computeTouchTurnBracketSetup(
@@ -146,15 +140,14 @@ fun StrategyDeployment.withClosedFirstFifteenMinuteCandle(candle: OhlcBar): Stra
 /** Persists bracket setup and liquidity flag once the first candle has closed. */
 fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     enforceCloseConfirmation: Boolean = true,
-    nowEpochMillis: Long = System.currentTimeMillis(),
-    openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList()
+    nowEpochMillis: Long = System.currentTimeMillis()
 ): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
     val candle = session.candle ?: return this
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
-    val rules = effectiveTouchTurnRulesForEntry()
+    val rules = effectiveTouchTurnRules()
     val setup = computeTouchTurnBracketSetup(candle, session.liquidityThresholds, rules)
     val gate = TouchTurnLogic.evaluateEntryGate(
         setup = setup,
@@ -162,13 +155,6 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         marketZoneId = session.marketZoneId,
         nowEpochMillis = nowEpochMillis,
         sessionDateIso = session.sessionDate,
-        rules = rules,
-        openingBarPriceSamples = openingBarPriceSamples
-    )
-    val bounceEval = TouchTurnLogic.extremeBounceEvaluation(
-        setup = setup,
-        candle = candle,
-        openingBarPriceSamples = openingBarPriceSamples,
         rules = rules
     )
     val closeConfirmation = gate.closeConfirmation
@@ -189,8 +175,6 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         setup = setup,
         entryOrdersPermitted = entryOrdersPermitted,
         decisionOutcome = decisionOutcome ?: session.decisionOutcome,
-        openingBarPriceSamples = openingBarPriceSamples,
-        extremeBounceCount = bounceEval.bounceCount.takeIf { rules.enables.bounceRejection },
         milestones = milestones
     )
     TouchTurnDecisionLog.liquidityEvaluated(
@@ -357,7 +341,7 @@ fun StrategyDeployment.touchTurnAnalysisSessionForRun(run: StrategySession? = nu
     touchTurnSession?.let { return it }
     val closed = run ?: touchTurnPostStopSession() ?: return null
     val rules = closed.touchTurnRunRecord?.rules ?: effectiveTouchTurnRules()
-    val invert = closed.touchTurnRunRecord?.runContext?.invertTradeSide ?: invertTradeSide
+    val invert = closed.touchTurnRunRecord?.runContext?.invertTradeSide ?: rules.invertTradeSide
     return closed.toTouchTurnAnalysisContext(rules, invertTradeSide = invert)
 }
 
@@ -370,21 +354,26 @@ fun StrategySession.toTouchTurnAnalysisContext(
     invertTradeSide: Boolean = false
 ): TouchTurnSessionContext? {
     val record = touchTurnRunRecord
+    val effectiveRules = if (invertTradeSide && !rules.invertTradeSide) {
+        rules.copy(invertTradeSide = true)
+    } else {
+        rules
+    }
     val milestones = touchTurnMilestones ?: record?.milestones ?: return null
     val inputs = record?.marketInputs
     val candle = inputs?.openingBar
     val adr = inputs?.adr14
     val atr = inputs?.atr14
     val dailyAtr = inputs?.dailyAtr14
-    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(dailyAtr, rules).let { resolved ->
+    val thresholds = TouchTurnLogic.resolveLiquidityThresholds(dailyAtr, effectiveRules).let { resolved ->
         if (resolved.primary > 0.0) resolved else {
-            val legacy = dailyAtr?.let { TouchTurnLogic.liquidityRangeThresholdFromDailyAtr(it, rules) }
+            val legacy = dailyAtr?.let { TouchTurnLogic.liquidityRangeThresholdFromDailyAtr(it, effectiveRules) }
                 ?: adr?.let { TouchTurnLogic.liquidityRangeThreshold(it) }
             TouchTurnLiquidityThresholds(thresholdDailyAtr = legacy)
         }
     }
     val setup = candle?.let {
-        val base = TouchTurnLogic.computeBracketSetup(it, thresholds, rules)
+        val base = TouchTurnLogic.computeBracketSetup(it, thresholds, effectiveRules)
         if (invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
     }
     val plannedBracket = record?.decision?.plannedBracket
@@ -415,7 +404,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
         volumeSma20 = inputs?.volumeSma20,
         rangeThreshold = thresholds.primary,
         rangeThresholdDailyAtr = thresholds.thresholdDailyAtr,
-        rules = rules,
+        rules = effectiveRules,
         entryOrdersPermitted = when (outcome) {
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> true
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
@@ -430,7 +419,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> false
             else -> hadLiquidityCandle == true &&
-                setup?.let { TouchTurnLogic.setupActionableForEntry(it, rules) } == true
+                setup?.let { TouchTurnLogic.setupActionableForEntry(it, effectiveRules) } == true
         },
         ordersPlacedForSession = ordersPlacedForCandle == true ||
             outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,

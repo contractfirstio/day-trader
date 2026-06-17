@@ -119,20 +119,3 @@ class ReplaySeedDeploymentTest {
         assertEquals(existingRules, repository.deployments.value.single().touchTurnRules)
     }
 }
-
-class ReplayOpeningBarQuotesTest {
-    @Test
-    fun openingBarQuotes_returnsCapturedTimelineWithinBarWindow() {
-        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val runtime = ReplayHybridRuntime(bundle, ReplayClock(0L), scope)
-        val session = TouchTurnSessionContext(
-            sessionDate = "2026-06-04",
-            status = TouchTurnCandleStatus.READY,
-            openingBarTime = "20260604  09:30:00",
-            marketZoneId = "America/New_York"
-        )
-        val quotes = runtime.openingBarQuotes(bundle.symbol, session)
-        assertEquals(2, quotes.size)
-    }
-}

@@ -11,9 +11,7 @@ data class TouchTurnRuleEnables(
     /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
     val openDeadline: Boolean = false,
     /** After a favorable move, convert the bracket stop to an IB adjustable trailing stop. */
-    val adjustableTrailingStop: Boolean = true,
-    /** Opening-bar price must bounce off the fade extreme at least N times before entry. */
-    val bounceRejection: Boolean = false
+    val adjustableTrailingStop: Boolean = true
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
@@ -58,14 +56,12 @@ data class TouchTurnRuleConfig(
     /** Cushion below entry (long) / above entry (short) when trailing arms, as fraction of opening bar range. */
     val trailingStopArmOffsetFractionOfBarRange: Double =
         TouchTurnDefaults.TRAILING_STOP_ARM_OFFSET_FRACTION_OF_BAR_RANGE,
-    /** Min qualified bounces off the fade extreme (long→low, short→high) when bounce rejection is on. */
-    val requiredExtremeBounceCount: Int = TouchTurnDefaults.REQUIRED_EXTREME_BOUNCE_COUNT,
-    /** Touch band at the fade extreme as a fraction of opening-bar range. */
-    val bounceTouchZoneRatioOfRange: Double = TouchTurnDefaults.BOUNCE_TOUCH_ZONE_RATIO_OF_RANGE,
-    /** Recovery distance from the extreme required to count one bounce (fraction of range). */
-    val bounceRecoveryRatioOfRange: Double = TouchTurnDefaults.BOUNCE_RECOVERY_RATIO_OF_RANGE,
     /** Which entry-gate rules are enforced for this deployment. */
-    val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT
+    val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT,
+    /**
+     * Same entry levels as reversal mode but long/short flipped (continuation bet).
+     */
+    val invertTradeSide: Boolean = false
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleConfig = TouchTurnRuleConfig()
@@ -93,10 +89,10 @@ data class TouchTurnRuleConfig(
                     "cushion) and ratchet it up (long) or down (short) as price continues in your favor."
             ),
             TouchTurnRuleToggleDefinition(
-                key = "bounceRejection",
-                label = "Extreme bounce rejection",
-                description = "During the opening 15m bar, price must bounce off the fade extreme (low for longs, " +
-                    "high for shorts) at least the configured number of times before entry is permitted."
+                key = "invertTradeSide",
+                label = "Invert trade side (continuation)",
+                description = "Same entry levels as Touch and Turn, but long where reversal would short and vice " +
+                    "versa."
             )
         )
 
@@ -162,27 +158,6 @@ data class TouchTurnRuleConfig(
                     "bar range below entry (long) or above entry (short) to tolerate retests. 0 = at entry. Must " +
                     "stay above the initial fixed stop (long) or below it (short).",
                 kind = TouchTurnRuleFieldKind.RATIO
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "requiredExtremeBounceCount",
-                label = "Required extreme bounces",
-                description = "When extreme bounce rejection is enabled, price must reject the fade extreme at " +
-                    "least this many times during the opening 15m bar (long→low, short→high).",
-                kind = TouchTurnRuleFieldKind.INTEGER
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "bounceTouchZoneRatioOfRange",
-                label = "Bounce touch zone (× range)",
-                description = "Price counts as touching the fade extreme when within this fraction of the bar range " +
-                    "from the low (long) or high (short).",
-                kind = TouchTurnRuleFieldKind.RATIO
-            ),
-            TouchTurnRuleFieldDefinition(
-                key = "bounceRecoveryRatioOfRange",
-                label = "Bounce recovery (× range)",
-                description = "After touching the extreme, price must trade at least this fraction of bar range away " +
-                    "before the touch counts as one qualified bounce.",
-                kind = TouchTurnRuleFieldKind.RATIO
             )
         )
 
@@ -198,9 +173,6 @@ data class TouchTurnRuleConfig(
                 config.trailingStopTriggerFractionOfEntryToTp.toString()
             "trailingStopArmOffsetFractionOfBarRange" ->
                 config.trailingStopArmOffsetFractionOfBarRange.toString()
-            "requiredExtremeBounceCount" -> config.requiredExtremeBounceCount.toString()
-            "bounceTouchZoneRatioOfRange" -> config.bounceTouchZoneRatioOfRange.toString()
-            "bounceRecoveryRatioOfRange" -> config.bounceRecoveryRatioOfRange.toString()
             else -> ""
         }
 
@@ -212,7 +184,6 @@ data class TouchTurnRuleConfig(
                     when (key) {
                         "dailyAtrLookbackPeriods" -> config.copy(dailyAtrLookbackPeriods = intValue)
                         "stopAfterOpenMinutes" -> config.copy(stopAfterOpenMinutes = intValue)
-                        "requiredExtremeBounceCount" -> config.copy(requiredExtremeBounceCount = intValue)
                         else -> null
                     }
                 }
@@ -245,15 +216,6 @@ data class TouchTurnRuleConfig(
                                     if (candidate.trailingStopConfigInvalid()) return null
                                     candidate
                                 }
-                                "bounceTouchZoneRatioOfRange",
-                                "bounceRecoveryRatioOfRange" -> {
-                                    if (doubleValue <= 0.0 || doubleValue > 1.0) return null
-                                    when (key) {
-                                        "bounceTouchZoneRatioOfRange" ->
-                                            config.copy(bounceTouchZoneRatioOfRange = doubleValue)
-                                        else -> config.copy(bounceRecoveryRatioOfRange = doubleValue)
-                                    }
-                                }
                                 else -> null
                             }
                         }
@@ -267,20 +229,23 @@ data class TouchTurnRuleConfig(
             "liquidityRangeDailyAtr" -> config.enables.liquidityRangeDailyAtr
             "openDeadline" -> config.enables.openDeadline
             "adjustableTrailingStop" -> config.enables.adjustableTrailingStop
-            "bounceRejection" -> config.enables.bounceRejection
+            "invertTradeSide" -> config.invertTradeSide
             else -> true
         }
 
-        fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig {
-            val enables = when (key) {
-                "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
-                "openDeadline" -> config.enables.copy(openDeadline = enabled)
-                "adjustableTrailingStop" -> config.enables.copy(adjustableTrailingStop = enabled)
-                "bounceRejection" -> config.enables.copy(bounceRejection = enabled)
-                else -> config.enables
+        fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig =
+            when (key) {
+                "invertTradeSide" -> config.copy(invertTradeSide = enabled)
+                else -> {
+                    val enables = when (key) {
+                        "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
+                        "openDeadline" -> config.enables.copy(openDeadline = enabled)
+                        "adjustableTrailingStop" -> config.enables.copy(adjustableTrailingStop = enabled)
+                        else -> config.enables
+                    }
+                    config.copy(enables = enables)
+                }
             }
-            return config.copy(enables = enables)
-        }
     }
 
     /** IB adjustable-stop parameters when [enables.adjustableTrailingStop] is on; null when trailing disabled. */

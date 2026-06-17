@@ -1057,7 +1057,7 @@ class StrategiesViewModel(
                         "openDeadline" to after.touchTurnRules.enables.openDeadline.toString(),
                         "liquidityRangeDailyAtr" to after.touchTurnRules.enables.liquidityRangeDailyAtr.toString(),
                         "adjustableTrailingStop" to after.touchTurnRules.enables.adjustableTrailingStop.toString(),
-                        "bounceRejection" to after.touchTurnRules.enables.bounceRejection.toString()
+                        "invertTradeSide" to after.touchTurnRules.invertTradeSide.toString()
                     )
                 )
             }
@@ -1067,16 +1067,23 @@ class StrategiesViewModel(
         repository.flushPersistence()
     }
 
-    fun onCopyTouchTurnRulesToAllOther(sourceId: String) {
+    fun onCopyTouchTurnRulesToOther(sourceId: String, targetMarketZoneIds: Set<String>) {
+        if (targetMarketZoneIds.isEmpty()) return
         val source = repository.deployments.value.find { it.id == sourceId } ?: return
         if (source.status == DeploymentStatus.RUNNING) return
         val rules = source.touchTurnRules
-        val targets = repository.deployments.value.filter { it.id != sourceId }
+        val targets = repository.deployments.value.filter { deployment ->
+            deployment.id != sourceId &&
+                DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(deployment, targetMarketZoneIds)
+        }
         if (targets.isEmpty()) return
         UiActionLog.forDeployment(
             deployment = source,
-            action = "copy_touch_turn_rules_to_all_other",
-            details = mapOf("targetCount" to targets.size.toString())
+            action = "copy_touch_turn_rules_to_other",
+            details = mapOf(
+                "targetCount" to targets.size.toString(),
+                "markets" to targetMarketZoneIds.sorted().joinToString(",")
+            )
         )
         for (target in targets) {
             repository.update(target.id) { it.copy(touchTurnRules = rules) }
@@ -1410,6 +1417,7 @@ class StrategiesViewModel(
                 filteredSummary = filteredSummary,
                 filteredCount = filtered.size,
                 totalCount = deployments.size,
+                allDeployments = deployments,
                 hasActiveFilters = hasActiveFilters,
                 selectedMarketZoneId = selectedMarketZoneId,
                 selectedMarketLabel = selectedMarketZoneId?.let(::marketLabelForZone),

@@ -56,6 +56,8 @@ data class StrategiesUiState(
     val filteredSummary: FilteredDeploymentsSummaryUi? = null,
     val filteredCount: Int = 0,
     val totalCount: Int = 0,
+    /** All deployments (unfiltered) for bulk actions such as copy-rules market targeting. */
+    val allDeployments: List<StrategyDeployment> = emptyList(),
     val hasActiveFilters: Boolean = false,
     val selectedMarketZoneId: String? = null,
     val selectedMarketLabel: String? = null,

@@ -153,10 +153,33 @@ class DeploymentPersistenceTest {
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
             symbol = "AAPL",
             maxDollars = 500
-        ).copy(invertTradeSide = true)
+        ).copy(
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        )
 
         val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
 
-        assertEquals(true, restored.invertTradeSide)
+        assertEquals(true, restored.touchTurnRules.invertTradeSide)
+    }
+
+    @Test
+    fun configurationRoundTrip_migratesLegacyTopLevelInvertTradeSide() {
+        val baseRecord = DeploymentPersistence.toRecord(
+            defaultStrategyDeployment(
+                strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+                symbol = "AAPL",
+                maxDollars = 500
+            )
+        )
+        val legacyRecord = baseRecord.copy(
+            configuration = baseRecord.configuration.copy(
+                invertTradeSide = true,
+                touchTurnRules = null
+            )
+        )
+
+        val restored = DeploymentPersistence.toDomain(legacyRecord)
+
+        assertEquals(true, restored.touchTurnRules.invertTradeSide)
     }
 }

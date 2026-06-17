@@ -188,11 +188,7 @@ data class TouchTurnSessionContext(
     val macroBenchmarkSymbol: String? = null,
     val macroBenchmarkLabel: String? = null,
     /** Symbol daily trend at liquidity evaluation (when stock trend alignment rule is enabled). */
-    val stockTrendAtEntry: StockTrendState? = null,
-    /** Live/replay marks collected during the opening 15m bar for bounce rejection. */
-    val openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList(),
-    /** Qualified extreme bounces counted at liquidity evaluation when bounce rejection ran. */
-    val extremeBounceCount: Int? = null
+    val stockTrendAtEntry: StockTrendState? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 
@@ -244,8 +240,7 @@ data class TouchTurnSessionContext(
             marketZoneId,
             nowEpochMillis,
             sessionDate,
-            rules,
-            openingBarPriceSamples
+            rules
         )
 
     /**

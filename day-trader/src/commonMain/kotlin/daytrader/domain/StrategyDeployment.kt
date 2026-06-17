@@ -29,12 +29,7 @@ data class StrategyDeployment(
      */
     val touchTurnPrepare: TouchTurnSessionPrepare? = null,
     /** Touch Turn entry-gate thresholds; [TouchTurnRuleConfig.DEFAULT] when unset in legacy records. */
-    val touchTurnRules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
-    /**
-     * Touch Turn only: same entry levels as reversal mode but long/short flipped (continuation bet).
-     * Bounce rejection is skipped while enabled.
-     */
-    val invertTradeSide: Boolean = false
+    val touchTurnRules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
 )
 
 val StrategyDeployment.isTouchTurn: Boolean

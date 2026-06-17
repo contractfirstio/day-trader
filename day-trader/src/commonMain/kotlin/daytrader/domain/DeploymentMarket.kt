@@ -110,6 +110,15 @@ object DeploymentMarket {
     ): Boolean = filterZoneId == null ||
         zonesMatch(filterZoneId, sessionMarketZoneId(session, deployment))
 
+    fun deploymentMatchesAnyMarketZoneFilter(
+        deployment: StrategyDeployment,
+        filterZoneIds: Set<String>
+    ): Boolean {
+        if (filterZoneIds.isEmpty()) return false
+        val deploymentZoneId = effectiveZoneId(deployment)
+        return filterZoneIds.any { zonesMatch(it, deploymentZoneId) }
+    }
+
     fun fromSymbolHeuristic(symbol: String): ResolvedInstrument {
         val zoneId = SymbolMarkets.zoneId(symbol)
         val currency = currencyForZone(zoneId)

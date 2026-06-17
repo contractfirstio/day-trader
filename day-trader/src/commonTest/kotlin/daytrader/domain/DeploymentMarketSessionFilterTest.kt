@@ -70,6 +70,45 @@ class DeploymentMarketSessionFilterTest {
     }
 
     @Test
+    fun deploymentMatchesAnyMarketZoneFilter_matchesSelectedMarkets() {
+        val us = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "SPY",
+            maxDollars = 500
+        ).copy(marketZoneId = RthMarketSessions.US.zoneId)
+        val hk = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "0700",
+            maxDollars = 500
+        ).copy(marketZoneId = RthMarketSessions.HK.zoneId)
+
+        assertTrue(
+            DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(
+                us,
+                setOf(RthMarketSessions.US.zoneId)
+            )
+        )
+        assertFalse(
+            DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(
+                hk,
+                setOf(RthMarketSessions.US.zoneId)
+            )
+        )
+        assertTrue(
+            DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(
+                hk,
+                setOf(RthMarketSessions.US.zoneId, RthMarketSessions.HK.zoneId)
+            )
+        )
+        assertFalse(
+            DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(
+                us,
+                emptySet()
+            )
+        )
+    }
+
+    @Test
     fun sessionDateIso_usesDeploymentMarketZone() {
         val deployment = defaultStrategyDeployment(
             strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,

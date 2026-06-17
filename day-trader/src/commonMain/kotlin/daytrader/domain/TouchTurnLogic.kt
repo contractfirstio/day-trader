@@ -369,8 +369,7 @@ object TouchTurnLogic {
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis(),
         sessionDateIso: String? = null,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
-        openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList()
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnCloseConfirmation {
         val bar = candle ?: return TouchTurnCloseConfirmation.UNKNOWN
         if (firstCandleCloseStatus(bar, marketZoneId, nowEpochMillis, sessionDateIso) !=
@@ -381,17 +380,6 @@ object TouchTurnLogic {
         val bracket = setup ?: return TouchTurnCloseConfirmation.AWAITING_LIQUIDITY
         if (rules.enables.requiresLiquidityRange() && !bracket.isLiquidityCandle) {
             return TouchTurnCloseConfirmation.FAILED
-        }
-        if (rules.enables.bounceRejection) {
-            val bounce = TouchTurnExtremeBounceEvaluator.evaluate(
-                setup = bracket,
-                bar = bar,
-                samples = openingBarPriceSamples,
-                rules = rules
-            )
-            if (!bounce.passed) {
-                return TouchTurnCloseConfirmation.FAILED
-            }
         }
         return TouchTurnCloseConfirmation.PASSED
     }
@@ -522,8 +510,7 @@ object TouchTurnLogic {
         marketZoneId: String,
         nowEpochMillis: Long,
         sessionDateIso: String?,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
-        openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList()
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): EntryGateResult {
         val closeConfirmation = closeConfirmation(
             candle,
@@ -531,8 +518,7 @@ object TouchTurnLogic {
             marketZoneId,
             nowEpochMillis,
             sessionDateIso,
-            rules,
-            openingBarPriceSamples
+            rules
         )
         barSetupBlockOutcome(setup, rules)?.let { outcome ->
             return EntryGateResult(
@@ -546,7 +532,7 @@ object TouchTurnLogic {
         val entryOrdersPermitted = setupActionableForEntry(setup, rules) && closeGatePassed
         val decisionOutcome = when {
             closeConfirmation == TouchTurnCloseConfirmation.FAILED ->
-                closeConfirmationFailureOutcome(setup, candle, rules, openingBarPriceSamples)
+                closeConfirmationFailureOutcome(setup, candle, rules)
             else -> null
         }
         return EntryGateResult(
@@ -561,30 +547,13 @@ object TouchTurnLogic {
     fun closeConfirmationFailureOutcome(
         setup: TouchTurnBracketSetup,
         candle: OhlcBar,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
-        openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample> = emptyList()
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnSessionOutcome = when {
         setup.candleColor == FirstCandleColor.DOJI -> TouchTurnSessionOutcome.NO_TRADE_DOJI
         rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle ->
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
-        rules.enables.bounceRejection -> {
-            val bounce = TouchTurnExtremeBounceEvaluator.evaluate(setup, candle, openingBarPriceSamples, rules)
-            when {
-                !bounce.dataAvailable -> TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE
-                !bounce.passed -> TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED
-                else -> TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED
-            }
-        }
         else -> TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED
     }
-
-    fun extremeBounceEvaluation(
-        setup: TouchTurnBracketSetup,
-        candle: OhlcBar,
-        openingBarPriceSamples: List<TouchTurnOpeningBarPriceSample>,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
-    ): TouchTurnExtremeBounceEvaluator.Result =
-        TouchTurnExtremeBounceEvaluator.evaluate(setup, candle, openingBarPriceSamples, rules)
 
     fun closePositionRatio(bar: OhlcBar): Double? = closePositionRatioForPrice(bar, bar.close)
 

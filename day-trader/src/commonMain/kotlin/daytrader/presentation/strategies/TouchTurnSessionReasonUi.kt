@@ -4,7 +4,6 @@ import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
-import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
@@ -97,13 +96,13 @@ object TouchTurnSessionReasonUi {
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE -> TouchTurnSessionStatusUi(
-            headline = "No trade — bounce data unavailable",
-            detail = "Extreme bounce rejection was enabled but no opening-bar price samples were available to count bounces.",
+            headline = "No trade — close confirmation failed",
+            detail = "Legacy session outcome from a removed extreme-bounce rule. Bracket orders were not placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED -> TouchTurnSessionStatusUi(
-            headline = "No trade — insufficient extreme bounces",
-            detail = bounceRejectionDetail(session),
+            headline = "No trade — close confirmation failed",
+            detail = "Legacy session outcome from a removed extreme-bounce rule. Bracket orders were not placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED -> TouchTurnSessionStatusUi(
@@ -329,27 +328,12 @@ object TouchTurnSessionReasonUi {
             setup == null -> "Bracket setup is not ready yet."
             !setup.isLiquidityCandle && rules.enables.requiresLiquidityRange() ->
                 "Bar failed the liquidity range check."
-            rules.enables.bounceRejection && session.openingBarPriceSamples.isEmpty() ->
-                "Extreme bounce rejection enabled but no opening-bar price samples were captured."
-            rules.enables.bounceRejection && session.extremeBounceCount != null -> {
-                val required = rules.requiredExtremeBounceCount
-                "Only ${session.extremeBounceCount} extreme bounce(s) counted — need at least $required."
-            }
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.FAILED ->
                 "Entry confirmation failed — a configured gate did not pass."
             session.closeConfirmation(nowEpochMillis) == TouchTurnCloseConfirmation.EXPIRED ->
                 "Close confirmation window expired."
             else -> "A gate blocked entry (liquidity or confirmation still pending)."
         }
-    }
-
-    private fun bounceRejectionDetail(session: TouchTurnSessionContext?): String {
-        val rules = session?.rules
-        val observed = session?.extremeBounceCount
-        val required = rules?.requiredExtremeBounceCount ?: TouchTurnDefaults.REQUIRED_EXTREME_BOUNCE_COUNT
-        val samples = session?.openingBarPriceSamples?.size ?: 0
-        return "Opening bar had ${observed ?: 0} qualified bounce(s) from $samples price sample(s); " +
-            "need at least $required bounces off the fade extreme."
     }
 
     fun orderLifecycleMessage(

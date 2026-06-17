@@ -116,13 +116,10 @@ data class TouchTurnRuleConfigRecord(
     val stopAfterOpenMinutes: Int = 90,
     val trailingStopTriggerFractionOfEntryToTp: Double = 0.5,
     val trailingStopArmOffsetFractionOfBarRange: Double = 0.0,
-    val requiredExtremeBounceCount: Int = 2,
-    val bounceTouchZoneRatioOfRange: Double = 0.05,
-    val bounceRecoveryRatioOfRange: Double = 0.15,
     val enableLiquidityRangeDailyAtr: Boolean = false,
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,
-    val enableBounceRejection: Boolean = false
+    val invertTradeSide: Boolean = false
 )
 
 @Serializable
@@ -137,6 +134,7 @@ data class ConfigurationRecord(
     val companyName: String? = null,
     val instrument: InstrumentIdentityRecord? = null,
     val touchTurnRules: TouchTurnRuleConfigRecord? = null,
+    /** Legacy top-level flag; migrated into [touchTurnRules.invertTradeSide] on load. */
     val invertTradeSide: Boolean = false
 )
 

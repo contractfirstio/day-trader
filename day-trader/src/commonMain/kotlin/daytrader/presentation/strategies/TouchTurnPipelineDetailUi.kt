@@ -164,8 +164,7 @@ object TouchTurnPipelineDetailUiMapper {
         session: TouchTurnSessionContext,
         nowEpochMillis: Long = System.currentTimeMillis(),
         verboseExplanations: Boolean = false,
-        requireLivePriceChecks: Boolean = false,
-        invertTradeSide: Boolean = false
+        requireLivePriceChecks: Boolean = false
     ): RulesEvaluationUi? {
         if (session.candle == null || session.setup == null) return null
         val evaluationInstant = if (verboseExplanations) {
@@ -177,8 +176,7 @@ object TouchTurnPipelineDetailUiMapper {
             session = session,
             evaluationInstant = evaluationInstant,
             verboseExplanations = verboseExplanations,
-            requireLivePriceChecks = requireLivePriceChecks,
-            invertTradeSide = invertTradeSide
+            requireLivePriceChecks = requireLivePriceChecks
         )
         return RulesEvaluationUi(
             checks = checks,

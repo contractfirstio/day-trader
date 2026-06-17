@@ -216,8 +216,8 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
                     onTabChange = viewModel::onDetailTabChange,
                     onResolveSymbol = viewModel::resolveInstrumentForSymbol,
                     onUpdateDeployment = viewModel::onUpdateDeployment,
-                    onCopyTouchTurnRulesToAllOther = viewModel::onCopyTouchTurnRulesToAllOther,
-                    otherDeploymentCount = (uiState.totalCount - 1).coerceAtLeast(0),
+                    onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
+                    allDeployments = uiState.allDeployments,
                     onStartStop = viewModel::onToggleSession,
                     onPrepareSession = viewModel::onPrepareSession,
                     onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
@@ -259,8 +259,8 @@ private fun StrategyDeploymentDetailPanel(
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
-    onCopyTouchTurnRulesToAllOther: (String) -> Unit,
-    otherDeploymentCount: Int,
+    onCopyTouchTurnRulesToOther: (String, Set<String>) -> Unit,
+    allDeployments: List<StrategyDeployment>,
     onStartStop: (String) -> Unit,
     onPrepareSession: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -304,10 +304,10 @@ private fun StrategyDeploymentDetailPanel(
                 onTabChange = onTabChange,
                 onResolveSymbol = onResolveSymbol,
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
-                onCopyTouchTurnRulesToAllOther = {
-                    onCopyTouchTurnRulesToAllOther(selectedDeployment.id)
+                onCopyTouchTurnRulesToOther = { marketZoneIds ->
+                    onCopyTouchTurnRulesToOther(selectedDeployment.id, marketZoneIds)
                 },
-                otherDeploymentCount = otherDeploymentCount,
+                allDeployments = allDeployments,
                 onStartStop = { onStartStop(selectedDeployment.id) },
                 onPrepareSession = { onPrepareSession(selectedDeployment.id) },
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
@@ -439,8 +439,8 @@ private fun StrategyDeploymentDetail(
     onTabChange: (StrategyDetailTab) -> Unit,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
-    onCopyTouchTurnRulesToAllOther: () -> Unit,
-    otherDeploymentCount: Int,
+    onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
+    allDeployments: List<StrategyDeployment>,
     onStartStop: () -> Unit,
     onPrepareSession: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -571,10 +571,10 @@ private fun StrategyDeploymentDetail(
                     instance = instance,
                     globalAutoStartEnabled = globalAutoStartEnabled,
                     touchTurnPrepare = touchTurnPrepare,
-                    otherDeploymentCount = otherDeploymentCount,
+                    allDeployments = allDeployments,
                     onResolveSymbol = onResolveSymbol,
                     onUpdate = onUpdate,
-                    onCopyTouchTurnRulesToAllOther = onCopyTouchTurnRulesToAllOther
+                    onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther
                 )
                 StrategyDetailTab.LIVE -> LiveTab(
                     instance = instance,
@@ -617,17 +617,133 @@ private fun StrategyDeploymentDetail(
     }
 }
 
+private fun touchTurnCopyTargetCount(
+    sourceId: String,
+    allDeployments: List<StrategyDeployment>,
+    selectedMarketZoneIds: Set<String>
+): Int = allDeployments.count { deployment ->
+    deployment.id != sourceId &&
+        DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(deployment, selectedMarketZoneIds)
+}
+
+@Composable
+private fun TouchTurnRulesCopyDialog(
+    sourceId: String,
+    allDeployments: List<StrategyDeployment>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit
+) {
+    val selectedMarkets = remember {
+        mutableStateMapOf<String, Boolean>().apply {
+            RthMarketSessions.all.forEach { session ->
+                put(session.zoneId, true)
+            }
+        }
+    }
+    val selectedZoneIds = selectedMarkets.filterValues { it }.keys
+    val marketCounts = remember(sourceId, allDeployments) {
+        RthMarketSessions.all.associate { session ->
+            session.zoneId to touchTurnCopyTargetCount(sourceId, allDeployments, setOf(session.zoneId))
+        }
+    }
+    val targetCount = remember(sourceId, allDeployments, selectedZoneIds) {
+        touchTurnCopyTargetCount(sourceId, allDeployments, selectedZoneIds)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        title = {
+            Text("Copy Touch Turn rules", color = Color.White, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Apply this deployment's rules and thresholds to other deployments in the " +
+                        "selected markets. Changes apply on the next session start.",
+                    color = TextSecondary,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp
+                )
+                RthMarketSessions.all.forEach { session ->
+                    val marketCount = marketCounts[session.zoneId] ?: 0
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("TouchTurnRulesCopyMarket-${session.label}"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Checkbox(
+                            checked = selectedMarkets[session.zoneId] == true,
+                            onCheckedChange = { checked ->
+                                selectedMarkets[session.zoneId] = checked
+                            },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = BrandRed,
+                                checkmarkColor = Color.White
+                            )
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                DeploymentMarket.sessionDisplayLabel(session),
+                                fontSize = 13.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                "$marketCount deployment${if (marketCount == 1) "" else "s"}",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+                Text(
+                    if (selectedZoneIds.isEmpty()) {
+                        "Select at least one market."
+                    } else if (targetCount == 0) {
+                        "No other deployments match the selected markets."
+                    } else {
+                        "Apply to $targetCount deployment${if (targetCount == 1) "" else "s"}."
+                    },
+                    fontSize = 13.sp,
+                    color = if (targetCount > 0 && selectedZoneIds.isNotEmpty()) Color.White else TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedZoneIds) },
+                enabled = selectedZoneIds.isNotEmpty() && targetCount > 0,
+                colors = ButtonDefaults.buttonColors(containerColor = GainGreen)
+            ) {
+                Text("Copy rules")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        },
+        modifier = Modifier.testTag("TouchTurnRulesCopyToAllDialog")
+    )
+}
+
 @Composable
 private fun ConfigurationTab(
     instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
     touchTurnPrepare: TouchTurnPrepareUiState?,
-    otherDeploymentCount: Int,
+    allDeployments: List<StrategyDeployment>,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
-    onCopyTouchTurnRulesToAllOther: () -> Unit
+    onCopyTouchTurnRulesToOther: (Set<String>) -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
+    val otherDeploymentCount = remember(instance.id, allDeployments) {
+        allDeployments.count { it.id != instance.id }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!globalAutoStartEnabled) {
@@ -664,15 +780,6 @@ private fun ConfigurationTab(
                 onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
             }
         )
-        if (instance.isTouchTurn) {
-            InvertTradeSideField(
-                checked = instance.invertTradeSide,
-                enabled = canEdit,
-                onCheckedChange = { enabled ->
-                    onUpdate { it.copy(invertTradeSide = enabled) }
-                }
-            )
-        }
         ConfigField(
             label = "Risk budget (\$)",
             value = instance.maxDollars.toString(),
@@ -705,44 +812,20 @@ private fun ConfigurationTab(
                     modifier = Modifier.testTag("TouchTurnRulesCopyToAllButton")
                 ) {
                     Text(
-                        "Copy rules to all…",
+                        "Copy rules…",
                         color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
                     )
                 }
             }
             if (showCopyRulesConfirm) {
-                AlertDialog(
-                    onDismissRequest = { showCopyRulesConfirm = false },
-                    containerColor = SurfaceDark,
-                    title = {
-                        Text("Copy rules to all deployments?", color = Color.White, fontWeight = FontWeight.Bold)
-                    },
-                    text = {
-                        Text(
-                            "Apply this deployment's Touch Turn rules and thresholds to " +
-                                "$otherDeploymentCount other deployment${if (otherDeploymentCount == 1) "" else "s"}? " +
-                                "Changes apply on the next session start.",
-                            color = TextSecondary,
-                            fontSize = 14.sp
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                showCopyRulesConfirm = false
-                                onCopyTouchTurnRulesToAllOther()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = GainGreen)
-                        ) {
-                            Text("Copy to all")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCopyRulesConfirm = false }) {
-                            Text("Cancel", color = TextSecondary)
-                        }
-                    },
-                    modifier = Modifier.testTag("TouchTurnRulesCopyToAllDialog")
+                TouchTurnRulesCopyDialog(
+                    sourceId = instance.id,
+                    allDeployments = allDeployments,
+                    onDismiss = { showCopyRulesConfirm = false },
+                    onConfirm = { marketZoneIds ->
+                        showCopyRulesConfirm = false
+                        onCopyTouchTurnRulesToOther(marketZoneIds)
+                    }
                 )
             }
             if (showTouchTurnRules) {
@@ -1586,9 +1669,7 @@ private fun TouchTurnLivePipelineDetailHost(
                     formingBarPriceChart = if (sessionEnded) null else touchTurnFormingBarPriceChart,
                     sessionEnded = sessionEnded,
                     requireLivePriceChecks = recapRun?.touchTurnRunRecord?.runContext?.brokerKind
-                        ?.usesLiveIbMarketData == true,
-                    invertTradeSide = instance.invertTradeSide ||
-                        recapRun?.touchTurnRunRecord?.runContext?.invertTradeSide == true
+                        ?.usesLiveIbMarketData == true
                 )
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
@@ -1623,9 +1704,7 @@ private fun TouchTurnLivePipelineDetailHost(
                             recapSessionPnl
                         } else {
                             liveSessionTrades?.sessionTrades?.sessionRealizedPnL()
-                        },
-                        invertTradeSide = instance.invertTradeSide ||
-                            recapRun?.touchTurnRunRecord?.runContext?.invertTradeSide == true
+                        }
                     )
                 }
             }
@@ -2846,47 +2925,6 @@ private fun ConfigDropdown(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-internal fun InvertTradeSideField(
-    checked: Boolean,
-    enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("InvertTradeSideField"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled,
-            colors = CheckboxDefaults.colors(
-                checkedColor = BrandRed,
-                checkmarkColor = Color.White
-            ),
-            modifier = Modifier.testTag("InvertTradeSideCheckbox")
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                "Invert trade side (continuation)",
-                fontSize = 13.sp,
-                color = if (enabled) Color.White else TextSecondary,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                "Same entry levels as Touch and Turn, but long where reversal would short and vice versa. " +
-                    "Bounce rejection is disabled in this mode.",
-                fontSize = 11.sp,
-                color = TextSecondary,
-                lineHeight = 14.sp
-            )
         }
     }
 }
