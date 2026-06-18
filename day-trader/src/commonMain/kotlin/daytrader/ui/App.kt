@@ -47,6 +47,7 @@ fun App(
     replayHybridRuntime: ReplayHybridRuntime? = null,
     replayBundle: SessionBundle? = null,
     replayCaptureCatalog: List<daytrader.replay.ReplayCaptureRef> = emptyList(),
+    replaySeedDirectoryPaths: List<String> = emptyList(),
     loadReplayBundle: (String) -> Result<SessionBundle> = {
         Result.failure(IllegalStateException("Replay bundle loader not configured"))
     },
@@ -65,6 +66,7 @@ fun App(
         replayHybridRuntime = replayHybridRuntime,
         replayBundle = replayBundle,
         replayCaptureCatalog = replayCaptureCatalog,
+        replaySeedDirectoryPaths = replaySeedDirectoryPaths,
         loadReplayBundle = loadReplayBundle,
         tradingClock = tradingClock
     )

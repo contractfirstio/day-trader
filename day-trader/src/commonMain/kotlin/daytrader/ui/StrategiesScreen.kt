@@ -1244,7 +1244,11 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 ) {
                     val orderSetup = remember(session, tick) {
                         session.setup?.takeIf { it.isLiquidityCandle }
-                            ?: TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
+                            ?: TouchTurnLogic.computeBracketSetup(
+                                candle,
+                                session.rangeThreshold,
+                                session.rules
+                            )
                     }
                     TouchTurnPanelGroup(
                         title = "Order preview (not sent)",

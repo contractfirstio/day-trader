@@ -1,6 +1,7 @@
 package daytrader.replay
 
 import daytrader.data.persistence.AppDataFiles
+import daytrader.domain.RthMarketSessions
 import daytrader.replay.support.ReplaySessionFixtures
 import java.nio.file.Files
 import kotlin.test.Test
@@ -153,11 +154,106 @@ class SessionReplayCatalogTest {
         assertEquals(listOf("2026-06-10", "2026-06-04"), SessionReplayCatalog.distinctSessionDates(entries))
     }
 
+    @Test
+    fun filterByStartedAt_exactIsoDate_matchesSessionDateOnly() {
+        val entries = listOf(
+            entry(sessionDate = "2026-06-04"),
+            entry(sessionDate = "2026-06-10", symbol = "MSFT")
+        )
+        assertEquals(1, SessionReplayCatalog.filterByStartedAt(entries, "2026-06-04").size)
+        assertEquals(0, SessionReplayCatalog.filterByStartedAt(entries, "2026-06-05").size)
+    }
+
+    @Test
+    fun discoverUnderScope_usesDeploymentMarketZoneId() {
+        val root = Files.createTempDirectory("replay-catalog-zone")
+        try {
+            val scopeRoot = root.resolve("paper-live-ib")
+            val sessionDir = scopeRoot.resolve("sessions/dep-lse/sess-1")
+            Files.createDirectories(sessionDir)
+            val contents = hybridContents()
+            Files.writeString(sessionDir.resolve("manifest.json"), contents.manifestJson!!)
+            Files.writeString(sessionDir.resolve("application.jsonl"), contents.applicationJsonl)
+            Files.writeString(sessionDir.resolve("historical.jsonl"), contents.historicalJsonl)
+            Files.writeString(
+                scopeRoot.resolve("deployments.json"),
+                """
+                {
+                  "deployments": [{
+                    "id": "dep-lse",
+                    "strategy": "TOUCH_AND_TURN_SCALPER",
+                    "status": "STOPPED",
+                    "configuration": {
+                      "symbol": "RR.",
+                      "maxAtRisk": 500,
+                      "marketZoneId": "Europe/London",
+                      "currencyCode": "GBP"
+                    },
+                    "live": {
+                      "state": "IDLE",
+                      "side": "LONG"
+                    }
+                  }]
+                }
+                """.trimIndent()
+            )
+
+            val entries = SessionReplayCatalog.discoverUnderScope(scopeRoot, "paper-live-ib")
+            assertEquals(1, entries.size)
+            assertEquals(RthMarketSessions.EUR.zoneId, entries.single().marketZoneId)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun filterByMarket_matchesZoneId() {
+        val entries = listOf(
+            entry(symbol = "AAPL", marketZoneId = RthMarketSessions.US.zoneId),
+            entry(symbol = "TSCO", marketZoneId = RthMarketSessions.EUR.zoneId, sessionDate = "2026-06-10"),
+            entry(symbol = "700", marketZoneId = RthMarketSessions.HK.zoneId, sessionDate = "2026-06-11")
+        )
+        assertEquals(1, SessionReplayCatalog.filterByMarket(entries, RthMarketSessions.US.zoneId).size)
+        assertEquals(
+            "TSCO",
+            SessionReplayCatalog.filterByMarket(entries, RthMarketSessions.EUR.zoneId).single().symbol
+        )
+        assertEquals(entries, SessionReplayCatalog.filterByMarket(entries, null))
+    }
+
+    @Test
+    fun filterByMarket_fallsBackToSymbolWhenMarketZoneIdMissing() {
+        val entries = listOf(
+            entry(symbol = "0700", marketZoneId = null, sessionDate = "2026-06-18"),
+            entry(symbol = "AAPL", marketZoneId = null, sessionDate = "2026-06-18")
+        )
+        assertEquals(1, SessionReplayCatalog.filterByMarket(entries, RthMarketSessions.HK.zoneId).size)
+        assertEquals("0700", SessionReplayCatalog.filterByMarket(entries, RthMarketSessions.HK.zoneId).single().symbol)
+    }
+
+    @Test
+    fun filter_combinesMarketDateAndSymbol() {
+        val entries = listOf(
+            entry(symbol = "AAPL", marketZoneId = RthMarketSessions.US.zoneId, sessionDate = "2026-06-04"),
+            entry(symbol = "MSFT", marketZoneId = RthMarketSessions.US.zoneId, sessionDate = "2026-06-10"),
+            entry(symbol = "TSCO", marketZoneId = RthMarketSessions.EUR.zoneId, sessionDate = "2026-06-10")
+        )
+        val filtered = SessionReplayCatalog.filter(
+            entries = entries,
+            symbolQuery = "",
+            startedAtQuery = "2026-06-10",
+            marketZoneId = RthMarketSessions.US.zoneId
+        )
+        assertEquals(1, filtered.size)
+        assertEquals("MSFT", filtered.single().symbol)
+    }
+
     private fun entry(
         symbol: String? = "AAPL",
         companyName: String? = null,
         sessionDate: String = "2026-06-04",
-        sessionStartedEpochMs: Long? = 1_780_579_800_000L
+        sessionStartedEpochMs: Long? = 1_780_579_800_000L,
+        marketZoneId: String? = RthMarketSessions.US.zoneId
     ) = SessionReplayEntry(
         directoryPath = "/tmp/${symbol ?: "unknown"}-$sessionDate",
         brokerScope = "paper-live-ib",
@@ -167,6 +263,7 @@ class SessionReplayCatalogTest {
         companyName = companyName,
         sessionDate = sessionDate,
         sessionStartedEpochMs = sessionStartedEpochMs,
+        marketZoneId = marketZoneId,
         label = "$symbol · $sessionDate · sess-1 (paper-live-ib)"
     )
 

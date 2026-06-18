@@ -28,6 +28,16 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_ENTRY_WINDOW_EXPIRED,
     /** Resting entry would be marketable — live price already through the touch level. */
     NO_TRADE_ENTRY_NOT_TOUCHABLE,
+    /**
+     * Legacy invert gate outcome (entry marketable without stop trigger). Placement is no longer
+     * blocked for this case; retained for historical session records only.
+     */
+    NO_TRADE_INVERT_ENTRY_MARKETABLE,
+    /**
+     * Inverted bracket: entry would fill immediately and the protective stop would trigger
+     * on the same live quote snapshot.
+     */
+    NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
     /** Bid/ask unavailable when live price gates are required. */
     NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
     NO_TRADE_ORDER_REJECTED,

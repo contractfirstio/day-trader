@@ -354,6 +354,8 @@ object TouchTurnStateSyncLog {
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED

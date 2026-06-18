@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import daytrader.broker.emulator.EmulatorSymbolLookup
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.presentation.Formatters
+import daytrader.domain.RthMarketSessions
 import daytrader.replay.SessionBundleDirectoryReader
 import daytrader.replay.SessionReplayCatalog
 import daytrader.replay.SessionReplayCaptureSummary
@@ -62,7 +63,7 @@ import daytrader.ui.theme.TextSecondary
 fun SessionReplayPickerScreen(
     entries: List<SessionReplayEntry>,
     onBrowseFolder: () -> String?,
-    onContinue: (SessionReplayEntry?) -> Unit,
+    onContinue: (SessionReplayEntry?, Set<String>) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -70,12 +71,33 @@ fun SessionReplayPickerScreen(
     var browseError by remember { mutableStateOf<String?>(null) }
     var symbolFilter by remember { mutableStateOf("") }
     var startedAtFilter by remember { mutableStateOf("") }
+    var selectedMarketZoneId by remember { mutableStateOf<String?>(null) }
+    var selectedSessionDate by remember { mutableStateOf<String?>(null) }
+    var replayList by remember { mutableStateOf(setOf<String>()) }
     val scrollState = rememberScrollState()
-    val sessionDateOptions = remember(entries) { SessionReplayCatalog.distinctSessionDates(entries) }
-    val filteredEntries = remember(entries, symbolFilter, startedAtFilter) {
-        SessionReplayCatalog.filter(entries, symbolFilter, startedAtFilter)
+    val marketScopedEntries = remember(entries, selectedMarketZoneId) {
+        SessionReplayCatalog.filterByMarket(entries, selectedMarketZoneId)
     }
-    val hasActiveFilter = symbolFilter.isNotBlank() || startedAtFilter.isNotBlank()
+    val sessionDateOptions = remember(marketScopedEntries) {
+        SessionReplayCatalog.distinctSessionDates(marketScopedEntries)
+    }
+    val listDateFilter = startedAtFilter.trim().ifBlank { selectedSessionDate.orEmpty() }
+    val bulkSessionDate = selectedSessionDate
+        ?: startedAtFilter.trim().takeIf { it.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) }
+    val filteredEntries = remember(entries, symbolFilter, listDateFilter, selectedMarketZoneId) {
+        SessionReplayCatalog.filter(
+            entries = entries,
+            symbolQuery = symbolFilter,
+            startedAtQuery = listDateFilter,
+            marketZoneId = selectedMarketZoneId
+        )
+    }
+    val hasActiveFilter = symbolFilter.isNotBlank() || listDateFilter.isNotBlank() || selectedMarketZoneId != null
+    val hasMarketAndDateFilter = selectedMarketZoneId != null && bulkSessionDate != null
+    val canBulkAddToReplayList = hasMarketAndDateFilter && filteredEntries.isNotEmpty()
+    val canStartReplay = selected != null ||
+        replayList.isNotEmpty() ||
+        canBulkAddToReplayList
 
     SideEffect {
         val current = selected ?: return@SideEffect
@@ -136,15 +158,41 @@ fun SessionReplayPickerScreen(
                         )
                         OutlinedTextField(
                             value = startedAtFilter,
-                            onValueChange = { startedAtFilter = it },
+                            onValueChange = { value ->
+                                startedAtFilter = value
+                                selectedSessionDate = null
+                            },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Filter by start date/time") },
-                            placeholder = { Text("e.g. 2026-06-10 or 09:30") },
+                            label = { Text("Search by session date (optional)") },
+                            placeholder = { Text("Or use market + date chips below") },
                             textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                             colors = replayFilterFieldColors(),
                             shape = RoundedCornerShape(10.dp)
                         )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            RthMarketSessions.all.forEach { market ->
+                                FilterChip(
+                                    selected = selectedMarketZoneId == market.zoneId,
+                                    onClick = {
+                                        selectedMarketZoneId =
+                                            if (selectedMarketZoneId == market.zoneId) null else market.zoneId
+                                    },
+                                    label = { Text(market.label) },
+                                    colors = replayFilterChipColors()
+                                )
+                            }
+                        }
+                        if (selectedMarketZoneId != null) {
+                            Text(
+                                text = "Session dates for ${RthMarketSessions.forZoneId(selectedMarketZoneId!!).label}:",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         if (sessionDateOptions.isNotEmpty()) {
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -152,15 +200,23 @@ fun SessionReplayPickerScreen(
                             ) {
                                 sessionDateOptions.forEach { sessionDate ->
                                     FilterChip(
-                                        selected = startedAtFilter == sessionDate,
+                                        selected = selectedSessionDate == sessionDate,
                                         onClick = {
-                                            startedAtFilter = if (startedAtFilter == sessionDate) "" else sessionDate
+                                            selectedSessionDate =
+                                                if (selectedSessionDate == sessionDate) null else sessionDate
+                                            startedAtFilter = ""
                                         },
                                         label = { Text(sessionDate) },
                                         colors = replayFilterChipColors()
                                     )
                                 }
                             }
+                        } else if (selectedMarketZoneId != null) {
+                            Text(
+                                text = "No session dates found for ${RthMarketSessions.forZoneId(selectedMarketZoneId!!).label}.",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                         if (hasActiveFilter) {
                             Text(
@@ -174,8 +230,15 @@ fun SessionReplayPickerScreen(
                                 text = buildString {
                                     append("No sessions match")
                                     if (symbolFilter.isNotBlank()) append(" search \"$symbolFilter\"")
-                                    if (symbolFilter.isNotBlank() && startedAtFilter.isNotBlank()) append(" and")
-                                    if (startedAtFilter.isNotBlank()) append(" start time \"$startedAtFilter\"")
+                                    if (symbolFilter.isNotBlank() && (listDateFilter.isNotBlank() || selectedMarketZoneId != null)) {
+                                        append(" and")
+                                    }
+                                    if (listDateFilter.isNotBlank()) append(" date \"$listDateFilter\"")
+                                    if (listDateFilter.isNotBlank() && selectedMarketZoneId != null) append(" and")
+                                    selectedMarketZoneId?.let { zone ->
+                                        append(" market ")
+                                        append(RthMarketSessions.forZoneId(zone).label)
+                                    }
                                     append('.')
                                 },
                                 color = TextSecondary,
@@ -209,6 +272,11 @@ fun SessionReplayPickerScreen(
                                                 companyName = EmulatorSymbolLookup.companyName(bundle.symbol),
                                                 sessionDate = bundle.sessionDate,
                                                 sessionStartedEpochMs = bundle.timeline.sessionStartedEpochMs,
+                                                marketZoneId = SessionReplayCatalog.resolveMarketZoneId(
+                                                    bundle = bundle,
+                                                    symbol = bundle.symbol,
+                                                    deploymentId = bundle.deploymentId
+                                                ),
                                                 label = buildString {
                                                     append(bundle.symbol)
                                                     bundle.sessionDate?.let { append(" · ").append(it) }
@@ -243,28 +311,101 @@ fun SessionReplayPickerScreen(
 
             HorizontalDivider(color = SurfaceDark, modifier = Modifier.padding(vertical = 16.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 720.dp)
+                    .align(Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedButton(onClick = onBack, shape = RoundedCornerShape(10.dp)) {
-                    Text("Back")
+                when {
+                    hasMarketAndDateFilter && canBulkAddToReplayList -> {
+                        Button(
+                            onClick = {
+                                replayList = replayList + filteredEntries.map { it.directoryPath }.toSet()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = GainGreen,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text(
+                                "Add all ${filteredEntries.size} matching to replay list",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    hasMarketAndDateFilter -> {
+                        Text(
+                            text = buildString {
+                                append("No captures match ")
+                                append(RthMarketSessions.forZoneId(selectedMarketZoneId!!).label)
+                                append(" on ")
+                                append(bulkSessionDate)
+                                append('.')
+                            },
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    selectedMarketZoneId != null || selectedSessionDate != null || startedAtFilter.isNotBlank() -> {
+                        Text(
+                            text = "Select both a market (US, UK, or HK) and a session date to bulk-add captures.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
-                Button(
-                    onClick = { onContinue(selected) },
-                    enabled = entries.isNotEmpty(),
-                    modifier = Modifier
-                        .widthIn(min = 220.dp)
-                        .height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = GainGreen,
-                        contentColor = Color.Black,
-                        disabledContainerColor = Color(0xFF3A3D48),
-                        disabledContentColor = TextSecondary
+                if (replayList.isNotEmpty()) {
+                    Text(
+                        text = "Replay list: ${replayList.size} session${if (replayList.size == 1) "" else "s"} queued",
+                        color = GainGreen,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
                 ) {
-                    Text("Start Replay", fontWeight = FontWeight.Bold)
+                    OutlinedButton(onClick = onBack, shape = RoundedCornerShape(10.dp)) {
+                        Text("Back")
+                    }
+                    if (replayList.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = { replayList = emptySet() },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Clear list")
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            val seedPaths = when {
+                                replayList.isNotEmpty() -> replayList
+                                canBulkAddToReplayList -> filteredEntries.map { it.directoryPath }.toSet()
+                                selected != null -> setOf(selected!!.directoryPath)
+                                else -> emptySet()
+                            }
+                            onContinue(selected, seedPaths)
+                        },
+                        enabled = entries.isNotEmpty() && canStartReplay,
+                        modifier = Modifier
+                            .widthIn(min = 220.dp)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = GainGreen,
+                            contentColor = Color.Black,
+                            disabledContainerColor = Color(0xFF3A3D48),
+                            disabledContentColor = TextSecondary
+                        )
+                    ) {
+                        Text("Start Replay", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -319,17 +460,25 @@ private fun SessionReplayEntryCard(
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
+                entry.sessionDate?.let { sessionDate ->
+                    Text(
+                        text = "Session date $sessionDate",
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
                 entry.sessionStartedAtLabel?.let { startedAt ->
                     Text(
                         text = "Started $startedAt",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
                 Text(
                     text = buildString {
-                        entry.sessionDate?.let { append(it).append(" · ") }
                         append(entry.sessionId)
                         append(" · ")
                         append(entry.brokerScope)

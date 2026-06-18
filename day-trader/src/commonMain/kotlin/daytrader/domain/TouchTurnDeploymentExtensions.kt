@@ -5,8 +5,7 @@ fun StrategyDeployment.computeTouchTurnBracketSetup(
     liquidityThresholds: TouchTurnLiquidityThresholds,
     rules: TouchTurnRuleConfig = effectiveTouchTurnRules()
 ): TouchTurnBracketSetup {
-    val setup = TouchTurnLogic.computeBracketSetup(bar, liquidityThresholds, rules)
-    return if (rules.invertTradeSide) TouchTurnLogic.invertBracketSetup(setup) else setup
+    return TouchTurnLogic.computeBracketSetup(bar, liquidityThresholds, rules)
 }
 
 fun StrategyDeployment.computeTouchTurnBracketSetup(
@@ -373,8 +372,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
         }
     }
     val setup = candle?.let {
-        val base = TouchTurnLogic.computeBracketSetup(it, thresholds, effectiveRules)
-        if (invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
+        TouchTurnLogic.computeBracketSetup(it, thresholds, effectiveRules)
     }
     val plannedBracket = record?.decision?.plannedBracket
     val outcome = record?.decision?.outcome
@@ -415,6 +413,8 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE,
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> false

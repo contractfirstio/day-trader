@@ -65,6 +65,16 @@ class ReplaySessionController(
             repository.add(deployment)
         }
 
+        fun seedDeploymentsFromDirectories(
+            repository: StrategyDeploymentRepository,
+            directoryPaths: Collection<String>,
+            loadBundle: (String) -> Result<SessionBundle>
+        ) {
+            directoryPaths.distinct().forEach { path ->
+                loadBundle(path).onSuccess { bundle -> seedDeploymentIfNeeded(repository, bundle) }
+            }
+        }
+
         private const val POLL_YIELD_MS = 15L
         private const val MAX_BOOTSTRAP_TICKS = 400
         private const val MAX_LIQUIDITY_POLLS = 120

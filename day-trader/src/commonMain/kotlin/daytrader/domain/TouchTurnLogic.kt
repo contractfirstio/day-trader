@@ -453,6 +453,59 @@ object TouchTurnLogic {
         TouchTurnTradeSide.SHORT -> bid <= setup.entry
     }
 
+    /** True when a buy/sell limit would execute immediately against the live book (limit is only a barrier). */
+    fun limitEntryMarketable(entryAction: String, bid: Double, ask: Double, limit: Double): Boolean =
+        when (entryAction.uppercase()) {
+            "BUY" -> ask <= limit
+            "SELL" -> bid >= limit
+            else -> false
+        }
+
+    /** True when a protective stop would trigger on the same quote snapshot (pre-entry placement check). */
+    fun protectiveStopWouldTrigger(exitAction: String, bid: Double, ask: Double, stopPrice: Double): Boolean =
+        when (exitAction.uppercase()) {
+            "SELL" -> bid <= stopPrice
+            "BUY" -> ask >= stopPrice
+            else -> false
+        }
+
+    /** Same as [protectiveStopWouldTrigger] using the planned position side. */
+    fun protectiveStopWouldTriggerForSide(
+        side: TouchTurnTradeSide,
+        bid: Double,
+        ask: Double,
+        stopPrice: Double
+    ): Boolean = when (side) {
+        TouchTurnTradeSide.LONG -> bid <= stopPrice
+        TouchTurnTradeSide.SHORT -> ask >= stopPrice
+    }
+
+    /**
+     * When [TouchTurnRuleConfig.invertTradeSide] is enabled, blocks placement only when live bid/ask
+     * would fill the entry limit and trigger the protective stop on the same quote snapshot (instant
+     * round-trip). Marketable entry alone — price between entry and stop — is allowed.
+     */
+    fun invertPlacementBlockOutcome(
+        plan: TouchTurnOrderPlan,
+        bid: Double?,
+        ask: Double?,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? {
+        if (!rules.invertTradeSide) return null
+        val bidPx = bid?.takeIf { it > 0.0 }
+            ?: return TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
+        val askPx = ask?.takeIf { it > 0.0 }
+            ?: return TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
+        val entryLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return null
+        if (!limitEntryMarketable(entryLeg.action, bidPx, askPx, entryLeg.price)) return null
+        val stopLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.STOP_LOSS } ?: return null
+        return if (protectiveStopWouldTriggerForSide(plan.side, bidPx, askPx, stopLeg.price)) {
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER
+        } else {
+            null
+        }
+    }
+
     fun liveCloseConfirmsTurn(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,
@@ -1221,7 +1274,7 @@ object TouchTurnLogic {
         val liquidity = evaluatesLiquidityCandle(bar, liquidityThresholds, rules)
         val rangeThreshold = liquidityThresholds.primary
         val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
-        return when (color) {
+        val reversal = when (color) {
             FirstCandleColor.GREEN -> {
                 val entry = bar.high - entryInwardOffset
                 val takeProfit = bar.low + range * rules.takeProfitFibRatioGreen
@@ -1265,6 +1318,29 @@ object TouchTurnLogic {
                 takeProfit = bar.close
             )
         }
+        return if (rules.invertTradeSide) applyInvertTradeSide(reversal, rules) else reversal
+    }
+
+    /**
+     * Continuation (inverted) bracket at the same entry as reversal mode.
+     * Green bars use entry-relative TP/SL distances (like red reversal longs); red bars flip
+     * the reversal distances across entry.
+     */
+    private fun applyInvertTradeSide(
+        reversal: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig
+    ): TouchTurnBracketSetup = when (reversal.candleColor) {
+        FirstCandleColor.GREEN -> {
+            val tpDistance = reversal.range * rules.takeProfitFibRatioGreen
+            val slDistance = tpDistance / rules.takeProfitToStopLossRatio
+            reversal.copy(
+                side = TouchTurnTradeSide.LONG,
+                takeProfit = reversal.entry + tpDistance,
+                stopLoss = reversal.entry - slDistance
+            )
+        }
+        FirstCandleColor.RED,
+        FirstCandleColor.DOJI -> invertBracketSetup(reversal)
     }
 
     /**

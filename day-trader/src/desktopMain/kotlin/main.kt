@@ -206,21 +206,44 @@ fun main() {
                         SessionReplayPickerScreen(
                             entries = catalogEntries,
                             onBrowseFolder = { DesktopFolderPicker.pickDirectory("Select captured session folder") },
-                            onContinue = { entry ->
-                                val bootstrapEntry = entry ?: catalogEntries.firstOrNull()
+                            onContinue = { entry, replayList ->
+                                AppFileSystem.configureDataScope(BrokerKind.REPLAY)
+                                val seedPaths = when {
+                                    replayList.isNotEmpty() -> replayList
+                                    entry != null -> setOf(entry.directoryPath)
+                                    else -> emptySet()
+                                }
+                                val bootstrapEntry = entry
+                                    ?: seedPaths.firstOrNull()?.let { path ->
+                                        catalogEntries.find { it.directoryPath == path }
+                                    }
+                                    ?: catalogEntries.firstOrNull()
                                     ?: error("No hybrid session captures found under paper-live-ib")
                                 val bundle = SessionBundleDirectoryReader
                                     .loadReplayableFromDirectory(bootstrapEntry.directoryPath)
                                     .getOrElse { error(it.message ?: "Failed to load session bundle") }
-                                val catalog = replayCaptureCatalog + listOfNotNull(
-                                    entry?.takeIf { picked ->
-                                        catalogEntries.none { it.directoryPath == picked.directoryPath }
-                                    }?.toCaptureRef()
-                                )
-                                AppFileSystem.configureDataScope(BrokerKind.REPLAY)
+                                val catalog = if (seedPaths.isNotEmpty()) {
+                                    catalogEntries
+                                        .filter { it.directoryPath in seedPaths }
+                                        .map { it.toCaptureRef() } +
+                                        listOfNotNull(
+                                            entry?.takeIf { picked ->
+                                                picked.directoryPath !in seedPaths
+                                            }?.toCaptureRef()
+                                        )
+                                } else {
+                                    replayCaptureCatalog + listOfNotNull(
+                                        entry?.takeIf { picked ->
+                                            catalogEntries.none { it.directoryPath == picked.directoryPath }
+                                        }?.toCaptureRef()
+                                    )
+                                }
                                 val runtime = BrokerRuntime.createReplay(bundle)
                                 phase = StartupPhase.Running(
-                                    runtime.copy(replayCaptureCatalog = catalog)
+                                    runtime.copy(
+                                        replayCaptureCatalog = catalog,
+                                        replaySeedDirectoryPaths = seedPaths.toList()
+                                    )
                                 )
                             },
                             onBack = { phase = StartupPhase.ChooseBroker }
@@ -249,6 +272,7 @@ fun main() {
                             replayHybridRuntime = current.runtime.replayHybridRuntime,
                             replayBundle = current.runtime.replayBundle,
                             replayCaptureCatalog = current.runtime.replayCaptureCatalog,
+                            replaySeedDirectoryPaths = current.runtime.replaySeedDirectoryPaths,
                             loadReplayBundle = SessionBundleDirectoryReader::loadReplayableFromDirectory,
                             tradingClock = current.runtime.clock,
                             onRegisterApplicationQuit = { applicationQuit = it },

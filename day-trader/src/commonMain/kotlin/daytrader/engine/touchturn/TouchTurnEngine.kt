@@ -1167,6 +1167,9 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
@@ -1223,6 +1226,31 @@ class TouchTurnEngine(
             instrument = deploymentInstrument,
             rules = rules
         ) ?: return false
+        val quote = quoteForSymbol(instance.symbol)
+        TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = quote?.bid,
+            ask = quote?.ask,
+            rules = rules
+        )?.let { outcome ->
+            repository.update(instanceId) { current ->
+                current.withTouchTurnDecisionOutcome(outcome)
+            }
+            TouchTurnDecisionLog.ordersSkipped(
+                instanceId = instance.id,
+                symbol = instance.symbol,
+                reason = outcome.name.lowercase(),
+                session = session.copy(decisionOutcome = outcome),
+                nowEpochMillis = evaluatedAt
+            )
+            SessionTrace.bracketSubmitSkipped(
+                deploymentId = instanceId,
+                sessionId = instance.inProgressSession()?.id,
+                symbol = instance.symbol,
+                reason = outcome.name
+            )
+            return false
+        }
         if (executionGw == null) {
             repository.update(instanceId) { current ->
                 if (TouchTurnLogic.setupActionableForEntry(setup, rules)) {
@@ -1294,6 +1322,9 @@ class TouchTurnEngine(
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
+            TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
                 TouchTurnDecisionLog.bootstrapBranch(
                     instanceId = instance.id,

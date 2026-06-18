@@ -291,6 +291,15 @@ object TouchTurnDecisionLog {
                 )
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE ->
                 detail("  HINT: live bid/ask already through entry — resting limit would fill as marketable")
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE ->
+                detail(
+                    "  HINT: legacy invert gate — entry marketable without stop trigger (no longer blocks placement)"
+                )
+            TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER ->
+                detail(
+                    "  HINT: invert trade side — entry would fill immediately and protective stop would " +
+                        "trigger on the same quote; bracket not placed"
+                )
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE ->
                 detail(
                     "  HINT: live bid/ask required for hybrid mode but still missing when entry window closed"

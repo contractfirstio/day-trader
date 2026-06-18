@@ -1232,4 +1232,164 @@ class TouchTurnLogicTest {
         assertEquals(true, session.entryOrdersPermitted)
         assertNull(session.decisionOutcome)
     }
+
+    @Test
+    fun invertPlacementBlockOutcome_allowsMarketableEntryWhenStopNotTriggered() {
+        val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            takeProfitToStopLossRatio = 0.5,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 14.0),
+            rules
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, rules = rules)!!
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = 518.77,
+            ask = 519.36,
+            rules = rules
+        )
+        assertNull(outcome, "marketable short entry with stop above market should place bracket")
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_jpmGreenInvertedLong_allowsMarketableEntryBetweenStopAndEntry() {
+        val bar = OhlcBar(open = 332.18, high = 335.77, low = 331.5, close = 335.61)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            takeProfitToStopLossRatio = 0.5,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 2.0),
+            rules
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("JPM", setup, maxDollars = 10_000, rules = rules)!!
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = 335.55,
+            ask = 335.65,
+            rules = rules
+        )
+        assertNull(outcome, "long entry marketable with bid above stop should place bracket")
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_blocksEntryAndTightStopOnSameQuote() {
+        val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 14.0, rules = rules)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, rules = rules)!!
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = 518.77,
+            ask = 519.36,
+            rules = rules
+        )
+        assertEquals(TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER, outcome)
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_blocksWhenEntryAndStopWouldTriggerOnSameQuote() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, rules = rules)!!
+        val stopPrice = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.price
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = stopPrice - 0.5,
+            ask = setup.entry - 2.0,
+            rules = rules
+        )
+        assertEquals(TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER, outcome)
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_allowsRestingEntryBelowMarket() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 92.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, rules = rules)!!
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = setup.entry - 0.5,
+            ask = setup.entry + 0.1,
+            rules = rules
+        )
+        assertNull(outcome)
+    }
+
+    @Test
+    fun computeBracketSetup_greenInverted_higherFib_widensTakeProfitFromEntry() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0)
+        val narrow = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                invertTradeSide = true,
+                takeProfitFibRatioGreen = 0.3
+            )
+        )
+        val wide = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                invertTradeSide = true,
+                takeProfitFibRatioGreen = 0.5
+            )
+        )
+        assertEquals(TouchTurnTradeSide.LONG, narrow.side)
+        assertEquals(TouchTurnTradeSide.LONG, wide.side)
+        val narrowTpDistance = narrow.takeProfit - narrow.entry
+        val wideTpDistance = wide.takeProfit - wide.entry
+        assertTrue(wideTpDistance > narrowTpDistance)
+        assertEquals(20.0 * 0.3, narrowTpDistance, 1e-9)
+        assertEquals(20.0 * 0.5, wideTpDistance, 1e-9)
+    }
+
+    @Test
+    fun computeBracketSetup_greenInverted_higherTpSlRatio_tightensStop() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0)
+        val defaultStop = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        )
+        val tighterStop = TouchTurnLogic.computeBracketSetup(
+            bar,
+            rangeThreshold = 5.0,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                invertTradeSide = true,
+                takeProfitToStopLossRatio = 4.0
+            )
+        )
+        assertEquals(defaultStop.entry, tighterStop.entry, 1e-9)
+        assertEquals(defaultStop.takeProfit, tighterStop.takeProfit, 1e-9)
+        val defaultRisk = defaultStop.entry - defaultStop.stopLoss
+        val tighterRisk = tighterStop.entry - tighterStop.stopLoss
+        assertTrue(tighterRisk < defaultRisk)
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_skippedWhenInvertDisabled() {
+        val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 14.0)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000)!!
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = 518.77,
+            ask = 519.36,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = false)
+        )
+        assertNull(outcome)
+    }
 }

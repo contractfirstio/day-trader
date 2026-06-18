@@ -115,6 +115,8 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_LIVE_CLOSE_CONFIRMATION_FAILED -> "Live close"
         TouchTurnSessionOutcome.NO_TRADE_BAR_LIVE_DIVERGENCE -> "Bar/live gap"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_NOT_TOUCHABLE -> "No touch"
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE -> "Invert mkt entry"
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER -> "Invert entry+stop"
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> "No quote"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Window expired"
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "No order"

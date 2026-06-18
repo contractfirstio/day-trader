@@ -35,6 +35,8 @@ data class BrokerRuntime(
     val replayBundle: SessionBundle? = null,
     val replayHybridRuntime: ReplayHybridRuntime? = null,
     val replayCaptureCatalog: List<ReplayCaptureRef> = emptyList(),
+    /** Session capture directories chosen in the replay picker; deployments are seeded from these at startup. */
+    val replaySeedDirectoryPaths: List<String> = emptyList(),
     private val adapters: List<BrokerAdapter> = emptyList(),
     private val queueSets: List<BlockingGatewayQueues> = emptyList(),
     private val quoteUiRelay: MarketQuoteBusUiRelay? = null

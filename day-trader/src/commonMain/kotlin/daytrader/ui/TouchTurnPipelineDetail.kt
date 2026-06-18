@@ -716,8 +716,11 @@ fun TouchTurnPipelineSectionOrdersPreview(
         val computedSetup = remember(session, tick) {
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: run {
-                    val base = TouchTurnLogic.computeBracketSetup(candle, session.rangeThreshold)
-                    if (session.rules.invertTradeSide) TouchTurnLogic.invertBracketSetup(base) else base
+                    TouchTurnLogic.computeBracketSetup(
+                        candle,
+                        session.rangeThreshold,
+                        session.rules
+                    )
                 }
         }
         val isRecap = sessionTrades.isNotEmpty() || session.executedBracketLegs.isNotEmpty()

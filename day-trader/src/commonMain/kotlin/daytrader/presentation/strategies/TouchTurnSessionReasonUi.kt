@@ -120,6 +120,16 @@ object TouchTurnSessionReasonUi {
             detail = "Live price has already moved through the entry level; a resting limit would fill immediately above or below the market.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE -> TouchTurnSessionStatusUi(
+            headline = "No trade — inverted entry marketable",
+            detail = "Invert trade side keeps entry at the bar extreme, but live bid/ask are already through that level. A resting limit would fill immediately, so no bracket was placed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER -> TouchTurnSessionStatusUi(
+            headline = "No trade — inverted entry and stop",
+            detail = "With invert enabled, live bid/ask would fill the entry limit immediately and the protective stop would trigger on the same quote. No bracket was placed.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> TouchTurnSessionStatusUi(
             headline = "No trade — live quote unavailable",
             detail = "Live bid/ask were required to validate entry and close confirmation but were not available from the broker feed.",

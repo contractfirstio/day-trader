@@ -79,6 +79,7 @@ fun rememberAppDependencies(
     replayHybridRuntime: ReplayHybridRuntime? = null,
     replayBundle: SessionBundle? = null,
     replayCaptureCatalog: List<ReplayCaptureRef> = emptyList(),
+    replaySeedDirectoryPaths: List<String> = emptyList(),
     loadReplayBundle: (String) -> Result<SessionBundle> = {
         Result.failure(IllegalStateException("Replay bundle loader not configured"))
     },
@@ -112,10 +113,19 @@ fun rememberAppDependencies(
         replayHybridRuntime,
         replayBundle,
         replayCaptureCatalog,
+        replaySeedDirectoryPaths,
         loadReplayBundle,
         tradingClock,
         engineScope
     ) {
+        if (brokerKind == BrokerKind.REPLAY && replaySeedDirectoryPaths.isNotEmpty()) {
+            ReplaySessionController.seedDeploymentsFromDirectories(
+                repository = strategyRepository,
+                directoryPaths = replaySeedDirectoryPaths,
+                loadBundle = loadReplayBundle
+            )
+            strategyRepository.flushPersistence()
+        }
         val sessionGateway = touchTurnSessionGateway ?: brokerGateway
         (brokerGateway ?: sessionGateway)?.let { executionGateway ->
             RunningSessionShutdown.stopAllRunning(
