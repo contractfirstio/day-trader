@@ -116,6 +116,35 @@ class BrokerEmulatorLifecycleTest {
         assertTrue((exitFill!!.realizedPnL ?: 0.0) != 0.0)
     }
 
+    @Test
+    fun resetSessionState_clearsFillsAndOrders_whileStayingConnected() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = shortLiquiditySetup()
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, currencyCode = "USD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        val fillsBefore = events.filterIsInstance<GatewayEvent.FillsSnapshot>().last().fills
+        assertTrue(fillsBefore.isNotEmpty())
+
+        engine.resetSessionState()
+
+        val fillsAfter = events.filterIsInstance<GatewayEvent.FillsSnapshot>().last().fills
+        assertTrue(fillsAfter.isEmpty())
+        val positionsAfter = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
+        assertTrue(positionsAfter.none { it.symbol == "AAPL" && it.quantity != 0 })
+    }
+
     private fun shortLiquiditySetup() = TouchTurnBracketSetup(
         range = 2.0,
         rangeThreshold = 0.5,

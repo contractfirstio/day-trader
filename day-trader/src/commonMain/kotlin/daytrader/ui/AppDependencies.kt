@@ -265,6 +265,7 @@ fun rememberAppDependencies(
                     settingsRepository.settings.value.quoteIntervalMs
                 }
             }
+            replayHybridRuntime.attachSessionEngine(touchTurnEngine)
             replayHybridRuntime.playbackOrchestrator.attach(touchTurnEngine, strategyRepository)
             ReplaySessionPlaybackBridge(
                 orchestrator = replayHybridRuntime.playbackOrchestrator,

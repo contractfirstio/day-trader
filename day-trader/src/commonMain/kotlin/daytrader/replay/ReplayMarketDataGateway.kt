@@ -57,10 +57,17 @@ class ReplayMarketDataGateway(
         refetchIndex.set(0)
     }
 
+    fun clearLiveState() {
+        _quotes.value = emptyMap()
+        _positions.value = emptyList()
+        _openOrders.value = emptyList()
+        _fills.value = emptyList()
+    }
+
     fun replaceBundle(newBundle: SessionBundle) {
         bundle = newBundle
         refetchIndex.set(0)
-        _quotes.value = emptyMap()
+        clearLiveState()
     }
 
     fun updateQuote(event: QuoteEvent) {

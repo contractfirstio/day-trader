@@ -64,6 +64,7 @@ import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.LiveQuote
+import daytrader.gateway.QueuedBrokerGateway
 import daytrader.gateway.TouchTurnBracketAck
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
@@ -179,6 +180,43 @@ class TouchTurnEngine(
         autoStartPollJob?.cancel()
         commandLoopJob?.cancel()
         commandQueue.close()
+    }
+
+    override fun resetSessionMemory(instanceId: String?) {
+        if (instanceId != null) {
+            clearInstanceTracking(instanceId)
+            cancelJobsForInstance(instanceId)
+        } else {
+            stuckFormingLogged.clear()
+            pendingBracketPlacements.clear()
+            tracedFillExecIdsByInstance.clear()
+            cancelPerInstanceJobs()
+        }
+        clearBrokerSnapshotsIfIdle()
+    }
+
+    private fun clearInstanceTracking(instanceId: String) {
+        stuckFormingLogged.remove(instanceId)
+        pendingBracketPlacements.remove(instanceId)
+        tracedFillExecIdsByInstance.remove(instanceId)
+    }
+
+    private fun clearBrokerSnapshotsIfIdle() {
+        if (repository.deployments.value.any { it.status == DeploymentStatus.RUNNING }) return
+        brokerPositions.value = emptyList()
+        brokerOpenOrders.value = emptyList()
+        brokerFills.value = emptyList()
+        if (brokerKind.usesEmulatorExecution) {
+            (executionGateway as? QueuedBrokerGateway)?.requestSessionReset()
+        }
+    }
+
+    private fun cancelJobsForInstance(instanceId: String) {
+        liquidityJobs.remove(instanceId)?.cancel()
+        liquidityEvalJobs.remove(instanceId)?.cancel()
+        closedBarRefetchJobs.remove(instanceId)?.cancel()
+        loadJobs.remove(instanceId)?.cancel()
+        prepareJobs.remove(instanceId)?.cancel()
     }
 
     private fun subscribeBrokerFlows() {
@@ -443,11 +481,8 @@ class TouchTurnEngine(
             trigger = command.trigger.name,
             session = instance.touchTurnSession
         )
-        liquidityJobs.remove(command.instanceId)?.cancel()
-        liquidityEvalJobs.remove(command.instanceId)?.cancel()
-        closedBarRefetchJobs.remove(command.instanceId)?.cancel()
-        loadJobs.remove(command.instanceId)?.cancel()
-        prepareJobs.remove(command.instanceId)?.cancel()
+        cancelJobsForInstance(command.instanceId)
+        clearInstanceTracking(command.instanceId)
         val gateway = executionGateway ?: sessionGateway
         val fillsForStop = command.brokerFillsAtDecision ?: brokerFills.value
         val result = TouchTurnManualStopHandler.stop(
@@ -480,7 +515,7 @@ class TouchTurnEngine(
         emit(TouchTurnEvent.SessionStopped(command.instanceId, sessionId, command.trigger))
         emit(TouchTurnEvent.UiNavigate(command.instanceId, StrategyDetailTab.SESSION_HISTORY))
         uiEffects.selectDeployment(command.instanceId, StrategyDetailTab.SESSION_HISTORY)
-        tracedFillExecIdsByInstance.remove(command.instanceId)
+        clearBrokerSnapshotsIfIdle()
     }
 
     private fun handleAdjustStop(command: TouchTurnCommand.AdjustStop) {

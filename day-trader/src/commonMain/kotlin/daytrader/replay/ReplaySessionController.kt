@@ -12,6 +12,7 @@ import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.domain.DeploymentSessionStopLogic
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.withoutClosedSessionHistory
 import daytrader.platform.MutableTradingClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -85,12 +86,11 @@ class ReplaySessionController(
         require(bundle.hasGroundTruth) { "Replay bundle missing ground truth (session_closed)" }
         val sessionDate = bundle.sessionDate ?: error("Replay bundle missing sessionDate")
         seedDeploymentIfNeeded()
+        runtime.resetExecutionState(engine)
+        repository.update(bundle.deploymentId) { it.withoutClosedSessionHistory() }
         val orchestrator = runtime.playbackOrchestrator
         orchestrator.interactiveAutoStartEnabled = false
-        orchestrator.stop()
         clock.reset(bundle.timeline.sessionStartedEpochMs)
-        runtime.quoteFeeder.reset()
-        runtime.marketDataGateway.resetRefetchIndex()
 
         try {
             engine.dispatch(
@@ -152,6 +152,7 @@ class ReplaySessionController(
         val comparison = ReplayAssertions.compare(deployment, bundle)
         lastComparison = comparison
         lastFillComparison = ReplayFillAssertions.compare(deployment, bundle)
+        runtime.resetExecutionState(engine)
         return comparison
     }
 

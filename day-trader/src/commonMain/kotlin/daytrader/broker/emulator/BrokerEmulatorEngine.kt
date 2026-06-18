@@ -156,6 +156,33 @@ class BrokerEmulatorEngine(
         handleDisconnect()
     }
 
+    /**
+     * Clears positions, orders, and fills from the prior session while staying connected.
+     * Used between replay runs so emulator state does not accumulate across sessions.
+     */
+    fun resetSessionState() {
+        if (!connected) return
+        positions.clear()
+        orders.clear()
+        openOrderBook.clear()
+        lastPublishedOpenOrdersFingerprint = ""
+        bracketManagedOrderIds.clear()
+        bracketPriceWalks.clear()
+        pendingBracketWalks.clear()
+        bracketEntryPending.clear()
+        sessionFills.clear()
+        quoteBook.clear()
+        firstCandleFetchCount = 0
+        lockedCandleFetchIndexBySymbol.clear()
+        touchTurnSymbolByZone.clear()
+        dynamicInstruments.clear()
+        externalFeedReadyLogged.clear()
+        emit(GatewayEvent.PositionsSnapshot(emptyList()))
+        emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        emit(GatewayEvent.FillsSnapshot(emptyList()))
+        emit(GatewayEvent.QuotesSnapshot(emptyMap()))
+    }
+
     suspend fun fetchFirstFifteenMinuteCandle(requestId: Long, symbol: String) {
         delay(config.historicalDelayMs)
         val trimmed = symbol.trim().uppercase()

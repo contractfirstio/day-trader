@@ -5,6 +5,7 @@ import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorBrokerAdapter
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.engine.TouchTurnEngine
+import daytrader.engine.TouchTurnEnginePort
 import daytrader.execution.BrokerGatewayExecutionManager
 import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
@@ -59,6 +60,12 @@ class ReplayHybridRuntime(
         scope = scope
     )
 
+    private var sessionEngine: TouchTurnEnginePort? = null
+
+    fun attachSessionEngine(engine: TouchTurnEnginePort) {
+        sessionEngine = engine
+    }
+
     fun start() {
         marketDataGateway.resetRefetchIndex()
         quoteFeeder.reset()
@@ -67,11 +74,27 @@ class ReplayHybridRuntime(
         marketDataGateway.connect()
     }
 
-    /** Resets captured market-data cursors when a new replay session starts at virtual open. */
+    /**
+     * Resets captured market-data cursors, broker snapshots, and emulator session state
+     * when a new replay session starts at virtual open.
+     */
     fun prepareForSession() {
+        resetExecutionState(sessionEngine)
+    }
+
+    /**
+     * Clears replay/runtime memory retained across session boundaries: quote cursors, gateway
+     * snapshots, emulator fills/orders, engine tracking, and stale queue events.
+     */
+    fun resetExecutionState(engine: TouchTurnEnginePort? = sessionEngine) {
         playbackOrchestrator.stop()
         marketDataGateway.resetRefetchIndex()
+        marketDataGateway.clearLiveState()
         quoteFeeder.reset()
+        drainGatewayQueues()
+        emulator.resetSessionState()
+        executionGateway.resetSessionLiveState()
+        engine?.resetSessionMemory()
     }
 
     /** Switches active hybrid capture (quotes, historical bootstrap/refetch) for another deployment. */
@@ -87,6 +110,12 @@ class ReplayHybridRuntime(
         playbackOrchestrator.stop()
         emulator.shutdown()
         marketDataGateway.disconnect()
+        drainGatewayQueues()
+    }
+
+    private fun drainGatewayQueues() {
+        while (inbound.poll() != null) { }
+        while (outbound.poll() != null) { }
     }
 
     fun createEngine(repository: StrategyDeploymentRepository): TouchTurnEngine {

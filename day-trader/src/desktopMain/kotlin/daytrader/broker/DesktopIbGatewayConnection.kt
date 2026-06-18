@@ -223,6 +223,7 @@ class DesktopIbGatewayConnection(
                         }
                         return@launch
                     }
+                    GatewayCommand.ResetSessionState -> Unit
                     is GatewayCommand.FetchFourteenDayAdr ->
                         scope.launch {
                             requestFourteenDayAdr(command.requestId, command.symbol, command.instrument)

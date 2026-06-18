@@ -20,4 +20,7 @@ class LoggingTouchTurnEngine(
 
     override fun updateGlobalAutoStartEnabled(enabled: Boolean) =
         delegate.updateGlobalAutoStartEnabled(enabled)
+
+    override fun resetSessionMemory(instanceId: String?) =
+        delegate.resetSessionMemory(instanceId)
 }

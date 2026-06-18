@@ -14,6 +14,7 @@ import daytrader.domain.TouchTurnSignalContext
 import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.diagnostics.ReversalScoreLog
 import daytrader.diagnostics.SessionPriceLog
+import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -91,6 +92,45 @@ class QueuedBrokerGateway(
 
     override fun reconnect() {
         sendCommand(GatewayCommand.Reconnect)
+    }
+
+    /** Drops cached broker snapshots and cancels in-flight request/response pairs (replay session boundaries). */
+    fun resetSessionLiveState() {
+        cancelPendingRequests()
+        _positions.value = emptyList()
+        _quotes.value = emptyMap()
+        _openOrders.value = emptyList()
+        _fills.value = emptyList()
+    }
+
+    /** Clears gateway caches and asks the emulator adapter to drop prior-session trading state. */
+    fun requestSessionReset() {
+        resetSessionLiveState()
+        sendCommand(GatewayCommand.ResetSessionState)
+    }
+
+    private fun cancelPendingRequests() {
+        val cancelled = CancellationException("Gateway session reset")
+        pendingCandles.values.forEach { it.cancel(cancelled) }
+        pendingCandles.clear()
+        pendingAdr.values.forEach { it.cancel(cancelled) }
+        pendingAdr.clear()
+        pendingSignalContext.values.forEach { it.cancel(cancelled) }
+        pendingSignalContext.clear()
+        pendingInstrument.values.forEach { it.cancel(cancelled) }
+        pendingInstrument.clear()
+        pendingLatestDailyClose.values.forEach { it.cancel(cancelled) }
+        pendingLatestDailyClose.clear()
+        pendingReversalScoreSymbol.values.forEach { it.cancel(cancelled) }
+        pendingReversalScoreSymbol.clear()
+        pendingReversalScoreMacro.values.forEach { it.cancel(cancelled) }
+        pendingReversalScoreMacro.clear()
+        pendingSpyRegime.values.forEach { it.cancel(cancelled) }
+        pendingSpyRegime.clear()
+        pendingHomeMarketRegime.values.forEach { it.cancel(cancelled) }
+        pendingHomeMarketRegime.clear()
+        pendingBracketResize.values.forEach { it.cancel(cancelled) }
+        pendingBracketResize.clear()
     }
 
     override suspend fun fetchFirstFifteenMinuteCandle(

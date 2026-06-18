@@ -14,6 +14,9 @@ sealed interface GatewayCommand {
 
     data object Shutdown : GatewayCommand
 
+    /** Clears emulator positions/orders/fills between sessions (no disconnect). */
+    data object ResetSessionState : GatewayCommand
+
     data class FetchFirstFifteenMinuteCandle(
         val requestId: Long,
         val symbol: String,

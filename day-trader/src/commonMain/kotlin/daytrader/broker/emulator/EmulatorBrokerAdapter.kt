@@ -84,6 +84,7 @@ class EmulatorBrokerAdapter(
                         withEngine { engine.handleShutdown() }
                         return@launch
                     }
+                    GatewayCommand.ResetSessionState -> withEngine { engine.resetSessionState() }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         launch {
                             withEngine {
@@ -359,6 +360,11 @@ class EmulatorBrokerAdapter(
 
     fun releaseStreamingMarketData(symbol: String, instrument: InstrumentIdentity? = null) {
         runBlocking { withEngine { engine.releaseStreamingMarketData(symbol, instrument) } }
+    }
+
+    fun resetSessionState() {
+        latestExternalQuotes.clear()
+        runBlocking { withEngine { engine.resetSessionState() } }
     }
 
     override fun shutdown() {
