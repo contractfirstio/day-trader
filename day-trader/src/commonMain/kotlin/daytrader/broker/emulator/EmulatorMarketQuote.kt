@@ -94,6 +94,25 @@ internal object EmulatorMarketQuoteBook {
     fun sellLimitFillable(bid: Double, limit: Double): Boolean = bid >= limit
 
     /**
+     * Executable price for a resting limit once [buyLimitFillable]/[sellLimitFillable] is true.
+     * The limit is only a barrier; fills occur at the aggressive live quote (ask for buys, bid for sells).
+     */
+    fun limitFillPrice(action: String, bid: Double, ask: Double, limit: Double): Double? =
+        when (action.uppercase()) {
+            "BUY" -> ask.takeIf { buyLimitFillable(it, limit) }
+            "SELL" -> bid.takeIf { sellLimitFillable(it, limit) }
+            else -> null
+        }
+
+    /** Aggressive quote when a stop or market order is triggered. */
+    fun aggressiveFillPrice(action: String, bid: Double, ask: Double): Double =
+        when (action.uppercase()) {
+            "BUY" -> ask
+            "SELL" -> bid
+            else -> (bid + ask) / 2.0
+        }
+
+    /**
      * Touch Turn entry: buy limit is not marketable when ask has blown through the level
      * (same 5% of bracket range buffer as strategy gates, minimum tick).
      */

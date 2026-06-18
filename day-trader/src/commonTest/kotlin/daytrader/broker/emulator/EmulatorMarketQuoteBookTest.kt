@@ -29,6 +29,19 @@ class EmulatorMarketQuoteBookTest {
     }
 
     @Test
+    fun limitFillPrice_usesAggressiveQuoteNotLimit() {
+        assertEquals(83.4, EmulatorMarketQuoteBook.limitFillPrice("BUY", bid = 83.3, ask = 83.4, limit = 84.8))
+        assertEquals(518.77, EmulatorMarketQuoteBook.limitFillPrice("SELL", bid = 518.77, ask = 519.36, limit = 510.2))
+        assertEquals(null, EmulatorMarketQuoteBook.limitFillPrice("SELL", bid = 99.9, ask = 100.1, limit = 100.0))
+    }
+
+    @Test
+    fun aggressiveFillPrice_usesBidForSellAndAskForBuy() {
+        assertEquals(518.77, EmulatorMarketQuoteBook.aggressiveFillPrice("SELL", bid = 518.77, ask = 519.36))
+        assertEquals(83.4, EmulatorMarketQuoteBook.aggressiveFillPrice("BUY", bid = 83.3, ask = 83.4))
+    }
+
+    @Test
     fun stops_useBidForSellStopAndAskForBuyStop() {
         assertTrue(EmulatorMarketQuoteBook.sellStopTriggered(bid = 98.0, stop = 99.0))
         assertTrue(EmulatorMarketQuoteBook.buyStopTriggered(ask = 102.0, stop = 101.0))

@@ -184,6 +184,44 @@ class BrokerEmulatorEngineTest {
             SymbolMarkets.symbolsMatch("3690", it.symbol) && it.quantity != 0
         }
         assertTrue(position != null && position.quantity > 0, "marketable buy limit should fill when ask is below limit")
+        val entryFill = events.filterIsInstance<GatewayEvent.FillsSnapshot>()
+            .flatMap { it.fills }
+            .first { it.parentOrderId == 0 }
+        assertEquals(83.4, entryFill.price, "fill should be at live ask, not the limit")
+    }
+
+    @Test
+    fun liveIbMode_fillsMarketableSellAtBidNotLimit() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 19.8,
+            rangeThreshold = 14.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.SHORT,
+            entry = 510.2,
+            stopLoss = 525.33,
+            takeProfit = 502.64
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, currencyCode = "USD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        engine.ingestLiveQuote(
+            "AMD",
+            LiveQuote(symbol = "AMD", bid = 518.77, ask = 519.36, last = 519.065),
+            priorClose = null
+        )
+        val entryFill = events.filterIsInstance<GatewayEvent.FillsSnapshot>()
+            .flatMap { it.fills }
+            .first { it.parentOrderId == 0 }
+        assertEquals(518.77, entryFill.price, "marketable sell should fill at live bid, not the limit")
     }
 
     @Test

@@ -1244,6 +1244,7 @@ class BrokerEmulatorEngine(
         val current = orders[order.orderId] ?: order
         if (current.isTerminal() || current.remaining <= 0) return
         val effectiveQty = minOf(fillQty, current.remaining)
+        val fillPrice = resolveFillPrice(current)
         val positionBefore = positions.find {
             SymbolMarkets.symbolsMatch(it.instrument.symbol, current.symbol)
         }
@@ -1255,8 +1256,8 @@ class BrokerEmulatorEngine(
             status = if (remaining <= 0) "Filled" else "Submitted"
         )
         updateOrder(updated)
-        adjustPositionForFill(current, effectiveQty)
-        val realizedPnL = computeFillRealizedPnL(positionBefore, current, effectiveQty)
+        adjustPositionForFill(current, effectiveQty, fillPrice)
+        val realizedPnL = computeFillRealizedPnL(positionBefore, current, effectiveQty, fillPrice)
         if (remaining <= 0 && current.parentId == 0) {
             val norm = SymbolMarkets.normalizeSymbol(current.symbol)
             activateChildOrders(current.orderId)
@@ -1272,7 +1273,7 @@ class BrokerEmulatorEngine(
         val positionQty = positions.find {
             SymbolMarkets.symbolsMatch(it.instrument.symbol, current.symbol)
         }?.quantity ?: 0
-        recordFill(current, effectiveQty, realizedPnL, positionQty)
+        recordFill(current, effectiveQty, realizedPnL, positionQty, fillPrice)
         refreshPositionMarks()
         publishPositions()
         publishOrders()
@@ -1282,7 +1283,8 @@ class BrokerEmulatorEngine(
     private fun computeFillRealizedPnL(
         positionBefore: EmulatorPosition?,
         order: EmulatorOrder,
-        fillQty: Int
+        fillQty: Int,
+        fillPrice: Double
     ): Double? {
         val pos = positionBefore ?: return null
         if (pos.quantity == 0) return null
@@ -1293,7 +1295,7 @@ class BrokerEmulatorEngine(
         }
         val isClosing = (pos.quantity > 0 && signedFill < 0) || (pos.quantity < 0 && signedFill > 0)
         if (!isClosing) return null
-        val exitPrice = order.fillPrice()
+        val exitPrice = fillPrice
         val closeQty = minOf(kotlin.math.abs(signedFill), kotlin.math.abs(pos.quantity))
         return InstrumentPriceScale.realizedPnLOnClose(
             closeQty = closeQty,
@@ -1309,7 +1311,8 @@ class BrokerEmulatorEngine(
         order: EmulatorOrder,
         fillQty: Int,
         realizedPnL: Double?,
-        positionQtyAfter: Int
+        positionQtyAfter: Int,
+        fillPrice: Double
     ) {
         val execId = "emu-${order.orderId}-${sessionFills.size}"
         val fill = BrokerFill(
@@ -1320,7 +1323,7 @@ class BrokerEmulatorEngine(
             symbol = order.symbol,
             side = order.action,
             quantity = fillQty,
-            price = order.fillPrice(),
+            price = fillPrice,
             time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             currency = order.currency,
             commission = 0.0,
@@ -1331,7 +1334,7 @@ class BrokerEmulatorEngine(
             symbol = order.symbol,
             orderId = order.orderId,
             qty = fillQty,
-            price = order.fillPrice(),
+            price = fillPrice,
             positionQty = positionQtyAfter,
             execId = execId,
             parentOrderId = order.parentId.takeIf { it != 0 },
@@ -1406,8 +1409,32 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.FillsSnapshot(sessionFills.toList()))
     }
 
-    private fun EmulatorOrder.fillPrice(): Double =
-        limitPrice ?: stopPrice ?: quoteMid(SymbolMarkets.normalizeSymbol(symbol)) ?: 0.0
+    /**
+     * Resolves the trade price at fill time. Limits and stops are barriers only; the fill uses the
+     * aggressive live quote (buy at ask, sell at bid) when a book is available.
+     */
+    private fun resolveFillPrice(order: EmulatorOrder): Double {
+        val norm = SymbolMarkets.normalizeSymbol(order.symbol)
+        val quote = quoteBook.quoteOrNull(norm)
+        if (quote != null) {
+            when (order.orderType) {
+                "LMT" -> {
+                    val limit = order.limitPrice
+                    if (limit != null) {
+                        EmulatorMarketQuoteBook.limitFillPrice(order.action, quote.bid, quote.ask, limit)
+                            ?.let { return it }
+                    }
+                }
+                "STP", "TRAIL" -> {
+                    return EmulatorMarketQuoteBook.aggressiveFillPrice(order.action, quote.bid, quote.ask)
+                }
+                "MKT" -> {
+                    return EmulatorMarketQuoteBook.aggressiveFillPrice(order.action, quote.bid, quote.ask)
+                }
+            }
+        }
+        return order.limitPrice ?: order.stopPrice ?: quoteMid(norm) ?: 0.0
+    }
 
     private fun cancelSiblingBracketOrders(parentOrderId: Int, filledOrderId: Int) {
         val cancelled = mutableListOf<Int>()
@@ -1438,7 +1465,7 @@ class BrokerEmulatorEngine(
         }
     }
 
-    private fun adjustPositionForFill(order: EmulatorOrder, fillQty: Int) {
+    private fun adjustPositionForFill(order: EmulatorOrder, fillQty: Int, fillPrice: Double) {
         val instrument = resolveInstrument(order.symbol) ?: return
         val signedQty = when (order.action.uppercase()) {
             "BUY" -> fillQty
@@ -1446,7 +1473,9 @@ class BrokerEmulatorEngine(
             else -> 0
         }
         if (signedQty == 0) return
-        val price = order.limitPrice ?: quoteMid(order.symbol) ?: instrument.referencePrice
+        val price = fillPrice.takeIf { it > 0.0 }
+            ?: quoteMid(order.symbol)
+            ?: instrument.referencePrice
         val existing = positions.indexOfFirst { it.instrument.symbol == instrument.symbol }
         if (existing >= 0) {
             val pos = positions[existing]
