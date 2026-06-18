@@ -76,7 +76,11 @@ object OpenOrderUiMapper {
         order.limitPrice != null && order.limitPrice > 0 ->
             Formatters.moneyPlain(order.limitPrice, order.currency)
         order.stopPrice != null && order.stopPrice > 0 ->
-            "stop ${Formatters.moneyPlain(order.stopPrice, order.currency)}"
+            if (order.parentOrderId == 0) {
+                Formatters.moneyPlain(order.stopPrice, order.currency)
+            } else {
+                "stop ${Formatters.moneyPlain(order.stopPrice, order.currency)}"
+            }
         else -> null
     }
 }

@@ -43,6 +43,10 @@ data class TouchTurnOrderPlan(
 )
 
 object TouchTurnOrderPlanner {
+    /** Reversal mode rests a limit at the bar extreme; invert/continuation uses a stop entry on breakout. */
+    fun entryOrderType(rules: TouchTurnRuleConfig): String =
+        if (rules.invertTradeSide) "STP" else "LMT"
+
     /**
      * Suggested share count from [maxDollars] and entry price (minimum 1).
      */
@@ -52,7 +56,8 @@ object TouchTurnOrderPlanner {
     }
 
     /**
-     * Returns a three-leg bracket (entry LMT, take-profit LMT, stop STP) when [setup] is actionable.
+     * Returns a three-leg bracket (entry LMT or STP when inverted, take-profit LMT, stop STP)
+     * when [setup] is actionable.
      */
     fun buildOrderPlan(
         symbol: String,
@@ -90,7 +95,7 @@ object TouchTurnOrderPlanner {
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.ENTRY,
                     action = entryAction,
-                    orderType = "LMT",
+                    orderType = entryOrderType(rules),
                     quantity = quantity,
                     price = setup.entry
                 ),

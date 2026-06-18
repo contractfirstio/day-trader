@@ -297,7 +297,7 @@ object TouchTurnDecisionLog {
                 )
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER ->
                 detail(
-                    "  HINT: invert trade side — entry would fill immediately and protective stop would " +
+                    "  HINT: invert trade side — stop entry and protective stop would " +
                         "trigger on the same quote; bracket not placed"
                 )
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE ->

@@ -127,7 +127,7 @@ object TouchTurnSessionReasonUi {
         )
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER -> TouchTurnSessionStatusUi(
             headline = "No trade — inverted entry and stop",
-            detail = "With invert enabled, live bid/ask would fill the entry limit immediately and the protective stop would trigger on the same quote. No bracket was placed.",
+            detail = "With invert enabled, the stop entry and protective stop would both trigger on the same live quote. No bracket was placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> TouchTurnSessionStatusUi(

@@ -110,7 +110,7 @@ data class TouchTurnRuleConfig(
                 key = "invertTradeSide",
                 label = "Invert trade side (continuation)",
                 description = "Same entry levels as Touch and Turn, but long where reversal would short and vice " +
-                    "versa.",
+                    "versa. Uses a stop entry on breakout instead of a resting limit.",
                 category = TouchTurnRuleCategory.TRADE_MODE
             )
         )

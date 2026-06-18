@@ -569,6 +569,7 @@ class BrokerEmulatorEngine(
             val towardTp = EmulatorBracketPlanAdjuster.towardTakeProfitDirection(adjustedPlan)
             val targetExit = pickBracketExitTarget()
             val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
+            val isStopEntry = entryLeg.orderType.equals("STP", ignoreCase = true)
             pendingBracketWalks[symbol] = BracketPriceWalk(
                 floor = floor,
                 ceiling = ceiling,
@@ -580,12 +581,19 @@ class BrokerEmulatorEngine(
                 direction = directionTowardTarget(towardTp, targetExit)
             )
             val startOffset = (range * config.touchTurnEntryStartOffsetPctOfRange).coerceAtLeast(0.01)
-            val initialMarkFromOffset = if (isBuyEntry) {
-                // Buy limit should start above entry so price has to come down to fill.
-                entryPrice + startOffset
-            } else {
-                // Sell limit should start below entry so price has to rise to fill.
-                entryPrice - startOffset
+            val initialMarkFromOffset = when {
+                isStopEntry && isBuyEntry ->
+                    // Buy stop: start below entry so price must rally through the level.
+                    entryPrice - startOffset
+                isStopEntry ->
+                    // Sell stop: start above entry so price must break down through the level.
+                    entryPrice + startOffset
+                isBuyEntry ->
+                    // Buy limit should start above entry so price has to come down to fill.
+                    entryPrice + startOffset
+                else ->
+                    // Sell limit should start below entry so price has to rise to fill.
+                    entryPrice - startOffset
             }
             val initialMark = initialMarkFromOffset.coerceIn(floor, ceiling)
             val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
@@ -607,6 +615,7 @@ class BrokerEmulatorEngine(
                         entryPrice = entryPrice,
                         openingBarClose = initialMark,
                         isBuyEntry = isBuyEntry,
+                        isStopEntry = isStopEntry,
                         scenario = entryScenario,
                         range = range
                     )
@@ -625,6 +634,7 @@ class BrokerEmulatorEngine(
             val legPrices = adjustedPlan.orders.map { it.price }
             val range = (legPrices.max() - legPrices.min()).coerceAtLeast(0.01)
             val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
+            val isStopEntry = entryLeg.orderType.equals("STP", ignoreCase = true)
             val entryScenario = pickTouchTurnEntryScenario()
             when (entryScenario) {
                 TouchTurnEntryScenario.IMMEDIATE -> fillEntryImmediately(entryId)
@@ -635,6 +645,7 @@ class BrokerEmulatorEngine(
                         entryPrice = entryPrice,
                         openingBarClose = entryPrice,
                         isBuyEntry = isBuyEntry,
+                        isStopEntry = isStopEntry,
                         scenario = entryScenario,
                         range = range
                     )

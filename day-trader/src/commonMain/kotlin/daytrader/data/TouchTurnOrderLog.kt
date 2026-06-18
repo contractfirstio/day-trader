@@ -75,11 +75,12 @@ object TouchTurnOrderLog {
         when (brokerGateway?.brokerId) {
             BrokerId.EMULATOR -> {
                 brokerGateway.placeTouchTurnBracket(plan)
-                line("  (paper emulator — bracket fills when IB live price crosses limit/stop)")
+                line("  (paper emulator — bracket fills when live price crosses limit/stop)")
             }
             BrokerId.INTERACTIVE_BROKERS -> {
                 brokerGateway.placeTouchTurnBracket(plan)
-                line("  (IB — entry LMT + take-profit LMT + adjustable stop STP→TRAIL bracket queued)")
+                val entryType = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY }?.orderType ?: "LMT"
+                line("  (IB — entry $entryType + take-profit LMT + adjustable stop STP→TRAIL bracket queued)")
             }
             else -> line("  (preview only — connect a broker to submit)")
         }

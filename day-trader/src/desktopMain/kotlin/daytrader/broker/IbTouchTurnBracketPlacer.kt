@@ -12,8 +12,9 @@ import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
 
 /**
- * Builds a Touch Turn bracket for IB: parent entry LMT, take-profit LMT child, stop STP child,
- * and optional adjustable-stop attachment that converts the stop to TRAIL at [TouchTurnPlannedOrder.trailTriggerPrice].
+ * Builds a Touch Turn bracket for IB: parent entry LMT or STP (invert), take-profit LMT child,
+ * stop STP child, and optional adjustable-stop attachment that converts the stop to TRAIL at
+ * [TouchTurnPlannedOrder.trailTriggerPrice].
  * [IbTouchTurnBracketSubmission] must be sent with separate paced [placeOrder] calls.
  */
 internal object IbTouchTurnBracketPlacer {

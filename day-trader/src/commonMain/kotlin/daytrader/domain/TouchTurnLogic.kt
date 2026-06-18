@@ -443,14 +443,26 @@ object TouchTurnLogic {
         bar: OhlcBar
     ): Boolean = confirmsTurnAtPrice(setup, bar, bar.close)
 
-    /** Legacy helper retained for liquidity allocator UI. */
+    /**
+     * Legacy helper retained for liquidity allocator UI.
+     * Reversal (limit): price can reach entry from inside the range.
+     * Invert (stop): entry is still pending until price crosses the level on a breakout.
+     */
     fun liveEntryTouchable(
         setup: TouchTurnBracketSetup,
         bid: Double,
-        ask: Double
-    ): Boolean = when (setup.side) {
-        TouchTurnTradeSide.LONG -> ask >= setup.entry
-        TouchTurnTradeSide.SHORT -> bid <= setup.entry
+        ask: Double,
+        invertTradeSide: Boolean = false
+    ): Boolean = if (invertTradeSide) {
+        when (setup.side) {
+            TouchTurnTradeSide.LONG -> ask < setup.entry
+            TouchTurnTradeSide.SHORT -> bid > setup.entry
+        }
+    } else {
+        when (setup.side) {
+            TouchTurnTradeSide.LONG -> ask >= setup.entry
+            TouchTurnTradeSide.SHORT -> bid <= setup.entry
+        }
     }
 
     /** True when a buy/sell limit would execute immediately against the live book (limit is only a barrier). */
@@ -458,6 +470,14 @@ object TouchTurnLogic {
         when (entryAction.uppercase()) {
             "BUY" -> ask <= limit
             "SELL" -> bid >= limit
+            else -> false
+        }
+
+    /** True when a buy/sell stop entry would trigger on the live book (breakout through [stopPrice]). */
+    fun stopEntryTriggered(entryAction: String, bid: Double, ask: Double, stopPrice: Double): Boolean =
+        when (entryAction.uppercase()) {
+            "BUY" -> ask >= stopPrice
+            "SELL" -> bid <= stopPrice
             else -> false
         }
 
@@ -481,9 +501,9 @@ object TouchTurnLogic {
     }
 
     /**
-     * When [TouchTurnRuleConfig.invertTradeSide] is enabled, blocks placement only when live bid/ask
-     * would fill the entry limit and trigger the protective stop on the same quote snapshot (instant
-     * round-trip). Marketable entry alone — price between entry and stop — is allowed.
+     * When [TouchTurnRuleConfig.invertTradeSide] is enabled, blocks placement only when the stop
+     * entry would trigger and the protective stop would fire on the same quote snapshot (instant
+     * round-trip). A triggered breakout entry alone is allowed.
      */
     fun invertPlacementBlockOutcome(
         plan: TouchTurnOrderPlan,
@@ -497,7 +517,12 @@ object TouchTurnLogic {
         val askPx = ask?.takeIf { it > 0.0 }
             ?: return TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE
         val entryLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return null
-        if (!limitEntryMarketable(entryLeg.action, bidPx, askPx, entryLeg.price)) return null
+        val entryTriggered = when (entryLeg.orderType.uppercase()) {
+            "STP" -> stopEntryTriggered(entryLeg.action, bidPx, askPx, entryLeg.price)
+            "LMT" -> limitEntryMarketable(entryLeg.action, bidPx, askPx, entryLeg.price)
+            else -> false
+        }
+        if (!entryTriggered) return null
         val stopLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.STOP_LOSS } ?: return null
         return if (protectiveStopWouldTriggerForSide(plan.side, bidPx, askPx, stopLeg.price)) {
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER

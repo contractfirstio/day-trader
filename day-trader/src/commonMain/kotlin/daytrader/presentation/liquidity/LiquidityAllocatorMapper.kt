@@ -109,13 +109,15 @@ object LiquidityAllocatorMapper {
         val bid = quote?.bid
         val ask = quote?.ask
         val last = quote?.last
-        val fillGap = entryFillGap(bracket.side, bracket.entry, bid, ask)
+        val invertTradeSide = session.rules.invertTradeSide
+        val fillGap = entryFillGap(bracket.side, bracket.entry, bid, ask, invertTradeSide)
         val touchable = when {
             bid != null && ask != null ->
                 TouchTurnLogic.liveEntryTouchable(
                     setup = bracket.toSetup(session),
                     bid = bid,
-                    ask = ask
+                    ask = ask,
+                    invertTradeSide = invertTradeSide
                 )
             else -> null
         }
@@ -236,7 +238,7 @@ object LiquidityAllocatorMapper {
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.ENTRY,
                     action = entryAction,
-                    orderType = "LMT",
+                    orderType = TouchTurnOrderPlanner.entryOrderType(rules),
                     quantity = quantity,
                     price = bracket.entry
                 ),
@@ -264,10 +266,18 @@ object LiquidityAllocatorMapper {
         side: TouchTurnTradeSide,
         entry: Double,
         bid: Double?,
-        ask: Double?
-    ): Double? = when (side) {
-        TouchTurnTradeSide.LONG -> ask?.let { (it - entry).coerceAtLeast(0.0) }
-        TouchTurnTradeSide.SHORT -> bid?.let { (entry - it).coerceAtLeast(0.0) }
+        ask: Double?,
+        invertTradeSide: Boolean
+    ): Double? = if (invertTradeSide) {
+        when (side) {
+            TouchTurnTradeSide.LONG -> ask?.let { (entry - it).coerceAtLeast(0.0) }
+            TouchTurnTradeSide.SHORT -> bid?.let { (it - entry).coerceAtLeast(0.0) }
+        }
+    } else {
+        when (side) {
+            TouchTurnTradeSide.LONG -> ask?.let { (it - entry).coerceAtLeast(0.0) }
+            TouchTurnTradeSide.SHORT -> bid?.let { (entry - it).coerceAtLeast(0.0) }
+        }
     }
 
     private fun daytrader.domain.TouchTurnPlannedBracket.toSetup(

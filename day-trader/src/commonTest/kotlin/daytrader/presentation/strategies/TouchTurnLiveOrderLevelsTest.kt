@@ -87,6 +87,46 @@ class TouchTurnLiveOrderLevelsTest {
         assertEquals(TouchTurnOrderLevelKind.TAKE_PROFIT, levels.single().kind)
     }
 
+    @Test
+    fun chartLevels_stopEntryParent_stillLabelsEntryLine() {
+        val bracket = TouchTurnPlannedBracket(
+            side = TouchTurnTradeSide.SHORT,
+            entry = 100.0,
+            stopLoss = 101.0,
+            takeProfit = 99.0
+        )
+        val levels = TouchTurnLiveOrderLevels.chartLevels(
+            openOrders = listOf(
+                workingOrder(orderId = 1, stop = 100.0, parentId = 0, orderType = "STP"),
+                workingOrder(orderId = 2, limit = 99.0, parentId = 1),
+                workingOrder(orderId = 3, stop = 101.0, parentId = 1)
+            ),
+            plannedBracket = bracket,
+            bracketSetup = null
+        )
+        val entry = levels.first { it.kind == TouchTurnOrderLevelKind.ENTRY }
+        val stop = levels.first { it.kind == TouchTurnOrderLevelKind.STOP_LOSS }
+        assertEquals(100.0, entry.price, 0.001)
+        assertEquals("Entry", entry.label)
+        assertEquals(101.0, stop.price, 0.001)
+        assertEquals("Stop loss", stop.label)
+    }
+
+    @Test
+    fun fromWorkingOrders_stopEntryParent_mapsAsEntryWithoutPlannedBracket() {
+        val levels = TouchTurnLiveOrderLevels.fromWorkingOrders(
+            openOrders = listOf(
+                workingOrder(orderId = 1, stop = 100.0, parentId = 0, orderType = "STP"),
+                workingOrder(orderId = 3, stop = 101.0, parentId = 1)
+            ),
+            plannedBracket = null,
+            bracketSetup = null
+        )
+        assertEquals(2, levels.size)
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.ENTRY && it.price == 100.0 })
+        assertTrue(levels.any { it.kind == TouchTurnOrderLevelKind.STOP_LOSS && it.price == 101.0 })
+    }
+
     private fun workingOrder(
         orderId: Int,
         limit: Double? = null,

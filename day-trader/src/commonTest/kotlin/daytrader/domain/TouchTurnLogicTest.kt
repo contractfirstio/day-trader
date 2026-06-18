@@ -615,6 +615,49 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun plannedOrders_invertedLong_usesStopEntry_onGreenLiquidityBar() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup!!, maxDollars = 4100, rules = rules)!!
+        assertEquals(TouchTurnTradeSide.LONG, plan.side)
+        assertEquals("BUY", plan.orders[0].action)
+        assertEquals("STP", plan.orders[0].orderType)
+    }
+
+    @Test
+    fun plannedOrders_invertedShort_usesStopEntry_onRedLiquidityBar() {
+        val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup!!, maxDollars = 4000, rules = rules)!!
+        assertEquals(TouchTurnTradeSide.SHORT, plan.side)
+        assertEquals("SELL", plan.orders[0].action)
+        assertEquals("STP", plan.orders[0].orderType)
+    }
+
+    @Test
+    fun stopEntryTriggered_buyStop_whenAskCrossesEntry() {
+        assertTrue(TouchTurnLogic.stopEntryTriggered("BUY", bid = 99.0, ask = 100.0, stopPrice = 100.0))
+        assertFalse(TouchTurnLogic.stopEntryTriggered("BUY", bid = 99.0, ask = 99.5, stopPrice = 100.0))
+    }
+
+    @Test
+    fun stopEntryTriggered_sellStop_whenBidCrossesEntry() {
+        assertTrue(TouchTurnLogic.stopEntryTriggered("SELL", bid = 100.0, ask = 100.5, stopPrice = 100.0))
+        assertFalse(TouchTurnLogic.stopEntryTriggered("SELL", bid = 100.5, ask = 101.0, stopPrice = 100.0))
+    }
+
+    @Test
+    fun liveEntryTouchable_invertedShort_trueWhenPriceAboveEntry() {
+        val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)!!
+        assertTrue(TouchTurnLogic.liveEntryTouchable(setup, bid = 401.0, ask = 401.5, invertTradeSide = true))
+        assertFalse(TouchTurnLogic.liveEntryTouchable(setup, bid = 399.5, ask = 400.0, invertTradeSide = true))
+    }
+
+    @Test
     fun liveEntryTouchable_long_falseWhenAskBelowEntryBuffer() {
         val bar = OhlcBar(open = 85.7, high = 85.7, low = 84.8, close = 83.4, time = "20260603  09:30:00")
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.1)
@@ -1234,7 +1277,7 @@ class TouchTurnLogicTest {
     }
 
     @Test
-    fun invertPlacementBlockOutcome_allowsMarketableEntryWhenStopNotTriggered() {
+    fun invertPlacementBlockOutcome_allowsStopEntryWhenPriceHasNotCrossed() {
         val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             invertTradeSide = true,
@@ -1247,17 +1290,42 @@ class TouchTurnLogicTest {
             rules
         )
         val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, rules = rules)!!
+        assertEquals("STP", plan.orders.first { it.role == TouchTurnOrderRole.ENTRY }.orderType)
         val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,
             bid = 518.77,
             ask = 519.36,
             rules = rules
         )
-        assertNull(outcome, "marketable short entry with stop above market should place bracket")
+        assertNull(outcome, "buy stop should not trigger while ask is below entry")
     }
 
     @Test
-    fun invertPlacementBlockOutcome_jpmGreenInvertedLong_allowsMarketableEntryBetweenStopAndEntry() {
+    fun invertPlacementBlockOutcome_allowsTriggeredStopEntryWhenStopNotTriggered() {
+        val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            takeProfitToStopLossRatio = 0.5,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 14.0),
+            rules
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, rules = rules)!!
+        val entry = plan.orders.first { it.role == TouchTurnOrderRole.ENTRY }.price
+        val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
+            plan = plan,
+            bid = entry - 0.1,
+            ask = entry + 5.0,
+            rules = rules
+        )
+        assertNull(outcome, "triggered sell stop with ask below protective stop should place bracket")
+    }
+
+    @Test
+    fun invertPlacementBlockOutcome_jpmGreenInvertedLong_allowsRestingStopBelowMarket() {
         val bar = OhlcBar(open = 332.18, high = 335.77, low = 331.5, close = 335.61)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             invertTradeSide = true,
@@ -1276,11 +1344,11 @@ class TouchTurnLogicTest {
             ask = 335.65,
             rules = rules
         )
-        assertNull(outcome, "long entry marketable with bid above stop should place bracket")
+        assertNull(outcome, "buy stop resting below market should place bracket")
     }
 
     @Test
-    fun invertPlacementBlockOutcome_blocksEntryAndTightStopOnSameQuote() {
+    fun invertPlacementBlockOutcome_blocksTriggeredStopEntryAndProtectiveStopOnSameQuote() {
         val bar = OhlcBar(open = 530.0, high = 530.0, low = 510.2, close = 519.3)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
             invertTradeSide = true,
@@ -1288,17 +1356,19 @@ class TouchTurnLogicTest {
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 14.0, rules = rules)
         val plan = TouchTurnOrderPlanner.buildOrderPlan("AMD", setup, maxDollars = 10_000, rules = rules)!!
+        val entry = plan.orders.first { it.role == TouchTurnOrderRole.ENTRY }.price
+        val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.price
         val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,
-            bid = 518.77,
-            ask = 519.36,
+            bid = entry - 0.1,
+            ask = stop + 0.1,
             rules = rules
         )
         assertEquals(TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER, outcome)
     }
 
     @Test
-    fun invertPlacementBlockOutcome_blocksWhenEntryAndStopWouldTriggerOnSameQuote() {
+    fun invertPlacementBlockOutcome_blocksWhenStopEntryAndProtectiveStopTriggerTogether() {
         val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 108.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
@@ -1307,25 +1377,25 @@ class TouchTurnLogicTest {
         val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,
             bid = stopPrice - 0.5,
-            ask = setup.entry - 2.0,
+            ask = setup.entry + 0.5,
             rules = rules
         )
         assertEquals(TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER, outcome)
     }
 
     @Test
-    fun invertPlacementBlockOutcome_allowsRestingEntryBelowMarket() {
+    fun invertPlacementBlockOutcome_allowsRestingStopAboveMarket() {
         val bar = OhlcBar(open = 100.0, high = 110.0, low = 90.0, close = 92.0)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
         val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", setup, maxDollars = 500, rules = rules)!!
         val outcome = TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,
-            bid = setup.entry - 0.5,
-            ask = setup.entry + 0.1,
+            bid = setup.entry + 0.5,
+            ask = setup.entry + 1.0,
             rules = rules
         )
-        assertNull(outcome)
+        assertNull(outcome, "sell stop resting above market should place bracket")
     }
 
     @Test

@@ -18,10 +18,21 @@ internal class SyntheticQuoteSimulator(
         val epsilon = pending.range * 0.01
         when (pending.scenario) {
             TouchTurnEntryScenario.NEVER_FILL -> when {
+                pending.isBuyEntry && pending.isStopEntry -> quote.setMid(quote.last - step)
                 pending.isBuyEntry -> quote.setMid(quote.last + step)
+                pending.isStopEntry -> quote.setMid(quote.last + step)
                 else -> quote.setMid(quote.last - step)
             }
             TouchTurnEntryScenario.APPROACH_AND_FILL -> when {
+                pending.isBuyEntry && pending.isStopEntry -> {
+                    var newAsk = quote.ask + step
+                    if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
+                        newAsk = minOf(newAsk, pending.entryPrice - epsilon)
+                    }
+                    quote.ask = newAsk.coerceAtLeast(0.01)
+                    quote.last = (quote.ask + quote.bid) / 2.0
+                    quote.bid = quote.last - quote.halfSpread
+                }
                 pending.isBuyEntry -> {
                     var newAsk = quote.ask - step
                     if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
@@ -31,10 +42,19 @@ internal class SyntheticQuoteSimulator(
                     quote.last = (quote.ask + quote.bid) / 2.0
                     quote.bid = quote.last - quote.halfSpread
                 }
+                pending.isStopEntry -> {
+                    var newBid = quote.bid - step
+                    if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
+                        newBid = minOf(newBid, pending.entryPrice + epsilon)
+                    }
+                    quote.bid = newBid.coerceAtLeast(0.01)
+                    quote.last = (quote.ask + quote.bid) / 2.0
+                    quote.ask = quote.last + quote.halfSpread
+                }
                 else -> {
                     var newBid = quote.bid + step
                     if (pending.ticksElapsed < config.touchTurnEntryMinApproachTicks) {
-                        newBid = minOf(newBid, pending.entryPrice - epsilon)
+                        newBid = maxOf(newBid, pending.entryPrice - epsilon)
                     }
                     quote.bid = newBid.coerceAtLeast(0.01)
                     quote.last = (quote.ask + quote.bid) / 2.0

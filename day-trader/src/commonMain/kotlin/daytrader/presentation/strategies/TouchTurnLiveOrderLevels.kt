@@ -52,6 +52,7 @@ object TouchTurnLiveOrderLevels {
     ): List<TouchTurnOrderLevelUi> {
         val stopOrder = openOrders.firstOrNull { order ->
             !order.isTrailAdjustment &&
+                order.parentOrderId != 0 &&
                 (order.orderType.equals("STP", ignoreCase = true) ||
                     order.orderType.equals("TRAIL", ignoreCase = true))
         }
@@ -137,9 +138,9 @@ object TouchTurnLiveOrderLevels {
             }
         }
         return when {
+            order.parentOrderId == 0 -> TouchTurnOrderLevelKind.ENTRY
             order.orderType.equals("TRAIL", ignoreCase = true) -> TouchTurnOrderLevelKind.STOP_LOSS
             order.orderType.equals("STP", ignoreCase = true) -> TouchTurnOrderLevelKind.STOP_LOSS
-            order.parentOrderId == 0 -> TouchTurnOrderLevelKind.ENTRY
             else -> TouchTurnOrderLevelKind.TAKE_PROFIT
         }
     }
