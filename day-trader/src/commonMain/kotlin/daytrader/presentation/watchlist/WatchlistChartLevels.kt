@@ -91,8 +91,7 @@ object WatchlistChartLevels {
             trailTriggerPrice = TouchTurnAdjustableStop.compute(
                 entry,
                 stopLoss,
-                takeProfit,
-                barRange = TouchTurnAdjustableStop.inferBarRange(entry, stopLoss, takeProfit)
+                takeProfit
             )?.triggerPrice
         )
 

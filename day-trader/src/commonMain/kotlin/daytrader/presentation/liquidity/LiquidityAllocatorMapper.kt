@@ -216,17 +216,10 @@ object LiquidityAllocatorMapper {
             TouchTurnTradeSide.SHORT -> "SELL"
             TouchTurnTradeSide.LONG -> "BUY"
         }
-        val barRange = deployment.touchTurnSession?.setup?.range
-            ?: TouchTurnAdjustableStop.inferBarRange(
-                bracket.entry,
-                bracket.stopLoss,
-                bracket.takeProfit
-            )
         val adjustableStop = rules.computeAdjustableStop(
             entry = bracket.entry,
             stopLoss = bracket.stopLoss,
-            takeProfit = bracket.takeProfit,
-            barRange = barRange
+            takeProfit = bracket.takeProfit
         )
         return TouchTurnOrderPlan(
             symbol = deployment.symbol,

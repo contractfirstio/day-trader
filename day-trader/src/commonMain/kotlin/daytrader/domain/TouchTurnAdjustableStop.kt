@@ -6,7 +6,7 @@ import kotlin.math.max
 /** IB adjustable-stop parameters for Touch Turn bracket stop legs (Option A). */
 data class TouchTurnAdjustableStopParams(
     val triggerPrice: Double,
-    /** Stop price when trailing arms — entry minus cushion (long) or plus cushion (short). */
+    /** Stop price when trailing arms — between entry and initial stop per [armFractionOfEntryToStop]. */
     val armStopPrice: Double
 )
 
@@ -21,13 +21,11 @@ object TouchTurnAdjustableStop {
     fun computeArmStopPrice(
         entry: Double,
         stopLoss: Double,
-        takeProfit: Double,
-        barRange: Double,
-        armOffsetFraction: Double
+        armFractionOfEntryToStop: Double
     ): Double {
-        val offset = armOffsetFraction * barRange.coerceAtLeast(1e-9)
-        val entryToTp = takeProfit - entry
-        return if (entryToTp > 0.0) entry - offset else entry + offset
+        val entryToStop = abs(entry - stopLoss)
+        val offset = armFractionOfEntryToStop * entryToStop
+        return if (entry > stopLoss) entry - offset else entry + offset
     }
 
     fun validate(
@@ -35,14 +33,13 @@ object TouchTurnAdjustableStop {
         stopLoss: Double,
         takeProfit: Double,
         triggerFraction: Double,
-        barRange: Double,
-        armOffsetFraction: Double = 0.0
+        armFractionOfEntryToStop: Double = 0.0
     ): String? {
         if (triggerFraction < 0.0 || triggerFraction > 1.0) {
             return "Trail arm must be between 0 and 1 (fraction of entry-to-take-profit)."
         }
-        if (armOffsetFraction < 0.0) {
-            return "Trail arm cushion must be zero or positive (fraction of bar range)."
+        if (armFractionOfEntryToStop < 0.0 || armFractionOfEntryToStop > 1.0) {
+            return "Trail arm position must be between 0 and 1 (fraction of entry-to-stop)."
         }
         val entryToTp = takeProfit - entry
         if (abs(entryToTp) < 1e-9) {
@@ -56,16 +53,6 @@ object TouchTurnAdjustableStop {
             return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
                 "(long: entry above stop; short: entry below stop)."
         }
-        val armStop = computeArmStopPrice(entry, stopLoss, takeProfit, barRange, armOffsetFraction)
-        val invalidAtArm = if (entryToTp > 0.0) {
-            armStop + 1e-9 < stopLoss
-        } else {
-            armStop - 1e-9 > stopLoss
-        }
-        if (invalidAtArm) {
-            return "When trailing activates, the arm stop must stay above the initial fixed stop (long) " +
-                "or below it (short). Reduce trail arm cushion or widen the initial stop."
-        }
         return null
     }
 
@@ -73,17 +60,15 @@ object TouchTurnAdjustableStop {
         entry: Double,
         stopLoss: Double,
         takeProfit: Double,
-        barRange: Double,
         triggerFraction: Double = TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
-        armOffsetFraction: Double = TouchTurnDefaults.TRAILING_STOP_ARM_OFFSET_FRACTION_OF_BAR_RANGE
+        armFractionOfEntryToStop: Double = TouchTurnDefaults.TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP
     ): TouchTurnAdjustableStopParams? {
         if (validate(
                 entry = entry,
                 stopLoss = stopLoss,
                 takeProfit = takeProfit,
                 triggerFraction = triggerFraction,
-                barRange = barRange,
-                armOffsetFraction = armOffsetFraction
+                armFractionOfEntryToStop = armFractionOfEntryToStop
             ) != null
         ) {
             return null
@@ -92,7 +77,7 @@ object TouchTurnAdjustableStop {
         val triggerPrice = entry + triggerFraction * entryToTp
         return TouchTurnAdjustableStopParams(
             triggerPrice = triggerPrice,
-            armStopPrice = computeArmStopPrice(entry, stopLoss, takeProfit, barRange, armOffsetFraction)
+            armStopPrice = computeArmStopPrice(entry, stopLoss, armFractionOfEntryToStop)
         )
     }
 }

@@ -223,8 +223,7 @@ object TouchTurnRuleExplanationMapper {
         val params = rules.computeAdjustableStop(
             setup.entry,
             setup.stopLoss,
-            setup.takeProfit,
-            setup.range
+            setup.takeProfit
         )
         val validationError = TouchTurnTrailingStopWarnings.validationError(rules, setup)
         val passed = when {
@@ -240,18 +239,18 @@ object TouchTurnRuleExplanationMapper {
             )
             add(
                 "Trail arm at ${rules.trailingStopTriggerFractionOfEntryToTp}× entry-to-target distance; " +
-                    "arm cushion ${rules.trailingStopArmOffsetFractionOfBarRange}× bar range below entry (long); " +
+                    "arm stop at ${rules.trailingStopArmFractionOfEntryToStop}× entry-to-stop toward initial stop; " +
                     "then ratchets 1:1 with further favorable price."
             )
             validationError?.let { add("Configuration invalid: $it") }
             params?.let {
-                val cushionNote = if (rules.trailingStopArmOffsetFractionOfBarRange > 0.0) {
-                    " (entry − ${rules.trailingStopArmOffsetFractionOfBarRange}× range)"
+                val armNote = if (rules.trailingStopArmFractionOfEntryToStop > 0.0) {
+                    " (${rules.trailingStopArmFractionOfEntryToStop}× entry→stop)"
                 } else {
                     " (entry)"
                 }
                 add(
-                    "Trail arms at ${fmt(it.triggerPrice, currency)} → stop ${fmt(it.armStopPrice, currency)}$cushionNote."
+                    "Trail arms at ${fmt(it.triggerPrice, currency)} → stop ${fmt(it.armStopPrice, currency)}$armNote."
                 )
             }
             add(stepResult(passed))

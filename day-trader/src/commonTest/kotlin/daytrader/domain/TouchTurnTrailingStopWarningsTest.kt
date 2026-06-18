@@ -50,13 +50,13 @@ class TouchTurnTrailingStopWarningsTest {
     }
 
     @Test
-    fun validationError_whenArmCushionTooWideForTightStop() {
+    fun validationError_whenArmFractionAboveOne() {
         val rules = msftLikeRules().copy(
-            trailingStopArmOffsetFractionOfBarRange = 0.10
+            trailingStopArmFractionOfEntryToStop = 1.5
         )
         val error = TouchTurnTrailingStopWarnings.validationError(rules, msftLikeSetup())
         assertNotNull(error)
-        assertTrue(error.contains("initial fixed stop"))
+        assertTrue(error.contains("entry-to-stop"))
     }
 
     @Test

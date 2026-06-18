@@ -26,7 +26,7 @@ data class TouchTurnPlannedOrder(
     val timeInForce: String = TouchTurnOrderDefaults.TIME_IN_FORCE,
     /** Price at which IB converts the stop to TRAIL (adjustable stop, Option A). */
     val trailTriggerPrice: Double? = null,
-    /** Stop price when trailing arms (entry); null when trailing disabled. */
+    /** Stop price when trailing arms; null when trailing disabled. */
     val trailArmStopPrice: Double? = null
 )
 
@@ -81,8 +81,7 @@ object TouchTurnOrderPlanner {
         val adjustableStop = rules.computeAdjustableStop(
             entry = setup.entry,
             stopLoss = setup.stopLoss,
-            takeProfit = setup.takeProfit,
-            barRange = setup.range
+            takeProfit = setup.takeProfit
         )
         return TouchTurnOrderPlan(
             symbol = symbol,

@@ -12,8 +12,7 @@ class TouchTurnAdjustableStopTest {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 95.0,
-            takeProfit = 110.0,
-            barRange = 10.0
+            takeProfit = 110.0
         )
         assertNotNull(params)
         assertEquals(105.0, params.triggerPrice, 0.001)
@@ -25,8 +24,7 @@ class TouchTurnAdjustableStopTest {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 105.0,
-            takeProfit = 90.0,
-            barRange = 10.0
+            takeProfit = 90.0
         )
         assertNotNull(params)
         assertEquals(95.0, params.triggerPrice, 0.001)
@@ -34,41 +32,38 @@ class TouchTurnAdjustableStopTest {
     }
 
     @Test
-    fun compute_longBracket_armCushion_placesStopBelowEntry() {
+    fun compute_longBracket_armFraction_placesStopBetweenEntryAndStop() {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 95.0,
             takeProfit = 110.0,
-            barRange = 10.0,
-            armOffsetFraction = 0.05
+            armFractionOfEntryToStop = 0.5
         )
         assertNotNull(params)
-        assertEquals(99.5, params.armStopPrice, 0.001)
+        assertEquals(97.5, params.armStopPrice, 0.001)
     }
 
     @Test
-    fun compute_shortBracket_armCushion_placesStopAboveEntry() {
+    fun compute_shortBracket_armFraction_placesStopBetweenEntryAndStop() {
         val params = TouchTurnAdjustableStop.compute(
             entry = 100.0,
             stopLoss = 105.0,
             takeProfit = 90.0,
-            barRange = 10.0,
-            armOffsetFraction = 0.05
+            armFractionOfEntryToStop = 0.5
         )
         assertNotNull(params)
-        assertEquals(100.5, params.armStopPrice, 0.001)
+        assertEquals(102.5, params.armStopPrice, 0.001)
     }
 
     @Test
-    fun validate_rejectsArmCushionThroughInitialStop() {
+    fun validate_rejectsArmFractionAboveOne() {
         assertNotNull(
             TouchTurnAdjustableStop.validate(
                 entry = 100.0,
                 stopLoss = 95.0,
                 takeProfit = 110.0,
                 triggerFraction = 0.5,
-                barRange = 10.0,
-                armOffsetFraction = 0.51
+                armFractionOfEntryToStop = 1.01
             )
         )
     }

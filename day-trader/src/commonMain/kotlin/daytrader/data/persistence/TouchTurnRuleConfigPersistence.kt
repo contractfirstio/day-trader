@@ -16,7 +16,7 @@ object TouchTurnRuleConfigPersistence {
                 closedBarRefetchSettleMs = it.closedBarRefetchSettleMs,
                 stopAfterOpenMinutes = it.stopAfterOpenMinutes,
                 trailingStopTriggerFractionOfEntryToTp = it.trailingStopTriggerFractionOfEntryToTp,
-                trailingStopArmOffsetFractionOfBarRange = it.trailingStopArmOffsetFractionOfBarRange,
+                trailingStopArmFractionOfEntryToStop = it.trailingStopArmFractionOfEntryToStop,
                 enables = TouchTurnRuleEnables(
                     liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
                     openDeadline = it.enableOpenDeadline,
@@ -37,7 +37,7 @@ object TouchTurnRuleConfigPersistence {
             closedBarRefetchSettleMs = config.closedBarRefetchSettleMs,
             stopAfterOpenMinutes = config.stopAfterOpenMinutes,
             trailingStopTriggerFractionOfEntryToTp = config.trailingStopTriggerFractionOfEntryToTp,
-            trailingStopArmOffsetFractionOfBarRange = config.trailingStopArmOffsetFractionOfBarRange,
+            trailingStopArmFractionOfEntryToStop = config.trailingStopArmFractionOfEntryToStop,
             enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
             enableOpenDeadline = config.enables.openDeadline,
             enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,

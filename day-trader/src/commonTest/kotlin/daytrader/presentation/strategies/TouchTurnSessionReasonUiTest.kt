@@ -156,7 +156,7 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
-    fun forTrailingStopInvalid_returnsWarningWhenArmCushionTooWide() {
+    fun forTrailingStopInvalid_returnsWarningWhenConfigInvalid() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-06-12",
             status = TouchTurnCandleStatus.READY,
@@ -171,9 +171,7 @@ class TouchTurnSessionReasonUiTest {
                 takeProfit = 388.244
             ),
             rules = TouchTurnRuleConfig.DEFAULT.copy(
-                trailingStopTriggerFractionOfEntryToTp = 0.4,
-                trailingStopArmOffsetFractionOfBarRange = 0.10,
-                takeProfitToStopLossRatio = 8.0
+                trailingStopTriggerFractionOfEntryToTp = 1.5
             )
         )
         val ui = TouchTurnSessionReasonUi.forTrailingStopInvalid(session)

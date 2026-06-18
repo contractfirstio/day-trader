@@ -44,8 +44,7 @@ object WatchlistBracketOrderPlanner {
         val adjustableStop = TouchTurnAdjustableStop.compute(
             entry = entryPrice,
             stopLoss = stopPrice,
-            takeProfit = targetPrice,
-            barRange = TouchTurnAdjustableStop.inferBarRange(entryPrice, stopPrice, targetPrice)
+            takeProfit = targetPrice
         )
         return Result.success(
             TouchTurnOrderPlan(

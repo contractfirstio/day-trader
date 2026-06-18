@@ -115,7 +115,7 @@ data class TouchTurnRuleConfigRecord(
     val closedBarRefetchSettleMs: Long = 3_000L,
     val stopAfterOpenMinutes: Int = 90,
     val trailingStopTriggerFractionOfEntryToTp: Double = 0.5,
-    val trailingStopArmOffsetFractionOfBarRange: Double = 0.0,
+    val trailingStopArmFractionOfEntryToStop: Double = 0.0,
     val enableLiquidityRangeDailyAtr: Boolean = false,
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,

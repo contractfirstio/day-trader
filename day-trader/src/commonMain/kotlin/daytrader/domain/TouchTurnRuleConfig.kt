@@ -68,9 +68,9 @@ data class TouchTurnRuleConfig(
     /** Favorable move (fraction of entry→take-profit) before stop converts to trailing. */
     val trailingStopTriggerFractionOfEntryToTp: Double =
         TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
-    /** Cushion below entry (long) / above entry (short) when trailing arms, as fraction of opening bar range. */
-    val trailingStopArmOffsetFractionOfBarRange: Double =
-        TouchTurnDefaults.TRAILING_STOP_ARM_OFFSET_FRACTION_OF_BAR_RANGE,
+    /** When trailing arms, stop is placed this fraction of the way from entry toward the initial stop. */
+    val trailingStopArmFractionOfEntryToStop: Double =
+        TouchTurnDefaults.TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP,
     /** Which entry-gate rules are enforced for this deployment. */
     val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT,
     /**
@@ -102,8 +102,9 @@ data class TouchTurnRuleConfig(
             TouchTurnRuleToggleDefinition(
                 key = "adjustableTrailingStop",
                 label = "Adjustable trailing stop",
-                description = "After price reaches the trail-arm level, move the stop to entry (minus optional " +
-                    "cushion) and ratchet it up (long) or down (short) as price continues in your favor.",
+                description = "After price reaches the trail-arm level, move the stop toward the initial stop " +
+                    "(by the configured entry-to-stop fraction) and ratchet it up (long) or down (short) as price " +
+                    "continues in your favor.",
                 category = TouchTurnRuleCategory.TRAILING_STOP
             ),
             TouchTurnRuleToggleDefinition(
@@ -188,11 +189,11 @@ data class TouchTurnRuleConfig(
                 defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
-                key = "trailingStopArmOffsetFractionOfBarRange",
-                label = "Trail arm cushion (× range)",
-                description = "When trailing activates, place the first trailing stop this fraction of the opening " +
-                    "bar range below entry (long) or above entry (short) to tolerate retests. 0 = at entry. Must " +
-                    "stay above the initial fixed stop (long) or below it (short).",
+                key = "trailingStopArmFractionOfEntryToStop",
+                label = "Trail arm (fraction to stop)",
+                description = "When trailing activates, place the first trailing stop this fraction of the way " +
+                    "from entry toward the initial stop. 0 = at entry (breakeven). 0.5 = halfway between entry and " +
+                    "stop. 1 = unchanged at the initial stop. Must be between 0 and 1.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRAILING_STOP,
                 defaultable = true
@@ -221,8 +222,8 @@ data class TouchTurnRuleConfig(
             "stopAfterOpenMinutes" -> config.stopAfterOpenMinutes.toString()
             "trailingStopTriggerFractionOfEntryToTp" ->
                 config.trailingStopTriggerFractionOfEntryToTp.toString()
-            "trailingStopArmOffsetFractionOfBarRange" ->
-                config.trailingStopArmOffsetFractionOfBarRange.toString()
+            "trailingStopArmFractionOfEntryToStop" ->
+                config.trailingStopArmFractionOfEntryToStop.toString()
             else -> ""
         }
 
@@ -244,10 +245,10 @@ data class TouchTurnRuleConfig(
                             if (doubleValue < 0.0) return null
                             config.copy(entryInwardOffsetRatioOfRange = doubleValue)
                         }
-                        "trailingStopArmOffsetFractionOfBarRange" -> {
-                            if (doubleValue < 0.0) return null
+                        "trailingStopArmFractionOfEntryToStop" -> {
+                            if (doubleValue < 0.0 || doubleValue > 1.0) return null
                             val candidate = config.copy(
-                                trailingStopArmOffsetFractionOfBarRange = doubleValue
+                                trailingStopArmFractionOfEntryToStop = doubleValue
                             )
                             if (candidate.trailingStopValidationError() != null) return null
                             candidate
@@ -302,8 +303,7 @@ data class TouchTurnRuleConfig(
     fun computeAdjustableStop(
         entry: Double,
         stopLoss: Double,
-        takeProfit: Double,
-        barRange: Double
+        takeProfit: Double
     ): TouchTurnAdjustableStopParams? {
         if (!enables.adjustableTrailingStop) return null
         if (trailingStopConfigInvalid()) return null
@@ -311,9 +311,8 @@ data class TouchTurnRuleConfig(
             entry = entry,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
-            barRange = barRange,
             triggerFraction = trailingStopTriggerFractionOfEntryToTp,
-            armOffsetFraction = trailingStopArmOffsetFractionOfBarRange
+            armFractionOfEntryToStop = trailingStopArmFractionOfEntryToStop
         )
     }
 
@@ -321,16 +320,14 @@ data class TouchTurnRuleConfig(
     fun trailingStopValidationError(
         entry: Double = 100.0,
         stopLoss: Double = 95.0,
-        takeProfit: Double = 110.0,
-        barRange: Double = 10.0
+        takeProfit: Double = 110.0
     ): String? =
         TouchTurnAdjustableStop.validate(
             entry = entry,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
             triggerFraction = trailingStopTriggerFractionOfEntryToTp,
-            barRange = barRange,
-            armOffsetFraction = trailingStopArmOffsetFractionOfBarRange
+            armFractionOfEntryToStop = trailingStopArmFractionOfEntryToStop
         )
 
     /** @deprecated Use [trailingStopValidationError] */

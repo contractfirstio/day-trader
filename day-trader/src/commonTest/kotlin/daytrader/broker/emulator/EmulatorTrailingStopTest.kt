@@ -138,7 +138,7 @@ class EmulatorTrailingStopTest {
     }
 
     @Test
-    fun trailingStop_armCushion_armsBelowEntry() = runBlocking {
+    fun trailingStop_armFraction_armsBetweenEntryAndStop() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(
             config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
@@ -163,7 +163,7 @@ class EmulatorTrailingStopTest {
             takeProfit = 110.0
         )
         val rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
-            trailingStopArmOffsetFractionOfBarRange = 0.05
+            trailingStopArmFractionOfEntryToStop = 0.05
         )
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
             "AAPL",
@@ -172,7 +172,7 @@ class EmulatorTrailingStopTest {
             currencyCode = "USD",
             rules = rules
         )!!
-        assertEquals(99.5, plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.trailArmStopPrice!!, 0.001)
+        assertEquals(99.75, plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.trailArmStopPrice!!, 0.001)
         engine.placeTouchTurnBracket(plan)
 
         engine.ingestLiveQuote(
@@ -185,7 +185,7 @@ class EmulatorTrailingStopTest {
             ?.orders
             ?.firstOrNull { it.orderType.equals("TRAIL", ignoreCase = true) }
             ?.stopPrice
-        assertEquals(99.5, stopPrice!!, 0.001)
+        assertEquals(99.75, stopPrice!!, 0.001)
     }
 
     @Test
