@@ -87,8 +87,8 @@ data class BrokerRuntime(
                 clock = clock,
                 gateway = hybrid.executionGateway,
                 marketDataGateway = hybrid.marketDataGateway,
-                ensureLiveMarketData = { _, _ -> hybrid.playbackOrchestrator.ensureQuotesFlowing() },
-                releaseLiveMarketData = { _, _ -> },
+                ensureLiveMarketData = { symbol, _ -> hybrid.ensureStreamingMarketData(symbol) },
+                releaseLiveMarketData = { symbol, _ -> hybrid.releaseStreamingMarketData(symbol) },
                 quoteBus = hybrid.quoteBus,
                 replayHybridRuntime = hybrid,
                 replayBundle = bundle

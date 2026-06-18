@@ -3,6 +3,7 @@ package daytrader.replay
 import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.diagnostics.SessionTrace
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.inProgressSession
@@ -21,11 +22,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Drives interactive replay: fast-forward the opening bar, then drip captured quotes on a wall-clock cadence.
+ * Drives interactive replay per deployment: fast-forward the opening bar, then arm merged
+ * per-symbol quote drip (hybrid-style parallel streaming).
  */
 class ReplayPlaybackOrchestrator(
     private val clock: MutableTradingClock,
-    private val quoteFeeder: QuoteFeeder,
+    private val quoteFeeder: MultiSymbolQuoteFeeder,
     private val scope: CoroutineScope,
     defaultQuoteIntervalMs: () -> Long = { ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS }
 ) {
@@ -40,26 +42,35 @@ class ReplayPlaybackOrchestrator(
 
     @Volatile
     var quoteIntervalMs: () -> Long = defaultQuoteIntervalMs
+        set(value) {
+            field = value
+            quoteFeeder.quoteIntervalMs = value
+        }
 
-    private var playbackJob: Job? = null
-    private var activeInstanceId: String? = null
+    private val playbackJobs = mutableMapOf<String, Job>()
+    private var quotesPublishedSinceLiquidityNudge = 0
+
+    init {
+        quoteFeeder.quoteIntervalMs = quoteIntervalMs
+        quoteFeeder.onQuotePublished = { symbol -> onMergedQuotePublished(symbol) }
+        quoteFeeder.onOpeningBarQuotesReady = { symbol -> onOpeningBarQuotesReady(symbol) }
+    }
 
     fun attach(engine: TouchTurnEnginePort, repository: StrategyDeploymentRepository) {
         this.engine = engine
         this.repository = repository
     }
 
-    fun isPlaying(): Boolean = playbackJob?.isActive == true
+    fun isPlaying(): Boolean = playbackJobs.values.any { it.isActive }
 
     /**
-     * Satisfies [ensureLiveMarketData] during replay bootstrap without publishing captured quotes.
-     * [QuoteFeeder] is driven only by [fastForwardOpeningBar] and [dripQuotes] so prices stream
-     * on the replay cadence instead of being bulk-flushed ahead of virtual time.
+     * Refcounted subscription for [symbol]; quotes drip only after [enableDrip] post fast-forward.
      */
-    fun ensureQuotesFlowing() = Unit
+    fun ensureQuotesFlowing(symbol: String) {
+        quoteFeeder.ensureStreaming(symbol)
+    }
 
     fun onSessionStarted(instanceId: String) {
-        bindQuotePublishSymbol(instanceId)
         if (!interactiveAutoStartEnabled) {
             trace(
                 instanceId,
@@ -68,9 +79,9 @@ class ReplayPlaybackOrchestrator(
             )
             return
         }
-        playbackJob?.cancel()
+        playbackJobs[instanceId]?.cancel()
         trace(instanceId, "playback_scheduled")
-        playbackJob = scope.launch {
+        playbackJobs[instanceId] = scope.launch {
             try {
                 awaitBootstrap(instanceId)
                 runInteractivePlayback(instanceId)
@@ -84,18 +95,28 @@ class ReplayPlaybackOrchestrator(
                     extra = mapOf("error" to (error.message ?: error::class.simpleName ?: "unknown"))
                 )
                 throw error
+            } finally {
+                playbackJobs.remove(instanceId)
             }
         }
     }
 
-    fun stop() {
-        val instanceId = activeInstanceId
-        playbackJob?.cancel()
-        playbackJob = null
-        activeInstanceId = null
-        quoteFeeder.publishSymbolOverride = null
+    fun stop(instanceId: String) {
+        playbackJobs.remove(instanceId)?.cancel()
+        deploymentSymbol(instanceId)?.let { symbol ->
+            quoteFeeder.releaseStreaming(symbol)
+        }
+        if (playbackJobs.isEmpty()) {
+            _state.value = ReplayPlaybackState.Idle
+        }
+        trace(instanceId, "playback_stopped")
+    }
+
+    fun stopAll() {
+        playbackJobs.keys.toList().forEach { stop(it) }
+        playbackJobs.clear()
+        quoteFeeder.stopDrip()
         _state.value = ReplayPlaybackState.Idle
-        instanceId?.let { trace(it, "playback_stopped") }
     }
 
     suspend fun fastForwardOpeningBar(
@@ -112,6 +133,11 @@ class ReplayPlaybackOrchestrator(
         }
         val instance = repository.deployments.value.find { it.id == instanceId } ?: run {
             traceAbort(instanceId, "deployment_not_found")
+            return
+        }
+        val symbol = instance.symbol
+        val feeder = quoteFeeder.feederForSymbol(symbol) ?: run {
+            traceAbort(instanceId, "quote_feeder_missing", instance, mapOf("symbol" to symbol))
             return
         }
         val session = instance.touchTurnSession ?: run {
@@ -137,9 +163,8 @@ class ReplayPlaybackOrchestrator(
             ?: clock.nowEpochMillis()
         val settleMs = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
         val targetMs = barEnd + settleMs + 1
-        val quotesBefore = quoteFeeder.publishedQuoteCount
+        val quotesBefore = feeder.publishedQuoteCount
 
-        activeInstanceId = instanceId
         trace(
             instanceId,
             "fast_forward_started",
@@ -151,20 +176,21 @@ class ReplayPlaybackOrchestrator(
                 "targetEpochMs" to targetMs.toString(),
                 "openingBarTime" to openingBarTime,
                 "clockBeforeEpochMs" to clock.nowEpochMillis().toString(),
-                "capturedQuoteCount" to quoteFeeder.totalQuoteCount.toString()
+                "capturedQuoteCount" to feeder.totalQuoteCount.toString(),
+                "symbol" to symbol
             )
         )
 
         val steps = ReplayPlaybackConfig.FORMING_STEPS.coerceAtLeast(1)
         if (formingWallDurationMs <= 0L) {
             clock.advanceTo(targetMs)
-            quoteFeeder.publishUpTo(targetMs)
+            quoteFeeder.publishUpTo(symbol, targetMs)
         } else {
             val wallStep = (formingWallDurationMs / steps).coerceAtLeast(1L)
             val clockAtFormingStart = clock.nowEpochMillis()
             for (step in 1..steps) {
                 val quoteEpochMs = openMs + (barEnd - openMs) * step / steps
-                quoteFeeder.publishUpTo(quoteEpochMs)
+                quoteFeeder.publishUpTo(symbol, quoteEpochMs)
                 _state.value = ReplayPlaybackState.FastForming(step, steps)
                 if (step == 1 || step == steps) {
                     trace(
@@ -182,7 +208,7 @@ class ReplayPlaybackOrchestrator(
                 delay(wallStep)
             }
             clock.advanceTo(targetMs)
-            quoteFeeder.publishUpTo(targetMs)
+            quoteFeeder.publishUpTo(symbol, targetMs)
             trace(
                 instanceId,
                 "fast_forward_clock_jump",
@@ -201,10 +227,12 @@ class ReplayPlaybackOrchestrator(
             instance,
             mapOf(
                 "clockAfterEpochMs" to clock.nowEpochMillis().toString(),
-                "quotesPublishedDuringFastForward" to (quoteFeeder.publishedQuoteCount - quotesBefore).toString(),
-                "quotesPublishedTotal" to quoteFeeder.publishedQuoteCount.toString()
+                "quotesPublishedDuringFastForward" to (feeder.publishedQuoteCount - quotesBefore).toString(),
+                "quotesPublishedTotal" to feeder.publishedQuoteCount.toString()
             )
         )
+
+        quoteFeeder.markOpeningBarQuotesReady(symbol)
 
         _state.value = ReplayPlaybackState.AwaitingClosedBar
         engine.dispatch(TouchTurnCommand.PollLiquidity(instanceId))
@@ -244,14 +272,14 @@ class ReplayPlaybackOrchestrator(
         )
     }
 
-    suspend fun dripQuotes(instanceId: String) {
-        val engine = engine ?: run {
-            traceAbort(instanceId, "engine_not_attached")
-            return
-        }
+    private suspend fun runInteractivePlayback(instanceId: String) {
         val instance = repository?.deployments?.value?.find { it.id == instanceId }
-        val total = quoteFeeder.totalQuoteCount
-        var published = quoteFeeder.publishedQuoteCount
+        val symbol = instance?.symbol ?: return
+        trace(instanceId, "playback_started", instance)
+        fastForwardOpeningBar(instanceId)
+        val feeder = quoteFeeder.feederForSymbol(symbol)
+        val total = feeder?.totalQuoteCount ?: 0
+        val published = feeder?.publishedQuoteCount ?: 0
         _state.value = ReplayPlaybackState.DrippingQuotes(published, total)
         trace(
             instanceId,
@@ -261,64 +289,13 @@ class ReplayPlaybackOrchestrator(
                 "totalQuotes" to total.toString(),
                 "alreadyPublished" to published.toString(),
                 "quoteIntervalMs" to quoteIntervalMs().toString(),
-                "clockEpochMs" to clock.nowEpochMillis().toString()
+                "clockEpochMs" to clock.nowEpochMillis().toString(),
+                "symbol" to symbol
             )
         )
-
-        while (true) {
-            val event = quoteFeeder.publishNext() ?: break
-            clock.advanceTo(event.epochMs)
-            published++
-            _state.value = ReplayPlaybackState.DrippingQuotes(published, total)
-            if (published == 1 || published == total || published % 500 == 0) {
-                trace(
-                    instanceId,
-                    "quote_drip_progress",
-                    instance,
-                    mapOf(
-                        "published" to published.toString(),
-                        "total" to total.toString(),
-                        "quoteEpochMs" to event.epochMs.toString(),
-                        "clockEpochMs" to clock.nowEpochMillis().toString()
-                    )
-                )
-            }
-            if (published % ReplayPlaybackConfig.LIQUIDITY_NUDGE_EVERY_N_QUOTES == 0) {
-                engine.dispatch(TouchTurnCommand.PollLiquidity(instanceId))
-            }
-            val intervalMs = quoteIntervalMs()
-            if (intervalMs > 0L) {
-                delay(intervalMs)
-            }
-        }
-        trace(
-            instanceId,
-            "quote_drip_completed",
-            instance,
-            mapOf(
-                "published" to published.toString(),
-                "total" to total.toString(),
-                "clockEpochMs" to clock.nowEpochMillis().toString()
-            )
-        )
-        if (activeInstanceId == instanceId) {
-            _state.value = ReplayPlaybackState.Idle
-        }
-    }
-
-    private suspend fun runInteractivePlayback(instanceId: String) {
-        val instance = repository?.deployments?.value?.find { it.id == instanceId }
-        trace(instanceId, "playback_started", instance)
-        try {
-            fastForwardOpeningBar(instanceId)
-            dripQuotes(instanceId)
-            trace(instanceId, "playback_completed", instance)
-        } finally {
-            if (activeInstanceId == instanceId) {
-                activeInstanceId = null
-                _state.value = ReplayPlaybackState.Idle
-            }
-        }
+        quoteFeeder.ensureStreaming(symbol)
+        quoteFeeder.enableDrip(symbol)
+        trace(instanceId, "playback_completed", instance)
     }
 
     private suspend fun awaitBootstrap(instanceId: String) {
@@ -357,13 +334,47 @@ class ReplayPlaybackOrchestrator(
         )
     }
 
-    private fun bindQuotePublishSymbol(instanceId: String) {
-        val symbol = repository?.deployments?.value
-            ?.find { it.id == instanceId }
-            ?.symbol
-            ?.let(SymbolMarkets::normalizeSymbol)
-        quoteFeeder.publishSymbolOverride = symbol
+    private fun onOpeningBarQuotesReady(symbol: String) {
+        val engine = engine ?: return
+        val repository = repository ?: return
+        repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+            .forEach { deployment ->
+                engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
+            }
     }
+
+    private fun onMergedQuotePublished(symbol: String) {
+        val engine = engine ?: return
+        val repository = repository ?: return
+        quotesPublishedSinceLiquidityNudge++
+        updateDrippingState()
+        if (quotesPublishedSinceLiquidityNudge % ReplayPlaybackConfig.LIQUIDITY_NUDGE_EVERY_N_QUOTES == 0) {
+            repository.deployments.value
+                .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+                .forEach { deployment ->
+                    engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
+                }
+        }
+    }
+
+    private fun updateDrippingState() {
+        var published = 0
+        var total = 0
+        repository?.deployments?.value
+            ?.filter { it.status == DeploymentStatus.RUNNING }
+            ?.forEach { deployment ->
+                val feeder = quoteFeeder.feederForSymbol(deployment.symbol) ?: return@forEach
+                published += feeder.publishedQuoteCount
+                total += feeder.totalQuoteCount
+            }
+        if (total > 0) {
+            _state.value = ReplayPlaybackState.DrippingQuotes(published, total)
+        }
+    }
+
+    private fun deploymentSymbol(instanceId: String): String? =
+        repository?.deployments?.value?.find { it.id == instanceId }?.symbol
 
     private fun traceAbort(
         instanceId: String,

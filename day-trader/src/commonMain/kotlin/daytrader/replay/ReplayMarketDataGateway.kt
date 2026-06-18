@@ -19,15 +19,17 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Market-data-only [BrokerGateway] that serves captured historical payloads and quotes from a [SessionBundle].
+ * Market-data-only [BrokerGateway] that serves captured historical payloads and quotes per symbol.
  */
 class ReplayMarketDataGateway(
-    private var bundle: SessionBundle
+    registry: ReplayCaptureRegistry
 ) : BrokerGateway {
-    private val refetchIndex = AtomicInteger(0)
+    private val registry: ReplayCaptureRegistry = registry
+    private val refetchIndexBySymbol = ConcurrentHashMap<String, AtomicInteger>()
 
     private val _connectionState =
         MutableStateFlow<GatewayConnectionState>(GatewayConnectionState.Disconnected)
@@ -53,8 +55,16 @@ class ReplayMarketDataGateway(
 
     override val brokerId: BrokerId = BrokerId.INTERACTIVE_BROKERS
 
-    fun resetRefetchIndex() {
-        refetchIndex.set(0)
+    fun registerBundle(bundle: SessionBundle) {
+        registry.register(bundle)
+    }
+
+    fun resetRefetchIndex(symbol: String? = null) {
+        if (symbol == null) {
+            refetchIndexBySymbol.clear()
+        } else {
+            refetchIndexBySymbol.remove(SymbolMarkets.normalizeSymbol(symbol))
+        }
     }
 
     fun clearLiveState() {
@@ -62,12 +72,6 @@ class ReplayMarketDataGateway(
         _positions.value = emptyList()
         _openOrders.value = emptyList()
         _fills.value = emptyList()
-    }
-
-    fun replaceBundle(newBundle: SessionBundle) {
-        bundle = newBundle
-        refetchIndex.set(0)
-        clearLiveState()
     }
 
     fun updateQuote(event: QuoteEvent) {
@@ -89,8 +93,8 @@ class ReplayMarketDataGateway(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<OhlcBar> {
-        val candle = resolveBootstrapContext()?.firstCandle
-            ?: return Result.failure(IllegalStateException("Replay bundle missing bootstrap candle"))
+        val candle = resolveBootstrapContext(symbol)?.firstCandle
+            ?: return Result.failure(IllegalStateException("Replay bundle missing bootstrap candle for $symbol"))
         return Result.success(candle)
     }
 
@@ -98,8 +102,8 @@ class ReplayMarketDataGateway(
         symbol: String,
         instrument: InstrumentIdentity?
     ): Result<Double> {
-        val atr = resolveBootstrapContext()?.atr14
-            ?: return Result.failure(IllegalStateException("Replay bundle missing bootstrap ATR"))
+        val atr = resolveBootstrapContext(symbol)?.atr14
+            ?: return Result.failure(IllegalStateException("Replay bundle missing bootstrap ATR for $symbol"))
         return Result.success(atr)
     }
 
@@ -111,16 +115,21 @@ class ReplayMarketDataGateway(
         allowMissingTodayOpeningBar: Boolean,
         rules: daytrader.domain.TouchTurnRuleConfig
     ): Result<TouchTurnSignalContext> {
+        val bundle = registry.bundleFor(symbol)
+            ?: return Result.failure(IllegalStateException("No replay capture registered for $symbol"))
         if (!isClosedBarRefetch) {
-            return resolveBootstrapContext()?.let { Result.success(it) }
-                ?: Result.failure(IllegalStateException("Replay bundle missing bootstrap context"))
+            return resolveBootstrapContext(symbol)?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("Replay bundle missing bootstrap context for $symbol"))
         }
         val refetches = bundle.refetchEvents
         if (refetches.isEmpty()) {
-            return resolveAcceptedRefetchContext()?.let { Result.success(it) }
-                ?: Result.failure(IllegalStateException("Replay bundle missing refetch context"))
+            return resolveAcceptedRefetchContext(symbol)?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("Replay bundle missing refetch context for $symbol"))
         }
-        val index = refetchIndex.getAndIncrement()
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val index = refetchIndexBySymbol
+            .getOrPut(norm) { AtomicInteger(0) }
+            .getAndIncrement()
         val event = refetches.getOrNull(index) ?: refetches.last()
         return Result.success(event.context)
     }
@@ -151,8 +160,9 @@ class ReplayMarketDataGateway(
             ?: Result.failure(IllegalStateException("No replay quote for $symbol"))
     }
 
-    private fun resolveBootstrapContext(): TouchTurnSignalContext? =
-        bundle.bootstrapContext ?: bundle.groundTruth?.runRecord?.marketInputs?.let { inputs ->
+    private fun resolveBootstrapContext(symbol: String): TouchTurnSignalContext? {
+        val bundle = registry.bundleFor(symbol) ?: return null
+        return bundle.bootstrapContext ?: bundle.groundTruth?.runRecord?.marketInputs?.let { inputs ->
             val bar = inputs.openingBar ?: return null
             val atr = inputs.atr14 ?: inputs.adr14 ?: return null
             val dailyAtr = inputs.dailyAtr14 ?: atr
@@ -163,7 +173,8 @@ class ReplayMarketDataGateway(
                 volumeSma20 = inputs.volumeSma20 ?: 0.0
             )
         }
+    }
 
-    private fun resolveAcceptedRefetchContext(): TouchTurnSignalContext? =
-        bundle.acceptedRefetchContext
+    private fun resolveAcceptedRefetchContext(symbol: String): TouchTurnSignalContext? =
+        registry.bundleFor(symbol)?.acceptedRefetchContext
 }

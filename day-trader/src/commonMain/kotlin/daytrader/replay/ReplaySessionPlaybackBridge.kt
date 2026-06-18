@@ -16,7 +16,7 @@ class ReplaySessionPlaybackBridge(
             .onEach { event ->
                 when (event) {
                     is TouchTurnEvent.SessionStarted -> orchestrator.onSessionStarted(event.instanceId)
-                    is TouchTurnEvent.SessionStopped -> orchestrator.stop()
+                    is TouchTurnEvent.SessionStopped -> orchestrator.stop(event.instanceId)
                     else -> Unit
                 }
             }

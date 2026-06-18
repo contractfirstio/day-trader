@@ -1,6 +1,6 @@
 package daytrader.replay
 
-import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentStatus
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorBrokerAdapter
 import daytrader.data.StrategyDeploymentRepository
@@ -19,17 +19,21 @@ import java.util.concurrent.LinkedBlockingQueue
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * Hybrid replay wiring: emulator execution + captured IB market data from a [SessionBundle].
+ * Hybrid replay wiring: emulator execution + captured IB market data from [SessionBundle]s.
+ * Supports parallel sessions via per-symbol capture registry and [MultiSymbolQuoteFeeder].
  */
 class ReplayHybridRuntime(
     bundle: SessionBundle,
     val clock: MutableTradingClock,
     private val scope: CoroutineScope
 ) {
-    var bundle: SessionBundle = bundle
-        private set
+    val captureRegistry = ReplayCaptureRegistry(bundle)
+    val bundle: SessionBundle
+        get() = captureRegistry.primaryBundle ?: bundleSeed
+    private val bundleSeed = bundle
+
     val quoteBus = MarketQuoteBus()
-    val marketDataGateway = ReplayMarketDataGateway(bundle)
+    val marketDataGateway = ReplayMarketDataGateway(captureRegistry)
     private val inbound = LinkedBlockingQueue<GatewayEvent>()
     private val outbound = LinkedBlockingQueue<GatewayCommand>()
 
@@ -48,10 +52,12 @@ class ReplayHybridRuntime(
         scope = scope
     )
 
-    val quoteFeeder = QuoteFeeder(
-        bundle = this.bundle,
+    val quoteFeeder = MultiSymbolQuoteFeeder(
+        registry = captureRegistry,
         quoteBus = quoteBus,
-        marketDataGateway = marketDataGateway
+        marketDataGateway = marketDataGateway,
+        clock = clock,
+        scope = scope
     )
 
     val playbackOrchestrator = ReplayPlaybackOrchestrator(
@@ -68,18 +74,40 @@ class ReplayHybridRuntime(
 
     fun start() {
         marketDataGateway.resetRefetchIndex()
-        quoteFeeder.reset()
+        quoteFeeder.resetAll()
         emulator.start()
         executionGateway.connect()
         marketDataGateway.connect()
     }
 
+    fun registerBundle(bundle: SessionBundle) {
+        quoteFeeder.registerBundle(bundle)
+    }
+
+    fun isOpeningBarQuotesReady(symbol: String): Boolean =
+        quoteFeeder.isOpeningBarQuotesReady(symbol)
+
+    fun ensureStreamingMarketData(symbol: String) {
+        playbackOrchestrator.ensureQuotesFlowing(symbol)
+    }
+
+    fun releaseStreamingMarketData(symbol: String) {
+        quoteFeeder.releaseStreaming(symbol)
+    }
+
     /**
-     * Resets captured market-data cursors, broker snapshots, and emulator session state
-     * when a new replay session starts at virtual open.
+     * Prepares replay state for a session. When other deployments are already running, only
+     * resets that symbol/instance so parallel sessions are not torn down.
      */
-    fun prepareForSession() {
-        resetExecutionState(sessionEngine)
+    fun prepareForSession(instanceId: String, symbol: String, otherSessionsRunning: Boolean) {
+        if (otherSessionsRunning) {
+            playbackOrchestrator.stop(instanceId)
+            marketDataGateway.resetRefetchIndex(symbol)
+            quoteFeeder.resetSymbol(symbol)
+            sessionEngine?.resetSessionMemory(instanceId)
+        } else {
+            resetExecutionState(sessionEngine)
+        }
     }
 
     /**
@@ -87,27 +115,23 @@ class ReplayHybridRuntime(
      * snapshots, emulator fills/orders, engine tracking, and stale queue events.
      */
     fun resetExecutionState(engine: TouchTurnEnginePort? = sessionEngine) {
-        playbackOrchestrator.stop()
+        playbackOrchestrator.stopAll()
         marketDataGateway.resetRefetchIndex()
         marketDataGateway.clearLiveState()
-        quoteFeeder.reset()
+        quoteFeeder.resetAll()
         drainGatewayQueues()
         emulator.resetSessionState()
         executionGateway.resetSessionLiveState()
         engine?.resetSessionMemory()
     }
 
-    /** Switches active hybrid capture (quotes, historical bootstrap/refetch) for another deployment. */
+    /** @deprecated Use [registerBundle]; kept for callers that switch the primary capture label. */
     fun swapBundle(newBundle: SessionBundle) {
-        if (newBundle.sessionId == bundle.sessionId && newBundle.deploymentId == bundle.deploymentId) return
-        playbackOrchestrator.stop()
-        bundle = newBundle
-        marketDataGateway.replaceBundle(newBundle)
-        quoteFeeder.replaceBundle(newBundle)
+        registerBundle(newBundle)
     }
 
     fun shutdown() {
-        playbackOrchestrator.stop()
+        playbackOrchestrator.stopAll()
         emulator.shutdown()
         marketDataGateway.disconnect()
         drainGatewayQueues()
@@ -121,7 +145,8 @@ class ReplayHybridRuntime(
     fun createEngine(repository: StrategyDeploymentRepository): TouchTurnEngine {
         val marketData = BrokerGatewayMarketDataProvider(
             gateway = marketDataGateway,
-            ensureLiveMarketData = { _, _ -> playbackOrchestrator.ensureQuotesFlowing() }
+            ensureLiveMarketData = { symbol, _ -> ensureStreamingMarketData(symbol) },
+            releaseLiveMarketData = { symbol, _ -> releaseStreamingMarketData(symbol) }
         )
         return TouchTurnEngine(
             marketData = marketData,
@@ -131,10 +156,16 @@ class ReplayHybridRuntime(
             brokerKind = BrokerKind.REPLAY,
             nowEpochMillis = clock::nowEpochMillis,
             delayMillis = clock::delayMillis,
-            onReplaySessionStarting = { _, _ -> prepareForSession() },
-            activateReplayCapture = { deployment ->
-                if (deployment.id == bundle.deploymentId) bundle.sessionDate else null
+            onReplaySessionStarting = { deployment, _ ->
+                val othersRunning = repository.deployments.value.any {
+                    it.status == DeploymentStatus.RUNNING && it.id != deployment.id
+                }
+                prepareForSession(deployment.id, deployment.symbol, othersRunning)
             },
+            activateReplayCapture = { deployment ->
+                captureRegistry.bundleFor(deployment.symbol)?.sessionDate
+            },
+            isReplayOpeningBarQuotesReady = { symbol -> isOpeningBarQuotesReady(symbol) },
             sessionGateway = marketDataGateway,
             executionGateway = executionGateway
         )

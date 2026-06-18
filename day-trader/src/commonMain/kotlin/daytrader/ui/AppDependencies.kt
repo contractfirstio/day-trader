@@ -19,6 +19,7 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.engine.LoggingTouchTurnEngine
 import daytrader.engine.TouchTurnEngine
@@ -124,6 +125,11 @@ fun rememberAppDependencies(
                 directoryPaths = replaySeedDirectoryPaths,
                 loadBundle = loadReplayBundle
             )
+            replaySeedDirectoryPaths.distinct().forEach { path ->
+                loadReplayBundle(path).onSuccess { bundle ->
+                    replayHybridRuntime?.registerBundle(bundle)
+                }
+            }
             strategyRepository.flushPersistence()
         }
         val sessionGateway = touchTurnSessionGateway ?: brokerGateway
@@ -144,8 +150,8 @@ fun rememberAppDependencies(
                     if (capture == null || bundle == null) {
                         null
                     } else {
-                        val previous = replayHybridRuntime.bundle
-                        replayHybridRuntime.swapBundle(bundle)
+                        val previous = replayHybridRuntime.captureRegistry.bundleFor(deployment.symbol)?.sessionId
+                        replayHybridRuntime.registerBundle(bundle)
                         ReplaySessionController.seedDeploymentIfNeeded(strategyRepository, bundle)
                         SessionTrace.log(
                             type = "replay_capture_activated",
@@ -154,7 +160,7 @@ fun rememberAppDependencies(
                             details = mapOf(
                                 "captureDirectory" to capture.directoryPath,
                                 "captureSessionId" to bundle.sessionId,
-                                "previousSessionId" to previous.sessionId,
+                                "previousSessionId" to (previous ?: "null"),
                                 "captureSessionDate" to (bundle.sessionDate ?: "null")
                             )
                         )
@@ -167,8 +173,17 @@ fun rememberAppDependencies(
         val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? =
             if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null && mutableClock != null) {
                 { instance, sessionDate ->
-                    ReplaySessionTiming.alignClockToSessionOpen(mutableClock, instance, sessionDate)
-                    replayHybridRuntime.prepareForSession()
+                    val othersRunning = strategyRepository.deployments.value.any {
+                        it.status == DeploymentStatus.RUNNING && it.id != instance.id
+                    }
+                    if (!othersRunning) {
+                        ReplaySessionTiming.alignClockToSessionOpen(mutableClock, instance, sessionDate)
+                    }
+                    replayHybridRuntime.prepareForSession(
+                        instanceId = instance.id,
+                        symbol = instance.symbol,
+                        otherSessionsRunning = othersRunning
+                    )
                 }
             } else {
                 null
@@ -209,6 +224,9 @@ fun rememberAppDependencies(
                 delayMillis = tradingClock::delayMillis,
                 onReplaySessionStarting = onReplaySessionStarting,
                 activateReplayCapture = activateReplayCapture,
+                isReplayOpeningBarQuotesReady = replayHybridRuntime?.let { runtime ->
+                    { symbol -> runtime.isOpeningBarQuotesReady(symbol) }
+                },
                 sessionGateway = session,
                 executionGateway = executionGateway,
                 liquidityBucketRepository = liquidityBucketRepository
@@ -303,7 +321,7 @@ fun rememberAppDependencies(
     DisposableEffect(dependencies, engineJob) {
         onDispose {
             dependencies.touchTurnEngine?.shutdown()
-            replayHybridRuntime?.playbackOrchestrator?.stop()
+            replayHybridRuntime?.playbackOrchestrator?.stopAll()
             engineJob.cancel()
         }
     }

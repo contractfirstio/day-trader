@@ -46,6 +46,7 @@ class ReplayPlaybackOrchestratorTest {
         val targetMs = barEnd + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + 1
         assertEquals(targetMs, clock.nowEpochMillis())
         assertTrue(engine.pollLiquidityCount >= 1)
+        assertTrue(runtime.isOpeningBarQuotesReady(bundle.symbol))
     }
 
     @Test
@@ -53,37 +54,38 @@ class ReplayPlaybackOrchestratorTest {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val clock = ReplayClock(bundle.timeline.sessionStartedEpochMs)
-        val gateway = ReplayMarketDataGateway(bundle)
-        val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
+        val registry = ReplayCaptureRegistry(bundle)
+        val gateway = ReplayMarketDataGateway(registry)
+        val feeder = MultiSymbolQuoteFeeder(registry, quoteBus = null, gateway, clock, scope)
         val orchestrator = ReplayPlaybackOrchestrator(clock, feeder, scope)
-        assertTrue(feeder.totalQuoteCount > 0)
+        val symbolFeeder = feeder.feederForSymbol(bundle.symbol)!!
+        assertTrue(symbolFeeder.totalQuoteCount > 0)
 
-        orchestrator.ensureQuotesFlowing()
+        orchestrator.ensureQuotesFlowing(bundle.symbol)
 
-        assertEquals(0, feeder.publishedQuoteCount)
+        assertEquals(0, symbolFeeder.publishedQuoteCount)
     }
 
     @Test
-    fun dripQuotes_publishesOneQuotePerInterval() = runBlocking {
+    fun enableDrip_publishesOneQuotePerInterval() = runBlocking {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
         val scope = CoroutineScope(coroutineContext + SupervisorJob())
         val clock = ReplayClock(bundle.timeline.sessionStartedEpochMs)
-        val gateway = ReplayMarketDataGateway(bundle)
-        val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
-        val orchestrator = ReplayPlaybackOrchestrator(clock, feeder, scope)
-        orchestrator.attach(RecordingEngine(), InMemoryStrategyDeploymentRepository())
+        val registry = ReplayCaptureRegistry(bundle)
+        val gateway = ReplayMarketDataGateway(registry)
+        val feeder = MultiSymbolQuoteFeeder(registry, quoteBus = null, gateway, clock, scope)
+        val symbolFeeder = feeder.feederForSymbol(bundle.symbol)!!
 
-        val dripJob = launch {
-            orchestrator.dripQuotes(bundle.deploymentId)
-        }
+        feeder.ensureStreaming(bundle.symbol)
+        feeder.enableDrip(bundle.symbol)
 
         delay(1L)
-        assertEquals(1, feeder.publishedQuoteCount)
+        assertEquals(1, symbolFeeder.publishedQuoteCount)
 
         delay(ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS + 5L)
-        assertEquals(2, feeder.publishedQuoteCount)
+        assertEquals(2, symbolFeeder.publishedQuoteCount)
 
-        dripJob.cancel()
+        feeder.releaseStreaming(bundle.symbol)
     }
 
     private fun seededRepository(deploymentId: String, symbol: String): StrategyDeploymentRepository {

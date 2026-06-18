@@ -104,6 +104,8 @@ class TouchTurnEngine(
     private val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? = null,
     /** Returns null when no hybrid capture exists; otherwise the captured session ISO date. */
     private val activateReplayCapture: ((StrategyDeployment) -> String?)? = null,
+    /** Replay: true once playback fast-forward has published opening-bar quotes for [symbol]. */
+    private val isReplayOpeningBarQuotesReady: ((String) -> Boolean)? = null,
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null,
@@ -119,6 +121,7 @@ class TouchTurnEngine(
     private val closedBarRefetchJobs = mutableMapOf<String, Job>()
     private val loadJobs = mutableMapOf<String, Job>()
     private val prepareJobs = mutableMapOf<String, Job>()
+    private val replayLiquidityRetryJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
 
@@ -217,6 +220,30 @@ class TouchTurnEngine(
         closedBarRefetchJobs.remove(instanceId)?.cancel()
         loadJobs.remove(instanceId)?.cancel()
         prepareJobs.remove(instanceId)?.cancel()
+        replayLiquidityRetryJobs.remove(instanceId)?.cancel()
+    }
+
+    private fun replayOpeningBarQuotesReady(symbol: String): Boolean =
+        brokerKind != BrokerKind.REPLAY || isReplayOpeningBarQuotesReady?.invoke(symbol) == true
+
+    private fun scheduleReplayLiquidityRetry(instanceId: String) {
+        if (brokerKind != BrokerKind.REPLAY) return
+        if (replayLiquidityRetryJobs[instanceId]?.isActive == true) return
+        replayLiquidityRetryJobs[instanceId] = scope.launch {
+            try {
+                repeat(400) {
+                    val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
+                    if (instance.status != DeploymentStatus.RUNNING) return@launch
+                    if (replayOpeningBarQuotesReady(instance.symbol)) {
+                        dispatch(TouchTurnCommand.PollLiquidity(instanceId))
+                        return@launch
+                    }
+                    delay(15L)
+                }
+            } finally {
+                replayLiquidityRetryJobs.remove(instanceId)
+            }
+        }
     }
 
     private fun subscribeBrokerFlows() {
@@ -1129,6 +1156,10 @@ class TouchTurnEngine(
         if (instance.status != DeploymentStatus.RUNNING) return
         val session = instance.touchTurnSession ?: return
         if (session.setup != null || session.ordersPlacedForSession) return
+        if (!replayOpeningBarQuotesReady(instance.symbol)) {
+            scheduleReplayLiquidityRetry(instanceId)
+            return
+        }
         val candle = session.candle ?: run {
             scheduleClosedBarRefetch(instanceId)
             return
@@ -1261,6 +1292,10 @@ class TouchTurnEngine(
             instrument = deploymentInstrument,
             rules = rules
         ) ?: return false
+        if (!replayOpeningBarQuotesReady(instance.symbol)) {
+            scheduleReplayLiquidityRetry(instanceId)
+            return false
+        }
         val quote = quoteForSymbol(instance.symbol)
         TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,

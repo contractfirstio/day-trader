@@ -10,7 +10,7 @@ class QuoteFeederTest {
     @Test
     fun publishNext_publishesSequentiallyAndPeekDoesNotAdvance() {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
-        val gateway = ReplayMarketDataGateway(bundle)
+        val gateway = ReplayMarketDataGateway(ReplayCaptureRegistry(bundle))
         val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
 
         assertEquals(2, feeder.totalQuoteCount)
@@ -32,7 +32,7 @@ class QuoteFeederTest {
     @Test
     fun publishSymbolOverride_republishesUnderDeploymentSymbol() {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
-        val gateway = ReplayMarketDataGateway(bundle)
+        val gateway = ReplayMarketDataGateway(ReplayCaptureRegistry(bundle))
         val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
         feeder.publishSymbolOverride = "TSCO"
 

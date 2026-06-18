@@ -112,7 +112,7 @@ class ReplaySessionController(
         var polls = 0
         while (polls < MAX_LIQUIDITY_POLLS) {
             polls++
-            runtime.quoteFeeder.publishUpTo(clock.nowEpochMillis())
+            runtime.quoteFeeder.publishUpTo(bundle.symbol, clock.nowEpochMillis())
             engine.dispatch(TouchTurnCommand.PollLiquidity(bundle.deploymentId))
             yield()
             delay(POLL_YIELD_MS)
@@ -121,7 +121,7 @@ class ReplaySessionController(
             val touchTurn = instance.touchTurnSession ?: break
             if (touchTurn.candle == null && touchTurn.milestones.barClosedAt != null) {
                 clock.advanceBy(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
-                runtime.quoteFeeder.publishUpTo(clock.nowEpochMillis())
+                runtime.quoteFeeder.publishUpTo(bundle.symbol, clock.nowEpochMillis())
             }
             if (touchTurn.decisionOutcome != null &&
                 DeploymentSessionStopLogic.shouldStopAfterNoTradeDecision(instance)
