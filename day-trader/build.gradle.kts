@@ -68,6 +68,8 @@ kotlin {
                 implementation(libs.junit)
                 implementation("io.cucumber:cucumber-java:7.20.1")
                 implementation("io.cucumber:cucumber-junit:7.20.1")
+                // CucumberTestSuite uses JUnit 4 @RunWith — vintage engine runs it on JUnit Platform.
+                runtimeOnly("org.junit.vintage:junit-vintage-engine:5.11.4")
             }
         }
     }
@@ -75,6 +77,17 @@ kotlin {
 
 tasks.named<Test>("desktopTest") {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = false
+    }
+}
+
+/** Convenience alias — the KMP desktop target exposes `desktopTest`, not `test`. */
+tasks.register("test") {
+    group = "verification"
+    description = "Runs unit and E2E tests (alias for desktopTest)."
+    dependsOn(tasks.named("desktopTest"))
 }
 
 compose.desktop {

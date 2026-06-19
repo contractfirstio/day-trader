@@ -76,6 +76,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.strategies.StartBlockedAlertMapper
 import daytrader.presentation.strategies.StrategyDetailTab
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -717,6 +719,8 @@ class TouchTurnEngine(
     private fun handleLoadFirstCandle(instanceId: String, sessionDate: String) {
         loadJobs[instanceId]?.cancel()
         loadJobs[instanceId] = scope.launch {
+            val activeJob = coroutineContext[Job] ?: return@launch
+            fun stillActiveLoad(): Boolean = loadJobs[instanceId] === activeJob
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return@launch
             if (!instance.isTouchTurn) return@launch
             val symbol = instance.symbol
@@ -736,6 +740,7 @@ class TouchTurnEngine(
                 if (instance.status == DeploymentStatus.RUNNING) {
                     marketData.ensureStreaming(symbol, instrument)
                 }
+                if (!stillActiveLoad()) return@launch
                 val ctx = prepared.signalContext
                 repository.update(instanceId) { current ->
                     current.withFirstFifteenMinuteCandle(
@@ -771,6 +776,7 @@ class TouchTurnEngine(
                     marketZoneId = zoneId,
                     rules = instance.effectiveTouchTurnRules()
                 )
+                if (!stillActiveLoad()) return@launch
                 repository.update(instanceId) { current ->
                     fetched.fold(
                         onSuccess = { context ->
@@ -796,9 +802,11 @@ class TouchTurnEngine(
                 }
                 fetched
             }
+            if (!stillActiveLoad()) return@launch
             if (signalResult.isFailure) {
-                val message = signalResult.exceptionOrNull()?.message
-                    ?: "Failed to load Touch Turn signal context"
+                val cause = signalResult.exceptionOrNull()
+                if (cause is CancellationException) return@launch
+                val message = cause?.message ?: "Failed to load Touch Turn signal context"
                 SessionTrace.touchTurnData(
                     deploymentId = instanceId,
                     sessionId = sessionId,

@@ -10,8 +10,11 @@ import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+
 class E2EWorld {
-    val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var _scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val scope: CoroutineScope get() = _scope
     val repository: InMemoryStrategyDeploymentRepository = InMemoryStrategyDeploymentRepository()
 
     var brokerMode: String = "emulator"
@@ -36,6 +39,8 @@ class E2EWorld {
         engine = null
         driver = null
         repository.deployments.value.toList().forEach { repository.remove(it.id) }
+        _scope.cancel()
+        _scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 
     fun configureEmulatorHarness(factory: (CoroutineScope) -> EmulatorModeTestHarness) {

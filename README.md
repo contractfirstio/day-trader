@@ -231,12 +231,23 @@ This opens the Day Trader window (navigation: **Positions** | **Strategies**). S
 ### Other Gradle tasks
 
 ```bash
-# Run unit/UI tests (when present under commonTest)
-./gradlew :day-trader:desktopTest
+# Run all tests (unit + desktop + Cucumber E2E). Force execution if Gradle serves FROM-CACHE:
+./gradlew :day-trader:desktopTest --rerun-tasks
+
+# Shorthand alias (same as desktopTest):
+./gradlew :day-trader:test
+
+# Cucumber E2E only (emulator / hybrid / IB feature files):
+./gradlew :day-trader:desktopTest --tests "daytrader.e2e.CucumberTestSuite" --rerun-tasks
+
+# HTML report:
+# day-trader/build/reports/tests/desktopTest/index.html
 
 # Package a native installer for the current OS
 ./gradlew :day-trader:packageDistributionForCurrentOS
 ```
+
+Note: `./gradlew test` at the repo root without `:day-trader:` fails — there is no root `test` task. Tests live in the `:day-trader` module as `desktopTest`.
 
 Native distribution targets (see `day-trader/build.gradle.kts`): DMG (macOS), MSI (Windows), Deb (Linux). Package name: `DayTrader`, version `1.0.0`.
 

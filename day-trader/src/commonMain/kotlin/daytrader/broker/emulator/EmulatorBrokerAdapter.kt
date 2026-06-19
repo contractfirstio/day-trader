@@ -368,15 +368,15 @@ class EmulatorBrokerAdapter(
     }
 
     override fun shutdown() {
-        engine.handleShutdown()
-        quoteBus?.unsubscribe(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
-        controlChannel.close()
         commandLoopJob?.cancel()
         marketJob?.cancel()
         orderJob?.cancel()
         quoteCollectorJob?.cancel()
         orderActorJob?.cancel()
         pricingActorJob?.cancel()
+        controlChannel.close()
+        engine.handleShutdown()
+        quoteBus?.unsubscribe(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
     }
 
     private sealed interface EmulatorControlMessage {

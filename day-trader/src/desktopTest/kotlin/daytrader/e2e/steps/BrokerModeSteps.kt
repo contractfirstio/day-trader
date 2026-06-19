@@ -3,6 +3,7 @@ package daytrader.e2e.steps
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorPricingSource
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
@@ -31,6 +32,18 @@ import kotlinx.coroutines.runBlocking
 
 class BrokerModeSteps {
     private val world = E2EWorld()
+
+    private val liquidityEvalNoBracketOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+        TouchTurnSessionOutcome.NO_TRADE_DOJI,
+        TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_BOUNCE_DATA_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+    )
 
     @Before
     fun resetWorld() {
@@ -151,11 +164,16 @@ class BrokerModeSteps {
 
     private fun seedClosedBar(bar: daytrader.domain.OhlcBar) {
         world.repository.update(activeDeploymentId()) { current ->
-            current
+            val rules = (current.touchTurnRules ?: TouchTurnRuleConfig.DEFAULT).copy(
+                enables = (current.touchTurnRules?.enables ?: TouchTurnRuleConfig.DEFAULT.enables)
+                    .copy(liquidityRangeDailyAtr = true)
+            )
+            current.copy(touchTurnRules = rules)
                 .withFirstFifteenMinuteCandle(
                     sessionDate = E2ETestFixtures.SESSION_DATE,
                     candle = bar,
                     atr14 = E2ETestFixtures.ATR14,
+                    dailyAtr14 = E2ETestFixtures.ATR14,
                     volumeSma20 = E2ETestFixtures.VOLUME_SMA20
                 )
                 .withOpeningBarClosedMilestone()
@@ -201,23 +219,31 @@ class BrokerModeSteps {
     @When("the Touch Turn engine starts")
     fun touchTurnEngineStarts() = runBlocking {
         val engine = when (world.brokerMode) {
-            "emulator" -> world.activeEmulatorHarness().createEngine(world.repository)
-            "hybrid" -> world.activeHybridHarness().createEngine(world.repository)
-            "ib" -> world.activeIbHarness().createEngine(world.repository, world.scope)
+            "emulator" -> {
+                val harness = world.activeEmulatorHarness()
+                harness.createEngine(world.repository).also { world.engine = it }
+            }
+            "hybrid" -> {
+                val harness = world.activeHybridHarness()
+                harness.createEngine(world.repository).also { world.engine = it }
+            }
+            "ib" -> {
+                val harness = world.activeIbHarness()
+                harness.createEngine(world.repository, world.scope).also { world.engine = it }
+            }
             else -> error("Unknown broker mode: ${world.brokerMode}")
         }
-        world.engine = engine
         world.driver = E2ESessionDriver(engine, world.repository)
-        when (world.brokerMode) {
-            "emulator" -> world.activeEmulatorHarness().start()
-            "hybrid" -> {
-                world.activeHybridHarness().start()
-                seedHybridLiveQuote()
-            }
-            "ib" -> world.activeIbHarness().start()
+        if (world.brokerMode == "hybrid") {
+            seedHybridLiveQuote()
         }
         world.driver!!.startEngine()
-        // Avoid BrokerConnected bootstrap retry clobbering pre-seeded READY sessions.
+        when (world.brokerMode) {
+            "emulator" -> world.activeEmulatorHarness().start()
+            "hybrid" -> world.activeHybridHarness().start()
+            "ib" -> world.activeIbHarness().start()
+            else -> error("Unknown broker mode: ${world.brokerMode}")
+        }
         delay(100)
     }
 
@@ -252,7 +278,10 @@ class BrokerModeSteps {
 
         val deployment = world.repository.deployments.value.first()
         val session = deployment.touchTurnSession
-        if (session?.entryOrdersPermitted == true && session.setup != null) {
+        val mayPlaceBracket = session?.entryOrdersPermitted == true &&
+            session.setup != null &&
+            session.decisionOutcome !in liquidityEvalNoBracketOutcomes
+        if (mayPlaceBracket) {
             val plan = TouchTurnOrderPlanner.buildOrderPlan(
                 symbol = deployment.symbol,
                 setup = session.setup,
@@ -301,8 +330,17 @@ class BrokerModeSteps {
                 "hybrid" -> world.activeHybridHarness().start()
             }
         }
+        if (world.brokerMode == "emulator") {
+            world.activeEmulatorHarness().adapter.ensureStreamingMarketData(symbol)
+        }
         gateway.placeTouchTurnBracket(E2EBracketHelper.liquidityPlan(symbol))
-        delay(200)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            if (gateway.openOrders.value.any { it.symbol == symbol.uppercase() && it.remaining > 0 }) {
+                return@runBlocking
+            }
+            delay(50)
+        }
     }
 
     @When("an external quote is published for {string}")

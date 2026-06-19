@@ -3,6 +3,7 @@ package daytrader.e2e.support
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.engine.TouchTurnCommand
@@ -18,19 +19,35 @@ class E2ESessionDriver(
         repository.add(deployment)
     }
 
+    /**
+     * Starts the command loop. E2E steps drive bootstrap explicitly via [loadFirstCandle] so we do
+     * not dispatch [TouchTurnCommand.BrokerConnected] here — that would race a second
+     * [TouchTurnCommand.LoadFirstCandle] and leave the session stuck in LOADING.
+     */
     suspend fun startEngine() {
         engine.start()
-        engine.dispatch(TouchTurnCommand.BrokerConnected)
     }
 
     suspend fun loadFirstCandle(
         deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
         sessionDate: String = E2ETestFixtures.SESSION_DATE
     ) {
-        engine.dispatch(
-            TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate)
-        )
-        awaitCandleReady(deploymentId)
+        val deployment = repository.deployments.value.firstOrNull { it.id == deploymentId }
+        val session = deployment?.touchTurnSession
+        when {
+            deployment?.status == DeploymentStatus.STOPPED &&
+                session?.status == TouchTurnCandleStatus.FAILED -> {
+                repository.update(deploymentId) {
+                    it.copy(status = DeploymentStatus.RUNNING).beginTouchTurnSession(sessionDate)
+                }
+                engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
+            }
+            session?.status != TouchTurnCandleStatus.READY &&
+                session?.status != TouchTurnCandleStatus.LOADING -> {
+                engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
+            }
+        }
+        awaitCandleReady(deploymentId, timeoutMs = 30_000)
         delay(250)
     }
 

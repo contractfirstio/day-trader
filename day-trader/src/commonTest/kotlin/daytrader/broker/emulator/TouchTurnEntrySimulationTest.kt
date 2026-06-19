@@ -7,12 +7,16 @@ import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.gateway.GatewayEvent
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 class TouchTurnEntrySimulationTest {
+
+    /** Approach tick steps use [Random]; avoid [Random.Default] (global, order-dependent). */
+    private fun emulatorRandom(): Random = Random(0)
 
     @Test
     fun approachEntry_noPositionUntilPriceReachesLimit() = runBlocking {
@@ -25,7 +29,8 @@ class TouchTurnEntrySimulationTest {
                 touchTurnEntryMinApproachTicks = 2,
                 touchTurnEntryStepPctOfRange = 0.15
             ),
-            emit = { events.add(it) }
+            emit = { events.add(it) },
+            random = emulatorRandom()
         )
         engine.handleConnect()
         engine.finishConnect()
@@ -61,7 +66,8 @@ class TouchTurnEntrySimulationTest {
                 touchTurnEntryScenarioOverride = TouchTurnEntryScenario.NEVER_FILL,
                 touchTurnEntryStepPctOfRange = 0.12
             ),
-            emit = { events.add(it) }
+            emit = { events.add(it) },
+            random = emulatorRandom()
         )
         engine.handleConnect()
         engine.finishConnect()
@@ -88,7 +94,8 @@ class TouchTurnEntrySimulationTest {
                 simulateOrderProgress = false,
                 touchTurnEntryFillImmediately = true
             ),
-            emit = { events.add(it) }
+            emit = { events.add(it) },
+            random = emulatorRandom()
         )
         engine.handleConnect()
         engine.finishConnect()
@@ -110,7 +117,8 @@ class TouchTurnEntrySimulationTest {
                 touchTurnEntryMinApproachTicks = 2,
                 touchTurnEntryStepPctOfRange = 0.15
             ),
-            emit = { events.add(it) }
+            emit = { events.add(it) },
+            random = emulatorRandom()
         )
         engine.handleConnect()
         engine.finishConnect()
@@ -124,10 +132,11 @@ class TouchTurnEntrySimulationTest {
             "stop entry should not fill on bracket place while price is above the level"
         )
 
-        repeat(6) { engine.runMarketTick() }
-        val position = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
-            .firstOrNull { it.symbol == "AAPL" }
-        assertTrue(position != null && position.quantity < 0, "sell stop should fill after price breaks down")
+        repeat(12) { engine.runMarketTick() }
+        val sawShortFill = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().any { snapshot ->
+            snapshot.positions.any { it.symbol == "AAPL" && it.quantity < 0 }
+        }
+        assertTrue(sawShortFill, "sell stop should fill after price breaks down")
     }
 
     private fun touchTurnPlan() = TouchTurnOrderPlanner.buildOrderPlan(

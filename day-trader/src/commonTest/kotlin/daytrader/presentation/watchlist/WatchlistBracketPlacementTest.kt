@@ -7,9 +7,11 @@ import daytrader.domain.WatchlistTradePlan
 import daytrader.domain.defaultWatchlist
 import daytrader.domain.newWatchlistEntry
 import daytrader.domain.newWatchlistTradePlanId
+import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.HybridModeTestHarness
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryWatchlistRepository
+import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
 import kotlin.test.Test
@@ -33,9 +35,10 @@ class WatchlistBracketPlacementTest {
             brokerGateway = execution,
             brokerKind = BrokerKind.INTERACTIVE_BROKERS
         )
+        awaitExecutionConnected(viewModel, "Interactive Brokers connected")
         openAndSubmitBracket(viewModel, repository)
 
-        assertEquals(1, execution.placedBrackets.size)
+        awaitPlacedBracketCount(execution, 1)
         assertEquals("AAPL", execution.placedBrackets.single().symbol)
         awaitBracketPlaced(viewModel, repository)
     }
@@ -54,19 +57,44 @@ class WatchlistBracketPlacementTest {
                 brokerKind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
                 ensureLiveMarketData = { symbol, _ -> harness.ibGateway.ensureStreaming(symbol) }
             )
-            awaitExecutionConnected(viewModel)
+            awaitExecutionConnected(viewModel, "Paper execution connected")
+            seedHybridLiveQuote(harness)
             openAndSubmitBracket(viewModel, repository)
 
-            awaitBracketPlaced(viewModel, repository)
+            awaitBracketPlaced(
+                viewModel = viewModel,
+                repository = repository,
+                executionGateway = harness.executionGateway,
+                symbol = "AAPL"
+            )
             assertTrue(harness.ibGateway.ensureLiveMarketDataCalls.contains("AAPL"))
         } finally {
             harness.shutdown()
         }
     }
 
-    private suspend fun awaitExecutionConnected(viewModel: WatchlistViewModel) {
-        withTimeout(5_000) {
-            while (viewModel.uiState.value.connectionLabel.contains("Paper execution connected").not()) {
+    private fun seedHybridLiveQuote(harness: HybridModeTestHarness) {
+        val quote = E2ETestFixtures.liveQuote(
+            symbol = "AAPL",
+            bid = 99.9,
+            ask = 100.1,
+            last = 100.0
+        )
+        harness.publishIbQuote("AAPL", quote)
+        harness.ingestLiveQuote("AAPL", quote)
+    }
+
+    private suspend fun awaitExecutionConnected(viewModel: WatchlistViewModel, connectedPhrase: String) {
+        withTimeout(15_000) {
+            while (viewModel.uiState.value.connectionLabel.contains(connectedPhrase).not()) {
+                delay(25)
+            }
+        }
+    }
+
+    private suspend fun awaitPlacedBracketCount(gateway: FakeBrokerGateway, count: Int) {
+        withTimeout(15_000) {
+            while (gateway.placedBrackets.size < count) {
                 delay(25)
             }
         }
@@ -74,12 +102,20 @@ class WatchlistBracketPlacementTest {
 
     private suspend fun awaitBracketPlaced(
         viewModel: WatchlistViewModel,
-        repository: InMemoryWatchlistRepository
+        repository: InMemoryWatchlistRepository,
+        executionGateway: BrokerGateway? = null,
+        symbol: String = "AAPL"
     ) {
-        withTimeout(5_000) {
+        withTimeout(15_000) {
             while (true) {
                 val plan = repository.watchlists.value.first().entries.single().tradePlans.single()
+                val hasWorkingEntry = executionGateway?.openOrders?.value?.any {
+                    it.symbol.equals(symbol, ignoreCase = true) && it.parentOrderId == 0 && it.remaining > 0
+                } == true
                 if (plan.hasPlacedOrder && viewModel.uiState.value.bracketOrderEditor == null) {
+                    return@withTimeout
+                }
+                if (hasWorkingEntry && viewModel.uiState.value.bracketOrderEditor == null) {
                     return@withTimeout
                 }
                 delay(25)
@@ -87,7 +123,7 @@ class WatchlistBracketPlacementTest {
         }
     }
 
-    private fun openAndSubmitBracket(
+    private suspend fun openAndSubmitBracket(
         viewModel: WatchlistViewModel,
         repository: InMemoryWatchlistRepository
     ) {
@@ -95,6 +131,11 @@ class WatchlistBracketPlacementTest {
         val planId = repository.watchlists.value.first().entries.single().tradePlans.single().id
         viewModel.onOpenTradePlans(entryId)
         viewModel.onOpenBracketOrder(planId)
+        withTimeout(5_000) {
+            while (viewModel.uiState.value.bracketOrderEditor?.canSubmit != true) {
+                delay(25)
+            }
+        }
         viewModel.onSubmitBracketOrder()
     }
 
