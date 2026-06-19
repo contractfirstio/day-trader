@@ -92,7 +92,11 @@ class ReplayHybridRuntime(
     }
 
     fun releaseStreamingMarketData(symbol: String) {
-        quoteFeeder.releaseStreaming(symbol)
+        if (quoteFeeder.releaseStreaming(symbol)) {
+            marketDataGateway.clearLiveStateForSymbol(symbol)
+            captureRegistry.evictSymbol(symbol)
+            executionGateway.requestSymbolSessionPrune(symbol)
+        }
     }
 
     /**

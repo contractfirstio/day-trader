@@ -86,13 +86,40 @@ class BrokerEmulatorEngine(
      */
     fun ensureStreamingMarketData(
         symbol: String,
-        instrument: daytrader.domain.InstrumentIdentity? = null
+        instrument: daytrader.domain.InstrumentIdentity? = null,
+        referencePrice: Double? = null
     ) {
         if (!config.pricingSource.isSynthetic) return
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         if (norm.isBlank()) return
-        if (!incrementStreamRefCount(norm)) return
-        seedSymbolQuote(norm)
+        referencePrice?.takeIf { it > 0.0 }?.let { price ->
+            val currency = instrument?.currency?.takeIf { it.isNotBlank() }
+                ?: resolveInstrument(norm)?.currency
+                ?: "USD"
+            ensureInstrument(norm, currency, price, instrument)
+        }
+        incrementStreamRefCount(norm)
+        if (referencePrice != null || !quoteBook.hasCompleteBidAsk(norm)) {
+            seedSymbolQuote(norm, referencePrice)
+        }
+        publishQuotes()
+    }
+
+    fun seedSyntheticQuote(symbol: String, bid: Double, ask: Double, last: Double) {
+        if (!config.pricingSource.isSynthetic) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank() || bid <= 0.0 || ask <= 0.0 || ask < bid) return
+        incrementStreamRefCount(norm)
+        val halfSpread = (ask - bid) / 2.0
+        quoteBook.seedSymbol(
+            norm,
+            EmulatorMarketQuote(
+                last = last,
+                bid = bid,
+                ask = ask,
+                halfSpread = halfSpread
+            )
+        )
         publishQuotes()
     }
 
@@ -172,6 +199,7 @@ class BrokerEmulatorEngine(
         bracketEntryPending.clear()
         sessionFills.clear()
         quoteBook.clear()
+        streamSubscriptionRefCount.clear()
         firstCandleFetchCount = 0
         lockedCandleFetchIndexBySymbol.clear()
         touchTurnSymbolByZone.clear()
@@ -181,6 +209,36 @@ class BrokerEmulatorEngine(
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         emit(GatewayEvent.FillsSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
+    }
+
+    /**
+     * Clears retained orders, positions, and fills for [symbol] while other parallel sessions
+     * continue running on the shared emulator gateway.
+     */
+    fun pruneSymbolSessionState(symbol: String) {
+        if (!connected) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (norm.isBlank()) return
+        sessionFills.removeAll { SymbolMarkets.symbolsMatch(norm, it.symbol) }
+        positions.removeAll { SymbolMarkets.symbolsMatch(norm, it.instrument.symbol) }
+        val removedOrderIds = orders.entries
+            .filter { (_, order) -> SymbolMarkets.symbolsMatch(norm, order.symbol) }
+            .map { it.key }
+        removedOrderIds.forEach { orderId ->
+            orders.remove(orderId)
+            openOrderBook.removeOrder(orderId)
+            bracketManagedOrderIds.remove(orderId)
+        }
+        bracketPriceWalks.remove(norm)
+        pendingBracketWalks.remove(norm)
+        bracketEntryPending.remove(norm)
+        lockedCandleFetchIndexBySymbol.remove(norm)
+        touchTurnSymbolByZone.entries.removeIf { (_, sym) -> SymbolMarkets.symbolsMatch(norm, sym) }
+        dynamicInstruments.remove(norm)
+        externalFeedReadyLogged.remove(norm)
+        publishPositions()
+        publishOrders()
+        publishFills()
     }
 
     suspend fun fetchFirstFifteenMinuteCandle(requestId: Long, symbol: String) {
@@ -909,10 +967,10 @@ class BrokerEmulatorEngine(
         orders = mutableMapOf()
     }
 
-    private fun seedSymbolQuote(symbol: String) {
+    private fun seedSymbolQuote(symbol: String, referencePriceOverride: Double? = null) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val instrument = resolveInstrument(norm) ?: return
-        val ref = instrument.referencePrice
+        val ref = referencePriceOverride?.takeIf { it > 0.0 } ?: instrument.referencePrice
         val spread = EmulatorMarketQuoteBook.spreadForBracketRange(
             range = ref * 0.02,
             referencePrice = ref,

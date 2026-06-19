@@ -94,7 +94,7 @@ compose.desktop {
     application {
         mainClass = "MainKt"
         jvmArgs += listOf(
-            "-Xmx8g",
+            "-Xmx32g",
             "-Dapple.awt.application.name=Day Trader",
             "-Dapple.laf.useScreenMenuBar=true",
         )

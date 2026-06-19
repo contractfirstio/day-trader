@@ -35,6 +35,11 @@ internal class EmulatorQuoteBook(
     fun quoteOrNull(symbol: String): EmulatorMarketQuote? =
         quotes[SymbolMarkets.normalizeSymbol(symbol)]
 
+    fun hasCompleteBidAsk(symbol: String): Boolean {
+        val quote = quoteOrNull(symbol) ?: return false
+        return quote.bid > 0.0 && quote.ask > 0.0 && quote.ask >= quote.bid
+    }
+
     fun quoteFor(symbol: String, createDefault: () -> EmulatorMarketQuote): EmulatorMarketQuote {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         return quotes.getOrPut(norm, createDefault)

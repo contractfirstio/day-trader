@@ -531,6 +531,58 @@ object TouchTurnLogic {
         }
     }
 
+    /**
+     * Synthetic bid/ask for pure emulator invert placement when the quote book is empty or would
+     * instantly trigger entry+stop. Centers on [referenceMid] (typically bar close) and nudges
+     * inside the bracket so [invertPlacementBlockOutcome] returns null.
+     */
+    fun syntheticBidAskForInvertPlacement(
+        plan: TouchTurnOrderPlan,
+        setup: TouchTurnBracketSetup,
+        referenceMid: Double
+    ): Pair<Double, Double> {
+        val mid = referenceMid.takeIf { it > 0.0 } ?: setup.entry
+        val spread = kotlin.math.max(
+            setup.range * 0.001,
+            mid * 1e-4
+        ).coerceAtLeast(0.01)
+        var bid = mid - spread / 2.0
+        var ask = mid + spread / 2.0
+        val entryLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY } ?: return bid to ask
+        val stopLeg = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.STOP_LOSS } ?: return bid to ask
+        when (plan.side) {
+            TouchTurnTradeSide.LONG -> {
+                if (entryLeg.orderType.uppercase() == "STP" &&
+                    stopEntryTriggered(entryLeg.action, bid, ask, entryLeg.price)
+                ) {
+                    ask = entryLeg.price - spread
+                    bid = ask - spread
+                }
+                if (protectiveStopWouldTriggerForSide(TouchTurnTradeSide.LONG, bid, ask, stopLeg.price)) {
+                    bid = stopLeg.price + spread
+                    ask = bid + spread
+                }
+            }
+            TouchTurnTradeSide.SHORT -> {
+                if (entryLeg.orderType.uppercase() == "STP" &&
+                    stopEntryTriggered(entryLeg.action, bid, ask, entryLeg.price)
+                ) {
+                    bid = entryLeg.price + spread
+                    ask = bid + spread
+                }
+                if (protectiveStopWouldTriggerForSide(TouchTurnTradeSide.SHORT, bid, ask, stopLeg.price)) {
+                    ask = stopLeg.price - spread
+                    bid = ask - spread
+                }
+            }
+        }
+        if (bid <= 0.0 || ask <= bid) {
+            bid = (mid - spread / 2.0).coerceAtLeast(0.01)
+            ask = bid + spread
+        }
+        return bid to ask
+    }
+
     fun liveCloseConfirmsTurn(
         setup: TouchTurnBracketSetup,
         bar: OhlcBar,

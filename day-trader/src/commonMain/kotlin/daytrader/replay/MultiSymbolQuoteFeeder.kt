@@ -79,13 +79,17 @@ class MultiSymbolQuoteFeeder(
         startMergedDripIfNeeded()
     }
 
-    fun releaseStreaming(symbol: String) {
+    /** @return true when no subscribers remain for [symbol]. */
+    fun releaseStreaming(symbol: String): Boolean {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
-        if (norm.isBlank()) return
+        if (norm.isBlank()) return false
         val next = (streamRefCount[norm] ?: 0) - 1
-        if (next <= 0) {
+        val fullyReleased = next <= 0
+        if (fullyReleased) {
             streamRefCount.remove(norm)
             dripEnabled.remove(norm)
+            openingBarQuotesReady.remove(norm)
+            feeders.remove(norm)
         } else {
             streamRefCount[norm] = next
         }
@@ -93,7 +97,14 @@ class MultiSymbolQuoteFeeder(
             mergedDripJob?.cancel()
             mergedDripJob = null
         }
+        return fullyReleased
     }
+
+    fun isStreaming(symbol: String): Boolean =
+        (streamRefCount[SymbolMarkets.normalizeSymbol(symbol)] ?: 0) > 0
+
+    internal fun cachedFeederForSymbol(symbol: String): QuoteFeeder? =
+        feeders[SymbolMarkets.normalizeSymbol(symbol)]
 
     fun publishUpTo(symbol: String, epochMs: Long) {
         feederForSymbol(symbol)?.publishUpTo(epochMs)

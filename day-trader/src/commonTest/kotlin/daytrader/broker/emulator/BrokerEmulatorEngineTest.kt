@@ -111,6 +111,28 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
+    fun ensureStreaming_afterResetSessionState_reseedsQuotes() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(connectDelayMs = 1),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+        engine.ensureStreamingMarketData("700", referencePrice = 380.75)
+        engine.resetSessionState()
+        events.clear()
+
+        engine.ensureStreamingMarketData("700", referencePrice = 380.75)
+
+        val quotes = events.filterIsInstance<GatewayEvent.QuotesSnapshot>().last().quotes
+        val quote = quotes["700"]
+        assertTrue(quote != null)
+        assertTrue((quote.bid ?: 0.0) > 0.0)
+        assertTrue((quote.ask ?: 0.0) > (quote.bid ?: 0.0))
+    }
+
+    @Test
     fun liveIbMode_doesNotFillUntilAskCrossesBuyLimit() = runBlocking {
         val events = mutableListOf<GatewayEvent>()
         val engine = BrokerEmulatorEngine(

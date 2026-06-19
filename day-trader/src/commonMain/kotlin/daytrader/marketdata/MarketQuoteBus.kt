@@ -43,7 +43,15 @@ class MarketQuoteBus(
         return channel
     }
 
-    /** FIFO queue that never drops ticks (emulator fill evaluation). */
+    /** Bounded FIFO for emulator; drops oldest under burst load (pricing actor coalesces per symbol). */
+    fun subscribeForEmulator(subscriberId: String = EMULATOR_SUBSCRIBER_ID): ReceiveChannel<QuoteUpdate> =
+        subscribe(
+            subscriberId = subscriberId,
+            capacity = EMULATOR_SUBSCRIBER_BUFFER,
+            onOverflow = BufferOverflow.DROP_OLDEST
+        )
+
+    /** @deprecated Prefer [subscribeForEmulator]; unbounded channels risk heap growth under load. */
     fun subscribeUnlimited(subscriberId: String): ReceiveChannel<QuoteUpdate> =
         subscribe(subscriberId, capacity = Channel.UNLIMITED)
 
@@ -106,6 +114,7 @@ class MarketQuoteBus(
         const val EMULATOR_SUBSCRIBER_ID = "emulator-exchange"
         const val UI_SUBSCRIBER_ID = "ui-quotes"
         const val DEFAULT_SUBSCRIBER_BUFFER = 4_096
+        const val EMULATOR_SUBSCRIBER_BUFFER = 1_024
         const val UI_SUBSCRIBER_BUFFER = 512
     }
 }

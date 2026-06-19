@@ -224,6 +224,9 @@ class DesktopIbGatewayConnection(
                         return@launch
                     }
                     GatewayCommand.ResetSessionState -> Unit
+                    is GatewayCommand.PruneSymbolSessionState -> Unit
+                    is GatewayCommand.EnsureStreamingMarketData -> Unit
+                    is GatewayCommand.SeedSyntheticQuote -> Unit
                     is GatewayCommand.FetchFourteenDayAdr ->
                         scope.launch {
                             requestFourteenDayAdr(command.requestId, command.symbol, command.instrument)

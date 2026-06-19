@@ -67,6 +67,11 @@ class ReplayMarketDataGateway(
         }
     }
 
+    fun clearLiveStateForSymbol(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        _quotes.value = _quotes.value - norm
+    }
+
     fun clearLiveState() {
         _quotes.value = emptyMap()
         _positions.value = emptyList()

@@ -637,6 +637,19 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun invertPlacementBlockOutcome_nullWhenSyntheticBidAskProvided() {
+        val bar = OhlcBar(open = 380.33, high = 383.77, low = 379.92, close = 380.75, volume = 344_160.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = true)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 0.5, rules = rules)!!
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup, maxDollars = 500, rules = rules)!!
+        val (bid, ask) = TouchTurnLogic.syntheticBidAskForInvertPlacement(plan, setup, bar.close)
+        assertEquals(
+            null,
+            TouchTurnLogic.invertPlacementBlockOutcome(plan, bid, ask, rules)
+        )
+    }
+
+    @Test
     fun stopEntryTriggered_buyStop_whenAskCrossesEntry() {
         assertTrue(TouchTurnLogic.stopEntryTriggered("BUY", bid = 99.0, ask = 100.0, stopPrice = 100.0))
         assertFalse(TouchTurnLogic.stopEntryTriggered("BUY", bid = 99.0, ask = 99.5, stopPrice = 100.0))

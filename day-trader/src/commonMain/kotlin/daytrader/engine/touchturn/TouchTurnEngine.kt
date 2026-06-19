@@ -71,8 +71,13 @@ import daytrader.domain.TouchTurnOrderRole
 import daytrader.execution.ExecutionManager
 import daytrader.marketdata.MarketDataProvider
 import daytrader.engine.touchturn.TouchTurnPrepareRunner
+import daytrader.engine.touchturn.AutoStopCheckSnapshot
+import daytrader.engine.BrokerSnapshotSource
+import daytrader.engine.touchturn.BrokerSnapshotMerger
+import daytrader.engine.touchturn.BrokerSnapshotStopScope
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.strategies.StartBlockedAlertMapper
 import daytrader.presentation.strategies.StrategyDetailTab
@@ -125,6 +130,7 @@ class TouchTurnEngine(
     private val prepareJobs = mutableMapOf<String, Job>()
     private val replayLiquidityRetryJobs = mutableMapOf<String, Job>()
     private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
+    private val lastLoggedAutoStopCheck = mutableMapOf<String, AutoStopCheckSnapshot>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
 
     private data class PendingBracketPlacement(
@@ -195,6 +201,7 @@ class TouchTurnEngine(
             stuckFormingLogged.clear()
             pendingBracketPlacements.clear()
             tracedFillExecIdsByInstance.clear()
+            lastLoggedAutoStopCheck.clear()
             cancelPerInstanceJobs()
         }
         clearBrokerSnapshotsIfIdle()
@@ -204,6 +211,7 @@ class TouchTurnEngine(
         stuckFormingLogged.remove(instanceId)
         pendingBracketPlacements.remove(instanceId)
         tracedFillExecIdsByInstance.remove(instanceId)
+        lastLoggedAutoStopCheck.remove(instanceId)
     }
 
     private fun clearBrokerSnapshotsIfIdle() {
@@ -255,6 +263,7 @@ class TouchTurnEngine(
                 brokerPositions.value = positions
                 dispatch(
                     TouchTurnCommand.BrokerSnapshot(
+                        source = BrokerSnapshotSource.POSITIONS,
                         positions = positions,
                         openOrders = brokerOpenOrders.value,
                         fills = brokerFills.value
@@ -267,6 +276,7 @@ class TouchTurnEngine(
                 brokerOpenOrders.value = orders
                 dispatch(
                     TouchTurnCommand.BrokerSnapshot(
+                        source = BrokerSnapshotSource.OPEN_ORDERS,
                         positions = brokerPositions.value,
                         openOrders = orders,
                         fills = brokerFills.value
@@ -279,6 +289,7 @@ class TouchTurnEngine(
                 brokerFills.value = fills
                 dispatch(
                     TouchTurnCommand.BrokerSnapshot(
+                        source = BrokerSnapshotSource.FILLS,
                         positions = brokerPositions.value,
                         openOrders = brokerOpenOrders.value,
                         fills = fills
@@ -540,6 +551,7 @@ class TouchTurnEngine(
         repository.update(command.instanceId) { stopped }
         repository.flushPersistence()
         maybeReleaseLiveMarketData(stopped)
+        maybePruneSymbolBrokerState(stopped)
         val sessionId = instance.inProgressSession()?.id
         emit(TouchTurnEvent.SessionStopped(command.instanceId, sessionId, command.trigger))
         emit(TouchTurnEvent.UiNavigate(command.instanceId, StrategyDetailTab.SESSION_HISTORY))
@@ -572,12 +584,36 @@ class TouchTurnEngine(
     }
 
     private fun handleBrokerSnapshot(command: TouchTurnCommand.BrokerSnapshot) {
-        brokerPositions.value = command.positions
-        brokerOpenOrders.value = command.openOrders
-        brokerFills.value = command.fills
-        traceNewSessionFills(command.fills, command.positions)
-        recordTouchTurnPositionMilestones(command.positions)
-        handlePollStopRules(snapshot = command)
+        val previousPositions = brokerPositions.value
+        val previousOpenOrders = brokerOpenOrders.value
+        val previousFills = brokerFills.value
+        val (nextPositions, nextOpenOrders, nextFills) = BrokerSnapshotMerger.apply(
+            source = command.source,
+            command = command,
+            currentPositions = previousPositions,
+            currentOpenOrders = previousOpenOrders,
+            currentFills = previousFills
+        )
+        brokerPositions.value = nextPositions
+        brokerOpenOrders.value = nextOpenOrders
+        brokerFills.value = nextFills
+        val affectedSymbols = BrokerSnapshotStopScope.affectedSymbols(
+            previousPositions = previousPositions,
+            previousOpenOrders = previousOpenOrders,
+            previousFills = previousFills,
+            positions = nextPositions,
+            openOrders = nextOpenOrders,
+            fills = nextFills
+        )
+        traceNewSessionFills(nextFills, nextPositions)
+        recordTouchTurnPositionMilestones(nextPositions)
+        if (affectedSymbols.isNotEmpty()) {
+            handlePollStopRules(
+                snapshot = null,
+                logChecks = false,
+                affectedSymbols = affectedSymbols
+            )
+        }
     }
 
     private fun recordTouchTurnPositionMilestones(positions: List<daytrader.gateway.AccountPosition>) {
@@ -610,18 +646,28 @@ class TouchTurnEngine(
         }
     }
 
-    private fun handlePollStopRules(snapshot: TouchTurnCommand.BrokerSnapshot? = null) {
+    private fun handlePollStopRules(
+        snapshot: TouchTurnCommand.BrokerSnapshot? = null,
+        logChecks: Boolean = true,
+        affectedSymbols: Set<String>? = null
+    ) {
         val positions = snapshot?.positions ?: brokerPositions.value
         val openOrders = snapshot?.openOrders ?: brokerOpenOrders.value
         val fills = snapshot?.fills ?: brokerFills.value
-        logAutoStopChecks(
-            deployments = repository.deployments.value,
-            positions = positions,
-            openOrders = openOrders,
-            fills = fills
-        )
+        val deployments = repository.deployments.value
+        val scopedDeployments = affectedSymbols?.let { symbols ->
+            deployments.filter { SymbolMarkets.normalizeSymbol(it.symbol) in symbols }
+        } ?: deployments
+        if (logChecks) {
+            logAutoStopChecks(
+                deployments = deployments,
+                positions = positions,
+                openOrders = openOrders,
+                fills = fills
+            )
+        }
         val candidates = DeploymentSessionStopEvaluator.evaluate(
-            deployments = repository.deployments.value,
+            deployments = scopedDeployments,
             positions = positions,
             openOrders = openOrders,
             fills = fills,
@@ -820,6 +866,7 @@ class TouchTurnEngine(
             val loaded = repository.deployments.value.find { it.id == instanceId }
             val loadedSession = loaded?.touchTurnSession
             if (loaded != null && loadedSession != null) {
+                ensureEmulatorQuotesAfterDataReady(loaded, loadedSession)
                 SessionTrace.touchTurnData(
                     deploymentId = instanceId,
                     sessionId = sessionId,
@@ -1304,6 +1351,12 @@ class TouchTurnEngine(
             scheduleReplayLiquidityRetry(instanceId)
             return false
         }
+        ensureEmulatorQuotesBeforeBracketSubmit(
+            instance = instance,
+            setup = setup,
+            rules = rules,
+            plan = plan
+        )
         val quote = quoteForSymbol(instance.symbol)
         TouchTurnLogic.invertPlacementBlockOutcome(
             plan = plan,
@@ -1545,6 +1598,12 @@ class TouchTurnEngine(
         marketData.releaseStreaming(symbol, instrument)
     }
 
+    private fun maybePruneSymbolBrokerState(stopped: StrategyDeployment) {
+        if (!brokerKind.usesEmulatorExecution) return
+        if (!repository.deployments.value.any { it.status == DeploymentStatus.RUNNING }) return
+        (executionGateway as? QueuedBrokerGateway)?.requestSymbolSessionPrune(stopped.symbol)
+    }
+
     private fun startSessionMarketDataCapture(deployment: StrategyDeployment) {
         if (!brokerKind.capturesSessionMarketData) return
         val session = deployment.inProgressSession() ?: return
@@ -1629,14 +1688,22 @@ class TouchTurnEngine(
                 hasOpenPosition = hasOpenPosition,
                 hasOpenOrders = hasOpenOrders
             )
-            SessionTrace.autoStopCheck(
-                deploymentId = instance.id,
-                symbol = instance.symbol,
-                sessionId = session.id,
+            val snapshot = AutoStopCheckSnapshot(
                 wouldStop = instance.id in candidateIds,
                 hasOpenPosition = hasOpenPosition,
                 hasOpenOrders = hasOpenOrders,
                 tradeCycleComplete = tradeCycleComplete
+            )
+            if (lastLoggedAutoStopCheck[instance.id] == snapshot) continue
+            lastLoggedAutoStopCheck[instance.id] = snapshot
+            SessionTrace.autoStopCheck(
+                deploymentId = instance.id,
+                symbol = instance.symbol,
+                sessionId = session.id,
+                wouldStop = snapshot.wouldStop,
+                hasOpenPosition = snapshot.hasOpenPosition,
+                hasOpenOrders = snapshot.hasOpenOrders,
+                tradeCycleComplete = snapshot.tradeCycleComplete
             )
         }
     }
@@ -1656,6 +1723,61 @@ class TouchTurnEngine(
         val gateway = marketDataBrokerGateway() ?: return null
         val normalized = SymbolMarkets.normalizeSymbol(symbol)
         return gateway.quotes.value[normalized]
+    }
+
+    private fun ensureEmulatorQuotesAfterDataReady(
+        deployment: StrategyDeployment,
+        session: daytrader.domain.TouchTurnSessionContext
+    ) {
+        if (brokerKind != BrokerKind.EMULATOR) return
+        val referencePrice = session.candle?.close ?: return
+        (executionGateway as? QueuedBrokerGateway)?.requestEmulatorStreaming(
+            symbol = deployment.symbol,
+            instrument = DeploymentMarket.effectiveInstrument(deployment),
+            referencePrice = referencePrice
+        )
+    }
+
+    private fun ensureEmulatorQuotesBeforeBracketSubmit(
+        instance: StrategyDeployment,
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        rules: daytrader.domain.TouchTurnRuleConfig,
+        plan: TouchTurnOrderPlan?
+    ) {
+        if (brokerKind != BrokerKind.EMULATOR || plan == null) return
+        val session = instance.touchTurnSession ?: return
+        val instrument = DeploymentMarket.effectiveInstrument(instance)
+        val referenceMid = session.candle?.close ?: setup.entry
+        (executionGateway as? QueuedBrokerGateway)?.requestEmulatorStreaming(
+            symbol = instance.symbol,
+            instrument = instrument,
+            referencePrice = referenceMid
+        )
+        val quote = quoteForSymbol(instance.symbol)
+        val needsPlacementSeed = quote?.bid == null || quote.ask == null ||
+            (rules.invertTradeSide &&
+                TouchTurnLogic.invertPlacementBlockOutcome(
+                    plan = plan,
+                    bid = quote?.bid,
+                    ask = quote?.ask,
+                    rules = rules
+                ) != null)
+        if (!needsPlacementSeed) return
+        val (bid, ask) = if (rules.invertTradeSide) {
+            TouchTurnLogic.syntheticBidAskForInvertPlacement(plan, setup, referenceMid)
+        } else {
+            val spread = max(setup.range * 0.001, referenceMid * 1e-4).coerceAtLeast(0.01)
+            val midBid = referenceMid - spread / 2.0
+            val midAsk = referenceMid + spread / 2.0
+            midBid to midAsk
+        }
+        val last = (bid + ask) / 2.0
+        (executionGateway as? QueuedBrokerGateway)?.requestEmulatorSyntheticQuote(
+            symbol = instance.symbol,
+            bid = bid,
+            ask = ask,
+            last = last
+        )
     }
 
     private fun emit(event: TouchTurnEvent) {

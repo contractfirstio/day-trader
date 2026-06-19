@@ -17,6 +17,27 @@ sealed interface GatewayCommand {
     /** Clears emulator positions/orders/fills between sessions (no disconnect). */
     data object ResetSessionState : GatewayCommand
 
+    /** Drops retained trading state for one symbol while other sessions keep running. */
+    data class PruneSymbolSessionState(val symbol: String) : GatewayCommand
+
+    /**
+     * Arms synthetic quote streaming for pure emulator mode.
+     * [referencePrice] re-seeds bid/ask when the book is empty or stale after session reset.
+     */
+    data class EnsureStreamingMarketData(
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null,
+        val referencePrice: Double? = null
+    ) : GatewayCommand
+
+    /** Publishes an explicit synthetic bid/ask/last (emulator only; used before invert bracket submit). */
+    data class SeedSyntheticQuote(
+        val symbol: String,
+        val bid: Double,
+        val ask: Double,
+        val last: Double
+    ) : GatewayCommand
+
     data class FetchFirstFifteenMinuteCandle(
         val requestId: Long,
         val symbol: String,

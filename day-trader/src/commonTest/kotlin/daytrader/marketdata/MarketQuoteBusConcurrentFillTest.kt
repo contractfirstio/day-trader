@@ -34,7 +34,7 @@ class MarketQuoteBusConcurrentFillTest {
             ),
             emit = { events.add(it) }
         )
-        val quoteChannel = bus.subscribeUnlimited(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
+        val quoteChannel = bus.subscribeForEmulator()
         val consumer = launch(Dispatchers.Default) {
             for (update in quoteChannel) {
                 engine.ingestExternalQuote(update.symbol, update.quote, update.priorClose)

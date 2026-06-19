@@ -1,5 +1,6 @@
 package daytrader.gateway
 
+import daytrader.broker.SymbolMarkets
 import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
@@ -107,6 +108,39 @@ class QueuedBrokerGateway(
     fun requestSessionReset() {
         resetSessionLiveState()
         sendCommand(GatewayCommand.ResetSessionState)
+    }
+
+    fun requestEmulatorStreaming(
+        symbol: String,
+        instrument: InstrumentIdentity? = null,
+        referencePrice: Double? = null
+    ) {
+        if (brokerId != BrokerId.EMULATOR) return
+        sendCommand(GatewayCommand.EnsureStreamingMarketData(symbol, instrument, referencePrice))
+    }
+
+    fun requestEmulatorSyntheticQuote(
+        symbol: String,
+        bid: Double,
+        ask: Double,
+        last: Double
+    ) {
+        if (brokerId != BrokerId.EMULATOR) return
+        sendCommand(GatewayCommand.SeedSyntheticQuote(symbol, bid, ask, last))
+    }
+
+    /** Drops cached snapshots and emulator state for [symbol] when parallel sessions continue. */
+    fun requestSymbolSessionPrune(symbol: String) {
+        pruneSymbolLiveState(symbol)
+        sendCommand(GatewayCommand.PruneSymbolSessionState(symbol))
+    }
+
+    fun pruneSymbolLiveState(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        _positions.value = _positions.value.filterNot { SymbolMarkets.symbolsMatch(norm, it.symbol) }
+        _openOrders.value = _openOrders.value.filterNot { SymbolMarkets.symbolsMatch(norm, it.symbol) }
+        _fills.value = _fills.value.filterNot { SymbolMarkets.symbolsMatch(norm, it.symbol) }
+        _quotes.value = _quotes.value - norm
     }
 
     private fun cancelPendingRequests() {

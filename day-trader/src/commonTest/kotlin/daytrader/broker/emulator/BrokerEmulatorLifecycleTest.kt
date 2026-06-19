@@ -145,6 +145,50 @@ class BrokerEmulatorLifecycleTest {
         assertTrue(positionsAfter.none { it.symbol == "AAPL" && it.quantity != 0 })
     }
 
+    @Test
+    fun pruneSymbolSessionState_clearsOnlyTargetSymbol() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val aaplPlan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            shortLiquiditySetup(),
+            maxDollars = 500,
+            currencyCode = "USD"
+        )!!
+        val msftPlan = TouchTurnOrderPlanner.buildOrderPlan(
+            "MSFT",
+            shortLiquiditySetup(),
+            maxDollars = 500,
+            currencyCode = "USD"
+        )!!
+        engine.ensureStreamingMarketData("AAPL")
+        engine.ensureStreamingMarketData("MSFT")
+        engine.placeTouchTurnBracket(aaplPlan)
+        engine.placeTouchTurnBracket(msftPlan)
+
+        val fillsBefore = events.filterIsInstance<GatewayEvent.FillsSnapshot>().last().fills
+        assertTrue(fillsBefore.any { it.symbol == "AAPL" })
+        assertTrue(fillsBefore.any { it.symbol == "MSFT" })
+
+        engine.pruneSymbolSessionState("AAPL")
+
+        val fillsAfter = events.filterIsInstance<GatewayEvent.FillsSnapshot>().last().fills
+        assertTrue(fillsAfter.none { it.symbol == "AAPL" })
+        assertTrue(fillsAfter.any { it.symbol == "MSFT" })
+        val positionsAfter = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().last().positions
+        assertTrue(positionsAfter.none { it.symbol == "AAPL" && it.quantity != 0 })
+    }
+
     private fun shortLiquiditySetup() = TouchTurnBracketSetup(
         range = 2.0,
         rangeThreshold = 0.5,

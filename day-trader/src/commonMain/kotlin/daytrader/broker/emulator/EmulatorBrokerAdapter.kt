@@ -1,5 +1,6 @@
 package daytrader.broker.emulator
 
+import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerAdapter
@@ -85,6 +86,25 @@ class EmulatorBrokerAdapter(
                         return@launch
                     }
                     GatewayCommand.ResetSessionState -> withEngine { engine.resetSessionState() }
+                    is GatewayCommand.PruneSymbolSessionState ->
+                        withEngine { engine.pruneSymbolSessionState(command.symbol) }
+                    is GatewayCommand.EnsureStreamingMarketData ->
+                        withEngine {
+                            engine.ensureStreamingMarketData(
+                                symbol = command.symbol,
+                                instrument = command.instrument,
+                                referencePrice = command.referencePrice
+                            )
+                        }
+                    is GatewayCommand.SeedSyntheticQuote ->
+                        withEngine {
+                            engine.seedSyntheticQuote(
+                                symbol = command.symbol,
+                                bid = command.bid,
+                                ask = command.ask,
+                                last = command.last
+                            )
+                        }
                     is GatewayCommand.FetchFirstFifteenMinuteCandle ->
                         launch {
                             withEngine {
@@ -210,7 +230,7 @@ class EmulatorBrokerAdapter(
     private fun startQuoteCollector(collectFromQuoteBus: Boolean) {
         if (!collectFromQuoteBus) return
         val bus = quoteBus ?: error("collectFromQuoteBus requires quoteBus")
-        val quoteChannel = bus.subscribeUnlimited(MarketQuoteBus.EMULATOR_SUBSCRIBER_ID)
+        val quoteChannel = bus.subscribeForEmulator()
         quoteCollectorJob = scope.launch {
             for (update in quoteChannel) {
                 if (update.source == QuoteSource.EXTERNAL) {
@@ -358,6 +378,22 @@ class EmulatorBrokerAdapter(
         runBlocking { withEngine { engine.ensureStreamingMarketData(symbol, instrument) } }
     }
 
+    fun ensureStreamingMarketData(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        referencePrice: Double?
+    ) {
+        runBlocking {
+            withEngine {
+                engine.ensureStreamingMarketData(symbol, instrument, referencePrice)
+            }
+        }
+    }
+
+    fun seedSyntheticQuote(symbol: String, bid: Double, ask: Double, last: Double) {
+        runBlocking { withEngine { engine.seedSyntheticQuote(symbol, bid, ask, last) } }
+    }
+
     fun releaseStreamingMarketData(symbol: String, instrument: InstrumentIdentity? = null) {
         runBlocking { withEngine { engine.releaseStreamingMarketData(symbol, instrument) } }
     }
@@ -365,6 +401,11 @@ class EmulatorBrokerAdapter(
     fun resetSessionState() {
         latestExternalQuotes.clear()
         runBlocking { withEngine { engine.resetSessionState() } }
+    }
+
+    fun pruneSymbolSessionState(symbol: String) {
+        latestExternalQuotes.remove(SymbolMarkets.normalizeSymbol(symbol))
+        runBlocking { withEngine { engine.pruneSymbolSessionState(symbol) } }
     }
 
     override fun shutdown() {

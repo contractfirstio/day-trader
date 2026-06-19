@@ -7,6 +7,12 @@ import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.WorkingOrder
 
+enum class BrokerSnapshotSource {
+    POSITIONS,
+    OPEN_ORDERS,
+    FILLS
+}
+
 sealed interface TouchTurnCommand {
     data class StartSession(
         val instanceId: String,
@@ -31,6 +37,7 @@ sealed interface TouchTurnCommand {
     data class DeleteAllSessionHistory(val instanceId: String) : TouchTurnCommand
 
     data class BrokerSnapshot(
+        val source: BrokerSnapshotSource,
         val positions: List<AccountPosition>,
         val openOrders: List<WorkingOrder>,
         val fills: List<BrokerFill>
