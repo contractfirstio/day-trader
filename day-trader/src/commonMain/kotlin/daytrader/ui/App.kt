@@ -21,6 +21,7 @@ import daytrader.gateway.IbStreamingMarketDataType
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
+import daytrader.presentation.ui.UiFaultBus
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.platform.TradingClock
 import daytrader.platform.WallClock
@@ -71,6 +72,7 @@ fun App(
         tradingClock = tradingClock
     )
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
+    var screenRetryNonce by remember { mutableStateOf(0) }
     var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesListState by dependencies.strategiesViewModel.listState.collectAsState()
@@ -234,22 +236,37 @@ fun App(
                         )
                     }
 
-                    val connectionState by brokerGateway.connectionState.collectAsState()
-                    when (currentScreen) {
-                        AppScreen.POSITIONS -> PositionsScreen(
-                            viewModel = dependencies.positionsViewModel,
-                            connectionState = connectionState
-                        )
-                        AppScreen.LIQUIDITY -> LiquidityAllocatorScreen(
-                            viewModel = dependencies.liquidityAllocatorViewModel
-                        )
-                        AppScreen.ORDERS -> OrdersScreen(
-                            viewModel = dependencies.ordersViewModel,
-                            connectionState = connectionState,
-                            brokerKind = brokerKind
-                        )
-                        AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
-                        AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)
+                    SafeScreenHost(
+                        screen = currentScreen,
+                        retryNonce = screenRetryNonce,
+                        onRetry = {
+                            UiFaultBus.clear(currentScreen)
+                            screenRetryNonce++
+                        },
+                        onGoToStrategies = {
+                            UiFaultBus.clear(currentScreen)
+                            currentScreen = AppScreen.STRATEGIES
+                            screenRetryNonce++
+                        },
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    ) {
+                        val connectionState by brokerGateway.connectionState.collectAsState()
+                        when (currentScreen) {
+                            AppScreen.POSITIONS -> PositionsScreen(
+                                viewModel = dependencies.positionsViewModel,
+                                connectionState = connectionState
+                            )
+                            AppScreen.LIQUIDITY -> LiquidityAllocatorScreen(
+                                viewModel = dependencies.liquidityAllocatorViewModel
+                            )
+                            AppScreen.ORDERS -> OrdersScreen(
+                                viewModel = dependencies.ordersViewModel,
+                                connectionState = connectionState,
+                                brokerKind = brokerKind
+                            )
+                            AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
+                            AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)
+                        }
                     }
                 }
             }

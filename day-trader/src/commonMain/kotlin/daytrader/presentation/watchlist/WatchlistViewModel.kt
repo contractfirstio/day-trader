@@ -46,9 +46,11 @@ import daytrader.presentation.strategies.LivePriceTickHistory
 import daytrader.presentation.strategies.TouchTurnQuoteStripUiMapper
 import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.positions.SortDirection
+import daytrader.presentation.navigation.AppScreen
+import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -73,9 +75,10 @@ class WatchlistViewModel(
     private val scanService: WatchlistPriceScanService = WatchlistPriceScanService(),
     private val reversalScoreService: ReversalScoreService = ReversalScoreService(),
     private val onRequestStrategyDeploymentCreate: ((WatchlistStrategyCreateRequest) -> Unit)? = null,
-    private val onDeleteLinkedDeployment: ((String) -> Unit)? = null
+    private val onDeleteLinkedDeployment: ((String) -> Unit)? = null,
+    scope: CoroutineScope = UiCoroutineScopes.forScreen(AppScreen.WATCHLIST, "WatchlistViewModel"),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = scope
     private val executionGateway = brokerGateway
     private val marketDataGateway = touchTurnSessionGateway ?: brokerGateway
 
@@ -208,10 +211,12 @@ class WatchlistViewModel(
     }
 
     private fun emitUiState(scope: UiRefreshScope = UiRefreshScope.Full) {
-        when (scope) {
-            UiRefreshScope.Full -> applyFullUi()
-            UiRefreshScope.LiveMarket -> applyLiveMarketUi()
-            UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi()
+        safeUiEmit(AppScreen.WATCHLIST, "emitUiState") {
+            when (scope) {
+                UiRefreshScope.Full -> applyFullUi()
+                UiRefreshScope.LiveMarket -> applyLiveMarketUi()
+                UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi()
+            }
         }
     }
 

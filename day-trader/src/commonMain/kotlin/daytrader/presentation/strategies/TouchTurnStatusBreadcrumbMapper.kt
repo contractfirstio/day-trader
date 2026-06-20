@@ -1001,6 +1001,6 @@ object TouchTurnStatusBreadcrumbMapper {
         IDX_ORDERS -> TouchTurnPipelineNodeId.Orders
         IDX_POSITION -> TouchTurnPipelineNodeId.Position
         IDX_CLOSE -> TouchTurnPipelineNodeId.Close
-        else -> error("Unknown pipeline index $index")
+        else -> TouchTurnPipelineNodeId.Readiness
     }
 }

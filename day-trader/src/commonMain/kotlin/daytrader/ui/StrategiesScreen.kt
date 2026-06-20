@@ -1841,7 +1841,7 @@ private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
                 if (autoStop.pastDeadline) {
                     TouchTurnScreenLabels.pastDeadlineLabel(autoStop.stopAfterMinOpen)
                 } else {
-                    autoStop.remainingLabel!!
+                    autoStop.remainingLabel.orEmpty()
                 },
                 fontSize = 11.sp,
                 color = if (autoStop.pastDeadline) Color(0xFFFFB74D) else TextSecondary,

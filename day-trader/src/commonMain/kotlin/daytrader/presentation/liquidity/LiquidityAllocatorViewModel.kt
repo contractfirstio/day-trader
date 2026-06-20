@@ -14,9 +14,7 @@ import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.platform.currentSessionDateIso
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +24,9 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import daytrader.presentation.strategies.SessionRollupCache
+import daytrader.presentation.navigation.AppScreen
+import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -37,8 +38,9 @@ class LiquidityAllocatorViewModel(
     private val brokerGateway: BrokerGateway?,
     private val executionManager: ExecutionManager?,
     private val skipQuoteUiRefresh: () -> Boolean = { false },
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    scope: CoroutineScope = UiCoroutineScopes.forScreen(AppScreen.LIQUIDITY, "LiquidityAllocatorViewModel"),
 ) {
+    private val scope = scope
     private val _uiState = MutableStateFlow(LiquidityAllocatorUiState())
     val uiState: StateFlow<LiquidityAllocatorUiState> = _uiState.asStateFlow()
 
@@ -264,28 +266,30 @@ class LiquidityAllocatorViewModel(
     }
 
     private fun publishUi() {
-        val sessionDate = currentSessionDateIso()
-        val built = LiquidityAllocatorMapper.buildUiState(
-            deployments = latestDeployments,
-            openOrders = latestOpenOrders,
-            quotes = latestQuotes,
-            bucketState = latestBucketState,
-            sessionDate = sessionDate,
-            selectedCurrency = selectedCurrency,
-            allocations = allocations.toMap(),
-            applyingDeploymentIds = applyingDeploymentIds.toSet(),
-            applyErrors = applyErrors.toMap(),
-            sessionRollupCache = sessionRollupCache,
-        )
-        if (built.currencyOptions.isNotEmpty() &&
-            built.currencyOptions.none { it.currencyCode == selectedCurrency }
-        ) {
-            selectedCurrency = built.currencyOptions.first().currencyCode
+        safeUiEmit(AppScreen.LIQUIDITY, "publishUi") {
+            val sessionDate = currentSessionDateIso()
+            val built = LiquidityAllocatorMapper.buildUiState(
+                deployments = latestDeployments,
+                openOrders = latestOpenOrders,
+                quotes = latestQuotes,
+                bucketState = latestBucketState,
+                sessionDate = sessionDate,
+                selectedCurrency = selectedCurrency,
+                allocations = allocations.toMap(),
+                applyingDeploymentIds = applyingDeploymentIds.toSet(),
+                applyErrors = applyErrors.toMap(),
+                sessionRollupCache = sessionRollupCache,
+            )
+            if (built.currencyOptions.isNotEmpty() &&
+                built.currencyOptions.none { it.currencyCode == selectedCurrency }
+            ) {
+                selectedCurrency = built.currencyOptions.first().currencyCode
+            }
+            val next = built.copy(selectedCurrency = selectedCurrency)
+            val prev = _uiState.value
+            if (next.copy(lastUpdatedEpochMs = 0L) == prev.copy(lastUpdatedEpochMs = 0L)) return@safeUiEmit
+            _uiState.value = next.copy(lastUpdatedEpochMs = System.currentTimeMillis())
         }
-        val next = built.copy(selectedCurrency = selectedCurrency)
-        val prev = _uiState.value
-        if (next.copy(lastUpdatedEpochMs = 0L) == prev.copy(lastUpdatedEpochMs = 0L)) return
-        _uiState.value = next.copy(lastUpdatedEpochMs = System.currentTimeMillis())
     }
 
     private companion object {

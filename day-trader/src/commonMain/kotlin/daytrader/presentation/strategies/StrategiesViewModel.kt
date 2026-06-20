@@ -71,6 +71,9 @@ import daytrader.diagnostics.SessionTrace
 import daytrader.diagnostics.TouchTurnStateSyncLog
 import daytrader.diagnostics.UiActionLog
 import daytrader.presentation.markets.MarketFilterState
+import daytrader.presentation.navigation.AppScreen
+import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.safeUiEmit
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
@@ -108,7 +111,7 @@ class StrategiesViewModel(
     viewModelScope: CoroutineScope? = null,
     private val enableBackgroundWatchers: Boolean = true,
 ) {
-    private val scope = viewModelScope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = viewModelScope ?: UiCoroutineScopes.forScreen(AppScreen.STRATEGIES, "StrategiesViewModel")
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
     private val requiresBidAskForFills = brokerKind.usesLiveIbMarketData
     private val useTouchTurnEngine = touchTurnEngine != null && TouchTurnEngineConfig.useEngine()
@@ -1458,16 +1461,18 @@ class StrategiesViewModel(
     }
 
     private fun emitUiState(scope: UiRefreshScope = UiRefreshScope.Full) {
-        syncDeploymentsFromRepository()
-        if (scope != UiRefreshScope.LiveMarket) {
-            refreshBrokerDeploymentIndex()
-        }
-        val ctx = buildEmitContext()
-        when (scope) {
-            UiRefreshScope.Full -> applyFullUi(ctx)
-            UiRefreshScope.LiveMarket -> applyLiveMarketUi(ctx)
-            UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi(ctx)
-            UiRefreshScope.PipelineTick -> applyPipelineTickUi(ctx)
+        safeUiEmit(AppScreen.STRATEGIES, "emitUiState") {
+            syncDeploymentsFromRepository()
+            if (scope != UiRefreshScope.LiveMarket) {
+                refreshBrokerDeploymentIndex()
+            }
+            val ctx = buildEmitContext()
+            when (scope) {
+                UiRefreshScope.Full -> applyFullUi(ctx)
+                UiRefreshScope.LiveMarket -> applyLiveMarketUi(ctx)
+                UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi(ctx)
+                UiRefreshScope.PipelineTick -> applyPipelineTickUi(ctx)
+            }
         }
     }
 

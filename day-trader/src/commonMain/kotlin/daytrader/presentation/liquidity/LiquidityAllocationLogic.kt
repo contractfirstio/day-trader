@@ -5,8 +5,9 @@ package daytrader.presentation.liquidity
  * Untested configurations start at 50%; thin samples regress toward 50%.
  */
 fun bayesianWinRateWeight(winDays: Int, lossDays: Int): Double {
-    require(winDays >= 0 && lossDays >= 0) { "win/loss counts must be non-negative" }
-    return (winDays + 1.0) / (winDays + lossDays + 2.0)
+    val wins = winDays.coerceAtLeast(0)
+    val losses = lossDays.coerceAtLeast(0)
+    return (wins + 1.0) / (wins + losses + 2.0)
 }
 
 data class LiquidityAllocationTarget(

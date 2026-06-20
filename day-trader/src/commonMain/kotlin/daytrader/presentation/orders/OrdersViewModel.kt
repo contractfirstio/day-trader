@@ -7,10 +7,11 @@ import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistPlanOrderLinks
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.WorkingOrder
+import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.positions.SortDirection
+import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,9 +22,10 @@ import kotlinx.coroutines.flow.update
 class OrdersViewModel(
     private val repository: OpenOrderRepository,
     private val watchlistRepository: WatchlistRepository? = null,
-    private val brokerKind: BrokerKind = BrokerKind.EMULATOR
+    private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
+    scope: CoroutineScope = UiCoroutineScopes.forScreen(AppScreen.ORDERS, "OrdersViewModel"),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = scope
 
     private var openOrders: List<WorkingOrder> = emptyList()
     private var watchlists: List<Watchlist> = emptyList()
@@ -70,6 +72,12 @@ class OrdersViewModel(
     }
 
     private fun emitUiState() {
+        safeUiEmit(AppScreen.ORDERS, "emitUiState") {
+            emitUiStateInternal()
+        }
+    }
+
+    private fun emitUiStateInternal() {
         val working = OpenOrderUiMapper.workingOrders(openOrders)
         val activeKeys = working.map { SymbolMarkets.normalizeSymbol(it.symbol) }.toSet()
         if (expandedSymbolKey != null && expandedSymbolKey !in activeKeys) {

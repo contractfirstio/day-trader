@@ -5,6 +5,11 @@ import kotlin.test.assertEquals
 
 class LiquidityAllocationLogicTest {
     @Test
+    fun bayesianWinRateWeight_clampsNegativeCountsToZero() {
+        assertEquals(0.5, bayesianWinRateWeight(winDays = -3, lossDays = -2))
+    }
+
+    @Test
     fun bayesianWinRateWeight_usesNeutralPriorForNoHistory() {
         assertEquals(0.5, bayesianWinRateWeight(winDays = 0, lossDays = 0))
     }
