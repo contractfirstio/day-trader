@@ -1158,9 +1158,6 @@ class StrategiesViewModel(
                 )
             }
         }
-        // User edits must hit disk immediately: hybrid/replay engines keep updating running
-        // deployments and would otherwise starve the shared debounced deployments writer.
-        repository.flushPersistence()
     }
 
     fun onCopyTouchTurnRulesToOther(sourceId: String, targetMarketZoneIds: Set<String>) {
@@ -1184,7 +1181,6 @@ class StrategiesViewModel(
         for (target in targets) {
             repository.update(target.id) { it.copy(touchTurnRules = rules) }
         }
-        repository.flushPersistence()
     }
 
     fun onPrepareSession(id: String) {
@@ -1276,7 +1272,6 @@ class StrategiesViewModel(
         }
         repository.remove(id)
         watchlistRepository?.let { WatchlistStrategyLinkSync.removeDeploymentFromAllWatchlists(it, id) }
-        repository.flushPersistence()
         if (appState.selectedDeploymentId == id) {
             val nextId = repository.deployments.value.firstOrNull()?.id
             appStateRepository.update { it.copy(selectedDeploymentId = nextId) }
@@ -1296,7 +1291,6 @@ class StrategiesViewModel(
             touchTurnEngine.dispatch(TouchTurnCommand.DeleteSessionHistory(instanceId, runId))
         } else {
             repository.update(instanceId) { it.withoutSessionHistoryEntry(runId) }
-            repository.flushPersistence()
         }
         syncDeploymentsFromRepository()
         emitUiState()
@@ -1318,7 +1312,6 @@ class StrategiesViewModel(
             touchTurnEngine.dispatch(TouchTurnCommand.DeleteAllSessionHistory(instanceId))
         } else {
             repository.update(instanceId) { it.withoutClosedSessionHistory() }
-            repository.flushPersistence()
         }
         syncDeploymentsFromRepository()
         emitUiState()
@@ -1351,7 +1344,6 @@ class StrategiesViewModel(
             for (deployment in deploymentsWithClosedHistory) {
                 repository.update(deployment.id) { it.withoutClosedSessionHistory() }
             }
-            repository.flushPersistence()
         }
         syncDeploymentsFromRepository()
         emitUiState()

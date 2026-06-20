@@ -9,10 +9,12 @@ object PersistenceDrain {
         watchlists: WatchlistRepository? = null,
         liquidity: LiquidityBucketRepository? = null,
         appState: StrategiesAppStateRepository? = null,
+        replaySettings: ReplaySettingsRepository? = null,
     ) {
         deployments.flushPersistenceBlocking()
         watchlists?.flushPersistenceBlocking()
         liquidity?.flushPersistenceBlocking()
         appState?.flushPersistenceBlocking()
+        replaySettings?.flushPersistenceBlocking()
     }
 }

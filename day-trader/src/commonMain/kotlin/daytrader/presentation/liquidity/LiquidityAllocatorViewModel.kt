@@ -245,7 +245,7 @@ class LiquidityAllocatorViewModel(
         }
         allocations.remove(deploymentId)
         applyErrors.remove(deploymentId)
-        liquidityBucketRepository.flushPersistenceBlocking()
+        liquidityBucketRepository.flushPersistence()
         publishUi()
     }
 

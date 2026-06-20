@@ -300,6 +300,7 @@ fun rememberAppDependencies(
                     watchlists = watchlistRepository,
                     liquidity = liquidityBucketRepository,
                     appState = appStateRepository,
+                    replaySettings = replaySettingsRepository,
                 )
             },
         )

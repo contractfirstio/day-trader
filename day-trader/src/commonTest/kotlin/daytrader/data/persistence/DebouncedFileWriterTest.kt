@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -54,6 +55,28 @@ class DebouncedFileWriterTest {
             val writer = DebouncedFileWriter<Int>(scope) { persisted += it }
             writer.flushBlocking(2)
             assertEquals(listOf(2), persisted)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun schedule_maxWaitForcesPersistDespiteContinuousReschedule() = runBlocking {
+        val persisted = mutableListOf<Int>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val writer = DebouncedFileWriter<Int>(
+                scope = scope,
+                debounceMs = 100,
+                maxWaitMs = 250,
+                persist = { persisted += it },
+            )
+            repeat(6) { index ->
+                writer.schedule(index)
+                delay(50)
+            }
+            writer.awaitIdleBlocking()
+            assertEquals(listOf(5), persisted)
         } finally {
             scope.cancel()
         }

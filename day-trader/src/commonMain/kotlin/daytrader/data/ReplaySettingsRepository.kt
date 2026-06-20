@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.update
 interface ReplaySettingsRepository {
     val settings: StateFlow<ReplaySettings>
     fun update(transform: (ReplaySettings) -> ReplaySettings)
+    fun flushPersistence()
+    fun flushPersistenceBlocking()
 }
 
 class FileReplaySettingsRepository(
@@ -40,6 +42,14 @@ class FileReplaySettingsRepository(
     override fun update(transform: (ReplaySettings) -> ReplaySettings) {
         _settings.update(transform)
         writer.schedule(_settings.value)
+    }
+
+    override fun flushPersistence() {
+        writer.flush(_settings.value)
+    }
+
+    override fun flushPersistenceBlocking() {
+        writer.flushBlocking(_settings.value)
     }
 
     private fun loadInitial(): ReplaySettings {
