@@ -233,9 +233,12 @@ class EmulatorBrokerAdapter(
         val quoteChannel = bus.subscribeForEmulator()
         quoteCollectorJob = scope.launch {
             for (update in quoteChannel) {
-                if (update.source == QuoteSource.EXTERNAL) {
-                    latestExternalQuotes[update.symbol] = update
+                if (update.source != QuoteSource.EXTERNAL) continue
+                if (config.flushEachExternalQuote) {
+                    // Replay ingests captured quotes synchronously from [QuoteFeeder]; skip bus coalescing.
+                    continue
                 }
+                latestExternalQuotes[update.symbol] = update
             }
         }
     }
@@ -373,6 +376,18 @@ class EmulatorBrokerAdapter(
     fun ingestLiveQuote(symbol: String, quote: LiveQuote, priorClose: Double?) =
         ingestExternalQuote(symbol, quote, priorClose)
 
+    /**
+     * Evaluates fills immediately on the caller thread. Used by replay so every captured tick
+     * reaches [BrokerEmulatorEngine] without 50ms coalescing.
+     */
+    fun ingestExternalQuoteSynchronously(symbol: String, quote: LiveQuote, priorClose: Double?) {
+        runBlocking {
+            withEngine {
+                engine.ingestExternalQuote(symbol, quote, priorClose)
+            }
+        }
+    }
+
     /** Session-scoped synthetic quote streaming (pure emulator mode; mirrors IB hybrid lifecycle). */
     fun ensureStreamingMarketData(symbol: String, instrument: InstrumentIdentity? = null) {
         runBlocking { withEngine { engine.ensureStreamingMarketData(symbol, instrument) } }
@@ -401,6 +416,10 @@ class EmulatorBrokerAdapter(
     fun resetSessionState() {
         latestExternalQuotes.clear()
         runBlocking { withEngine { engine.resetSessionState() } }
+    }
+
+    fun reseedRandom(seed: Long) {
+        runBlocking { withEngine { engine.reseedRandom(seed) } }
     }
 
     fun pruneSymbolSessionState(symbol: String) {

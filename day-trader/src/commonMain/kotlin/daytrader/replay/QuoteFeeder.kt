@@ -20,6 +20,10 @@ class QuoteFeeder(
     @Volatile
     var publishSymbolOverride: String? = null
 
+    /** When set (replay backtest), each captured quote is ingested synchronously for fill evaluation. */
+    @Volatile
+    var onCapturedQuotePublished: ((QuoteEvent) -> Unit)? = null
+
     val totalQuoteCount: Int
         get() = bundle.quoteEvents.size
 
@@ -64,5 +68,6 @@ class QuoteFeeder(
             priorClose = null,
             source = QuoteSource.EXTERNAL
         )
+        onCapturedQuotePublished?.invoke(event.copy(symbol = symbol, quote = quote))
     }
 }

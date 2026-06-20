@@ -12,6 +12,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -28,8 +29,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import daytrader.data.ReplaySettingsRepository
-import daytrader.replay.ReplayComparison
-import daytrader.replay.ReplayFillComparison
+import daytrader.presentation.Formatters
+import daytrader.replay.BatchReplayProgress
+import daytrader.replay.BatchReplayRunner
+import daytrader.replay.BatchReplaySummary
+import daytrader.replay.ReplayCaptureRef
+import daytrader.replay.ReplayCatalogTargets
 import daytrader.replay.ReplayPlaybackState
 import daytrader.replay.ReplayQuoteSpeed
 import daytrader.replay.ReplaySessionController
@@ -45,16 +50,24 @@ import kotlinx.coroutines.launch
 fun ReplayControlBar(
     bundle: SessionBundle,
     controller: ReplaySessionController,
+    batchReplayRunner: BatchReplayRunner?,
+    replayCaptureCatalog: List<ReplayCaptureRef>,
+    replaySeedDirectoryPaths: List<String>,
+    loadReplayBundle: (String) -> Result<SessionBundle>,
     replaySettingsRepository: ReplaySettingsRepository,
     modifier: Modifier = Modifier
 ) {
-    var running by remember { mutableStateOf(false) }
-    var comparison by remember { mutableStateOf<ReplayComparison?>(controller.lastComparison) }
-    var fillComparison by remember { mutableStateOf<ReplayFillComparison?>(controller.lastFillComparison) }
     val scope = rememberCoroutineScope()
     val playbackState by controller.runtime.playbackOrchestrator.state.collectAsState()
     val replaySettings by replaySettingsRepository.settings.collectAsState()
     val selectedSpeed = ReplayQuoteSpeed.closest(replaySettings.quoteIntervalMs)
+    val batchProgress by (batchReplayRunner?.progress ?: remember {
+        kotlinx.coroutines.flow.MutableStateFlow(BatchReplayProgress())
+    }).collectAsState()
+    val running = batchProgress.running
+    val targets = remember(replayCaptureCatalog, replaySeedDirectoryPaths) {
+        ReplayCatalogTargets.resolve(replayCaptureCatalog, replaySeedDirectoryPaths, loadReplayBundle)
+    }
 
     Row(
         modifier = modifier
@@ -64,38 +77,49 @@ fun ReplayControlBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             Text(
-                text = "Replay: ${bundle.symbol} · ${bundle.sessionDate.orEmpty()}",
+                text = "Replay backtest · ${targets.size} capture(s) in list",
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "Captured session ${bundle.sessionId} — virtual time, no IB connection required",
+                text = "Bootstrap: ${bundle.symbol} · ${bundle.sessionDate.orEmpty()} — " +
+                    "uses each deployment's current rules",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
-            Text(
-                text = playbackStatusLabel(playbackState, replaySettings),
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary
-            )
-            comparison?.let { result ->
-                val color = if (result.passed) GainGreen else LossRed
-                Text(
-                    text = buildString {
-                        append("Outcome: ")
-                        append(if (result.outcomeMatches) "match" else "mismatch")
-                        append(" (expected=${result.expectedOutcome}, actual=${result.actualOutcome})")
-                        fillComparison?.let { fills ->
-                            append(" · fills ")
-                            append(if (fills.passed) "match" else "mismatch")
-                            append(" (${fills.actualFillCount}/${fills.expectedFillCount})")
-                        }
+            if (running) {
+                LinearProgressIndicator(
+                    progress = {
+                        if (batchProgress.total <= 0) 0f
+                        else batchProgress.finishedCount.toFloat() / batchProgress.total.toFloat()
                     },
-                    color = color,
-                    style = MaterialTheme.typography.bodySmall
+                    modifier = Modifier.fillMaxWidth(),
+                    color = GainGreen,
+                    trackColor = Color(0xFF3A3D48)
                 )
+                Text(
+                    text = batchProgressLabel(batchProgress),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            } else {
+                Text(
+                    text = playbackStatusLabel(playbackState, replaySettings),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                batchProgress.summary?.let { summary ->
+                    Text(
+                        text = batchSummaryLabel(summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (summary.totalPnl >= 0.0) GainGreen else LossRed
+                    )
+                }
             }
         }
         Row(
@@ -129,22 +153,12 @@ fun ReplayControlBar(
             }
             Button(
                 onClick = {
-                    if (running) return@Button
-                    running = true
+                    if (running || batchReplayRunner == null) return@Button
                     scope.launch {
-                        runCatching { controller.runReplay() }
-                            .onSuccess {
-                                comparison = it
-                                fillComparison = controller.lastFillComparison
-                            }
-                            .onFailure {
-                                comparison = null
-                                fillComparison = null
-                            }
-                        running = false
+                        batchReplayRunner.runCatalog(targets)
                     }
                 },
-                enabled = !running,
+                enabled = !running && batchReplayRunner != null && targets.isNotEmpty(),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = GainGreen,
@@ -188,6 +202,30 @@ private fun ReplayQuoteSpeedPicker(
     }
 }
 
+private fun batchProgressLabel(progress: BatchReplayProgress): String {
+    val current = progress.currentSymbol?.let { " · $it" }.orEmpty()
+    return "${progress.finishedCount} / ${progress.total} sessions with results" +
+        " (${progress.completed} ok, ${progress.failed} failed)$current"
+}
+
+private fun batchSummaryLabel(summary: BatchReplaySummary): String {
+    val pnl = Formatters.currency(summary.totalPnl, showSign = true)
+    val original = Formatters.currency(summary.originalTotalPnl, showSign = true)
+    val delta = Formatters.currency(summary.totalPnlDelta, showSign = true)
+    val traded = summary.wins + summary.losses
+    val winPct = if (traded > 0) (summary.wins * 100 / traded) else 0
+    return buildString {
+        append("Done: ${summary.tangibleResults} sessions · replay P&L $pnl")
+        append(" · was $original · Δ $delta")
+        if (traded > 0) append(" · win $winPct% ($traded round-trips)")
+        append(" · ${summary.noTrades} no-trade")
+        if (summary.groundTruthFillSessions > 0) {
+            append(" · ${summary.groundTruthFillSessions} exact-fill")
+        }
+        if (summary.failed > 0) append(" · ${summary.failed} failed")
+    }
+}
+
 private fun playbackStatusLabel(state: ReplayPlaybackState, settings: ReplaySettings): String {
     val intervalLabel = if (settings.quoteIntervalMs <= 0L) {
         "instant"
@@ -196,7 +234,8 @@ private fun playbackStatusLabel(state: ReplayPlaybackState, settings: ReplaySett
     }
     val turboLabel = if (settings.turboDuringPlayback) " · turbo on" else ""
     return when (state) {
-        ReplayPlaybackState.Idle -> "Playback idle — quote speed $intervalLabel$turboLabel"
+        ReplayPlaybackState.Idle ->
+            "Interactive Start uses quote speed $intervalLabel$turboLabel · Run Replay is headless batch"
         is ReplayPlaybackState.FastForming ->
             "Opening bar fast-forward (${state.step}/${state.totalSteps})$turboLabel"
         ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…$turboLabel"

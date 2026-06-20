@@ -1,0 +1,139 @@
+package daytrader.replay
+
+import daytrader.broker.emulator.BrokerEmulatorConfig
+import daytrader.broker.emulator.EmulatorPricingSource
+import daytrader.broker.emulator.TouchTurnEntryScenario
+import daytrader.domain.StrategyType
+import daytrader.domain.defaultStrategyDeployment
+import daytrader.engine.support.InMemoryStrategyDeploymentRepository
+import daytrader.replay.support.ReplaySessionFixtures
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
+
+class ReplayCatalogTargetsTest {
+    @Test
+    fun resolve_prefersCatalogOverSeedPaths() {
+        val catalog = listOf(
+            ReplayCaptureRef("/a", "dep-a", "AAPL", "2026-06-04", 1L)
+        )
+        assertEquals(1, ReplayCatalogTargets.resolve(catalog, listOf("/b"), { Result.failure(Exception()) }).size)
+    }
+
+    @Test
+    fun resolve_fallsBackToSeedPaths() {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val refs = ReplayCatalogTargets.resolve(
+            catalog = emptyList(),
+            seedDirectoryPaths = listOf("/tmp/session"),
+            loadBundle = { Result.success(bundle) }
+        )
+        assertEquals(1, refs.size)
+        assertEquals("dep-replay-1", refs.single().deploymentId)
+    }
+}
+
+class ReplayBacktestResultBuilderTest {
+    @Test
+    fun summarize_countsWinsLossesAndNoTrades() {
+        val results = listOf(
+            ReplayBacktestResult(
+                deploymentId = "a",
+                symbol = "A",
+                sessionDate = "2026-06-04",
+                captureDirectory = null,
+                outcome = null,
+                pnl = 10.0,
+                roundTrips = 1,
+                hasTangibleResult = true
+            ),
+            ReplayBacktestResult(
+                deploymentId = "b",
+                symbol = "B",
+                sessionDate = "2026-06-04",
+                captureDirectory = null,
+                outcome = null,
+                pnl = -5.0,
+                roundTrips = 1,
+                hasTangibleResult = true
+            ),
+            ReplayBacktestResult(
+                deploymentId = "c",
+                symbol = "C",
+                sessionDate = "2026-06-04",
+                captureDirectory = null,
+                outcome = null,
+                pnl = 0.0,
+                roundTrips = 0,
+                hasTangibleResult = true
+            )
+        )
+        val summary = ReplayBacktestResultBuilder.summarize(results)
+        assertEquals(1, summary.wins)
+        assertEquals(1, summary.losses)
+        assertEquals(1, summary.noTrades)
+        assertEquals(5.0, summary.totalPnl)
+        assertEquals(0.0, summary.originalTotalPnl)
+        assertEquals(5.0, summary.totalPnlDelta)
+        assertEquals(3, summary.tangibleResults)
+    }
+}
+
+class ReplayBacktestPolicyTest {
+    @Test
+    fun rulesMatchGroundTruth_trueWhenRulesAndRiskUnchanged() {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = bundle.symbol,
+            maxDollars = 500
+        ).copy(
+            id = bundle.deploymentId,
+            touchTurnRules = bundle.groundTruth!!.runRecord.rules!!
+        )
+        assertTrue(ReplayBacktestPolicy.rulesMatchGroundTruth(deployment, bundle))
+    }
+}
+
+class BrokerEmulatorConfigReplayBacktestTest {
+    @Test
+    fun forReplayBacktest_fixesEntryScenarioAndNeutralizesRandomWalk() {
+        val config = BrokerEmulatorConfig.forReplayBacktest()
+        assertEquals(TouchTurnEntryScenario.APPROACH_AND_FILL, config.touchTurnEntryScenarioOverride)
+        assertEquals(0.0, config.bracketWalkDirectionFlipChance)
+        assertEquals(1.0, config.bracketWalkSteerTowardTargetProbability)
+        assertEquals(EmulatorPricingSource.LIVE_EXCHANGE, config.pricingSource)
+        assertEquals(true, config.flushEachExternalQuote)
+    }
+}
+
+class ReplayBacktestSessionTest {
+    @Test
+    fun runBacktestReplay_minimalFixture_producesTangibleNoTradeResult() = runBlocking {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = InMemoryStrategyDeploymentRepository()
+        val runtime = ReplayHybridRuntime(bundle, ReplayClock(bundle.timeline.sessionStartedEpochMs), scope)
+        runtime.start()
+        val engine = runtime.createEngine(repository)
+        runtime.attachSessionEngine(engine)
+        runtime.playbackOrchestrator.attach(engine, repository)
+        engine.start()
+        try {
+            val controller = ReplaySessionController(runtime, repository, engine, scope)
+            val result = controller.runBacktestReplay(bundle)
+            assertTrue(result.hasTangibleResult, result.errorMessage)
+            assertEquals(0.0, result.pnl)
+            assertEquals(0, result.roundTrips)
+            val deployment = repository.deployments.value.single { it.id == bundle.deploymentId }
+            assertEquals(1, deployment.sessionHistory.size)
+        } finally {
+            engine.shutdown()
+            runtime.shutdown()
+        }
+    }
+}

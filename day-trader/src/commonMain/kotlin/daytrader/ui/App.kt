@@ -242,6 +242,10 @@ fun App(
                     ReplayControlBar(
                         bundle = replaySessionBundle,
                         controller = replayController,
+                        batchReplayRunner = dependencies.batchReplayRunner,
+                        replayCaptureCatalog = dependencies.replayCaptureCatalog,
+                        replaySeedDirectoryPaths = dependencies.replaySeedDirectoryPaths,
+                        loadReplayBundle = dependencies.loadReplayBundle,
                         replaySettingsRepository = replaySettingsRepository
                     )
                 }

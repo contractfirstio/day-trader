@@ -82,7 +82,12 @@ data class BrokerEmulatorConfig(
     /** Override home-market macro trend by RTH zone id (tests / experiments). */
     val homeMacroTrendByZone: Map<String, MacroTrendState> = emptyMap(),
     /** Override symbol stock trend by normalized symbol (tests / experiments). */
-    val stockTrendBySymbol: Map<String, StockTrendState> = emptyMap()
+    val stockTrendBySymbol: Map<String, StockTrendState> = emptyMap(),
+    /**
+     * When true, each captured replay quote is ingested synchronously for fill evaluation instead
+     * of coalescing to the latest tick every 50ms (see [EmulatorBrokerAdapter]).
+     */
+    val flushEachExternalQuote: Boolean = false
 ) {
     /** @see pricingSource */
     val useLiveIbMarketData: Boolean
@@ -112,6 +117,22 @@ data class BrokerEmulatorConfig(
                 touchTurnEntryFillImmediately = false,
                 touchTurnEntryNeverFillProbability = 0.0,
                 touchTurnEntryScenarioOverride = null
+            )
+
+        /**
+         * Session replay backtest: captured quotes drive fills; entry uses approach simulation only
+         * when synthetic pricing is active. Random bracket-walk knobs are neutralized and entry
+         * scenario is fixed so repeated runs with the same capture are stable.
+         */
+        fun forReplayBacktest(): BrokerEmulatorConfig =
+            forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.APPROACH_AND_FILL,
+                touchTurnEntryNeverFillProbability = 0.0,
+                bracketExitTakeProfitProbability = 0.5,
+                bracketWalkSteerTowardTargetProbability = 1.0,
+                bracketWalkDirectionFlipChance = 0.0,
+                flushEachExternalQuote = true
             )
 
         internal fun parseFirstCandleSecondsUntilClose(raw: String?): Long? =

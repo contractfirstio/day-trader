@@ -30,7 +30,7 @@ class BrokerEmulatorEngine(
     private val config: BrokerEmulatorConfig = BrokerEmulatorConfig.Default,
     private val emit: (GatewayEvent) -> Unit,
     private val onSymbolNeedsLiveQuotes: (String) -> Unit = {},
-    private val random: Random = Random.Default
+    private var random: Random = Random.Default
 ) {
     private val catalog = EmulatorSeedCatalog.instruments()
     private val quoteBook = EmulatorQuoteBook(config.pricingSource)
@@ -187,6 +187,11 @@ class BrokerEmulatorEngine(
      * Clears positions, orders, and fills from the prior session while staying connected.
      * Used between replay runs so emulator state does not accumulate across sessions.
      */
+    /** Reseeds RNG so replay backtests with the same capture produce identical emulator paths. */
+    fun reseedRandom(seed: Long) {
+        random = Random(seed)
+    }
+
     fun resetSessionState() {
         if (!connected) return
         positions.clear()

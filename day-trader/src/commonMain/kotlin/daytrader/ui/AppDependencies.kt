@@ -44,6 +44,7 @@ import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.execution.ExecutionManager
 import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.diagnostics.SessionTrace
+import daytrader.replay.BatchReplayRunner
 import daytrader.replay.ReplayBundleResolver
 import daytrader.replay.ReplayCaptureRef
 import daytrader.replay.ReplayHybridRuntime
@@ -72,7 +73,13 @@ data class AppDependencies(
     val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
+    val batchReplayRunner: BatchReplayRunner? = null,
     val replayBundle: SessionBundle? = null,
+    val replayCaptureCatalog: List<ReplayCaptureRef> = emptyList(),
+    val replaySeedDirectoryPaths: List<String> = emptyList(),
+    val loadReplayBundle: (String) -> Result<SessionBundle> = {
+        Result.failure(IllegalStateException("Replay bundle loader not configured"))
+    },
     val replaySettingsRepository: ReplaySettingsRepository? = null,
     val drainPersistenceBlocking: () -> Unit = {},
 )
@@ -277,6 +284,13 @@ fun rememberAppDependencies(
         } else {
             null
         }
+        val batchReplayRunner = replayController?.let { controller ->
+            BatchReplayRunner(
+                controller = controller,
+                repository = strategyRepository,
+                loadBundle = loadReplayBundle
+            )
+        }
         AppDependencies(
             marketFilter = marketFilter,
             strategyRepository = strategyRepository,
@@ -292,7 +306,11 @@ fun rememberAppDependencies(
             watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
+            batchReplayRunner = batchReplayRunner,
             replayBundle = replayHybridRuntime?.bundle ?: replayBundle,
+            replayCaptureCatalog = replayCaptureCatalog,
+            replaySeedDirectoryPaths = replaySeedDirectoryPaths,
+            loadReplayBundle = loadReplayBundle,
             replaySettingsRepository = replaySettingsRepository,
             drainPersistenceBlocking = {
                 PersistenceDrain.flushAllBlocking(

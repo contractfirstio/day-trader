@@ -40,6 +40,16 @@ class MultiSymbolQuoteFeeder(
     /** Fired when [markOpeningBarQuotesReady] arms bracket/liquidity gating for [symbol]. */
     var onOpeningBarQuotesReady: ((symbol: String) -> Unit)? = null
 
+    /**
+     * Wired by [ReplayHybridRuntime] so each captured quote reaches the emulator synchronously
+     * (no 50ms coalescing).
+     */
+    var onCapturedQuotePublished: ((QuoteEvent) -> Unit)? = null
+        set(value) {
+            field = value
+            feeders.values.forEach { it.onCapturedQuotePublished = value }
+        }
+
     fun isOpeningBarQuotesReady(symbol: String): Boolean =
         SymbolMarkets.normalizeSymbol(symbol) in openingBarQuotesReady
 
@@ -60,7 +70,9 @@ class MultiSymbolQuoteFeeder(
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         return feeders.getOrPut(norm) {
             val bundle = registry.bundleFor(norm) ?: return null
-            QuoteFeeder(bundle, quoteBus, marketDataGateway)
+            QuoteFeeder(bundle, quoteBus, marketDataGateway).also { feeder ->
+                feeder.onCapturedQuotePublished = onCapturedQuotePublished
+            }
         }
     }
 

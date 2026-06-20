@@ -40,7 +40,7 @@ class ReplayHybridRuntime(
     private val emulator = EmulatorBrokerAdapter(
         emit = { event -> inbound.offer(event) },
         receiveCommand = { outbound.take() },
-        config = BrokerEmulatorConfig.forLiveIbMarketData().copy(connectDelayMs = 1),
+        config = BrokerEmulatorConfig.forReplayBacktest(),
         quoteBus = quoteBus,
         scope = scope
     )
@@ -65,6 +65,16 @@ class ReplayHybridRuntime(
         quoteFeeder = quoteFeeder,
         scope = scope
     )
+
+    init {
+        quoteFeeder.onCapturedQuotePublished = { event ->
+            emulator.ingestExternalQuoteSynchronously(
+                symbol = event.symbol,
+                quote = event.quote,
+                priorClose = null
+            )
+        }
+    }
 
     private var sessionEngine: TouchTurnEnginePort? = null
 
@@ -118,6 +128,10 @@ class ReplayHybridRuntime(
      * Clears replay/runtime memory retained across session boundaries: quote cursors, gateway
      * snapshots, emulator fills/orders, engine tracking, and stale queue events.
      */
+    fun reseedBacktestRandom(seed: Long) {
+        emulator.reseedRandom(seed)
+    }
+
     fun resetExecutionState(engine: TouchTurnEnginePort? = sessionEngine) {
         playbackOrchestrator.stopAll()
         marketDataGateway.resetRefetchIndex()
