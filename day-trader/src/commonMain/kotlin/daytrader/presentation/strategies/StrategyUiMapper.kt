@@ -14,6 +14,7 @@ import daytrader.domain.instanceDisplayName
 import daytrader.domain.inProgressSession
 import daytrader.domain.lastClosed
 import daytrader.domain.rollups
+import daytrader.domain.rollupsForConfiguration
 import daytrader.presentation.Formatters
 
 object StrategyUiMapper {
@@ -35,6 +36,11 @@ object StrategyUiMapper {
         val lastClosedSession = closedSessions.lastClosed()
         val rollup = sessionRollupCache?.rollupsForDeployment(instance.id, closedSessions, sessionDate)
             ?: closedSessions.rollups(sessionDate)
+        val configRollup = sessionRollupCache?.rollupsForDeploymentConfiguration(
+            deployment = instance,
+            closedSessions = closedSessions,
+            asOfSessionDate = sessionDate,
+        ) ?: closedSessions.rollupsForConfiguration(sessionDate, instance)
         val hasOpenPosition = brokerPosition != null ||
             (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
                 instance.live.state == ExecutionState.FILLED)
@@ -63,13 +69,13 @@ object StrategyUiMapper {
             statusChipLabel = card.chipLabel,
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             isPositiveTotalPnL = rollup.totalPnl >= 0,
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
+            formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateIsPositive = when {
-                rollup.tradedDays == 0 -> null
-                rollup.winDays * 2 >= rollup.tradedDays -> true
+                configRollup.tradedDays == 0 -> null
+                configRollup.winDays * 2 >= configRollup.tradedDays -> true
                 else -> false
             },
-            formattedNoTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
+            formattedNoTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
             formattedLastSessionPnL = lastClosedSession?.let {
                 Formatters.money(it.pnl, currency, showSign = true)
             } ?: "—",

@@ -35,7 +35,8 @@ fun StrategyDeployment.onSessionStarted(
 ): StrategyDeployment {
     val withoutStaleInProgress = sessionHistory.map { session ->
         if (session.status == SessionStatus.IN_PROGRESS) {
-            session.copy(status = SessionStatus.CLOSED, stoppedAt = startedAt)
+            session.withConfigurationFingerprint(this)
+                .copy(status = SessionStatus.CLOSED, stoppedAt = startedAt)
         } else {
             session
         }
@@ -116,7 +117,7 @@ fun StrategyDeployment.onSessionStopped(
             StrategyType.QUICK_FLIP_SCALPER -> null
         },
         touchTurnRunRecord = touchTurnRecord
-    )
+    )?.withConfigurationFingerprint(this)
     if (closedSession != null) {
         SessionTrace.sessionClosed(
             deployment = this,

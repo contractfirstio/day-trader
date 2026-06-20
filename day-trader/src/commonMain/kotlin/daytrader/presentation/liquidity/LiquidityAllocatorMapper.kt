@@ -18,6 +18,7 @@ import daytrader.domain.TouchTurnTradeSide
 import daytrader.domain.inProgressSession
 import daytrader.domain.isTouchTurn
 import daytrader.domain.rollups
+import daytrader.domain.rollupsForConfiguration
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
@@ -172,11 +173,11 @@ object LiquidityAllocatorMapper {
         val closedSessions = deployment.sessionHistory.filter {
             it.status == daytrader.domain.SessionStatus.CLOSED
         }
-        val rollup = sessionRollupCache?.rollupsForDeployment(
-            deployment.id,
-            closedSessions,
-            session.sessionDate,
-        ) ?: closedSessions.rollups(session.sessionDate)
+        val configRollup = sessionRollupCache?.rollupsForDeploymentConfiguration(
+            deployment = deployment,
+            closedSessions = closedSessions,
+            asOfSessionDate = session.sessionDate,
+        ) ?: closedSessions.rollupsForConfiguration(session.sessionDate, deployment)
         val additionalQty = if (allocationDollars > 0) {
             TouchTurnOrderPlanner.suggestedQuantity(allocationDollars, bracket.entry)
         } else {
@@ -204,8 +205,8 @@ object LiquidityAllocatorMapper {
             } ?: "—",
             distanceToEntry = fillGap,
             entryTouchable = touchable,
-            winRateLabel = Formatters.winRate(rollup.winDays, rollup.lossDays),
-            winRateSampleSize = rollup.tradedDays,
+            winRateLabel = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
+            winRateSampleSize = configRollup.tradedDays,
             bracketOrderIds = session.bracketOrderIds,
             isApplying = isApplying,
             applyError = applyError

@@ -1,7 +1,11 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.SessionRollups
+import daytrader.domain.SessionStatus
+import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
+import daytrader.domain.currentConfigurationFingerprint
+import daytrader.domain.resolvedConfigurationFingerprint
 import daytrader.domain.rollups
 
 /**
@@ -24,6 +28,45 @@ class SessionRollupCache {
         asOfSessionDate: String,
     ): SessionRollups = rollups(deploymentId, closedSessions, asOfSessionDate)
 
+    fun rollupsForDeploymentConfiguration(
+        deployment: StrategyDeployment,
+        closedSessions: List<StrategySession>,
+        asOfSessionDate: String,
+    ): SessionRollups {
+        val configFingerprint = deployment.currentConfigurationFingerprint()
+        val matchingSessions = closedSessions.filter { session ->
+            session.resolvedConfigurationFingerprint(deployment) == configFingerprint
+        }
+        return rollups(
+            scope = "${deployment.id}:cfg:$configFingerprint",
+            sessions = matchingSessions,
+            asOfSessionDate = asOfSessionDate,
+        )
+    }
+
+    fun rollupsForSummaryConfiguration(
+        instances: List<StrategyDeployment>,
+        asOfSessionDate: String,
+    ): SessionRollups {
+        val scope = buildString {
+            append(SUMMARY_CONFIG_SCOPE_PREFIX)
+            append(instances.map { it.id }.sorted().joinToString(","))
+            append(':')
+            append(instances.joinToString(",") { "${it.id}=${it.currentConfigurationFingerprint()}" })
+        }
+        return rollups(
+            scope = scope,
+            sessions = instances.flatMap { deployment ->
+                val fingerprint = deployment.currentConfigurationFingerprint()
+                deployment.sessionHistory.filter { session ->
+                    session.status == SessionStatus.CLOSED &&
+                        session.resolvedConfigurationFingerprint(deployment) == fingerprint
+                }
+            },
+            asOfSessionDate = asOfSessionDate,
+        )
+    }
+
     fun rollupsForSummary(
         deploymentIds: List<String>,
         closedSessions: List<StrategySession>,
@@ -42,7 +85,9 @@ class SessionRollupCache {
                 key.scope == deploymentId ||
                     key.scope.startsWith("$deploymentId:") ||
                     (key.scope.startsWith(SUMMARY_SCOPE_PREFIX) &&
-                        summaryScopeIncludes(deploymentId, key.scope))
+                        summaryScopeIncludes(deploymentId, key.scope)) ||
+                    (key.scope.startsWith(SUMMARY_CONFIG_SCOPE_PREFIX) &&
+                        summaryScopeIncludes(deploymentId, key.scope.removePrefix(SUMMARY_CONFIG_SCOPE_PREFIX)))
             }
         }
     }
@@ -53,6 +98,7 @@ class SessionRollupCache {
 
     companion object {
         private const val SUMMARY_SCOPE_PREFIX = "summary:"
+        private const val SUMMARY_CONFIG_SCOPE_PREFIX = "summary-cfg:"
 
         fun fingerprint(sessions: List<StrategySession>): Long {
             var hash = 2166136261L
@@ -69,6 +115,7 @@ class SessionRollupCache {
                     hash,
                     session.touchTurnRunRecord?.decision?.outcome?.hashCode() ?: 0
                 )
+                hash = fnvMix(hash, session.configurationFingerprint?.hashCode() ?: 0)
             }
             return hash
         }

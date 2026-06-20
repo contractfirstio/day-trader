@@ -4,8 +4,10 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
+import daytrader.domain.configurationRollupsForDeployments
 import daytrader.domain.lastClosed
 import daytrader.domain.rollups
+import daytrader.domain.rollupsForConfiguration
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.StrategiesViewModel
 import kotlin.test.assertEquals
@@ -49,6 +51,7 @@ object E2ESessionRollupHelper {
     ): ExpectedRollupUi {
         val closedSessions = deployment.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         val rollup = closedSessions.rollups(sessionDate)
+        val configRollup = closedSessions.rollupsForConfiguration(sessionDate, deployment)
         val currency = deployment.instrument?.currency
             ?: SymbolMarkets.currencyCode(deployment.symbol)
         val lastClosed = closedSessions.lastClosed()
@@ -56,6 +59,7 @@ object E2ESessionRollupHelper {
             instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         }
         val summaryRollup = summaryClosed.rollups(sessionDate)
+        val summaryConfigRollup = configurationRollupsForDeployments(allDeployments, sessionDate)
         val netPnLByCurrency = mutableMapOf<String, Double>()
         val lastSessionByCurrency = mutableMapOf<String, Double>()
         allDeployments.forEach { instance ->
@@ -97,18 +101,18 @@ object E2ESessionRollupHelper {
         }
         return ExpectedRollupUi(
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
-            formattedNoTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
+            formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
+            formattedNoTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
             formattedLastSessionPnL = lastClosed?.let {
                 Formatters.money(it.pnl, currency, showSign = true)
             } ?: "—",
             formattedNetPnL = formattedNetPnL,
             formattedRollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             formattedSummaryLastSessionPnL = summaryLastSession,
-            formattedSummaryWinRate = Formatters.winRate(summaryRollup.winDays, summaryRollup.lossDays),
+            formattedSummaryWinRate = Formatters.winRate(summaryConfigRollup.winDays, summaryConfigRollup.lossDays),
             formattedSummaryNoTradeRate = Formatters.noTradeRate(
-                summaryRollup.noTradeDays,
-                summaryRollup.closedDays
+                summaryConfigRollup.noTradeDays,
+                summaryConfigRollup.closedDays
             ),
         )
     }

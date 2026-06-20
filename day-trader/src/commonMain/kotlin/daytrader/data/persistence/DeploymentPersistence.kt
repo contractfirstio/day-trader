@@ -84,7 +84,8 @@ object DeploymentPersistence {
             touchTurnStartedBy = SessionPersistenceSlimmer.restoreStartedByFromRecord(record)?.let { value ->
                 runCatching { TouchTurnSessionStartedBy.valueOf(value.uppercase()) }.getOrNull()
             },
-            touchTurnRunRecord = TouchTurnRunPersistence.toDomain(record.touchTurnRunRecord)
+            touchTurnRunRecord = TouchTurnRunPersistence.toDomain(record.touchTurnRunRecord),
+            configurationFingerprint = record.configurationFingerprint,
         )
 
     private fun toSessionHistoryRecord(day: StrategySession): SessionHistoryRecord =
@@ -103,7 +104,8 @@ object DeploymentPersistence {
             sessionTrades = day.sessionTrades.map(SessionPersistenceSlimmer::toSlimTradeRecord),
             touchTurnMilestones = day.touchTurnMilestones?.let(TouchTurnPersistence::milestonesToRecord),
             touchTurnStartedBy = day.touchTurnStartedBy?.name?.lowercase(),
-            touchTurnRunRecord = TouchTurnRunPersistence.toRecord(day.touchTurnRunRecord)
+            touchTurnRunRecord = TouchTurnRunPersistence.toRecord(day.touchTurnRunRecord),
+            configurationFingerprint = day.configurationFingerprint,
         )
 
     private fun toSessionTradeDomain(record: SessionTradeRecord): SessionTrade =

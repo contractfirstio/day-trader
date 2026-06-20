@@ -7,6 +7,8 @@ import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.rollups
+import daytrader.domain.currentConfigurationFingerprint
+import daytrader.domain.resolvedConfigurationFingerprint
 import daytrader.presentation.Formatters
 import daytrader.presentation.positions.SortDirection
 
@@ -44,11 +46,22 @@ object SessionHistoryUiMapper {
         }
         val rollup = sessionRollupCache?.rollups(rollupScope, closedSessions, sessionDate)
             ?: closedSessions.rollups(sessionDate)
+        val configFingerprint = instance.currentConfigurationFingerprint()
+        val configSessions = closedSessions.filter { session ->
+            session.resolvedConfigurationFingerprint(instance) == configFingerprint
+        }
+        val configScope = buildString {
+            append(rollupScope)
+            append(":cfg:")
+            append(configFingerprint)
+        }
+        val configRollup = sessionRollupCache?.rollups(configScope, configSessions, sessionDate)
+            ?: configSessions.rollups(sessionDate)
 
         return SessionHistoryUiState(
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
-            winRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
-            noTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
+            winRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
+            noTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
             rows = sortedRows,
             sortColumn = sortColumn,
             sortDirection = sortDirection,

@@ -24,5 +24,7 @@ data class StrategySession(
     /** How this run was started (Touch Turn only). */
     val touchTurnStartedBy: TouchTurnSessionStartedBy? = null,
     /** Frozen Touch Turn session facts when this run stopped. */
-    val touchTurnRunRecord: TouchTurnRunRecord? = null
+    val touchTurnRunRecord: TouchTurnRunRecord? = null,
+    /** Stable hash of strategy config active when this run closed; see [StrategyConfigurationSnapshot]. */
+    val configurationFingerprint: String? = null,
 )

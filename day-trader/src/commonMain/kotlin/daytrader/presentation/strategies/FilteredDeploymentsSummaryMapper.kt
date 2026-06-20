@@ -8,7 +8,7 @@ import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.riskReward
-import daytrader.domain.rollups
+import daytrader.domain.configurationRollupsForDeployments
 import daytrader.data.StrategyCatalog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
@@ -81,12 +81,10 @@ object FilteredDeploymentsSummaryMapper {
                 }
         }
 
-        val closedSessions = buildClosedSessions(instances)
-        val rollup = sessionRollupCache?.rollupsForSummary(
-            deploymentIds = instances.map { it.id },
-            closedSessions = closedSessions,
+        val configRollup = sessionRollupCache?.rollupsForSummaryConfiguration(
+            instances = instances,
             asOfSessionDate = sessionDate,
-        ) ?: closedSessions.rollups(sessionDate)
+        ) ?: configurationRollupsForDeployments(instances, sessionDate)
         val lastSessionByCurrency = mutableMapOf<String, Double>()
         val netPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->
@@ -124,26 +122,16 @@ object FilteredDeploymentsSummaryMapper {
             stopOutcomeIsMinWin = stopOutcomeTotals.isNotEmpty() && stopSum >= 0.0,
             formattedLastSessionPnL = formatMoneyTotals(lastSessionByCurrency),
             isPositiveLastSessionPnL = singleCurrencySign(lastSessionByCurrency),
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
+            formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateIsPositive = when {
-                rollup.tradedDays == 0 -> null
-                rollup.winDays * 2 >= rollup.tradedDays -> true
+                configRollup.tradedDays == 0 -> null
+                configRollup.winDays * 2 >= configRollup.tradedDays -> true
                 else -> false
             },
-            formattedNoTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
+            formattedNoTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
             formattedNetPnL = formatMoneyTotals(netPnLByCurrency),
             isPositiveNetPnL = singleCurrencySign(netPnLByCurrency),
         )
-    }
-
-    private fun buildClosedSessions(instances: List<StrategyDeployment>): List<daytrader.domain.StrategySession> {
-        val closed = ArrayList<daytrader.domain.StrategySession>()
-        instances.forEach { deployment ->
-            deployment.sessionHistory.forEach { session ->
-                if (session.status == SessionStatus.CLOSED) closed.add(session)
-            }
-        }
-        return closed
     }
 
     private fun deploymentCurrency(

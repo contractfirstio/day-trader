@@ -167,7 +167,8 @@ data class SessionHistoryRecord(
     val sessionTrades: List<SessionTradeRecord> = emptyList(),
     val touchTurnMilestones: TouchTurnMilestoneTimestampsRecord? = null,
     val touchTurnStartedBy: String? = null,
-    val touchTurnRunRecord: TouchTurnRunRecordRecord? = null
+    val touchTurnRunRecord: TouchTurnRunRecordRecord? = null,
+    val configurationFingerprint: String? = null,
 )
 
 @Serializable
