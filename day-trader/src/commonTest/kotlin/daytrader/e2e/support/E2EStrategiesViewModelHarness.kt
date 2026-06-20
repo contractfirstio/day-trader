@@ -2,12 +2,14 @@ package daytrader.e2e.support
 
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.InstrumentIdentity
 import daytrader.engine.TouchTurnEngine
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategiesAppStateRepository
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import daytrader.execution.BrokerGatewayExecutionManager
+import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.platform.TradingClock
@@ -23,21 +25,23 @@ import kotlinx.coroutines.delay
  */
 class E2EStrategiesViewModelHarness(
     val repository: InMemoryStrategyDeploymentRepository,
-    val gateway: FakeBrokerGateway,
+    val gateway: BrokerGateway,
     val appStateRepository: StrategiesAppStateRepository,
     val marketFilter: MarketFilterState,
     val engine: TouchTurnEnginePort,
     val viewModel: StrategiesViewModel,
     val brokerKind: BrokerKind,
+    private val onStart: () -> Unit = { gateway.connect() },
+    private val onShutdown: () -> Unit = { gateway.disconnect() },
 ) {
     fun start() {
-        gateway.connect()
+        onStart()
         engine.start()
     }
 
     fun shutdown() {
         engine.shutdown()
-        gateway.disconnect()
+        onShutdown()
     }
 
     fun selectDeployment(deploymentId: String) {
@@ -105,6 +109,24 @@ class E2EStrategiesViewModelHarness(
         )
     }
 
+    suspend fun awaitListRowTotalPnL(
+        deploymentId: String,
+        expected: String,
+        timeoutMs: Long = 15_000
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val row = viewModel.listState.value.filteredRows.find { it.id == deploymentId }
+            if (row?.formattedTotalPnL == expected) return
+            delay(25)
+        }
+        val row = viewModel.listState.value.filteredRows.find { it.id == deploymentId }
+        error(
+            "Timed out after ${timeoutMs}ms waiting for formattedTotalPnL=$expected; " +
+                "actual=${row?.formattedTotalPnL}"
+        )
+    }
+
     companion object {
         fun create(
             scope: CoroutineScope,
@@ -112,6 +134,25 @@ class E2EStrategiesViewModelHarness(
             gateway: FakeBrokerGateway,
             brokerKind: BrokerKind = BrokerKind.INTERACTIVE_BROKERS,
             nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS },
+        ): E2EStrategiesViewModelHarness =
+            createWithGateway(
+                scope = scope,
+                repository = repository,
+                gateway = gateway,
+                brokerKind = brokerKind,
+                nowEpochMillis = nowEpochMillis,
+            )
+
+        fun createWithGateway(
+            scope: CoroutineScope,
+            repository: InMemoryStrategyDeploymentRepository,
+            gateway: BrokerGateway,
+            brokerKind: BrokerKind,
+            nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS },
+            ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+            releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+            onStart: () -> Unit = { gateway.connect() },
+            onShutdown: () -> Unit = { gateway.disconnect() },
         ): E2EStrategiesViewModelHarness {
             val appStateRepository = InMemoryStrategiesAppStateRepository()
             val marketFilter = MarketFilterState()
@@ -122,7 +163,11 @@ class E2EStrategiesViewModelHarness(
                 }
             }
             val engine = TouchTurnEngine(
-                marketData = BrokerGatewayMarketDataProvider(gateway),
+                marketData = BrokerGatewayMarketDataProvider(
+                    gateway = gateway,
+                    ensureLiveMarketData = ensureLiveMarketData,
+                    releaseLiveMarketData = releaseLiveMarketData,
+                ),
                 execution = BrokerGatewayExecutionManager(gateway),
                 repository = repository,
                 scope = scope,
@@ -150,6 +195,30 @@ class E2EStrategiesViewModelHarness(
                 engine = engine,
                 viewModel = viewModel,
                 brokerKind = brokerKind,
+                onStart = onStart,
+                onShutdown = onShutdown,
+            )
+        }
+
+        fun createWithEmulator(
+            scope: CoroutineScope,
+            repository: InMemoryStrategyDeploymentRepository,
+            emulatorHarness: EmulatorModeTestHarness,
+        ): E2EStrategiesViewModelHarness {
+            val gateway = emulatorHarness.gateway
+            return createWithGateway(
+                scope = scope,
+                repository = repository,
+                gateway = gateway,
+                brokerKind = BrokerKind.EMULATOR,
+                ensureLiveMarketData = { symbol, instrument ->
+                    emulatorHarness.adapter.ensureStreamingMarketData(symbol, instrument)
+                },
+                releaseLiveMarketData = { symbol, instrument ->
+                    emulatorHarness.adapter.releaseStreamingMarketData(symbol, instrument)
+                },
+                onStart = { emulatorHarness.start() },
+                onShutdown = { emulatorHarness.shutdown() },
             )
         }
     }

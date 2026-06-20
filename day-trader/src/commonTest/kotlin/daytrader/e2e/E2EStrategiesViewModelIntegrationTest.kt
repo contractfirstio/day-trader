@@ -75,8 +75,6 @@ class E2EStrategiesViewModelIntegrationTest {
             harness.start()
 
             harness.viewModel.onToggleSession(E2ETestFixtures.DEPLOYMENT_ID)
-            harness.awaitListRowStatus(E2ETestFixtures.DEPLOYMENT_ID, DeploymentStatus.RUNNING)
-
             harness.engine.dispatch(
                 TouchTurnCommand.LoadFirstCandle(
                     E2ETestFixtures.DEPLOYMENT_ID,

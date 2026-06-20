@@ -13,6 +13,7 @@ object E2ETestFixtures {
     const val SYMBOL = "AAPL"
     const val SESSION_DATE = "2026-06-04"
     const val DEPLOYMENT_ID = "dep-e2e-1"
+    const val DEPLOYMENT_ID_2 = "dep-e2e-2"
     const val ATR14 = 2.45
     const val VOLUME_SMA20 = 980_000.0
 
