@@ -98,5 +98,20 @@ class EmulatorModeTestHarness(
                 touchTurnEntryScenarioOverride = TouchTurnEntryScenario.NEVER_FILL
             )
         )
+
+        /** Deterministic entry fill + bracket walk for full trade-cycle E2E tests. */
+        fun fullTradeLifecycle(scope: CoroutineScope) = EmulatorModeTestHarness(
+            scope = scope,
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                marketTickIntervalMs = 25,
+                firstCandleSecondsUntilClose = null,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
+                bracketWalkStepPctOfRange = 0.2,
+                bracketWalkDirectionFlipChance = 0.0,
+            )
+        )
     }
 }
