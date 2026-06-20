@@ -85,6 +85,8 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.FlowPreview
 
@@ -136,6 +138,9 @@ class StrategiesViewModel(
     private val prepareInProgressIds = mutableSetOf<String>()
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
     private val touchTurnEntryApproachTrackers = mutableMapOf<String, TouchTurnEntryApproachTracker>()
+    private var searchDebounceJob: Job? = null
+    /** In-flight search text before debounced commit to [appStateRepository]. */
+    private var pendingSearchQuery: String? = null
 
     private fun touchTurnPriceHistoryFor(symbol: String): LivePriceTickHistory =
         touchTurnPriceHistories.getOrPut(SymbolMarkets.normalizeSymbol(symbol)) {
@@ -497,7 +502,14 @@ class StrategiesViewModel(
     }
 
     fun onSearchChange(query: String) {
-        appStateRepository.update { it.copy(searchQuery = query) }
+        pendingSearchQuery = query
+        _listState.update { it.copy(searchQuery = query) }
+        searchDebounceJob?.cancel()
+        searchDebounceJob = scope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            pendingSearchQuery = null
+            appStateRepository.update { it.copy(searchQuery = query) }
+        }
     }
 
     fun onDeploymentFilterChange(filter: DeploymentFilter) {
@@ -509,6 +521,8 @@ class StrategiesViewModel(
     }
 
     fun onClearFilters() {
+        searchDebounceJob?.cancel()
+        pendingSearchQuery = null
         marketFilter.clear()
         appStateRepository.update {
             it.copy(
@@ -1440,7 +1454,7 @@ class StrategiesViewModel(
             hasActiveFilters = ctx.hasActiveFilters,
             selectedMarketZoneId = selectedMarketZoneId,
             selectedMarketLabel = selectedMarketZoneId?.let(::marketLabelForZone),
-            searchQuery = ctx.state.searchQuery,
+            searchQuery = pendingSearchQuery ?: ctx.state.searchQuery,
             deploymentFilter = ctx.state.deploymentFilter,
             strategyTypeFilter = ctx.state.strategyTypeFilter,
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
@@ -1719,50 +1733,50 @@ class StrategiesViewModel(
     }
 
     private fun recordTouchTurnLiveChartSamples() {
-        recordTouchTurnLivePrices()
-        recordTouchTurnEntryApproach()
+        val deployment = selectedDeploymentForChartSampling() ?: return
+        recordTouchTurnLivePrices(deployment)
+        recordTouchTurnEntryApproach(deployment)
     }
 
-    private fun recordTouchTurnLivePrices() {
+    private fun selectedDeploymentForChartSampling(): StrategyDeployment? {
+        val selectedId = appState.selectedDeploymentId ?: return null
+        val deployment = deployments.find { it.id == selectedId } ?: return null
+        if (!deployment.isTouchTurn || deployment.status != DeploymentStatus.RUNNING) return null
+        return deployment
+    }
+
+    private fun recordTouchTurnLivePrices(deployment: StrategyDeployment) {
         val now = tradingClock.nowEpochMillis()
-        for (deployment in deployments) {
-            if (!deployment.isTouchTurn) continue
-            if (deployment.status != DeploymentStatus.RUNNING) continue
-            val session = deployment.touchTurnSession ?: continue
-            val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
-            val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
-            if (!recordForForming && !recordForOrders) continue
-            val price = touchTurnChartPrice(deployment) ?: continue
-            touchTurnPriceHistoryFor(deployment.symbol).record(now, price)
-        }
+        val session = deployment.touchTurnSession ?: return
+        val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
+        val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
+        if (!recordForForming && !recordForOrders) return
+        val price = touchTurnChartPrice(deployment) ?: return
+        touchTurnPriceHistoryFor(deployment.symbol).record(now, price)
     }
 
-    private fun recordTouchTurnEntryApproach() {
-        for (deployment in deployments) {
-            if (!deployment.isTouchTurn) continue
-            if (deployment.status != DeploymentStatus.RUNNING) continue
-            val session = deployment.touchTurnSession ?: continue
-            val setup = session.setup ?: continue
-            val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
-            val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
-            if (!recordForForming && !recordForOrders) continue
-            val quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes) ?: continue
-            val fillGap = TouchTurnQuoteStripFormat.fillGap(
-                entryPrice = setup.entry,
-                entrySide = setup.side,
-                bid = quote.bid,
-                ask = quote.ask
-            ) ?: continue
-            val fillPrice = TouchTurnQuoteStripUiMapper.fillPriceForGap(
-                entrySide = setup.side,
-                bid = quote.bid,
-                ask = quote.ask
-            ) ?: continue
-            val sessionId = deployment.inProgressSession()?.id ?: continue
-            val tracker = touchTurnEntryApproachTrackerFor(deployment.id)
-            tracker.bindSession(sessionId)
-            tracker.record(fillGap, fillPrice)
-        }
+    private fun recordTouchTurnEntryApproach(deployment: StrategyDeployment) {
+        val session = deployment.touchTurnSession ?: return
+        val setup = session.setup ?: return
+        val recordForForming = TouchTurnFormingBarPriceChartUiMapper.shouldRecordPrices(session)
+        val recordForOrders = TouchTurnLiveOrderChartUiMapper.shouldRecordPrices(session)
+        if (!recordForForming && !recordForOrders) return
+        val quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes) ?: return
+        val fillGap = TouchTurnQuoteStripFormat.fillGap(
+            entryPrice = setup.entry,
+            entrySide = setup.side,
+            bid = quote.bid,
+            ask = quote.ask
+        ) ?: return
+        val fillPrice = TouchTurnQuoteStripUiMapper.fillPriceForGap(
+            entrySide = setup.side,
+            bid = quote.bid,
+            ask = quote.ask
+        ) ?: return
+        val sessionId = deployment.inProgressSession()?.id ?: return
+        val tracker = touchTurnEntryApproachTrackerFor(deployment.id)
+        tracker.bindSession(sessionId)
+        tracker.record(fillGap, fillPrice)
     }
 
     private fun pruneTouchTurnPriceHistories() {
@@ -1953,5 +1967,6 @@ class StrategiesViewModel(
     private companion object {
         /** Throttles quote-driven UI refreshes (~10 Hz) while chart sampling stays on every tick. */
         const val QUOTE_UI_REFRESH_INTERVAL_MS = 100L
+        const val SEARCH_DEBOUNCE_MS = 250L
     }
 }
