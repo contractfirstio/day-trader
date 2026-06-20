@@ -349,7 +349,6 @@ class TouchTurnEngine(
             repository.update(instanceId) { current ->
                 current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
             }
-            repository.flushPersistence()
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return
             logLiquidityPollOutcome(
                 instance = instance,
@@ -377,7 +376,7 @@ class TouchTurnEngine(
         repository.update(instanceId) {
             it.withOrdersPlacedForSession(plan = plan, bracketOrderIds = bracketOrderIds)
         }
-        repository.flushPersistence()
+        repository.flushPersistenceBlocking()
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         logLiquidityPollOutcome(
             instance = instance,
@@ -487,7 +486,6 @@ class TouchTurnEngine(
             )
         }
         tracedFillExecIdsByInstance.remove(command.instanceId)
-        repository.flushPersistence()
         val updated = repository.deployments.value.find { it.id == command.instanceId } ?: return
         startSessionMarketDataCapture(updated)
         updated.inProgressSession()?.let { session ->
@@ -552,7 +550,7 @@ class TouchTurnEngine(
         }
         val stopped = result.stoppedDeployment
         repository.update(command.instanceId) { stopped }
-        repository.flushPersistence()
+        repository.flushPersistenceBlocking()
         maybeReleaseLiveMarketData(stopped)
         maybePruneSymbolBrokerState(stopped)
         val sessionId = instance.inProgressSession()?.id
@@ -574,17 +572,14 @@ class TouchTurnEngine(
 
     private fun handleClosePosition(command: TouchTurnCommand.ClosePosition) {
         repository.update(command.instanceId) { it.withClosedPosition(command.sessionDate) }
-        repository.flushPersistence()
     }
 
     private fun handleDeleteSessionHistory(command: TouchTurnCommand.DeleteSessionHistory) {
         repository.update(command.instanceId) { it.withoutSessionHistoryEntry(command.runId) }
-        repository.flushPersistence()
     }
 
     private fun handleDeleteAllSessionHistory(command: TouchTurnCommand.DeleteAllSessionHistory) {
         repository.update(command.instanceId) { it.withoutClosedSessionHistory() }
-        repository.flushPersistence()
     }
 
     private fun handleBrokerSnapshot(command: TouchTurnCommand.BrokerSnapshot) {
@@ -760,7 +755,6 @@ class TouchTurnEngine(
                 nowEpochMillis = nowEpochMillis()
             )
             repository.update(instanceId) { it.withTouchTurnPrepare(prepare) }
-            repository.flushPersistence()
             SessionTrace.log(
                 type = "session_prepare",
                 deploymentId = instanceId,

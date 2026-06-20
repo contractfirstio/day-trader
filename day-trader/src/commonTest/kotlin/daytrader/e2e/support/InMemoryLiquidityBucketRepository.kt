@@ -27,6 +27,10 @@ class InMemoryLiquidityBucketRepository(
         flushInvocationCount++
     }
 
+    override fun flushPersistenceBlocking() {
+        flushInvocationCount++
+    }
+
     override fun creditNoTradeSession(
         sessionId: String,
         deploymentId: String,

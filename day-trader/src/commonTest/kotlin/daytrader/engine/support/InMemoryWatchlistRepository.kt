@@ -82,4 +82,6 @@ class InMemoryWatchlistRepository(
     }
 
     override fun flushPersistence() = Unit
+
+    override fun flushPersistenceBlocking() = Unit
 }

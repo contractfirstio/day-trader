@@ -23,6 +23,7 @@ interface LiquidityBucketRepository {
     val state: StateFlow<LiquidityBucketState>
     fun update(transform: (LiquidityBucketState) -> LiquidityBucketState)
     fun flushPersistence()
+    fun flushPersistenceBlocking()
     fun creditNoTradeSession(
         sessionId: String,
         deploymentId: String,
@@ -66,7 +67,11 @@ class FileLiquidityBucketRepository(
     }
 
     override fun flushPersistence() {
-        writer.persistNow(_state.value)
+        writer.flush(_state.value)
+    }
+
+    override fun flushPersistenceBlocking() {
+        writer.flushBlocking(_state.value)
     }
 
     override fun creditNoTradeSession(

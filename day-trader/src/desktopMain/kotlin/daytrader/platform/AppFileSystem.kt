@@ -12,7 +12,10 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 actual object AppFileSystem {
-    private val writeLock = Any()
+    /** Serializes atomic JSON/document writes (deployments, watchlists, session manifests). */
+    private val documentWriteLock = Any()
+    /** Serializes append-only diagnostic JSONL without blocking document writes. */
+    private val logAppendLock = Any()
     private const val APP_FOLDER_NAME = "Day Trader"
     private val envOverride = System.getenv("DAY_TRADER_DATA_DIR")
     private val launchId: String by lazy { buildLaunchId() }
@@ -119,7 +122,7 @@ actual object AppFileSystem {
     }
 
     actual fun writeTextAtomic(fileName: String, content: String) {
-        synchronized(writeLock) {
+        synchronized(documentWriteLock) {
             ensureAppDataDirectory()
             val target = resolveDataPath(fileName)
             val dir = target.parent ?: Path.of(appDataDirectory())
@@ -149,7 +152,7 @@ actual object AppFileSystem {
     }
 
     actual fun appendLine(fileName: String, line: String) {
-        synchronized(writeLock) {
+        synchronized(logAppendLock) {
             ensureAppDataDirectory()
             val path = resolveDataPath(fileName)
             path.parent?.let { Files.createDirectories(it) }
@@ -177,7 +180,7 @@ actual object AppFileSystem {
     }
 
     actual fun writeApplicationRootTextAtomic(fileName: String, content: String) {
-        synchronized(writeLock) {
+        synchronized(documentWriteLock) {
             val target = stableBaseDataDirectory().resolve(fileName)
             Files.createDirectories(target.parent ?: stableBaseDataDirectory())
             val dir = target.parent ?: stableBaseDataDirectory()

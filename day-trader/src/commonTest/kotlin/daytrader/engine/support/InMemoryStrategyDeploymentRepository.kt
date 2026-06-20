@@ -32,4 +32,8 @@ class InMemoryStrategyDeploymentRepository(
     override fun flushPersistence() {
         flushInvocationCount++
     }
+
+    override fun flushPersistenceBlocking() {
+        flushInvocationCount++
+    }
 }

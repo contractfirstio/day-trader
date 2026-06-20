@@ -16,4 +16,8 @@ class InMemoryStrategiesAppStateRepository(
     override fun update(transform: (StrategiesAppState) -> StrategiesAppState) {
         _state.update(transform)
     }
+
+    override fun flushPersistence() = Unit
+
+    override fun flushPersistenceBlocking() = Unit
 }

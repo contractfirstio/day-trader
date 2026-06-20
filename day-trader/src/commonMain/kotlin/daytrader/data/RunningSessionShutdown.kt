@@ -40,7 +40,7 @@ object RunningSessionShutdown {
             repository.update(instance.id) { result.stoppedDeployment }
             result.stoppedDeployment
         }
-        repository.flushPersistence()
+        repository.flushPersistenceBlocking()
         return stopped
     }
 }

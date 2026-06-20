@@ -115,7 +115,11 @@ class FileWatchlistRepository(
     }
 
     override fun flushPersistence() {
-        writer.persistNow(_watchlists.value)
+        writer.flush(_watchlists.value)
+    }
+
+    override fun flushPersistenceBlocking() {
+        writer.flushBlocking(_watchlists.value)
     }
 
     private fun loadInitial(): List<Watchlist> {

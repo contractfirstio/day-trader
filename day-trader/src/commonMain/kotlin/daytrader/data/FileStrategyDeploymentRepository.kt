@@ -59,7 +59,11 @@ class FileStrategyDeploymentRepository(
     }
 
     override fun flushPersistence() {
-        writer.persistNow(_deployments.value)
+        writer.flush(_deployments.value)
+    }
+
+    override fun flushPersistenceBlocking() {
+        writer.flushBlocking(_deployments.value)
     }
 
     private fun loadInitial(): List<StrategyDeployment> {

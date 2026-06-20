@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Background JSONL append queue for diagnostic logs (session traces, price logs, etc.).
  *
  * Callers enqueue lines and return immediately; a single IO worker performs disk appends so
- * engine, broker, and UI threads are not blocked on [AppFileSystem.writeLock].
+ * engine, broker, and UI threads are not blocked on document persistence or
+ * [AppFileSystem]'s log-append lock contending with atomic JSON writes.
  *
  * Use [awaitIdle] / [awaitIdleBlocking] when a caller must observe prior enqueued lines on disk
  * (for example before migrating a pending session log into a session directory).

@@ -37,6 +37,8 @@ data class StrategiesAppState(
 interface StrategiesAppStateRepository {
     val state: StateFlow<StrategiesAppState>
     fun update(transform: (StrategiesAppState) -> StrategiesAppState)
+    fun flushPersistence()
+    fun flushPersistenceBlocking()
 }
 
 class FileStrategiesAppStateRepository(
@@ -60,6 +62,14 @@ class FileStrategiesAppStateRepository(
     override fun update(transform: (StrategiesAppState) -> StrategiesAppState) {
         _state.update(transform)
         writer.schedule(_state.value)
+    }
+
+    override fun flushPersistence() {
+        writer.flush(_state.value)
+    }
+
+    override fun flushPersistenceBlocking() {
+        writer.flushBlocking(_state.value)
     }
 
     private fun loadInitial(): StrategiesAppState {

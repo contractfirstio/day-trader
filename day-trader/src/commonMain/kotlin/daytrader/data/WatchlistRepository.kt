@@ -13,4 +13,5 @@ interface WatchlistRepository {
     fun createWatchlist(name: String): Watchlist
     fun removeWatchlist(id: String)
     fun flushPersistence()
+    fun flushPersistenceBlocking()
 }

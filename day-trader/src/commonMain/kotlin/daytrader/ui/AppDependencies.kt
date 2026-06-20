@@ -8,10 +8,13 @@ import daytrader.data.FileLiquidityBucketRepository
 import daytrader.data.FileReplaySettingsRepository
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
+import daytrader.data.PersistenceDrain
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
 import daytrader.data.ReplaySettingsRepository
 import daytrader.data.LiquidityBucketRepository
+import daytrader.data.StrategiesAppStateRepository
+import daytrader.data.WatchlistRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.data.ReversalScoreService
@@ -70,7 +73,8 @@ data class AppDependencies(
     val touchTurnEngine: TouchTurnEnginePort? = null,
     val replayController: ReplaySessionController? = null,
     val replayBundle: SessionBundle? = null,
-    val replaySettingsRepository: ReplaySettingsRepository? = null
+    val replaySettingsRepository: ReplaySettingsRepository? = null,
+    val drainPersistenceBlocking: () -> Unit = {},
 )
 
 @Composable
@@ -289,7 +293,15 @@ fun rememberAppDependencies(
             touchTurnEngine = touchTurnEngine,
             replayController = replayController,
             replayBundle = replayHybridRuntime?.bundle ?: replayBundle,
-            replaySettingsRepository = replaySettingsRepository
+            replaySettingsRepository = replaySettingsRepository,
+            drainPersistenceBlocking = {
+                PersistenceDrain.flushAllBlocking(
+                    deployments = strategyRepository,
+                    watchlists = watchlistRepository,
+                    liquidity = liquidityBucketRepository,
+                    appState = appStateRepository,
+                )
+            },
         )
     }
     LaunchedEffect(
@@ -315,7 +327,7 @@ fun rememberAppDependencies(
                         replayHybridRuntime?.registerBundle(bundle)
                     }
                 }
-                strategyRepository.flushPersistence()
+                strategyRepository.flushPersistenceBlocking()
             }
             val sessionGateway = touchTurnSessionGateway ?: brokerGateway
             (brokerGateway ?: sessionGateway)?.let { executionGateway ->
@@ -352,6 +364,7 @@ fun rememberAppDependencies(
         onDispose {
             dependencies.touchTurnEngine?.shutdown()
             replayHybridRuntime?.playbackOrchestrator?.stopAll()
+            dependencies.drainPersistenceBlocking()
             engineJob.cancel()
         }
     }
