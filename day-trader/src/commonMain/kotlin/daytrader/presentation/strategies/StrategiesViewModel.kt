@@ -127,6 +127,7 @@ class StrategiesViewModel(
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
     private var brokerDeploymentIndex: BrokerDeploymentIndex = BrokerDeploymentIndex.EMPTY
     private val sessionRollupCache = SessionRollupCache()
+    private val closedSessionFingerprintsByDeployment = mutableMapOf<String, Long>()
     private val lastBrokerOpenOrdersFingerprintByDeployment = mutableMapOf<String, String>()
     private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
@@ -135,6 +136,8 @@ class StrategiesViewModel(
     private var selectedMarketZoneId: String? = null
     private var selectedSessionHistoryId: String? = null
     private var pipelineRefreshTick: Int = 0
+    private var lastPipelineTickFingerprintDeploymentId: String? = null
+    private var lastPipelineTickFingerprint: Long? = null
     private val prepareInProgressIds = mutableSetOf<String>()
     private val touchTurnPriceHistories = mutableMapOf<String, LivePriceTickHistory>()
     private val touchTurnEntryApproachTrackers = mutableMapOf<String, TouchTurnEntryApproachTracker>()
@@ -162,10 +165,6 @@ class StrategiesViewModel(
 
     private val _chromeState = MutableStateFlow(StrategiesChromeUiState())
     val chromeState: StateFlow<StrategiesChromeUiState> = _chromeState.asStateFlow()
-
-    /** Combined snapshot for callers not yet split into slice flows. */
-    private val _uiState = MutableStateFlow(StrategiesUiState())
-    val uiState: StateFlow<StrategiesUiState> = _uiState.asStateFlow()
 
     init {
         appStateRepository.state
@@ -197,7 +196,7 @@ class StrategiesViewModel(
                 }
                 deployments = list
                 pruneTouchTurnPriceHistories()
-                sessionRollupCache.clear()
+                invalidateRollupCacheForChangedDeployments(list)
                 refreshBrokerDeploymentIndex()
                 reconcileSelectedDeployment(list)
                 // Engine auto-start/stop updates the repository off the manual toggle path;
@@ -1340,6 +1339,27 @@ class StrategiesViewModel(
         )
     }
 
+    private fun invalidateRollupCacheForChangedDeployments(list: List<StrategyDeployment>) {
+        val currentIds = list.map { it.id }.toSet()
+        val invalidated = mutableSetOf<String>()
+        for (deployment in list) {
+            val closedSessions = deployment.sessionHistory.filter { it.status == SessionStatus.CLOSED }
+            val fingerprint = SessionRollupCache.fingerprint(closedSessions)
+            val previous = closedSessionFingerprintsByDeployment.put(deployment.id, fingerprint)
+            if (previous != null && previous != fingerprint) {
+                invalidated.add(deployment.id)
+            }
+        }
+        val removedIds = closedSessionFingerprintsByDeployment.keys - currentIds
+        if (removedIds.isNotEmpty()) {
+            closedSessionFingerprintsByDeployment.keys.retainAll(currentIds)
+            invalidated.addAll(removedIds)
+        }
+        if (invalidated.isNotEmpty()) {
+            sessionRollupCache.invalidateDeployments(invalidated)
+        }
+    }
+
     private enum class UiRefreshScope {
         Full,
         LiveMarket,
@@ -1450,7 +1470,6 @@ class StrategiesViewModel(
             filteredSummary = buildFilteredSummary(ctx),
             filteredCount = ctx.filtered.size,
             totalCount = deployments.size,
-            allDeployments = deployments,
             hasActiveFilters = ctx.hasActiveFilters,
             selectedMarketZoneId = selectedMarketZoneId,
             selectedMarketLabel = selectedMarketZoneId?.let(::marketLabelForZone),
@@ -1472,7 +1491,7 @@ class StrategiesViewModel(
             tradingPanelShowsSessionRecap = ctx.showSessionRecap,
             tradingPanelRecapRunId = ctx.recapRunId,
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
-            allDeployments = deployments,
+            deploymentCopyTargets = StrategyUiMapper.toCopyTargets(deployments),
         )
         _liveState.value = buildLiveUiState(ctx, selected)
         _chromeState.value = StrategiesChromeUiState(
@@ -1482,16 +1501,16 @@ class StrategiesViewModel(
             symbolImport = symbolImport,
             startBlockedAlert = startBlockedAlert,
         )
-        syncLegacyUiState()
     }
 
     private fun applyLiveMarketUi(ctx: EmitContext) {
         val snapshot = buildSelectedLiveSnapshot(ctx)
+        val charts = buildTouchTurnCharts(ctx.selected, snapshot?.runningLifecycle)
         _liveState.update { current ->
             current.copy(
                 liveBroker = buildLiveBroker(ctx, snapshot),
-                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected, snapshot?.runningLifecycle),
-                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+                touchTurnLiveOrderChart = charts.liveOrder,
+                touchTurnFormingBarPriceChart = charts.formingBar,
                 touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
                 tradingPanelShowsLiveMarketQuotes = snapshot?.showsLiveMarketQuotes == true,
             )
@@ -1500,6 +1519,7 @@ class StrategiesViewModel(
 
     private fun applyBrokerSnapshotUi(ctx: EmitContext) {
         val snapshot = buildSelectedLiveSnapshot(ctx)
+        val charts = buildTouchTurnCharts(ctx.selected, snapshot?.runningLifecycle)
         _listState.update { current ->
             current.copy(
                 filteredRows = patchListRows(current.filteredRows, ctx),
@@ -1516,23 +1536,33 @@ class StrategiesViewModel(
                 liveBroker = buildLiveBroker(ctx, snapshot),
                 liveSessionTrades = buildLiveSessionTrades(ctx),
                 touchTurnOrderLifecycle = snapshot?.recapAwareLifecycle,
-                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected, snapshot?.runningLifecycle),
-                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+                touchTurnLiveOrderChart = charts.liveOrder,
+                touchTurnFormingBarPriceChart = charts.formingBar,
                 touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
                 tradingPanelShowsLiveMarketQuotes = snapshot?.showsLiveMarketQuotes == true,
             )
         }
-        syncLegacyUiState()
     }
 
     private fun applyPipelineTickUi(ctx: EmitContext) {
+        val selectedId = ctx.selected?.id
+        if (selectedId != lastPipelineTickFingerprintDeploymentId) {
+            lastPipelineTickFingerprintDeploymentId = selectedId
+            lastPipelineTickFingerprint = null
+        }
         val snapshot = buildSelectedLiveSnapshot(ctx)
+        val charts = buildTouchTurnCharts(ctx.selected, snapshot?.runningLifecycle)
+        val pipelineGraph = buildTouchTurnPipelineGraph(ctx)
+        val lifecycle = snapshot?.recapAwareLifecycle
+        val fingerprint = pipelineTickFingerprint(pipelineGraph, lifecycle, charts)
+        if (fingerprint == lastPipelineTickFingerprint) return
+        lastPipelineTickFingerprint = fingerprint
         _liveState.update { current ->
             current.copy(
-                touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
-                touchTurnOrderLifecycle = snapshot?.recapAwareLifecycle,
-                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected, snapshot?.runningLifecycle),
-                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+                touchTurnPipelineGraph = pipelineGraph,
+                touchTurnOrderLifecycle = lifecycle,
+                touchTurnLiveOrderChart = charts.liveOrder,
+                touchTurnFormingBarPriceChart = charts.formingBar,
             )
         }
     }
@@ -1542,23 +1572,16 @@ class StrategiesViewModel(
         selected: StrategyDeployment?,
     ): StrategiesLiveUiState {
         val snapshot = buildSelectedLiveSnapshot(ctx)
+        val charts = buildTouchTurnCharts(selected, snapshot?.runningLifecycle)
         return StrategiesLiveUiState(
             liveBroker = buildLiveBroker(ctx, snapshot),
             liveSessionTrades = buildLiveSessionTrades(ctx),
-            touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(selected, snapshot?.runningLifecycle),
-            touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(selected),
+            touchTurnLiveOrderChart = charts.liveOrder,
+            touchTurnFormingBarPriceChart = charts.formingBar,
             touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
             touchTurnOrderLifecycle = snapshot?.recapAwareLifecycle,
             tradingPanelShowsLiveMarketQuotes = snapshot?.showsLiveMarketQuotes == true,
             sessionMarketDataCapture = buildSessionMarketDataCapture(selected),
-        )
-    }
-
-    private fun syncLegacyUiState() {
-        _uiState.value = _listState.value.mergeUiState(
-            detail = _detailState.value,
-            live = _liveState.value,
-            chrome = _chromeState.value,
         )
     }
 
@@ -1819,24 +1842,65 @@ class StrategiesViewModel(
         return touchTurnEntryApproachTrackers[deployment.id]?.snapshot()
     }
 
-    private fun buildTouchTurnFormingBarPriceChart(
-        instance: StrategyDeployment?
-    ): TouchTurnLiveOrderChartUiState? {
-        val deployment = instance ?: return null
+    private data class TouchTurnChartsUi(
+        val liveOrder: TouchTurnLiveOrderChartUiState? = null,
+        val formingBar: TouchTurnLiveOrderChartUiState? = null,
+    )
+
+    private data class TouchTurnChartSharedInputs(
+        val priceHistory: List<Double>,
+        val currentPrice: Double?,
+        val quote: LiveQuote?,
+        val closestApproach: TouchTurnClosestApproachUi?,
+        val statusHint: String?,
+        val statusHintIsWarning: Boolean,
+    )
+
+    /** Snapshots price history once and builds both Touch Turn charts from the same series. */
+    private fun buildTouchTurnCharts(
+        deployment: StrategyDeployment?,
+        runningLifecycle: TouchTurnOrderLifecycleUi?,
+    ): TouchTurnChartsUi {
+        if (deployment == null) return TouchTurnChartsUi()
+        val shared = touchTurnChartSharedInputs(deployment) ?: return TouchTurnChartsUi()
+        return TouchTurnChartsUi(
+            liveOrder = buildTouchTurnLiveOrderChart(deployment, runningLifecycle, shared),
+            formingBar = buildTouchTurnFormingBarPriceChart(deployment, shared),
+        )
+    }
+
+    private fun touchTurnChartSharedInputs(deployment: StrategyDeployment): TouchTurnChartSharedInputs? {
         if (deployment.status != DeploymentStatus.RUNNING) return null
         val session = deployment.touchTurnSession ?: return null
-        val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
-        val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
-        val currentPrice = touchTurnChartPrice(deployment)
+        return TouchTurnChartSharedInputs(
+            priceHistory = touchTurnPriceHistorySnapshot(deployment.symbol),
+            currentPrice = touchTurnChartPrice(deployment),
+            quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
+            closestApproach = closestApproachFor(deployment),
+            statusHint = touchTurnChartStatusHint(deployment, session),
+            statusHintIsWarning = TouchTurnTrailingStopWarnings.validationError(session) != null,
+        )
+    }
+
+    private fun touchTurnPriceHistorySnapshot(symbol: String): List<Double> =
+        touchTurnPriceHistories[SymbolMarkets.normalizeSymbol(symbol)]?.snapshot().orEmpty()
+
+    private fun buildTouchTurnFormingBarPriceChart(
+        instance: StrategyDeployment,
+        shared: TouchTurnChartSharedInputs,
+    ): TouchTurnLiveOrderChartUiState? {
+        val deployment = instance
+        if (deployment.status != DeploymentStatus.RUNNING) return null
+        val session = deployment.touchTurnSession ?: return null
         return TouchTurnFormingBarPriceChartUiMapper.build(
             deployment = deployment,
             session = session,
-            priceHistory = history,
-            currentPrice = currentPrice,
-            statusHint = touchTurnChartStatusHint(deployment, session),
-            statusHintIsWarning = TouchTurnTrailingStopWarnings.validationError(session) != null,
-            quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
-            closestApproach = closestApproachFor(deployment)
+            priceHistory = shared.priceHistory,
+            currentPrice = shared.currentPrice,
+            statusHint = shared.statusHint,
+            statusHintIsWarning = shared.statusHintIsWarning,
+            quote = shared.quote,
+            closestApproach = shared.closestApproach
         )
     }
 
@@ -1860,10 +1924,11 @@ class StrategiesViewModel(
     }
 
     private fun buildTouchTurnLiveOrderChart(
-        instance: StrategyDeployment?,
+        instance: StrategyDeployment,
         runningLifecycle: TouchTurnOrderLifecycleUi? = null,
+        shared: TouchTurnChartSharedInputs,
     ): TouchTurnLiveOrderChartUiState? {
-        val deployment = instance ?: return null
+        val deployment = instance
         if (!deployment.isTouchTurn) return null
         if (deployment.status != DeploymentStatus.RUNNING) return null
         val session = deployment.touchTurnSession ?: return null
@@ -1873,9 +1938,6 @@ class StrategiesViewModel(
         if (!lifecycle.showLiveOrderChart) return null
         val symbolOrders = brokerDeploymentIndex.openOrdersForSymbol(deployment.symbol)
 
-        val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
-        val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
-        val currentPrice = touchTurnChartPrice(deployment)
         val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(deployment, brokerFills)
         val executedLevels = TouchTurnExecutedBracketLegs.resolve(
             trades = sessionTrades,
@@ -1887,17 +1949,53 @@ class StrategiesViewModel(
         return TouchTurnLiveOrderChartUiMapper.build(
             symbol = deployment.symbol,
             currencyCode = session.currencyCode,
-            priceHistory = history,
-            currentPrice = currentPrice,
+            priceHistory = shared.priceHistory,
+            currentPrice = shared.currentPrice,
             openOrders = symbolOrders,
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup,
-            statusHint = touchTurnChartStatusHint(deployment, session),
-            statusHintIsWarning = TouchTurnTrailingStopWarnings.validationError(session) != null,
-            quote = LiveMarkPriceResolver.quoteForSymbol(deployment.symbol, brokerQuotes),
-            closestApproach = closestApproachFor(deployment),
+            statusHint = shared.statusHint,
+            statusHintIsWarning = shared.statusHintIsWarning,
+            quote = shared.quote,
+            closestApproach = shared.closestApproach,
             executedLevels = executedLevels
         )
+    }
+
+    private fun pipelineTickFingerprint(
+        graph: TouchTurnPipelineGraph?,
+        lifecycle: TouchTurnOrderLifecycleUi?,
+        charts: TouchTurnChartsUi,
+    ): Long {
+        var fingerprint = touchTurnPipelineGraphFingerprint(graph)
+        fingerprint = fingerprint * 31 + (lifecycle?.phase?.hashCode()?.toLong() ?: 0L)
+        fingerprint = fingerprint * 31 + touchTurnChartFingerprint(charts.liveOrder)
+        fingerprint = fingerprint * 31 + touchTurnChartFingerprint(charts.formingBar)
+        fingerprint = fingerprint * 31 + pipelineRefreshTick
+        return fingerprint
+    }
+
+    private fun touchTurnPipelineGraphFingerprint(graph: TouchTurnPipelineGraph?): Long {
+        if (graph == null) return 0L
+        var fingerprint = graph.caption.hashCode().toLong()
+        fingerprint = fingerprint * 31 + graph.activePath.hashCode()
+        for (node in graph.nodes) {
+            fingerprint = fingerprint * 31 + node.id.hashCode()
+            fingerprint = fingerprint * 31 + node.state.hashCode()
+        }
+        fingerprint = fingerprint * 31 + (graph.statusBanner?.headline?.hashCode()?.toLong() ?: 0L)
+        return fingerprint
+    }
+
+    private fun touchTurnChartFingerprint(chart: TouchTurnLiveOrderChartUiState?): Long {
+        if (chart == null) return 0L
+        var fingerprint = chart.priceHistory.size.toLong()
+        fingerprint = fingerprint * 31 + (chart.priceHistory.lastOrNull()?.toRawBits() ?: 0L)
+        fingerprint = fingerprint * 31 + (chart.currentPrice?.toRawBits() ?: 0L)
+        fingerprint = fingerprint * 31 + chart.levels.size
+        fingerprint = fingerprint * 31 + chart.executedLevels.hashCode()
+        fingerprint = fingerprint * 31 + (chart.statusHint?.hashCode()?.toLong() ?: 0L)
+        return fingerprint
     }
 
     private fun touchTurnChartStatusHint(

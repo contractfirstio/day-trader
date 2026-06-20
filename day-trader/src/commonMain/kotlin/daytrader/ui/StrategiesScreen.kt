@@ -241,7 +241,7 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         onResolveSymbol = viewModel::resolveInstrumentForSymbol,
         onUpdateDeployment = viewModel::onUpdateDeployment,
         onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
-        allDeployments = detailState.allDeployments,
+        deploymentCopyTargets = detailState.deploymentCopyTargets,
         onStartStop = viewModel::onToggleSession,
         onPrepareSession = viewModel::onPrepareSession,
         onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
@@ -281,7 +281,7 @@ private fun StrategyDeploymentDetailPanel(
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (String, Set<String>) -> Unit,
-    allDeployments: List<StrategyDeployment>,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onStartStop: (String) -> Unit,
     onPrepareSession: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -328,7 +328,7 @@ private fun StrategyDeploymentDetailPanel(
                 onCopyTouchTurnRulesToOther = { marketZoneIds ->
                     onCopyTouchTurnRulesToOther(selectedDeployment.id, marketZoneIds)
                 },
-                allDeployments = allDeployments,
+                deploymentCopyTargets = deploymentCopyTargets,
                 onStartStop = { onStartStop(selectedDeployment.id) },
                 onPrepareSession = { onPrepareSession(selectedDeployment.id) },
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
@@ -461,7 +461,7 @@ private fun StrategyDeploymentDetail(
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
-    allDeployments: List<StrategyDeployment>,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onStartStop: () -> Unit,
     onPrepareSession: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -605,7 +605,7 @@ private fun StrategyDeploymentDetail(
                         instance = instance,
                         globalAutoStartEnabled = globalAutoStartEnabled,
                         touchTurnPrepare = touchTurnPrepare,
-                        allDeployments = allDeployments,
+                        deploymentCopyTargets = deploymentCopyTargets,
                         onResolveSymbol = onResolveSymbol,
                         onUpdate = onUpdate,
                         onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther
@@ -648,17 +648,17 @@ private fun StrategyDeploymentDetail(
 
 private fun touchTurnCopyTargetCount(
     sourceId: String,
-    allDeployments: List<StrategyDeployment>,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     selectedMarketZoneIds: Set<String>
-): Int = allDeployments.count { deployment ->
-    deployment.id != sourceId &&
-        DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(deployment, selectedMarketZoneIds)
+): Int = deploymentCopyTargets.count { target ->
+    target.id != sourceId &&
+        selectedMarketZoneIds.any { DeploymentMarket.zonesMatch(it, target.marketZoneId) }
 }
 
 @Composable
 private fun TouchTurnRulesCopyDialog(
     sourceId: String,
-    allDeployments: List<StrategyDeployment>,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onDismiss: () -> Unit,
     onConfirm: (Set<String>) -> Unit
 ) {
@@ -670,13 +670,13 @@ private fun TouchTurnRulesCopyDialog(
         }
     }
     val selectedZoneIds = selectedMarkets.filterValues { it }.keys
-    val marketCounts = remember(sourceId, allDeployments) {
+    val marketCounts = remember(sourceId, deploymentCopyTargets) {
         RthMarketSessions.all.associate { session ->
-            session.zoneId to touchTurnCopyTargetCount(sourceId, allDeployments, setOf(session.zoneId))
+            session.zoneId to touchTurnCopyTargetCount(sourceId, deploymentCopyTargets, setOf(session.zoneId))
         }
     }
-    val targetCount = remember(sourceId, allDeployments, selectedZoneIds) {
-        touchTurnCopyTargetCount(sourceId, allDeployments, selectedZoneIds)
+    val targetCount = remember(sourceId, deploymentCopyTargets, selectedZoneIds) {
+        touchTurnCopyTargetCount(sourceId, deploymentCopyTargets, selectedZoneIds)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -764,14 +764,14 @@ private fun ConfigurationTab(
     instance: StrategyDeployment,
     globalAutoStartEnabled: Boolean,
     touchTurnPrepare: TouchTurnPrepareUiState?,
-    allDeployments: List<StrategyDeployment>,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (Set<String>) -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
-    val otherDeploymentCount = remember(instance.id, allDeployments) {
-        allDeployments.count { it.id != instance.id }
+    val otherDeploymentCount = remember(instance.id, deploymentCopyTargets) {
+        deploymentCopyTargets.count { it.id != instance.id }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -849,7 +849,7 @@ private fun ConfigurationTab(
             if (showCopyRulesConfirm) {
                 TouchTurnRulesCopyDialog(
                     sourceId = instance.id,
-                    allDeployments = allDeployments,
+                    deploymentCopyTargets = deploymentCopyTargets,
                     onDismiss = { showCopyRulesConfirm = false },
                     onConfirm = { marketZoneIds ->
                         showCopyRulesConfirm = false

@@ -45,4 +45,25 @@ class SessionRollupCacheTest {
         kotlin.test.assertEquals(first.totalPnl, second.totalPnl)
         kotlin.test.assertNotSame(first, second)
     }
+
+    @Test
+    fun invalidateDeployments_dropsDeploymentAndSummaryScopes() {
+        val cache = SessionRollupCache()
+        val sessions = listOf(
+            StrategySession(
+                id = "r1",
+                date = "2026-05-20",
+                pnl = 10.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED,
+                positionOpened = true,
+            )
+        )
+        val first = cache.rollupsForDeployment("d1", sessions, "2026-05-22")
+        cache.invalidateDeployments(setOf("d1"))
+        val second = cache.rollupsForDeployment("d1", sessions, "2026-05-22")
+        kotlin.test.assertEquals(first.totalPnl, second.totalPnl)
+        kotlin.test.assertNotSame(first, second)
+    }
 }

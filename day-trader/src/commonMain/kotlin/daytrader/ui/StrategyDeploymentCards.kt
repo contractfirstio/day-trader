@@ -681,38 +681,6 @@ internal fun CompactInstanceStat(
 }
 
 @Composable
-internal fun InstanceRollupRow(row: StrategyDeploymentRowUi) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        InstanceRollupCell("7D", row.formattedRollup7d, row.isPositiveRollup7d)
-        InstanceRollupCell("14D", row.formattedRollup14d, row.isPositiveRollup14d)
-        InstanceRollupCell("30D", row.formattedRollup30d, row.isPositiveRollup30d)
-        InstanceRollupCell("Win %", row.formattedWinRate)
-        InstanceRollupCell("No trade %", row.formattedNoTradeRate)
-    }
-}
-
-@Composable
-internal fun RowScope.InstanceRollupCell(label: String, value: String, positive: Boolean? = null) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-        Text(label, fontSize = 10.sp, color = TextSecondary)
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            value,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = when (positive) {
-                true -> GainGreen
-                false -> LossRed
-                null -> if (value == "—") TextSecondary else Color.White
-            }
-        )
-    }
-}
-
-@Composable
 internal fun StrategyTypePill(label: String) {
     Text(
         text = label,

@@ -34,11 +34,26 @@ class SessionRollupCache {
         asOfSessionDate = asOfSessionDate,
     )
 
+    /** Drops cached rollups for [deploymentIds] and any summary scope that includes them. */
+    fun invalidateDeployments(deploymentIds: Set<String>) {
+        if (deploymentIds.isEmpty()) return
+        cache.keys.removeIf { key ->
+            deploymentIds.any { deploymentId ->
+                key.scope == deploymentId ||
+                    key.scope.startsWith("$deploymentId:") ||
+                    (key.scope.startsWith(SUMMARY_SCOPE_PREFIX) &&
+                        summaryScopeIncludes(deploymentId, key.scope))
+            }
+        }
+    }
+
     fun clear() {
         cache.clear()
     }
 
-    internal companion object {
+    companion object {
+        private const val SUMMARY_SCOPE_PREFIX = "summary:"
+
         fun fingerprint(sessions: List<StrategySession>): Long {
             var hash = 2166136261L
             for (session in sessions) {
@@ -56,6 +71,13 @@ class SessionRollupCache {
                 )
             }
             return hash
+        }
+
+        private fun summaryScopeIncludes(deploymentId: String, scope: String): Boolean {
+            if (!scope.startsWith(SUMMARY_SCOPE_PREFIX)) return false
+            return scope.removePrefix(SUMMARY_SCOPE_PREFIX)
+                .split(',')
+                .any { it == deploymentId }
         }
 
         private fun fnvMix(hash: Long, value: Int): Long =
