@@ -146,4 +146,71 @@ class StrategySessionLogicTest {
         assertEquals("r2", runs.lastClosed()?.id)
         assertEquals(-25.0, runs.lastClosed()?.pnl)
     }
+
+    @Test
+    fun rollups_excludesNoTradeSessionsFromWinRate() {
+        val runs = listOf(
+            StrategySession(
+                id = "r1",
+                date = "2026-05-20",
+                pnl = 10.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED,
+                positionOpened = true,
+            ),
+            StrategySession(
+                id = "r2",
+                date = "2026-05-21",
+                pnl = -5.0,
+                trades = 1,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED,
+                positionOpened = true,
+            ),
+            StrategySession(
+                id = "r3",
+                date = "2026-05-22",
+                pnl = 0.0,
+                trades = 0,
+                maxAtRisk = 500,
+                status = SessionStatus.CLOSED,
+                positionOpened = false,
+            ),
+        )
+        val rollup = runs.rollups(asOfSessionDate = "2026-05-22")
+        assertEquals(1, rollup.winDays)
+        assertEquals(1, rollup.lossDays)
+        assertEquals(1, rollup.noTradeDays)
+        assertEquals(2, rollup.tradedDays)
+        assertEquals(3, rollup.closedDays)
+    }
+
+    @Test
+    fun hadPosition_falseWhenRulesBlockedTrade() {
+        val session = StrategySession(
+            id = "r1",
+            date = "2026-05-22",
+            pnl = 0.0,
+            trades = 0,
+            maxAtRisk = 500,
+            status = SessionStatus.CLOSED,
+            positionOpened = false,
+        )
+        assertEquals(false, session.hadPosition())
+    }
+
+    @Test
+    fun hadPosition_trueWhenEntryFilled() {
+        val session = StrategySession(
+            id = "r1",
+            date = "2026-05-22",
+            pnl = 12.0,
+            trades = 1,
+            maxAtRisk = 500,
+            status = SessionStatus.CLOSED,
+            positionOpened = true,
+        )
+        assertEquals(true, session.hadPosition())
+    }
 }

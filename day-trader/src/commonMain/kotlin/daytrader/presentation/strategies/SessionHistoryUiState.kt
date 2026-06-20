@@ -25,6 +25,7 @@ data class StrategySessionRowUi(
 data class SessionHistoryUiState(
     val rollup30d: String,
     val winRate: String,
+    val noTradeRate: String,
     val rows: List<StrategySessionRowUi>,
     val sortColumn: SessionHistorySortColumn,
     val sortDirection: SortDirection,

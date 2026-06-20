@@ -70,12 +70,13 @@ object StrategyUiMapper {
             isPositiveRollup14d = rollup.pnl14d >= 0,
             formattedRollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             isPositiveRollup30d = rollup.pnl30d >= 0,
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.closedDays),
+            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
             winRateIsPositive = when {
-                rollup.closedDays == 0 -> null
-                rollup.winDays * 2 >= rollup.closedDays -> true
+                rollup.tradedDays == 0 -> null
+                rollup.winDays * 2 >= rollup.tradedDays -> true
                 else -> false
             },
+            formattedNoTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
             formattedLastSessionPnL = lastClosedSession?.let {
                 Formatters.money(it.pnl, currency, showSign = true)
             } ?: "—",

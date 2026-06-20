@@ -2808,6 +2808,7 @@ private fun PerformanceTab(
             SessionHistorySummaryBar(
                 rollup30d = sessionHistory.rollup30d,
                 winRate = sessionHistory.winRate,
+                noTradeRate = sessionHistory.noTradeRate,
                 modifier = Modifier.weight(1f)
             )
             if (deletableCount > 0) {
@@ -2885,6 +2886,7 @@ private fun PerformanceTab(
 private fun SessionHistorySummaryBar(
     rollup30d: String,
     winRate: String,
+    noTradeRate: String,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -2901,10 +2903,20 @@ private fun SessionHistorySummaryBar(
             Spacer(modifier = Modifier.width(6.dp))
             Text(rollup30d, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Win", fontSize = 10.sp, color = TextSecondary)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(winRate, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Win", fontSize = 10.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(winRate, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("No trade", fontSize = 10.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(noTradeRate, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
         }
     }
 }

@@ -152,8 +152,28 @@ data class SessionRollups(
     val pnl14d: Double,
     val pnl30d: Double,
     val winDays: Int,
-    val closedDays: Int
-)
+    val lossDays: Int,
+    val noTradeDays: Int,
+    val closedDays: Int,
+) {
+    val tradedDays: Int get() = winDays + lossDays
+}
+
+/** True when this closed run opened a broker position (entry filled), not merely rules passed. */
+fun StrategySession.hadPosition(): Boolean {
+    when (positionOpened) {
+        true -> return true
+        false -> return false
+        null -> Unit
+    }
+    if (touchTurnMilestones?.positionOpenedAt != null) return true
+    touchTurnRunRecord?.milestones?.positionOpenedAt?.takeIf { it.isNotBlank() }?.let { return true }
+    if (sessionTrades.any { it.parentOrderId == 0 }) return true
+    touchTurnRunRecord?.decision?.outcome?.let { outcome ->
+        if (outcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) return false
+    }
+    return trades > 0 && kotlin.math.abs(pnl) >= 0.01
+}
 
 /** Most recently stopped closed run, by [StrategySession.stoppedAt] then [StrategySession.startedAt]. */
 fun List<StrategySession>.lastClosed(): StrategySession? =
@@ -170,13 +190,16 @@ fun List<StrategySession>.rollups(asOfSessionDate: String): SessionRollups {
     val within30 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 30 }
     val within14 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 14 }
     val within7 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 7 }
+    val traded = closed.filter { it.hadPosition() }
     return SessionRollups(
         totalPnl = closed.sumOf { it.pnl },
         pnl7d = within7.sumOf { it.pnl },
         pnl14d = within14.sumOf { it.pnl },
         pnl30d = within30.sumOf { it.pnl },
-        winDays = closed.count { it.pnl > 0 },
-        closedDays = closed.size
+        winDays = traded.count { it.pnl > 0 },
+        lossDays = traded.count { it.pnl <= 0 },
+        noTradeDays = closed.count { !it.hadPosition() },
+        closedDays = closed.size,
     )
 }
 

@@ -166,9 +166,16 @@ object Formatters {
         return "${String.format("%.0f", pct)}%"
     }
 
-    fun winRate(winDays: Int, closedDays: Int): String {
+    fun winRate(wins: Int, losses: Int): String {
+        val traded = wins + losses
+        if (traded == 0) return "—"
+        val pct = (wins.toDouble() / traded) * 100.0
+        return "${String.format("%.0f", pct)}%"
+    }
+
+    fun noTradeRate(noTradeDays: Int, closedDays: Int): String {
         if (closedDays == 0) return "—"
-        val pct = (winDays.toDouble() / closedDays) * 100.0
+        val pct = (noTradeDays.toDouble() / closedDays) * 100.0
         return "${String.format("%.0f", pct)}%"
     }
 }

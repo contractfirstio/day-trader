@@ -152,8 +152,8 @@ object LiquidityAllocatorMapper {
             } ?: "—",
             distanceToEntry = fillGap,
             entryTouchable = touchable,
-            winRateLabel = Formatters.winRate(rollup.winDays, rollup.closedDays),
-            winRateSampleSize = rollup.closedDays,
+            winRateLabel = Formatters.winRate(rollup.winDays, rollup.lossDays),
+            winRateSampleSize = rollup.tradedDays,
             bracketOrderIds = session.bracketOrderIds,
             isApplying = isApplying,
             applyError = applyError

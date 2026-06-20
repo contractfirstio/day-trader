@@ -409,6 +409,11 @@ internal fun FilteredDeploymentsSummaryPanel(
                 valueColor = winRateColor(summary.winRateIsPositive)
             )
             CompactInstanceStat(
+                label = "No trade %",
+                value = summary.formattedNoTradeRate,
+                valueColor = TextSecondary
+            )
+            CompactInstanceStat(
                 label = "Net P&L",
                 value = summary.formattedNetPnL,
                 valueColor = lastSessionPnLColor(summary.isPositiveNetPnL)
@@ -557,6 +562,11 @@ internal fun StrategyDeploymentCard(
                     valueColor = winRateColor(row.winRateIsPositive)
                 )
                 CompactInstanceStat(
+                    label = "No trade %",
+                    value = row.formattedNoTradeRate,
+                    valueColor = TextSecondary
+                )
+                CompactInstanceStat(
                     label = "Net P&L",
                     value = row.formattedTotalPnL,
                     valueColor = if (row.isPositiveTotalPnL) GainGreen else LossRed
@@ -676,6 +686,7 @@ internal fun InstanceRollupRow(row: StrategyDeploymentRowUi) {
         InstanceRollupCell("14D", row.formattedRollup14d, row.isPositiveRollup14d)
         InstanceRollupCell("30D", row.formattedRollup30d, row.isPositiveRollup30d)
         InstanceRollupCell("Win %", row.formattedWinRate)
+        InstanceRollupCell("No trade %", row.formattedNoTradeRate)
     }
 }
 

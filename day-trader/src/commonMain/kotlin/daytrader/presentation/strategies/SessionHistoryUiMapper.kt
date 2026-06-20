@@ -35,7 +35,8 @@ object SessionHistoryUiMapper {
 
         return SessionHistoryUiState(
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
-            winRate = Formatters.winRate(rollup.winDays, rollup.closedDays),
+            winRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
+            noTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
             rows = sortedRows,
             sortColumn = sortColumn,
             sortDirection = sortDirection,

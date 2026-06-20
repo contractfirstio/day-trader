@@ -27,6 +27,7 @@ data class FilteredDeploymentsSummaryUi(
     val isPositiveLastSessionPnL: Boolean? = null,
     val formattedWinRate: String,
     val winRateIsPositive: Boolean? = null,
+    val formattedNoTradeRate: String = "—",
     val formattedNetPnL: String,
     val isPositiveNetPnL: Boolean? = null,
 )
@@ -99,12 +100,13 @@ object FilteredDeploymentsSummaryMapper {
             stopOutcomeIsMinWin = stopOutcomeTotals.isNotEmpty() && stopSum >= 0.0,
             formattedLastSessionPnL = formatMoneyTotals(lastSessionByCurrency),
             isPositiveLastSessionPnL = singleCurrencySign(lastSessionByCurrency),
-            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.closedDays),
+            formattedWinRate = Formatters.winRate(rollup.winDays, rollup.lossDays),
             winRateIsPositive = when {
-                rollup.closedDays == 0 -> null
-                rollup.winDays * 2 >= rollup.closedDays -> true
+                rollup.tradedDays == 0 -> null
+                rollup.winDays * 2 >= rollup.tradedDays -> true
                 else -> false
             },
+            formattedNoTradeRate = Formatters.noTradeRate(rollup.noTradeDays, rollup.closedDays),
             formattedNetPnL = formatMoneyTotals(netPnLByCurrency),
             isPositiveNetPnL = singleCurrencySign(netPnLByCurrency),
         )

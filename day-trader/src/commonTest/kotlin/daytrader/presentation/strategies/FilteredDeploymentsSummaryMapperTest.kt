@@ -31,6 +31,27 @@ class FilteredDeploymentsSummaryMapperTest {
     }
 
     @Test
+    fun build_winRateIgnoresNoTradeSessions() {
+        val a = deployment(
+            id = "a",
+            sessions = listOf(
+                closedSession(id = "s1", pnl = 50.0, stoppedAt = "2026-06-13T10:00:00"),
+                closedSession(id = "s2", pnl = -10.0, stoppedAt = "2026-06-14T09:00:00"),
+                noTradeSession(id = "s0", stoppedAt = "2026-06-14T08:00:00"),
+            )
+        )
+        val summary = FilteredDeploymentsSummaryMapper.build(
+            instances = listOf(a),
+            sessionDate = sessionDate,
+            brokerPositions = emptyList(),
+            brokerOpenOrders = emptyList(),
+        )
+        assertNotNull(summary)
+        assertEquals("50%", summary.formattedWinRate)
+        assertEquals("33%", summary.formattedNoTradeRate)
+    }
+
+    @Test
     fun build_aggregatesNetPnLAndLastSessionAcrossFilteredDeployments() {
         val a = deployment(
             id = "a",
@@ -126,5 +147,21 @@ class FilteredDeploymentsSummaryMapperTest {
         trades = 1,
         maxAtRisk = 1000,
         status = SessionStatus.CLOSED,
+        positionOpened = true,
+    )
+
+    private fun noTradeSession(
+        id: String,
+        stoppedAt: String,
+    ) = StrategySession(
+        id = id,
+        date = sessionDate,
+        startedAt = "${sessionDate}T09:30:00",
+        stoppedAt = stoppedAt,
+        pnl = 0.0,
+        trades = 0,
+        maxAtRisk = 1000,
+        status = SessionStatus.CLOSED,
+        positionOpened = false,
     )
 }
