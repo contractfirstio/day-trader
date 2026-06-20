@@ -498,8 +498,8 @@ class StrategiesViewModel(
             brokerFills = brokerFills,
             trigger = trigger
         )
-        stopAllSessionMarketDataCaptures(trigger = trigger.name.lowercase())
         syncDeploymentsFromRepository()
+        stopAllSessionMarketDataCaptures(trigger = trigger.name.lowercase())
         emitUiState()
     }
 

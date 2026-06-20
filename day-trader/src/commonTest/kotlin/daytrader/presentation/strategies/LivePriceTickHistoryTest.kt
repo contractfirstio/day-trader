@@ -30,4 +30,13 @@ class LivePriceTickHistoryTest {
         history.record(500L, 11.0)
         assertEquals(listOf(10.0), history.snapshot())
     }
+
+    @Test
+    fun record_ignoresNonFinitePrices() {
+        val history = LivePriceTickHistory(minIntervalMillis = 0L)
+        history.record(0L, Double.NaN)
+        history.record(1L, 100.0)
+        history.record(2L, Double.POSITIVE_INFINITY)
+        assertEquals(listOf(100.0), history.snapshot())
+    }
 }

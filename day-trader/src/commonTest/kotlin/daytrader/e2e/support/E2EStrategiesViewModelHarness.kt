@@ -245,6 +245,8 @@ class E2EStrategiesViewModelHarness(
                 touchTurnSessionGateway = gateway,
                 brokerKind = brokerKind,
                 touchTurnEngine = engine,
+                ensureLiveMarketData = ensureLiveMarketData,
+                releaseLiveMarketData = releaseLiveMarketData,
                 tradingClock = tradingClock,
                 watchlistRepository = watchlistRepository,
                 viewModelScope = viewModelScope,

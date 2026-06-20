@@ -16,11 +16,13 @@ class SessionRollupCache {
     private data class Key(val scope: String, val asOfSessionDate: String, val fingerprint: Long)
 
     private val cache = mutableMapOf<Key, SessionRollups>()
+    private val cacheLock = Any()
 
-    fun rollups(scope: String, sessions: List<StrategySession>, asOfSessionDate: String): SessionRollups {
-        val key = Key(scope, asOfSessionDate, fingerprint(sessions))
-        return cache.getOrPut(key) { sessions.rollups(asOfSessionDate) }
-    }
+    fun rollups(scope: String, sessions: List<StrategySession>, asOfSessionDate: String): SessionRollups =
+        synchronized(cacheLock) {
+            val key = Key(scope, asOfSessionDate, fingerprint(sessions))
+            cache.getOrPut(key) { sessions.rollups(asOfSessionDate) }
+        }
 
     fun rollupsForDeployment(
         deploymentId: String,
@@ -80,20 +82,25 @@ class SessionRollupCache {
     /** Drops cached rollups for [deploymentIds] and any summary scope that includes them. */
     fun invalidateDeployments(deploymentIds: Set<String>) {
         if (deploymentIds.isEmpty()) return
-        cache.keys.removeIf { key ->
-            deploymentIds.any { deploymentId ->
-                key.scope == deploymentId ||
-                    key.scope.startsWith("$deploymentId:") ||
-                    (key.scope.startsWith(SUMMARY_SCOPE_PREFIX) &&
-                        summaryScopeIncludes(deploymentId, key.scope)) ||
-                    (key.scope.startsWith(SUMMARY_CONFIG_SCOPE_PREFIX) &&
-                        summaryScopeIncludes(deploymentId, key.scope.removePrefix(SUMMARY_CONFIG_SCOPE_PREFIX)))
+        synchronized(cacheLock) {
+            val keysToRemove = cache.keys.filter { key ->
+                deploymentIds.any { deploymentId ->
+                    key.scope == deploymentId ||
+                        key.scope.startsWith("$deploymentId:") ||
+                        (key.scope.startsWith(SUMMARY_SCOPE_PREFIX) &&
+                            summaryScopeIncludes(deploymentId, key.scope)) ||
+                        (key.scope.startsWith(SUMMARY_CONFIG_SCOPE_PREFIX) &&
+                            summaryScopeIncludes(deploymentId, key.scope.removePrefix(SUMMARY_CONFIG_SCOPE_PREFIX)))
+                }
             }
+            keysToRemove.forEach { cache.remove(it) }
         }
     }
 
     fun clear() {
-        cache.clear()
+        synchronized(cacheLock) {
+            cache.clear()
+        }
     }
 
     companion object {

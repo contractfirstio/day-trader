@@ -28,6 +28,7 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnLogic
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.LiveChartPrices
 import daytrader.presentation.strategies.TouchTurnQuoteStripUi
 import daytrader.ui.theme.CandleGreen
 import daytrader.ui.theme.CandleRed
@@ -271,9 +272,7 @@ fun TouchTurnOpeningBarChart(
 }
 
 private fun buildLivePriceSeries(history: List<Double>, currentPrice: Double?): List<Double> {
-    val sanitized = history.mapNotNull { value ->
-        value.takeIf { it.isFinite() && it > 0.0 }
-    }
+    val sanitized = LiveChartPrices.sanitize(history)
     if (sanitized.isEmpty()) {
         return currentPrice?.takeIf { it.isFinite() && it > 0.0 }?.let { listOf(it) } ?: emptyList()
     }
@@ -299,7 +298,7 @@ private fun openingBarChartPriceRange(candle: OhlcBar, livePrices: List<Double>)
         add(candle.low)
         add(candle.open)
         add(candle.close)
-        addAll(livePrices)
+        addAll(LiveChartPrices.sanitize(livePrices))
     }
     val rawMin = prices.minOrNull() ?: candle.low
     val rawMax = prices.maxOrNull() ?: candle.high

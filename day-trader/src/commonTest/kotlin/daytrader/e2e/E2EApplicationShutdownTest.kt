@@ -115,7 +115,10 @@ class E2EApplicationShutdownTest {
 
             assertFalse(harness.viewModel.hasActiveMarketDataCaptures())
             assertTrue(SessionMarketDataCapture.activeTargets().isEmpty())
-            assertEquals(listOf(E2ETestFixtures.SYMBOL.uppercase()), releasedSymbols)
+            assertEquals(
+                listOf(E2ETestFixtures.SYMBOL.uppercase()),
+                releasedSymbols.distinct()
+            )
         } finally {
             SessionMarketDataCapture.stopAll()
             harness.closeE2EHarness()

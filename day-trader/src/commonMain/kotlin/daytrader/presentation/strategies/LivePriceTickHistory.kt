@@ -17,7 +17,7 @@ class LivePriceTickHistory(
     }
 
     fun record(timestampMillis: Long, price: Double) {
-        if (price <= 0.0) return
+        if (!price.isFinite() || price <= 0.0) return
         if (points.isNotEmpty() && timestampMillis - lastRecordedAt < minIntervalMillis) return
         lastRecordedAt = timestampMillis
         points.addLast(price)
@@ -26,5 +26,5 @@ class LivePriceTickHistory(
         }
     }
 
-    fun snapshot(): List<Double> = points.toList()
+    fun snapshot(): List<Double> = LiveChartPrices.sanitize(points)
 }

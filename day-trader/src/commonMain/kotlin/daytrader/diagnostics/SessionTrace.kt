@@ -66,10 +66,11 @@ object SessionTrace {
             )
         )
         val path = resolveTracePath(deploymentId, sessionId) ?: return
-        runCatching { JsonFileStore.appendSessionTraceLine(path, line) }
+        DiagnosticJsonlWriter.appendLine(path, line)
     }
 
     fun sessionStarted(deployment: StrategyDeployment, session: StrategySession) {
+        DiagnosticJsonlWriter.awaitIdleBlocking()
         flushPendingIntoSession(deployment.id, session.id)
         EmulatorLogScope.bind(deployment.id, session.id)
         val stamp = LogTimestamps.now()

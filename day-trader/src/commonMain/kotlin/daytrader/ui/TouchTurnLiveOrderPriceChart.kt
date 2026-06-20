@@ -41,6 +41,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.LiveChartPrices
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
 import daytrader.presentation.strategies.TouchTurnOrderLevelKind
 import daytrader.presentation.strategies.TouchTurnPriceChartContext
@@ -363,10 +364,7 @@ fun TouchTurnLiveOrderPriceChart(
 }
 
 private fun buildPriceSeries(history: List<Double>, currentPrice: Double?): List<Double> {
-    // Guard against malformed chart snapshots (e.g. nullable platform values crossing boundaries).
-    val sanitized = history.mapNotNull { value ->
-        value.takeIf { it.isFinite() && it > 0.0 }
-    }
+    val sanitized = LiveChartPrices.sanitize(history)
     if (sanitized.isEmpty()) {
         return currentPrice?.takeIf { it.isFinite() && it > 0.0 }?.let { listOf(it) } ?: emptyList()
     }
@@ -390,7 +388,10 @@ private fun orderChartPriceRange(
     priceSeries: List<Double>,
     levels: List<TouchTurnOrderLevelUi>
 ): OrderChartPriceRange {
-    val prices = priceSeries + levels.map { it.price }
+    val prices = LiveChartPrices.sanitize(priceSeries + levels.map { it.price })
+    if (prices.isEmpty()) {
+        return OrderChartPriceRange(priceMin = 0.0, priceMax = 0.0001)
+    }
     val rawMin = prices.minOrNull() ?: 0.0
     val rawMax = prices.maxOrNull() ?: rawMin
     val pad = max((rawMax - rawMin) * 0.08, rawMax * 0.0005)
