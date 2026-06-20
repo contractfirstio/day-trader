@@ -22,6 +22,7 @@ import daytrader.gateway.BrokerRuntime
 import daytrader.platform.AppFileSystem
 import daytrader.platform.CrashLogging
 import daytrader.platform.DesktopFolderPicker
+import daytrader.platform.MainThreadWatchdog
 import daytrader.platform.MacApplicationMenu
 import daytrader.replay.SessionBundleDirectoryReader
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,7 @@ private const val APPLICATION_NAME = "Day Trader"
 
 fun main() {
     CrashLogging.installDefaultHandlers()
+    MainThreadWatchdog.installIfEnabled()
     println("=== Hello World ===")
     System.setProperty("apple.awt.application.name", APPLICATION_NAME)
     MacApplicationMenu.install(APPLICATION_NAME)
