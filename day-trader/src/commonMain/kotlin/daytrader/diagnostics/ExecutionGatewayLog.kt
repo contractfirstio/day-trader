@@ -1,7 +1,6 @@
 package daytrader.diagnostics
 
 import daytrader.data.persistence.AppDataFiles
-import daytrader.data.persistence.JsonFileStore
 import daytrader.gateway.BrokerId
 import daytrader.gateway.TouchTurnBracketAck
 import daytrader.gateway.WorkingOrder
@@ -78,9 +77,7 @@ object ExecutionGatewayLog {
                 details = details
             )
         )
-        runCatching {
-            JsonFileStore.appendExecutionGatewayLine(AppDataFiles.executionGatewayLogFileName(), line)
-        }
+        DiagnosticJsonlWriter.appendLine(AppDataFiles.executionGatewayLogFileName(), line)
     }
 }
 

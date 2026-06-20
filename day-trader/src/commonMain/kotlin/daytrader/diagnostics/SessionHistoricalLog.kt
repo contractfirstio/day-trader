@@ -1,7 +1,6 @@
 package daytrader.diagnostics
 
 import daytrader.data.persistence.AppDataFiles
-import daytrader.data.persistence.JsonFileStore
 import daytrader.domain.TouchTurnSignalContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -45,7 +44,7 @@ object SessionHistoricalLog {
             )
         )
         val path = AppDataFiles.sessionHistoricalLogFileName(deploymentId, sessionId)
-        runCatching { JsonFileStore.appendSessionHistoricalLine(path, line) }
+        DiagnosticJsonlWriter.appendLine(path, line)
     }
 }
 

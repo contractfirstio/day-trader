@@ -3,7 +3,6 @@ package daytrader.diagnostics
 import daytrader.broker.SymbolMarkets
 import daytrader.data.SessionMarketDataCapture
 import daytrader.data.persistence.AppDataFiles
-import daytrader.data.persistence.JsonFileStore
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.inProgressSession
@@ -117,7 +116,7 @@ object SessionPriceLog {
 
     private fun appendLine(target: SessionPriceTarget, line: String) {
         val path = AppDataFiles.sessionPriceLogFileName(target.deploymentId, target.sessionId)
-        runCatching { JsonFileStore.appendSessionPriceLine(path, line) }
+        DiagnosticJsonlWriter.appendLine(path, line)
     }
 }
 
