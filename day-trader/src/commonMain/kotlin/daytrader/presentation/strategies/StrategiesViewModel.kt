@@ -73,6 +73,7 @@ import daytrader.diagnostics.UiActionLog
 import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.launchUiAction
 import daytrader.presentation.ui.safeUiEmit
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
@@ -516,7 +517,7 @@ class StrategiesViewModel(
         pendingSearchQuery = query
         _listState.update { it.copy(searchQuery = query) }
         searchDebounceJob?.cancel()
-        searchDebounceJob = scope.launch {
+        searchDebounceJob = scope.launchUiAction(AppScreen.STRATEGIES, "onSearchChange") {
             delay(SEARCH_DEBOUNCE_MS)
             pendingSearchQuery = null
             appStateRepository.update { it.copy(searchQuery = query) }
@@ -691,7 +692,7 @@ class StrategiesViewModel(
             SymbolImportTarget.DEPLOYMENT -> import.maxDollarsText.toIntOrNull() ?: return
             SymbolImportTarget.WATCHLIST -> 0
         }
-        scope.launch {
+        scope.launchUiAction(AppScreen.STRATEGIES, "onStartSymbolImport") {
             importJobActive = true
             val rows = import.rows
             symbolImport = import.copy(
@@ -703,12 +704,13 @@ class StrategiesViewModel(
                 skipped = 0
             )
             emitUiState()
-            var succeeded = 0
-            var failed = 0
-            var skipped = 0
-            val resolveGateway = sessionGateway ?: brokerGateway
-            val connected = isBrokerConnectedForResolve()
-            for ((index, _) in rows.withIndex()) {
+            try {
+                var succeeded = 0
+                var failed = 0
+                var skipped = 0
+                val resolveGateway = sessionGateway ?: brokerGateway
+                val connected = isBrokerConnectedForResolve()
+                for ((index, _) in rows.withIndex()) {
                 val currentRow = symbolImport?.rows?.getOrNull(index) ?: rows[index]
                 if (currentRow.status == DeploymentImportRowStatus.SKIPPED) {
                     skipped++
@@ -775,9 +777,11 @@ class StrategiesViewModel(
                 )
                 emitUiState()
             }
-            symbolImport = symbolImport?.copy(phase = DeploymentImportPhase.COMPLETE)
-            importJobActive = false
-            emitUiState()
+                symbolImport = symbolImport?.copy(phase = DeploymentImportPhase.COMPLETE)
+            } finally {
+                importJobActive = false
+                emitUiState()
+            }
         }
     }
 
@@ -910,7 +914,15 @@ class StrategiesViewModel(
             onResult(Result.failure(IllegalArgumentException("Symbol is blank")))
             return
         }
-        scope.launch {
+        scope.launchUiAction(
+            screen = AppScreen.STRATEGIES,
+            source = "resolveInstrumentForSymbol",
+            onFailure = { error ->
+                withContext(Dispatchers.Main) {
+                    onResult(Result.failure(error))
+                }
+            },
+        ) {
             val resolveGateway = sessionGateway ?: brokerGateway
             val connected = resolveGateway?.connectionState?.value == GatewayConnectionState.Connected
             val source = when {
@@ -1421,7 +1433,7 @@ class StrategiesViewModel(
             effectiveSelectedId = filtered.firstOrNull()?.id
             if (effectiveSelectedId != state.selectedDeploymentId) {
                 val correctedId = effectiveSelectedId
-                scope.launch {
+                scope.launchUiAction(AppScreen.STRATEGIES, "correctSelectedDeployment") {
                     appStateRepository.update { it.copy(selectedDeploymentId = correctedId) }
                 }
             }

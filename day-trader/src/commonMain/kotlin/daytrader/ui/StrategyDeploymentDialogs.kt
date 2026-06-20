@@ -434,11 +434,12 @@ internal fun DeploymentMarketSection(
             }
         }
     )
-    if (mismatch && ibSuggestion != null) {
+    val suggestion = ibSuggestion
+    if (mismatch && suggestion != null) {
         Text(
             "IB suggests ${DeploymentMarket.sessionDisplayLabel(
-                DeploymentMarket.sessionForZone(ibSuggestion!!.marketZoneId)
-            )} (${ibSuggestion!!.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
+                DeploymentMarket.sessionForZone(suggestion.marketZoneId)
+            )} (${suggestion.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
             fontSize = 12.sp,
             color = LossRed,
             lineHeight = 15.sp

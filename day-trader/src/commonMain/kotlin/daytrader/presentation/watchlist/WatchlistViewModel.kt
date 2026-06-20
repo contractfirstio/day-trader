@@ -48,6 +48,7 @@ import daytrader.platform.currentSessionDateIso
 import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.launchUiAction
 import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -644,34 +645,37 @@ class WatchlistViewModel(
         val gateway = marketDataGateway ?: executionGateway ?: return
         val watchlist = selectedWatchlist() ?: return
         if (scanInProgress || reversalScoreInProgress || watchlist.entries.isEmpty()) return
-        scope.launch {
+        scope.launchUiAction(AppScreen.WATCHLIST, "onCheckEntryProximity") {
             scanInProgress = true
             scanProgress = WatchlistScanProgressUi(completed = 0, total = watchlist.entries.size, symbol = "")
             emitUiState()
-            val result = scanService.scan(
-                entries = watchlist.entries,
-                gateway = gateway
-            ) { progress ->
-                scanProgress = WatchlistScanProgressUi(
-                    completed = progress.completed,
-                    total = progress.total,
-                    symbol = progress.symbol
-                )
+            try {
+                val result = scanService.scan(
+                    entries = watchlist.entries,
+                    gateway = gateway
+                ) { progress ->
+                    scanProgress = WatchlistScanProgressUi(
+                        completed = progress.completed,
+                        total = progress.total,
+                        symbol = progress.symbol
+                    )
+                    emitUiState()
+                }
+                val activeWatchlist = selectedWatchlist() ?: return@launchUiAction
+                result.entryResults.forEach { entryResult ->
+                    repository.updateEntry(activeWatchlist.id, entryResult.entryId) { entry ->
+                        entry.copy(
+                            lastScannedPrice = entryResult.price,
+                            lastScannedAtEpochMs = result.scannedAtEpochMs
+                        )
+                    }
+                }
+                lastScanResult = result
+            } finally {
+                scanInProgress = false
+                scanProgress = null
                 emitUiState()
             }
-            val activeWatchlist = selectedWatchlist() ?: return@launch
-            result.entryResults.forEach { entryResult ->
-                repository.updateEntry(activeWatchlist.id, entryResult.entryId) { entry ->
-                    entry.copy(
-                        lastScannedPrice = entryResult.price,
-                        lastScannedAtEpochMs = result.scannedAtEpochMs
-                    )
-                }
-            }
-            lastScanResult = result
-            scanInProgress = false
-            scanProgress = null
-            emitUiState()
         }
     }
 
@@ -680,45 +684,48 @@ class WatchlistViewModel(
         val watchlist = selectedWatchlist() ?: return
         val entriesToScore = entriesMatchingFilters(watchlist.entries)
         if (reversalScoreInProgress || scanInProgress || entriesToScore.isEmpty()) return
-        scope.launch {
+        scope.launchUiAction(AppScreen.WATCHLIST, "onCalculateReversalScores") {
             reversalScoreInProgress = true
             reversalScoreProgress = null
             reversalScoreLoadingEntryId = null
             emitUiState()
-            val result = reversalScoreService.calculateScores(
-                entries = entriesToScore,
-                gateway = gateway
-            ) { progress ->
-                reversalScoreProgress = WatchlistStatusUiMapper.buildReversalScoreProgress(progress)
-                if (progress.stage == ReversalScoreCalculationStage.SYMBOLS) {
-                    reversalScoreLoadingEntryId = progress.entryId
+            try {
+                val result = reversalScoreService.calculateScores(
+                    entries = entriesToScore,
+                    gateway = gateway
+                ) { progress ->
+                    reversalScoreProgress = WatchlistStatusUiMapper.buildReversalScoreProgress(progress)
+                    if (progress.stage == ReversalScoreCalculationStage.SYMBOLS) {
+                        reversalScoreLoadingEntryId = progress.entryId
+                    }
+                    emitUiState()
                 }
-                emitUiState()
-            }
-            val activeWatchlist = selectedWatchlist() ?: return@launch
-            result.entryResults.forEach { entryResult ->
-                val computed = entryResult.result ?: return@forEach
-                val scoredAtEpochMs = System.currentTimeMillis()
-                repository.updateEntry(activeWatchlist.id, entryResult.entryId) { entry ->
-                    entry.copy(
-                        reversalScore = computed.compositeScore,
-                        reversalScoreAtEpochMs = scoredAtEpochMs,
-                        reversalScoreAlignmentBadge = entryResult.alignmentBadge,
-                        reversalScoreInsightText = computed.insightText,
-                        reversalScoreRecommendationText = computed.recommendationText
+                val activeWatchlist = selectedWatchlist() ?: return@launchUiAction
+                result.entryResults.forEach { entryResult ->
+                    val computed = entryResult.result ?: return@forEach
+                    val scoredAtEpochMs = System.currentTimeMillis()
+                    repository.updateEntry(activeWatchlist.id, entryResult.entryId) { entry ->
+                        entry.copy(
+                            reversalScore = computed.compositeScore,
+                            reversalScoreAtEpochMs = scoredAtEpochMs,
+                            reversalScoreAlignmentBadge = entryResult.alignmentBadge,
+                            reversalScoreInsightText = computed.insightText,
+                            reversalScoreRecommendationText = computed.recommendationText
+                        )
+                    }
+                }
+                repository.updateWatchlist(activeWatchlist.id) { current ->
+                    current.copy(
+                        lastReversalScoreHomeMarketRegimes = result.homeMarketRegimes.map { it.toWatchlistRegime() }
                     )
                 }
+                lastReversalScoreResult = result
+            } finally {
+                reversalScoreInProgress = false
+                reversalScoreProgress = null
+                reversalScoreLoadingEntryId = null
+                emitUiState()
             }
-            repository.updateWatchlist(activeWatchlist.id) { current ->
-                current.copy(
-                    lastReversalScoreHomeMarketRegimes = result.homeMarketRegimes.map { it.toWatchlistRegime() }
-                )
-            }
-            lastReversalScoreResult = result
-            reversalScoreInProgress = false
-            reversalScoreProgress = null
-            reversalScoreLoadingEntryId = null
-            emitUiState()
         }
     }
 
@@ -753,7 +760,15 @@ class WatchlistViewModel(
             onResult(Result.failure(IllegalArgumentException("Symbol is blank")))
             return
         }
-        scope.launch {
+        scope.launchUiAction(
+            screen = AppScreen.WATCHLIST,
+            source = "resolveInstrumentForSymbol",
+            onFailure = { error ->
+                withContext(Dispatchers.Main) {
+                    onResult(Result.failure(error))
+                }
+            },
+        ) {
             val resolveGateway = marketDataGateway ?: executionGateway
             val connected = resolveGateway?.connectionState?.value == GatewayConnectionState.Connected
             val source = when {
@@ -1108,15 +1123,24 @@ class WatchlistViewModel(
             validationErrors = emptyList()
         )
         emitUiState()
-        gateway.placeTouchTurnBracket(planResult.getOrThrow())
-        scheduleBracketAckTimeout(submitGeneration)
+        try {
+            gateway.placeTouchTurnBracket(planResult.getOrThrow())
+            scheduleBracketAckTimeout(submitGeneration)
+        } catch (error: Throwable) {
+            pendingBracketSymbol = null
+            bracketOrderDraft = bracketOrderDraft?.copy(
+                submitInProgress = false,
+                submitResultMessage = error.message ?: "Failed to place bracket order",
+            )
+            emitUiState()
+        }
     }
 
     private fun scheduleBracketAckTimeout(submitGeneration: Int) {
-        scope.launch {
+        scope.launchUiAction(AppScreen.WATCHLIST, "scheduleBracketAckTimeout") {
             delay(BRACKET_ACK_TIMEOUT_MS)
-            if (bracketSubmitGeneration != submitGeneration) return@launch
-            if (bracketOrderDraft?.submitInProgress != true) return@launch
+            if (bracketSubmitGeneration != submitGeneration) return@launchUiAction
+            if (bracketOrderDraft?.submitInProgress != true) return@launchUiAction
             pendingBracketSymbol = null
             bracketOrderDraft = bracketOrderDraft?.copy(
                 submitInProgress = false,
@@ -1289,7 +1313,7 @@ class WatchlistViewModel(
         entryDailyBarsError = null
         entryLivePriceHistory.clear()
         ensureLiveMarketData?.invoke(entry.symbol, entry.instrument)
-        scope.launch {
+        scope.launchUiAction(AppScreen.WATCHLIST, "loadEntryDailyBars") {
             loadEntryDailyBars(entry)
         }
     }

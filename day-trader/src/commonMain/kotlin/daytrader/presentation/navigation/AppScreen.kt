@@ -7,3 +7,11 @@ enum class AppScreen {
     WATCHLIST,
     LIQUIDITY
 }
+
+fun AppScreen.displayLabel(): String = when (this) {
+    AppScreen.STRATEGIES -> "Strategies"
+    AppScreen.WATCHLIST -> "Watchlist"
+    AppScreen.LIQUIDITY -> "Liquidity"
+    AppScreen.ORDERS -> "Orders"
+    AppScreen.POSITIONS -> "Positions"
+}

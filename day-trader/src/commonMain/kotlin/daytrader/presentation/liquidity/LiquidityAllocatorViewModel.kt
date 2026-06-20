@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import daytrader.presentation.strategies.SessionRollupCache
 import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.launchUiAction
 import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
@@ -162,13 +163,13 @@ class LiquidityAllocatorViewModel(
     fun applyRow(deploymentId: String) {
         val allocation = allocations[deploymentId] ?: return
         if (allocation <= 0) return
-        scope.launch { applyInternal(deploymentId, allocation) }
+        scope.launchUiAction(AppScreen.LIQUIDITY, "applyRow") { applyInternal(deploymentId, allocation) }
     }
 
     fun applyAll() {
         val pending = allocations.filterValues { it > 0 }
         if (pending.isEmpty()) return
-        scope.launch {
+        scope.launchUiAction(AppScreen.LIQUIDITY, "applyAll") {
             pending.forEach { (deploymentId, amount) ->
                 applyInternal(deploymentId, amount)
             }

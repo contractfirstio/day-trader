@@ -3,9 +3,12 @@ package daytrader.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
+import daytrader.presentation.ui.UiFaultBus
 
 @Composable
 fun AppTopBar(
@@ -18,6 +21,7 @@ fun AppTopBar(
     onChangeBrokerMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val activeUiFaults by UiFaultBus.faults.collectAsState()
     Column(modifier = modifier.fillMaxWidth()) {
         MarketSessionsStatusBar(
             selectedMarketZoneId = selectedMarketZoneId,
@@ -28,7 +32,8 @@ fun AppTopBar(
             brokerKind = brokerKind,
             marketDataGateway = marketDataGateway,
             onOpenPriceFeedTester = onOpenPriceFeedTester,
-            onChangeBrokerMode = onChangeBrokerMode
+            onChangeBrokerMode = onChangeBrokerMode,
+            activeUiFaults = activeUiFaults.values.toList(),
         )
     }
 }

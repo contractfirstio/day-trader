@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
+import daytrader.presentation.ui.UiFault
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
@@ -39,6 +40,7 @@ fun ConnectionStatusBar(
     marketDataGateway: BrokerGateway? = null,
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
+    activeUiFaults: List<UiFault> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val executionState by brokerGateway.connectionState.collectAsState()
@@ -70,6 +72,7 @@ fun ConnectionStatusBar(
                     color = brokerStatusColor(executionState)
                 )
             }
+            UiFaultIndicator(faults = activeUiFaults)
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),

@@ -85,9 +85,10 @@ class OrdersViewModel(
         }
         val bySymbol = working.groupBy { SymbolMarkets.normalizeSymbol(it.symbol) }
         val sortedKeys = bySymbol.keys.sortedWith { leftKey, rightKey ->
-            val leftRep = representativeOrder(bySymbol[leftKey].orEmpty())
-            val rightRep = representativeOrder(bySymbol[rightKey].orEmpty())
-            compareRepresentatives(leftRep, rightRep)
+            compareRepresentatives(
+                representativeOrder(bySymbol[leftKey].orEmpty()),
+                representativeOrder(bySymbol[rightKey].orEmpty()),
+            )
         }
         val planLabels = WatchlistPlanOrderLinks.enrichWithPlanLabels(working, watchlists)
         val groups = sortedKeys.map { symbolKey ->
@@ -116,10 +117,13 @@ class OrdersViewModel(
         }
     }
 
-    private fun representativeOrder(orders: List<WorkingOrder>): WorkingOrder =
-        orders.minByOrNull { it.orderId } ?: error("empty group")
+    private fun representativeOrder(orders: List<WorkingOrder>): WorkingOrder? =
+        orders.minByOrNull { it.orderId }
 
-    private fun compareRepresentatives(left: WorkingOrder, right: WorkingOrder): Int {
+    private fun compareRepresentatives(left: WorkingOrder?, right: WorkingOrder?): Int {
+        if (left == null && right == null) return 0
+        if (left == null) return 1
+        if (right == null) return -1
         val result = when (sortColumn) {
             OrderSortColumn.SYMBOL ->
                 SymbolMarkets.normalizeSymbol(left.symbol).compareTo(SymbolMarkets.normalizeSymbol(right.symbol))

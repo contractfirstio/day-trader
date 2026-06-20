@@ -186,9 +186,9 @@ fun SessionReplayPickerScreen(
                                 )
                             }
                         }
-                        if (selectedMarketZoneId != null) {
+                        selectedMarketZoneId?.let { marketZoneId ->
                             Text(
-                                text = "Session dates for ${RthMarketSessions.forZoneId(selectedMarketZoneId!!).label}:",
+                                text = "Session dates for ${RthMarketSessions.forZoneId(marketZoneId).label}:",
                                 color = TextSecondary,
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -211,12 +211,14 @@ fun SessionReplayPickerScreen(
                                     )
                                 }
                             }
-                        } else if (selectedMarketZoneId != null) {
-                            Text(
-                                text = "No session dates found for ${RthMarketSessions.forZoneId(selectedMarketZoneId!!).label}.",
-                                color = TextSecondary,
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                        } else {
+                            selectedMarketZoneId?.let { marketZoneId ->
+                                Text(
+                                    text = "No session dates found for ${RthMarketSessions.forZoneId(marketZoneId).label}.",
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                         if (hasActiveFilter) {
                             Text(
@@ -341,8 +343,10 @@ fun SessionReplayPickerScreen(
                         Text(
                             text = buildString {
                                 append("No captures match ")
-                                append(RthMarketSessions.forZoneId(selectedMarketZoneId!!).label)
-                                append(" on ")
+                                selectedMarketZoneId?.let { marketZoneId ->
+                                    append(RthMarketSessions.forZoneId(marketZoneId).label)
+                                    append(" on ")
+                                }
                                 append(bulkSessionDate)
                                 append('.')
                             },
@@ -387,8 +391,7 @@ fun SessionReplayPickerScreen(
                             val seedPaths = when {
                                 replayList.isNotEmpty() -> replayList
                                 canBulkAddToReplayList -> filteredEntries.map { it.directoryPath }.toSet()
-                                selected != null -> setOf(selected!!.directoryPath)
-                                else -> emptySet()
+                                else -> selected?.directoryPath?.let(::setOf).orEmpty()
                             }
                             onContinue(selected, seedPaths)
                         },
