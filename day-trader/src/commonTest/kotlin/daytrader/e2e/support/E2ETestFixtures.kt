@@ -26,7 +26,16 @@ object E2ETestFixtures {
         volume = 50_000.0
     )
 
-    /** Red liquidity bar: range 1.0 >= threshold 0.6125. */
+    /** Red liquidity bar: range 1.0 >= threshold; close in lower band for long confirmation. */
+    fun redLiquidityOpeningBar(): OhlcBar = OhlcBar(
+        open = 101.0,
+        high = 101.0,
+        low = 100.0,
+        close = 100.20,
+        time = "20260604  09:30:00",
+        volume = 800_000.0
+    )
+
     fun liquidityOpeningBar(): OhlcBar = OhlcBar(
         open = 100.0,
         high = 101.0,
@@ -40,15 +49,27 @@ object E2ETestFixtures {
         TouchTurnSignalContext(
             firstCandle = bar,
             atr14 = ATR14,
+            dailyAtr14 = ATR14,
             volumeSma20 = VOLUME_SMA20
         )
 
     /** After 2026-06-04 09:45:00 America/New_York first 15m bar close. */
     const val BAR_CLOSE_EPOCH_MS = 1_780_580_700_000L + 10_000L
 
+    fun stoppedDeployment(
+        symbol: String = SYMBOL,
+        maxDollars: Int = 500,
+    ) = defaultStrategyDeployment(
+        strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+        symbol = symbol,
+        maxDollars = maxDollars,
+        status = DeploymentStatus.STOPPED
+    ).copy(id = DEPLOYMENT_ID)
+
     fun runningDeployment(
         symbol: String = SYMBOL,
-        maxDollars: Int = 500
+        maxDollars: Int = 500,
+        sessionDate: String = SESSION_DATE
     ) = defaultStrategyDeployment(
         strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
         symbol = symbol,
@@ -56,8 +77,8 @@ object E2ETestFixtures {
         status = DeploymentStatus.RUNNING
     )
         .copy(id = DEPLOYMENT_ID)
-        .onSessionStarted(SESSION_DATE)
-        .beginTouchTurnSession(SESSION_DATE)
+        .onSessionStarted(sessionDate)
+        .beginTouchTurnSession(sessionDate)
 
     fun liveQuote(
         symbol: String = SYMBOL,

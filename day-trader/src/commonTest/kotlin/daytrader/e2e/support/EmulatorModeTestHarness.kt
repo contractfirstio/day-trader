@@ -111,6 +111,8 @@ class EmulatorModeTestHarness(
                 touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
                 bracketWalkStepPctOfRange = 0.2,
                 bracketWalkDirectionFlipChance = 0.0,
+                bracketExitTakeProfitProbability = 1.0,
+                bracketWalkSteerTowardTargetProbability = 1.0,
             )
         )
     }

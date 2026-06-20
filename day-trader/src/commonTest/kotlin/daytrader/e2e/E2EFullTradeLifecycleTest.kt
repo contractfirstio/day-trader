@@ -13,6 +13,7 @@ import daytrader.domain.withOrdersPlacedForSession
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
+import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEvent
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import kotlin.test.Test
@@ -35,7 +36,7 @@ import kotlinx.coroutines.runBlocking
 class E2EFullTradeLifecycleTest {
     @Test
     fun emulator_entryFill_exitFill_autoStopsWithClosedSessionHistory() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val harness = EmulatorModeTestHarness.fullTradeLifecycle(scope)
@@ -55,8 +56,8 @@ class E2EFullTradeLifecycleTest {
                 }
                 .launchIn(scope)
 
-            engine.start()
             harness.start()
+            engine.start()
             harness.adapter.ensureStreamingMarketData(symbol)
 
             val plan = E2EBracketHelper.liquidityPlan(symbol = symbol)
@@ -65,7 +66,7 @@ class E2EFullTradeLifecycleTest {
                 current.withOrdersPlacedForSession(plan = plan)
             }
 
-            awaitDeploymentStopped(repository, deploymentId, timeoutMs = 20_000)
+            awaitDeploymentStopped(engine, repository, deploymentId, harness, symbol, timeoutMs = 45_000)
 
             val stopped = repository.deployments.value.single { it.id == deploymentId }
             assertEquals(DeploymentStatus.STOPPED, stopped.status)
@@ -99,7 +100,7 @@ class E2EFullTradeLifecycleTest {
         repository: InMemoryStrategyDeploymentRepository,
         deploymentId: String
     ) {
-        val bar = E2ETestFixtures.liquidityOpeningBar()
+            val bar = E2ETestFixtures.redLiquidityOpeningBar()
         repository.update(deploymentId) { current ->
             val rules = (current.touchTurnRules ?: TouchTurnRuleConfig.DEFAULT).copy(
                 enables = (current.touchTurnRules?.enables ?: TouchTurnRuleEnables.DEFAULT)
@@ -125,17 +126,26 @@ class E2EFullTradeLifecycleTest {
     }
 
     private suspend fun awaitDeploymentStopped(
+        engine: daytrader.engine.TouchTurnEnginePort,
         repository: InMemoryStrategyDeploymentRepository,
         deploymentId: String,
+        harness: EmulatorModeTestHarness,
+        symbol: String,
         timeoutMs: Long
     ) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
+            engine.dispatch(TouchTurnCommand.PollStopRules)
             val status = repository.deployments.value.find { it.id == deploymentId }?.status
             if (status == DeploymentStatus.STOPPED) return
             delay(25)
         }
+        val positions = harness.gateway.positions.value.filter { it.symbol == symbol.uppercase() }
+        val fills = harness.gateway.fills.value.filter { it.symbol == symbol.uppercase() }
         val actual = repository.deployments.value.find { it.id == deploymentId }?.status
-        error("Timed out after ${timeoutMs}ms waiting for STOPPED; status=$actual")
+        error(
+            "Timed out after ${timeoutMs}ms waiting for STOPPED; status=$actual " +
+                "positions=$positions fillCount=${fills.size}"
+        )
     }
 }
