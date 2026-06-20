@@ -46,7 +46,6 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.ResolvedInstrument
 import daytrader.domain.RthMarketSessions
-import kotlinx.coroutines.delay
 import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.DeploymentStatus
@@ -72,27 +71,28 @@ import daytrader.domain.touchTurnRecapSessionPnl
 import daytrader.domain.touchTurnRecapSessionTrades
 import daytrader.domain.sessionRealizedPnL
 import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
 
 @Composable
 fun StrategiesScreen(viewModel: StrategiesViewModel) {
-    val uiState by viewModel.uiState.collectAsState()
+    val chromeState by viewModel.chromeState.collectAsState()
 
-    if (uiState.showAddDialog) {
+    if (chromeState.showAddDialog) {
+        val addPrefill = chromeState.addDialogPrefill
         AddStrategyDeploymentDialog(
             onDismiss = viewModel::onDismissAddDialog,
             defaultMaxDollarsFor = viewModel::defaultMaxDollarsFor,
             onResolveSymbol = viewModel::resolveInstrumentForSymbol,
-            prefill = uiState.addDialogPrefill,
+            prefill = addPrefill,
             onCreate = viewModel::onCreateDeployment
         )
     }
 
-    uiState.symbolImport?.let { importState ->
-        if (uiState.showImportDialog) {
+    chromeState.symbolImport?.let { importState ->
+        if (chromeState.showImportDialog) {
             DeploymentSymbolImportDialog(
                 state = importState,
                 onDismiss = viewModel::onDismissImportDialog,
@@ -105,19 +105,26 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         }
     }
 
-    uiState.startBlockedAlert?.let { alert ->
+    chromeState.startBlockedAlert?.let { alert ->
         StartBlockedByPositionDialog(
             alert = alert,
             onDismiss = viewModel::onDismissStartBlockedAlert
         )
     }
 
+    StrategiesScreenContent(viewModel)
+}
+
+@Composable
+private fun StrategiesScreenContent(viewModel: StrategiesViewModel) {
+    val listState by viewModel.listState.collectAsState()
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp).testTag("StrategiesScreen")) {
         StrategiesHeader(
-            searchQuery = uiState.searchQuery,
+            searchQuery = listState.searchQuery,
             onSearchChange = viewModel::onSearchChange,
             onClearSearch = {
-                if (uiState.searchQuery.isNotEmpty()) viewModel.onSearchChange("")
+                if (listState.searchQuery.isNotEmpty()) viewModel.onSearchChange("")
             },
             onAddInstance = viewModel::onShowAddDialog,
             onImportSymbols = viewModel::onShowImportDialog
@@ -126,9 +133,9 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         Spacer(modifier = Modifier.height(8.dp))
 
         StrategiesFilterPanel(
-            deploymentFilter = uiState.deploymentFilter,
-            strategyTypeFilter = uiState.strategyTypeFilter,
-            hasActiveFilters = uiState.hasActiveFilters,
+            deploymentFilter = listState.deploymentFilter,
+            strategyTypeFilter = listState.strategyTypeFilter,
+            hasActiveFilters = listState.hasActiveFilters,
             onDeploymentFilterChange = viewModel::onDeploymentFilterChange,
             onStrategyTypeFilterChange = viewModel::onStrategyTypeFilterChange,
             onClearFilters = viewModel::onClearFilters
@@ -138,101 +145,115 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
 
         HorizontalSplitPane(
             modifier = Modifier.fillMaxWidth().weight(1f),
-            leftContent = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
-                        .background(SurfaceDark, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                        .testTag("StrategyDeploymentList")
-                ) {
-                    if (uiState.globalClosedSessionHistoryCount > 0) {
-                        DeploymentsListHeader(
-                            closedSessionHistoryCount = uiState.globalClosedSessionHistoryCount,
-                            hasInProgressSessions = uiState.globalHasInProgressSessions,
-                            onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistoryForAllDeployments
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
-                    uiState.filteredSummary?.let { summary ->
-                        FilteredDeploymentsSummaryPanel(summary = summary)
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-
-                    if (uiState.filteredRows.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                "No deployments match your filter.",
-                                color = TextSecondary,
-                                fontSize = 13.sp
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(uiState.filteredRows, key = { it.id }) { row ->
-                                StrategyDeploymentCard(
-                                    row = row,
-                                    isSelected = row.id == uiState.selectedDeploymentId,
-                                    onSelect = { viewModel.onSelectDeployment(row.id) },
-                                    onToggleSession = { viewModel.onToggleSession(row.id) },
-                                    globalAutoStartEnabled = uiState.globalAutoStartEnabled,
-                                    onAutoStartChange = { enabled ->
-                                        viewModel.onUpdateDeployment(row.id) {
-                                            it.copy(autoStartOnMarketOpen = enabled)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            rightContent = {
-                StrategyDeploymentDetailPanel(
-                    selectedDeployment = uiState.selectedDeployment,
-                    cardPresentation = uiState.selectedCardPresentation,
-                    detailTab = uiState.detailTab,
-                    globalAutoStartEnabled = uiState.globalAutoStartEnabled,
-                    sessionHistory = uiState.sessionHistory,
-                    liveExecution = uiState.liveExecution,
-                    liveBroker = uiState.liveBroker,
-                    liveSessionTrades = uiState.liveSessionTrades,
-                    touchTurnLiveOrderChart = uiState.touchTurnLiveOrderChart,
-                    touchTurnFormingBarPriceChart = uiState.touchTurnFormingBarPriceChart,
-                    touchTurnPipelineGraph = uiState.touchTurnPipelineGraph,
-                    touchTurnOrderLifecycle = uiState.touchTurnOrderLifecycle,
-                    touchTurnPrepare = uiState.touchTurnPrepare,
-                    tradingPanelShowsSessionRecap = uiState.tradingPanelShowsSessionRecap,
-                    tradingPanelRecapRunId = uiState.tradingPanelRecapRunId,
-                    tradingPanelShowsLiveMarketQuotes = uiState.tradingPanelShowsLiveMarketQuotes,
-                    sessionMarketDataCapture = uiState.sessionMarketDataCapture,
-                    onStopMarketDataCapture = viewModel::onStopSessionMarketDataCapture,
-                    onResetTradingPanel = viewModel::onResetTradingPanel,
-                    onTabChange = viewModel::onDetailTabChange,
-                    onResolveSymbol = viewModel::resolveInstrumentForSymbol,
-                    onUpdateDeployment = viewModel::onUpdateDeployment,
-                    onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
-                    allDeployments = uiState.allDeployments,
-                    onStartStop = viewModel::onToggleSession,
-                    onPrepareSession = viewModel::onPrepareSession,
-                    onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
-                    onSelectSessionHistory = viewModel::onSelectSessionHistory,
-                    onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
-                    onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistory,
-                    onAdjustStop = viewModel::onAdjustStop,
-                    onClosePosition = viewModel::onClosePosition,
-                    onDuplicate = viewModel::onDuplicateSelected,
-                    onDelete = viewModel::onDeleteSelected,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            leftContent = { StrategiesDeploymentList(viewModel) },
+            rightContent = { StrategiesDeploymentDetail(viewModel) }
         )
     }
+}
+
+@Composable
+private fun StrategiesDeploymentList(viewModel: StrategiesViewModel) {
+    val listState by viewModel.listState.collectAsState()
+    val selectedDeploymentId by viewModel.detailState
+        .map { it.selectedDeploymentId }
+        .collectAsState(initial = null)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
+            .background(SurfaceDark, RoundedCornerShape(8.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .testTag("StrategyDeploymentList")
+    ) {
+        if (listState.globalClosedSessionHistoryCount > 0) {
+            DeploymentsListHeader(
+                closedSessionHistoryCount = listState.globalClosedSessionHistoryCount,
+                hasInProgressSessions = listState.globalHasInProgressSessions,
+                onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistoryForAllDeployments
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+
+        listState.filteredSummary?.let { summary ->
+            FilteredDeploymentsSummaryPanel(summary = summary)
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        if (listState.filteredRows.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No deployments match your filter.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(listState.filteredRows, key = { it.id }) { row ->
+                    StrategyDeploymentCard(
+                        row = row,
+                        isSelected = row.id == selectedDeploymentId,
+                        onSelect = { viewModel.onSelectDeployment(row.id) },
+                        onToggleSession = { viewModel.onToggleSession(row.id) },
+                        globalAutoStartEnabled = listState.globalAutoStartEnabled,
+                        onAutoStartChange = { enabled ->
+                            viewModel.onUpdateDeployment(row.id) {
+                                it.copy(autoStartOnMarketOpen = enabled)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
+    val detailState by viewModel.detailState.collectAsState()
+    val liveState by viewModel.liveState.collectAsState()
+
+    StrategyDeploymentDetailPanel(
+        selectedDeployment = detailState.selectedDeployment,
+        cardPresentation = detailState.selectedCardPresentation,
+        detailTab = detailState.detailTab,
+        globalAutoStartEnabled = detailState.globalAutoStartEnabled,
+        sessionHistory = detailState.sessionHistory,
+        liveExecution = detailState.liveExecution,
+        liveBroker = liveState.liveBroker,
+        liveSessionTrades = liveState.liveSessionTrades,
+        touchTurnLiveOrderChart = liveState.touchTurnLiveOrderChart,
+        touchTurnFormingBarPriceChart = liveState.touchTurnFormingBarPriceChart,
+        touchTurnPipelineGraph = liveState.touchTurnPipelineGraph,
+        touchTurnOrderLifecycle = liveState.touchTurnOrderLifecycle,
+        touchTurnPrepare = detailState.touchTurnPrepare,
+        tradingPanelShowsSessionRecap = detailState.tradingPanelShowsSessionRecap,
+        tradingPanelRecapRunId = detailState.tradingPanelRecapRunId,
+        tradingPanelShowsLiveMarketQuotes = liveState.tradingPanelShowsLiveMarketQuotes,
+        sessionMarketDataCapture = liveState.sessionMarketDataCapture,
+        onStopMarketDataCapture = viewModel::onStopSessionMarketDataCapture,
+        onResetTradingPanel = viewModel::onResetTradingPanel,
+        onTabChange = viewModel::onDetailTabChange,
+        onResolveSymbol = viewModel::resolveInstrumentForSymbol,
+        onUpdateDeployment = viewModel::onUpdateDeployment,
+        onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
+        allDeployments = detailState.allDeployments,
+        onStartStop = viewModel::onToggleSession,
+        onPrepareSession = viewModel::onPrepareSession,
+        onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
+        onSelectSessionHistory = viewModel::onSelectSessionHistory,
+        onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
+        onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistory,
+        onAdjustStop = viewModel::onAdjustStop,
+        onClosePosition = viewModel::onClosePosition,
+        onDuplicate = viewModel::onDuplicateSelected,
+        onDelete = viewModel::onDeleteSelected,
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable
@@ -559,45 +580,53 @@ private fun StrategyDeploymentDetail(
             liveBroker?.let { broker -> TradingTabLiveMarketStrip(broker) }
         }
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp)
-        ) {
-            when (detailTab) {
-                StrategyDetailTab.CONFIGURATION -> ConfigurationTab(
-                    instance = instance,
-                    globalAutoStartEnabled = globalAutoStartEnabled,
-                    touchTurnPrepare = touchTurnPrepare,
-                    allDeployments = allDeployments,
-                    onResolveSymbol = onResolveSymbol,
-                    onUpdate = onUpdate,
-                    onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther
-                )
-                StrategyDetailTab.LIVE -> LiveTab(
-                    instance = instance,
-                    liveExecution = liveExecution,
-                    liveBroker = liveBroker,
-                    liveSessionTrades = liveSessionTrades,
-                    touchTurnLiveOrderChart = touchTurnLiveOrderChart,
-                    touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
-                    touchTurnPipelineGraph = touchTurnPipelineGraph,
-                    touchTurnOrderLifecycle = touchTurnOrderLifecycle,
-                    showSessionRecap = tradingPanelShowsSessionRecap,
-                    tradingPanelRecapRunId = tradingPanelRecapRunId,
-                    onResetTradingPanel = onResetTradingPanel,
-                    onAdjustStop = onAdjustStop,
-                    onClosePosition = onClosePosition
-                )
-                StrategyDetailTab.SESSION_HISTORY -> PerformanceTab(
-                    sessionHistory = sessionHistory,
-                    onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
-                    onSelectRun = onSelectSessionHistory,
-                    onDeleteRun = { runId -> onDeleteSessionHistory(instance.id, runId) },
-                    onDeleteAllRuns = { onDeleteAllSessionHistory(instance.id) }
-                )
+        if (detailTab == StrategyDetailTab.SESSION_HISTORY) {
+            PerformanceTab(
+                sessionHistory = sessionHistory,
+                onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
+                onSelectRun = onSelectSessionHistory,
+                onDeleteRun = { runId -> onDeleteSessionHistory(instance.id, runId) },
+                onDeleteAllRuns = { onDeleteAllSessionHistory(instance.id) },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(20.dp),
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
+                when (detailTab) {
+                    StrategyDetailTab.CONFIGURATION -> ConfigurationTab(
+                        instance = instance,
+                        globalAutoStartEnabled = globalAutoStartEnabled,
+                        touchTurnPrepare = touchTurnPrepare,
+                        allDeployments = allDeployments,
+                        onResolveSymbol = onResolveSymbol,
+                        onUpdate = onUpdate,
+                        onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther
+                    )
+                    StrategyDetailTab.LIVE -> LiveTab(
+                        instance = instance,
+                        liveExecution = liveExecution,
+                        liveBroker = liveBroker,
+                        liveSessionTrades = liveSessionTrades,
+                        touchTurnLiveOrderChart = touchTurnLiveOrderChart,
+                        touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
+                        touchTurnPipelineGraph = touchTurnPipelineGraph,
+                        touchTurnOrderLifecycle = touchTurnOrderLifecycle,
+                        showSessionRecap = tradingPanelShowsSessionRecap,
+                        tradingPanelRecapRunId = tradingPanelRecapRunId,
+                        onResetTradingPanel = onResetTradingPanel,
+                        onAdjustStop = onAdjustStop,
+                        onClosePosition = onClosePosition
+                    )
+                    StrategyDetailTab.SESSION_HISTORY -> Unit
+                }
             }
         }
 
@@ -959,14 +988,8 @@ private fun TouchTurnMarketOpenTimers(
     modifier: Modifier = Modifier
 ) {
     val marketZone = DeploymentMarket.effectiveZoneId(deployment)
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(deployment.id, marketZone) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val timers = remember(marketZone, tick) { TouchTurnScreenLabels.marketOpenTimers(marketZone) }
+    val secondTick = LocalUiSecondTick.current
+    val timers = remember(marketZone, secondTick) { TouchTurnScreenLabels.marketOpenTimers(marketZone) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1054,14 +1077,8 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 color = LossRed
             )
             session.status == TouchTurnCandleStatus.READY && session.candle == null -> {
-                var tick by remember { mutableIntStateOf(0) }
-                LaunchedEffect(session.openingBarTime, session.marketZoneId) {
-                    while (true) {
-                        delay(1_000)
-                        tick++
-                    }
-                }
-                val closeStatus = remember(session, tick) { session.candleCloseStatus() }
+                val secondTick = LocalUiSecondTick.current
+                val closeStatus = remember(session, secondTick) { session.candleCloseStatus() }
                 val currency = session.currencyCode
                 val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
                 val statusMessage = when (closeStatus) {
@@ -1086,15 +1103,9 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 }
             }
             session.candle != null -> {
-                var tick by remember { mutableIntStateOf(0) }
-                LaunchedEffect(session.candle.time, session.marketZoneId) {
-                    while (true) {
-                        delay(1_000)
-                        tick++
-                    }
-                }
-                val closeStatus = remember(session, tick) { session.candleCloseStatus() }
-                val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
+                val secondTick = LocalUiSecondTick.current
+                val closeStatus = remember(session, secondTick) { session.candleCloseStatus() }
+                val liquidityEval = remember(session, secondTick) { session.liquidityEvaluation() }
                 val candle = session.candle
                 val currency = session.currencyCode
                 val fmt: (Double) -> String = { Formatters.moneyPlain(it, currency) }
@@ -1242,7 +1253,7 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                 if (liquidityEval == LiquidityCandleEvaluation.LIQUIDITY &&
                     closeStatus == FirstCandleCloseStatus.CLOSED
                 ) {
-                    val orderSetup = remember(session, tick) {
+                    val orderSetup = remember(session, secondTick) {
                         session.setup?.takeIf { it.isLiquidityCandle }
                             ?: TouchTurnLogic.computeBracketSetup(
                                 candle,
@@ -1806,14 +1817,8 @@ private fun TouchTurnLivePipelineDetailHost(
 
 @Composable
 private fun TouchTurnSessionAutoStopStatus(instance: StrategyDeployment) {
-    var tick by remember(instance.id) { mutableIntStateOf(0) }
-    LaunchedEffect(instance.id) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val autoStop = remember(instance, tick) { TouchTurnScreenLabels.autoStopStatus(instance) } ?: return
+    val secondTick = LocalUiSecondTick.current
+    val autoStop = remember(instance, secondTick) { TouchTurnScreenLabels.autoStopStatus(instance) } ?: return
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2169,20 +2174,13 @@ private fun LiveTradingPositionPnLHeader(
         LiveTradingHeaderStyle.BreadcrumbOnly -> TableHeaderBg
         else -> if (display.hasOpenPosition) pnlColor.copy(alpha = 0.45f) else TableHeaderBg
     }
-    var breadcrumbTick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(touchTurnInstance?.id, touchTurnInstance?.touchTurnSession?.candle?.time) {
-        if (touchTurnInstance == null || pipelineGraphOverride != null) return@LaunchedEffect
-        while (true) {
-            delay(1_000)
-            breadcrumbTick++
-        }
-    }
+    val secondTick = LocalUiSecondTick.current
     val hasOpenOrders = broker?.openOrders?.isNotEmpty() == true
     val pipelineGraph = pipelineGraphOverride ?: remember(
         touchTurnInstance,
         display.hasOpenPosition,
         hasOpenOrders,
-        breadcrumbTick
+        secondTick
     ) {
         touchTurnInstance?.let { instance ->
             TouchTurnStatusBreadcrumbMapper.graph(
@@ -2773,7 +2771,8 @@ private fun PerformanceTab(
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
     onSelectRun: (runId: String) -> Unit,
     onDeleteRun: (runId: String) -> Unit,
-    onDeleteAllRuns: () -> Unit
+    onDeleteAllRuns: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     if (sessionHistory == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -2797,7 +2796,7 @@ private fun PerformanceTab(
     val hasInProgress = sessionHistory.rows.any { it.isInProgress }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
@@ -2833,7 +2832,9 @@ private fun PerformanceTab(
             onHeaderClick = onSessionHistoryHeaderClick,
             onSelectRun = onSelectRun,
             onDeleteRun = onDeleteRun,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
         )
     }
 

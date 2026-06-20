@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -110,6 +111,22 @@ fun ReplayControlBar(
                     }
                 }
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = replaySettings.turboDuringPlayback,
+                    onCheckedChange = { enabled ->
+                        replaySettingsRepository.update { settings ->
+                            settings.copy(turboDuringPlayback = enabled)
+                        }
+                    },
+                    enabled = !running,
+                )
+                Text(
+                    "Turbo (skip quote UI)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                )
+            }
             Button(
                 onClick = {
                     if (running) return@Button
@@ -177,12 +194,13 @@ private fun playbackStatusLabel(state: ReplayPlaybackState, settings: ReplaySett
     } else {
         "${settings.quoteIntervalMs} ms"
     }
+    val turboLabel = if (settings.turboDuringPlayback) " · turbo on" else ""
     return when (state) {
-        ReplayPlaybackState.Idle -> "Playback idle — quote speed $intervalLabel"
+        ReplayPlaybackState.Idle -> "Playback idle — quote speed $intervalLabel$turboLabel"
         is ReplayPlaybackState.FastForming ->
-            "Opening bar fast-forward (${state.step}/${state.totalSteps})"
-        ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…"
+            "Opening bar fast-forward (${state.step}/${state.totalSteps})$turboLabel"
+        ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…$turboLabel"
         is ReplayPlaybackState.DrippingQuotes ->
-            "Quotes ${state.published}/${state.total} · $intervalLabel"
+            "Quotes ${state.published}/${state.total} · $intervalLabel$turboLabel"
     }
 }

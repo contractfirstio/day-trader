@@ -15,9 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,7 +70,6 @@ import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
-import kotlinx.coroutines.delay
 
 @Composable
 fun TouchTurnSessionStatusBanner(
@@ -351,13 +348,7 @@ fun TouchTurnPipelineSectionData(
     formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     modifier: Modifier = Modifier
 ) {
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session?.resolvedOpeningBarTime(), session?.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
+    val secondTick = LocalUiSecondTick.current
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionData"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -393,7 +384,7 @@ fun TouchTurnPipelineSectionData(
                 val capture = remember(session) {
                     TouchTurnPipelineDetailUiMapper.sessionDataCapture(session)
                 }
-                val barDetail = remember(session, tick) {
+                val barDetail = remember(session, secondTick) {
                     TouchTurnPipelineDetailUiMapper.openingBarDetail(session)
                 }
                 val candleColor = barDetail?.candleColor
@@ -580,14 +571,8 @@ fun TouchTurnPipelineSectionBar(
         return
     }
     val candle = session.candle
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session.resolvedOpeningBarTime(), session.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val detail = remember(session, tick) {
+    val secondTick = LocalUiSecondTick.current
+    val detail = remember(session, secondTick) {
         TouchTurnPipelineDetailUiMapper.openingBarDetail(session)
     }
     if (detail == null) {
@@ -637,14 +622,8 @@ fun TouchTurnPipelineSectionLiquidity(
         )
         return
     }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session.candle?.time, session.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val calc = remember(session, tick) {
+    val secondTick = LocalUiSecondTick.current
+    val calc = remember(session, secondTick) {
         TouchTurnPipelineDetailUiMapper.liquidityCalculation(session)
     }
     if (calc == null) {
@@ -674,16 +653,10 @@ fun TouchTurnPipelineSectionOrdersPreview(
         )
         return
     }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(candle.time, session.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val closeStatus = remember(session, tick) { session.candleCloseStatus() }
-    val liquidityEval = remember(session, tick) { session.liquidityEvaluation() }
-    val closeConfirmation = remember(session, tick) { session.pipelineCloseConfirmation() }
+    val secondTick = LocalUiSecondTick.current
+    val closeStatus = remember(session, secondTick) { session.candleCloseStatus() }
+    val liquidityEval = remember(session, secondTick) { session.liquidityEvaluation() }
+    val closeConfirmation = remember(session, secondTick) { session.pipelineCloseConfirmation() }
     val currency = session.currencyCode
     val listingExch = daytrader.domain.InstrumentPriceScale.resolvedListingExch(
         currency = currency,
@@ -713,7 +686,7 @@ fun TouchTurnPipelineSectionOrdersPreview(
                 modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
             )
         }
-        val computedSetup = remember(session, tick) {
+        val computedSetup = remember(session, secondTick) {
             session.setup?.takeIf { it.isLiquidityCandle }
                 ?: run {
                     TouchTurnLogic.computeBracketSetup(
@@ -820,14 +793,8 @@ fun TouchTurnPipelineSectionRules(
         )
         return
     }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session.candle?.time, session.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val evaluation = remember(session, tick, sessionEnded, requireLivePriceChecks) {
+    val secondTick = LocalUiSecondTick.current
+    val evaluation = remember(session, secondTick, sessionEnded, requireLivePriceChecks) {
         TouchTurnPipelineDetailUiMapper.rulesEvaluation(
             session = session,
             verboseExplanations = sessionEnded,
@@ -1020,14 +987,8 @@ fun TouchTurnPipelineSectionConfirmation(
         Text("Close confirmation runs after liquidity is evaluated.", fontSize = 12.sp, color = TextSecondary)
         return
     }
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session.candle?.time, session.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val confirmation = remember(session, tick) { TouchTurnPipelineDetailUiMapper.closeConfirmation(session) }
+    val secondTick = LocalUiSecondTick.current
+    val confirmation = remember(session, secondTick) { TouchTurnPipelineDetailUiMapper.closeConfirmation(session) }
     if (confirmation == null) {
         Text("Close confirmation unavailable.", fontSize = 12.sp, color = TextSecondary)
         return
@@ -1041,14 +1002,8 @@ fun TouchTurnPipelineSectionNoTrade(
     graph: TouchTurnPipelineGraph?,
     modifier: Modifier = Modifier
 ) {
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(session?.candle?.time, session?.marketZoneId) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val liquidityEval = remember(session, tick) { session?.liquidityEvaluation() }
+    val secondTick = LocalUiSecondTick.current
+    val liquidityEval = remember(session, secondTick) { session?.liquidityEvaluation() }
     val entryPermitted = session?.entryOrdersPermitted
 
     val noTradeExplanation = session?.decisionOutcome?.let {

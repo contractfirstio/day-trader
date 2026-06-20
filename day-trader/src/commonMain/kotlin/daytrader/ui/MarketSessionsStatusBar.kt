@@ -19,11 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,7 +41,6 @@ import daytrader.ui.theme.MarketOpenGlow
 import daytrader.ui.theme.MarketOpenSurface
 import daytrader.ui.theme.SelectionBorder
 import daytrader.ui.theme.TextSecondary
-import kotlinx.coroutines.delay
 
 private val CardShape = RoundedCornerShape(8.dp)
 private val ClosedBorder = Color(0xFF3D4454)
@@ -57,14 +53,8 @@ fun MarketSessionsStatusBar(
     onMarketClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
-            tick++
-        }
-    }
-    val markets = remember(tick) { MarketSessionStatusUiMapper.all() }
+    val secondTick = LocalUiSecondTick.current
+    val markets = remember(secondTick) { MarketSessionStatusUiMapper.all() }
 
     Row(
         modifier = modifier

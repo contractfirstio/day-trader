@@ -1,7 +1,9 @@
 package daytrader.replay
 
 data class ReplaySettings(
-    val quoteIntervalMs: Long = ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS
+    val quoteIntervalMs: Long = ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS,
+    /** When true, skips chart sampling and quote-driven UI during active replay playback. */
+    val turboDuringPlayback: Boolean = true,
 ) {
     init {
         require(quoteIntervalMs >= 0L) { "quoteIntervalMs must be non-negative" }

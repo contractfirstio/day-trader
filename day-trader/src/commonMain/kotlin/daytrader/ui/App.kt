@@ -73,7 +73,7 @@ fun App(
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
-    val strategiesUi by dependencies.strategiesViewModel.uiState.collectAsState()
+    val strategiesListState by dependencies.strategiesViewModel.listState.collectAsState()
     val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
 
     SideEffect {
@@ -102,7 +102,8 @@ fun App(
     }
 
     MaterialTheme {
-        Surface(modifier = Modifier.fillMaxSize(), color = DarkBackground) {
+        UiSecondTickProvider {
+            Surface(modifier = Modifier.fillMaxSize(), color = DarkBackground) {
             Column(modifier = Modifier.fillMaxSize()) {
                 AppTopBar(
                     brokerGateway = brokerGateway,
@@ -170,7 +171,7 @@ fun App(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 GlobalAutoStartKillSwitchRail(
-                                    enabled = strategiesUi.globalAutoStartEnabled,
+                                    enabled = strategiesListState.globalAutoStartEnabled,
                                     onEnabledChange = dependencies.strategiesViewModel::onGlobalAutoStartEnabledChange
                                 )
                             }
@@ -252,6 +253,7 @@ fun App(
                     }
                 }
             }
+        }
         }
     }
 }

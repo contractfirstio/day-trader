@@ -238,6 +238,11 @@ fun rememberAppDependencies(
             }
         }
         val watchlistStrategyCreateBridge = WatchlistStrategyCreateBridge()
+        fun replayTurboActive(): Boolean {
+            if (brokerKind != BrokerKind.REPLAY) return false
+            if (replaySettingsRepository?.settings?.value?.turboDuringPlayback != true) return false
+            return replayHybridRuntime?.playbackOrchestrator?.isPlaying() == true
+        }
         val viewModel = StrategiesViewModel(
             repository = strategyRepository,
             appStateRepository = appStateRepository,
@@ -250,14 +255,16 @@ fun rememberAppDependencies(
             releaseLiveMarketData = releaseLiveMarketData,
             onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
             watchlistRepository = watchlistRepository,
-            tradingClock = tradingClock
+            tradingClock = tradingClock,
+            replayTurboActive = ::replayTurboActive,
         )
         val liquidityAllocatorViewModel = LiquidityAllocatorViewModel(
             deploymentRepository = strategyRepository,
             openOrderRepository = openOrderRepository,
             liquidityBucketRepository = liquidityBucketRepository,
             brokerGateway = brokerGateway ?: touchTurnSessionGateway,
-            executionManager = executionManager
+            executionManager = executionManager,
+            skipQuoteUiRefresh = ::replayTurboActive,
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,

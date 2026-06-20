@@ -50,6 +50,7 @@ object FilteredDeploymentsSummaryMapper {
         instances: List<StrategyDeployment>,
         sessionDate: String,
         brokerIndex: BrokerDeploymentIndex,
+        sessionRollupCache: SessionRollupCache? = null,
     ): FilteredDeploymentsSummaryUi? {
         if (instances.isEmpty()) return null
         val runningCount = instances.count { it.status == DeploymentStatus.RUNNING }
@@ -84,7 +85,11 @@ object FilteredDeploymentsSummaryMapper {
         val closedSessions = instances.flatMap { deployment ->
             deployment.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         }
-        val rollup = closedSessions.rollups(sessionDate)
+        val rollup = sessionRollupCache?.rollupsForSummary(
+            deploymentIds = instances.map { it.id },
+            closedSessions = closedSessions,
+            asOfSessionDate = sessionDate,
+        ) ?: closedSessions.rollups(sessionDate)
         val lastSessionByCurrency = mutableMapOf<String, Double>()
         val netPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->

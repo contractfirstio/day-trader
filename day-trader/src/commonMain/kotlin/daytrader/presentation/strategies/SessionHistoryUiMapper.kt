@@ -18,7 +18,8 @@ object SessionHistoryUiMapper {
         sortDirection: SortDirection,
         selectedRunId: String? = null,
         marketZoneFilter: String? = null,
-        marketFilterLabel: String? = null
+        marketFilterLabel: String? = null,
+        sessionRollupCache: SessionRollupCache? = null,
     ): SessionHistoryUiState {
         val closedSessions = instance.sessionHistory
             .filter { it.status == SessionStatus.CLOSED }
@@ -31,7 +32,13 @@ object SessionHistoryUiMapper {
         val isTouchTurn = instance.isTouchTurn
         val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
             .map { toRowUi(it, isTouchTurn, selectedRunId, instance) }
-        val rollup = closedSessions.rollups(sessionDate)
+        val rollupScope = buildString {
+            append(instance.id)
+            append(':')
+            append(marketZoneFilter ?: "all")
+        }
+        val rollup = sessionRollupCache?.rollups(rollupScope, closedSessions, sessionDate)
+            ?: closedSessions.rollups(sessionDate)
 
         return SessionHistoryUiState(
             rollup30d = Formatters.currency(rollup.pnl30d, showSign = true),

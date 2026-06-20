@@ -15,6 +15,7 @@ import daytrader.gateway.WorkingOrder
 import daytrader.platform.currentSessionDateIso
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,15 +23,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
+import daytrader.presentation.strategies.SessionRollupCache
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
+@OptIn(FlowPreview::class)
 class LiquidityAllocatorViewModel(
     private val deploymentRepository: StrategyDeploymentRepository,
     private val openOrderRepository: OpenOrderRepository,
     private val liquidityBucketRepository: LiquidityBucketRepository,
     private val brokerGateway: BrokerGateway?,
     private val executionManager: ExecutionManager?,
+    private val skipQuoteUiRefresh: () -> Boolean = { false },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val _uiState = MutableStateFlow(LiquidityAllocatorUiState())
@@ -45,6 +51,7 @@ class LiquidityAllocatorViewModel(
     private var latestOpenOrders: List<WorkingOrder> = emptyList()
     private var latestQuotes: Map<String, LiveQuote> = emptyMap()
     private var latestBucketState = daytrader.domain.LiquidityBucketState()
+    private val sessionRollupCache = SessionRollupCache()
 
     init {
         combine(
@@ -57,14 +64,24 @@ class LiquidityAllocatorViewModel(
             latestDeployments = deployments
             latestOpenOrders = openOrders
             latestBucketState = bucketState
+            sessionRollupCache.clear()
             refreshQuotes(deployments)
             publishUi()
         }.launchIn(scope)
 
-        brokerGateway?.quotes?.onEach { quotes ->
-            latestQuotes = quotes
-            publishUi()
-        }?.launchIn(scope)
+        brokerGateway?.quotes?.let { quotesFlow ->
+            quotesFlow
+                .onEach { latestQuotes = it }
+                .launchIn(scope)
+            quotesFlow
+                .sample(QUOTE_UI_REFRESH_INTERVAL_MS.milliseconds)
+                .onEach {
+                    if (!skipQuoteUiRefresh()) {
+                        publishUi()
+                    }
+                }
+                .launchIn(scope)
+        }
     }
 
     fun onCurrencySelected(currencyCode: String) {
@@ -92,17 +109,13 @@ class LiquidityAllocatorViewModel(
             LiquidityBucketLogic.bucketForCurrency(latestBucketState, currency),
             sessionDate
         )
-        val rows = LiquidityAllocatorMapper.buildUiState(
+        val rows = LiquidityAllocatorMapper.buildRows(
             deployments = latestDeployments,
             openOrders = latestOpenOrders,
             quotes = latestQuotes,
-            bucketState = latestBucketState,
-            sessionDate = sessionDate,
             selectedCurrency = currency,
-            allocations = emptyMap(),
-            applyingDeploymentIds = emptySet(),
-            applyErrors = emptyMap()
-        ).rows
+            sessionRollupCache = sessionRollupCache,
+        )
         if (rows.isEmpty() || bucket.available <= 0) return
         val perRow = bucket.available / rows.size
         val remainder = bucket.available % rows.size
@@ -141,17 +154,14 @@ class LiquidityAllocatorViewModel(
             setApplyError(deploymentId, "Session no longer active")
             return
         }
-        val row = LiquidityAllocatorMapper.buildUiState(
-            deployments = listOf(deployment),
+        val row = LiquidityAllocatorMapper.buildRowForDeployment(
+            deployment = deployment,
             openOrders = latestOpenOrders,
             quotes = latestQuotes,
-            bucketState = latestBucketState,
-            sessionDate = currentSessionDateIso(),
             selectedCurrency = selectedCurrency,
-            allocations = mapOf(deploymentId to allocationDollars),
-            applyingDeploymentIds = emptySet(),
-            applyErrors = emptyMap()
-        ).rows.singleOrNull() ?: run {
+            allocationDollars = allocationDollars,
+            sessionRollupCache = sessionRollupCache,
+        ) ?: run {
             setApplyError(deploymentId, "Entry order no longer eligible")
             return
         }
@@ -226,7 +236,7 @@ class LiquidityAllocatorViewModel(
 
     private fun publishUi() {
         val sessionDate = currentSessionDateIso()
-        val state = LiquidityAllocatorMapper.buildUiState(
+        val built = LiquidityAllocatorMapper.buildUiState(
             deployments = latestDeployments,
             openOrders = latestOpenOrders,
             quotes = latestQuotes,
@@ -235,14 +245,22 @@ class LiquidityAllocatorViewModel(
             selectedCurrency = selectedCurrency,
             allocations = allocations.toMap(),
             applyingDeploymentIds = applyingDeploymentIds.toSet(),
-            applyErrors = applyErrors.toMap()
+            applyErrors = applyErrors.toMap(),
+            sessionRollupCache = sessionRollupCache,
         )
-        if (state.currencyOptions.isNotEmpty() &&
-            state.currencyOptions.none { it.currencyCode == selectedCurrency }
+        if (built.currencyOptions.isNotEmpty() &&
+            built.currencyOptions.none { it.currencyCode == selectedCurrency }
         ) {
-            selectedCurrency = state.currencyOptions.first().currencyCode
+            selectedCurrency = built.currencyOptions.first().currencyCode
         }
-        _uiState.value = state.copy(selectedCurrency = selectedCurrency)
+        val next = built.copy(selectedCurrency = selectedCurrency)
+        val prev = _uiState.value
+        if (next.copy(lastUpdatedEpochMs = 0L) == prev.copy(lastUpdatedEpochMs = 0L)) return
+        _uiState.value = next.copy(lastUpdatedEpochMs = System.currentTimeMillis())
+    }
+
+    private companion object {
+        const val QUOTE_UI_REFRESH_INTERVAL_MS = 100L
     }
 }
 

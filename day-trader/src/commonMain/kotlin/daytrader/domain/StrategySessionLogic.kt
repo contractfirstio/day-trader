@@ -182,24 +182,44 @@ fun List<StrategySession>.lastClosed(): StrategySession? =
 
 fun List<StrategySession>.rollups(asOfSessionDate: String): SessionRollups {
     val asOf = asOfSessionDate.toSessionDayOrdinal()
-    val relevant = filter { session ->
-        session.status == SessionStatus.CLOSED ||
-            (session.status == SessionStatus.IN_PROGRESS && session.date <= asOfSessionDate)
+    var totalPnl = 0.0
+    var pnl7d = 0.0
+    var pnl14d = 0.0
+    var pnl30d = 0.0
+    var winDays = 0
+    var lossDays = 0
+    var noTradeDays = 0
+    var closedDays = 0
+    for (session in this) {
+        val isClosed = session.status == SessionStatus.CLOSED
+        val inProgressRelevant =
+            session.status == SessionStatus.IN_PROGRESS && session.date <= asOfSessionDate
+        if (!isClosed && !inProgressRelevant) continue
+
+        val dayDelta = asOf - session.date.toSessionDayOrdinal()
+        if (dayDelta < 7) pnl7d += session.pnl
+        if (dayDelta < 14) pnl14d += session.pnl
+        if (dayDelta < 30) pnl30d += session.pnl
+
+        if (isClosed) {
+            closedDays++
+            totalPnl += session.pnl
+            if (session.hadPosition()) {
+                if (session.pnl > 0) winDays++ else lossDays++
+            } else {
+                noTradeDays++
+            }
+        }
     }
-    val closed = relevant.filter { it.status == SessionStatus.CLOSED }
-    val within30 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 30 }
-    val within14 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 14 }
-    val within7 = relevant.filter { asOf - it.date.toSessionDayOrdinal() < 7 }
-    val traded = closed.filter { it.hadPosition() }
     return SessionRollups(
-        totalPnl = closed.sumOf { it.pnl },
-        pnl7d = within7.sumOf { it.pnl },
-        pnl14d = within14.sumOf { it.pnl },
-        pnl30d = within30.sumOf { it.pnl },
-        winDays = traded.count { it.pnl > 0 },
-        lossDays = traded.count { it.pnl <= 0 },
-        noTradeDays = closed.count { !it.hadPosition() },
-        closedDays = closed.size,
+        totalPnl = totalPnl,
+        pnl7d = pnl7d,
+        pnl14d = pnl14d,
+        pnl30d = pnl30d,
+        winDays = winDays,
+        lossDays = lossDays,
+        noTradeDays = noTradeDays,
+        closedDays = closedDays,
     )
 }
 

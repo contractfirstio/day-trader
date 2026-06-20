@@ -27,11 +27,13 @@ object StrategyUiMapper {
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
-        brokerPosition: AccountPosition? = null
+        brokerPosition: AccountPosition? = null,
+        sessionRollupCache: SessionRollupCache? = null,
     ): StrategyDeploymentRowUi {
         val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         val lastClosedSession = closedSessions.lastClosed()
-        val rollup = closedSessions.rollups(sessionDate)
+        val rollup = sessionRollupCache?.rollupsForDeployment(instance.id, closedSessions, sessionDate)
+            ?: closedSessions.rollups(sessionDate)
         val hasOpenPosition = brokerPosition != null ||
             (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
                 instance.live.state == ExecutionState.FILLED)

@@ -21,6 +21,7 @@ import daytrader.domain.rollups
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.SessionRollupCache
 import daytrader.presentation.strategies.TouchTurnQuoteStripFormat
 import kotlin.math.abs
 
@@ -34,7 +35,8 @@ object LiquidityAllocatorMapper {
         selectedCurrency: String,
         allocations: Map<String, Int>,
         applyingDeploymentIds: Set<String>,
-        applyErrors: Map<String, String>
+        applyErrors: Map<String, String>,
+        sessionRollupCache: SessionRollupCache? = null,
     ): LiquidityAllocatorUiState {
         val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
         val bucket = LiquidityBucketLogic.rollBucketForDate(
@@ -42,17 +44,16 @@ object LiquidityAllocatorMapper {
             sessionDate
         )
         val allocatedTotal = allocations.values.sum()
-        val rows = deployments.mapNotNull { deployment ->
-            toRow(
-                deployment = deployment,
-                openOrders = openOrders,
-                quotes = quotes,
-                currency = currency,
-                allocationDollars = allocations[deployment.id] ?: 0,
-                isApplying = deployment.id in applyingDeploymentIds,
-                applyError = applyErrors[deployment.id]
-            )
-        }.sortedBy { it.symbol }
+        val rows = buildRows(
+            deployments = deployments,
+            openOrders = openOrders,
+            quotes = quotes,
+            selectedCurrency = currency,
+            allocations = allocations,
+            applyingDeploymentIds = applyingDeploymentIds,
+            applyErrors = applyErrors,
+            sessionRollupCache = sessionRollupCache,
+        )
         val currencyOptions = buildCurrencyOptions(deployments, bucketState, sessionDate)
         return LiquidityAllocatorUiState(
             sessionDate = sessionDate,
@@ -63,7 +64,53 @@ object LiquidityAllocatorMapper {
             remainingLiquidity = (bucket.available - allocatedTotal).coerceAtLeast(0),
             creditCount = bucket.credits.size,
             rows = rows,
-            lastUpdatedEpochMs = System.currentTimeMillis()
+            lastUpdatedEpochMs = 0L,
+        )
+    }
+
+    fun buildRows(
+        deployments: List<StrategyDeployment>,
+        openOrders: List<WorkingOrder>,
+        quotes: Map<String, LiveQuote>,
+        selectedCurrency: String,
+        allocations: Map<String, Int> = emptyMap(),
+        applyingDeploymentIds: Set<String> = emptySet(),
+        applyErrors: Map<String, String> = emptyMap(),
+        sessionRollupCache: SessionRollupCache? = null,
+    ): List<LiquidityAllocatorRowUi> {
+        val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
+        return deployments.mapNotNull { deployment ->
+            toRow(
+                deployment = deployment,
+                openOrders = openOrders,
+                quotes = quotes,
+                currency = currency,
+                allocationDollars = allocations[deployment.id] ?: 0,
+                isApplying = deployment.id in applyingDeploymentIds,
+                applyError = applyErrors[deployment.id],
+                sessionRollupCache = sessionRollupCache,
+            )
+        }.sortedBy { it.symbol }
+    }
+
+    fun buildRowForDeployment(
+        deployment: StrategyDeployment,
+        openOrders: List<WorkingOrder>,
+        quotes: Map<String, LiveQuote>,
+        selectedCurrency: String,
+        allocationDollars: Int,
+        sessionRollupCache: SessionRollupCache? = null,
+    ): LiquidityAllocatorRowUi? {
+        val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
+        return toRow(
+            deployment = deployment,
+            openOrders = openOrders,
+            quotes = quotes,
+            currency = currency,
+            allocationDollars = allocationDollars,
+            isApplying = false,
+            applyError = null,
+            sessionRollupCache = sessionRollupCache,
         )
     }
 
@@ -92,7 +139,8 @@ object LiquidityAllocatorMapper {
         currency: String,
         allocationDollars: Int,
         isApplying: Boolean,
-        applyError: String?
+        applyError: String?,
+        sessionRollupCache: SessionRollupCache? = null,
     ): LiquidityAllocatorRowUi? {
         if (!deployment.isTouchTurn) return null
         if (LiquidityBucketLogic.normalizeCurrency(deployment.currencyCode) != currency) return null
@@ -124,7 +172,11 @@ object LiquidityAllocatorMapper {
         val closedSessions = deployment.sessionHistory.filter {
             it.status == daytrader.domain.SessionStatus.CLOSED
         }
-        val rollup = closedSessions.rollups(session.sessionDate)
+        val rollup = sessionRollupCache?.rollupsForDeployment(
+            deployment.id,
+            closedSessions,
+            session.sessionDate,
+        ) ?: closedSessions.rollups(session.sessionDate)
         val additionalQty = if (allocationDollars > 0) {
             TouchTurnOrderPlanner.suggestedQuantity(allocationDollars, bracket.entry)
         } else {

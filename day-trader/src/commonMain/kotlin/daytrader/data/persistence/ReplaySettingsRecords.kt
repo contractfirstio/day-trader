@@ -5,5 +5,6 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ReplaySettingsDocument(
-    val quoteIntervalMs: Long = ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS
+    val quoteIntervalMs: Long = ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS,
+    val turboDuringPlayback: Boolean = true,
 )
