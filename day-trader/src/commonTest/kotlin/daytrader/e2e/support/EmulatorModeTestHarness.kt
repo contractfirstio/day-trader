@@ -102,18 +102,41 @@ class EmulatorModeTestHarness(
         /** Deterministic entry fill + bracket walk for full trade-cycle E2E tests. */
         fun fullTradeLifecycle(scope: CoroutineScope) = EmulatorModeTestHarness(
             scope = scope,
-            config = BrokerEmulatorConfig(
-                connectDelayMs = 1,
-                marketTickIntervalMs = 25,
-                firstCandleSecondsUntilClose = null,
-                simulateOrderProgress = false,
-                touchTurnEntryFillImmediately = true,
-                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
-                bracketWalkStepPctOfRange = 0.2,
-                bracketWalkDirectionFlipChance = 0.0,
+            config = tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0)
+        )
+
+        /** Same as [fullTradeLifecycle] but steers bracket walk toward stop loss. */
+        fun stopLossLifecycle(scope: CoroutineScope) = EmulatorModeTestHarness(
+            scope = scope,
+            config = tradeLifecycleConfig(bracketExitTakeProfitProbability = 0.0)
+        )
+
+        /** Wider bracket walk tuned for trailing-stop conversion before take-profit exit. */
+        fun trailingStopLifecycle(scope: CoroutineScope) = EmulatorModeTestHarness(
+            scope = scope,
+            config = tradeLifecycleConfig(
                 bracketExitTakeProfitProbability = 1.0,
-                bracketWalkSteerTowardTargetProbability = 1.0,
+                bracketWalkStepPctOfRange = 0.05,
+                bracketExitSpreadWidenFactor = 1.0,
             )
+        )
+
+        private fun tradeLifecycleConfig(
+            bracketExitTakeProfitProbability: Double,
+            bracketWalkStepPctOfRange: Double = 0.2,
+            bracketExitSpreadWidenFactor: Double = 1.35,
+        ) = BrokerEmulatorConfig(
+            connectDelayMs = 1,
+            marketTickIntervalMs = 25,
+            firstCandleSecondsUntilClose = null,
+            simulateOrderProgress = false,
+            touchTurnEntryFillImmediately = true,
+            touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
+            bracketWalkStepPctOfRange = bracketWalkStepPctOfRange,
+            bracketWalkDirectionFlipChance = 0.0,
+            bracketExitTakeProfitProbability = bracketExitTakeProfitProbability,
+            bracketWalkSteerTowardTargetProbability = 1.0,
+            bracketExitSpreadWidenFactor = bracketExitSpreadWidenFactor,
         )
     }
 }

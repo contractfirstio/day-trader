@@ -1,6 +1,7 @@
 package daytrader.e2e.support
 
 import daytrader.data.StrategiesAppStateRepository
+import daytrader.data.WatchlistRepository
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.InstrumentIdentity
 import daytrader.engine.TouchTurnEngine
@@ -161,6 +162,7 @@ class E2EStrategiesViewModelHarness(
             nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS },
             ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
             releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
+            watchlistRepository: WatchlistRepository? = null,
             onStart: () -> Unit = { gateway.connect() },
             onShutdown: () -> Unit = { gateway.disconnect() },
         ): E2EStrategiesViewModelHarness {
@@ -182,6 +184,7 @@ class E2EStrategiesViewModelHarness(
                 repository = repository,
                 scope = scope,
                 brokerKind = brokerKind,
+                isGlobalAutoStartEnabled = { appStateRepository.state.value.globalAutoStartEnabled },
                 nowEpochMillis = tradingClock::nowEpochMillis,
                 delayMillis = tradingClock::delayMillis,
                 sessionGateway = gateway,
@@ -196,6 +199,7 @@ class E2EStrategiesViewModelHarness(
                 brokerKind = brokerKind,
                 touchTurnEngine = engine,
                 tradingClock = tradingClock,
+                watchlistRepository = watchlistRepository,
             )
             return E2EStrategiesViewModelHarness(
                 repository = repository,

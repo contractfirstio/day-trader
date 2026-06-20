@@ -95,6 +95,10 @@ class FakeBrokerGateway(
         _openOrders.value = orders
     }
 
+    fun setQuotes(quotes: Map<String, LiveQuote>) {
+        _quotes.value = quotes
+    }
+
     fun setFills(fills: List<BrokerFill>) {
         _fills.value = fills
     }
