@@ -47,6 +47,7 @@ import daytrader.domain.inProgressSession
 import daytrader.domain.sessionRealizedPnL
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
+import daytrader.broker.BrokerDeploymentIndex
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.clearTouchTurnPrepareIfInstrumentChanged
 import daytrader.domain.clearTouchTurnPrepareIfRulesChanged
@@ -80,10 +81,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.FlowPreview
 
+@OptIn(FlowPreview::class)
 class StrategiesViewModel(
     private val repository: StrategyDeploymentRepository,
     private val appStateRepository: StrategiesAppStateRepository,
@@ -117,6 +122,7 @@ class StrategiesViewModel(
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerQuotes: Map<String, LiveQuote> = emptyMap()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
+    private var brokerDeploymentIndex: BrokerDeploymentIndex = BrokerDeploymentIndex.EMPTY
     private val lastBrokerOpenOrdersFingerprintByDeployment = mutableMapOf<String, String>()
     private var brokerFills: List<BrokerFill> = emptyList()
     private var brokerConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
@@ -171,6 +177,7 @@ class StrategiesViewModel(
                 }
                 deployments = list
                 pruneTouchTurnPriceHistories()
+                refreshBrokerDeploymentIndex()
                 reconcileSelectedDeployment(list)
                 // Engine auto-start/stop updates the repository off the manual toggle path;
                 // refresh the left-rail cards immediately so status chips don't stay on Stopped.
@@ -187,57 +194,65 @@ class StrategiesViewModel(
 
         deployments = repository.deployments.value
         selectedMarketZoneId = marketFilter.selectedZoneId.value
+        refreshBrokerDeploymentIndex()
         emitUiState()
 
         brokerGateway?.let { gateway ->
             gateway.positions
                 .onEach {
                     brokerPositions = it
+                    refreshBrokerDeploymentIndex()
                     recordTouchTurnLiveChartSamples()
-                    emitUiState()
+                    emitUiState(UiRefreshScope.BrokerSnapshot)
                 }
                 .launchIn(scope)
             gateway.openOrders
                 .onEach { orders ->
                     brokerOpenOrders = orders
+                    refreshBrokerDeploymentIndex()
                     logBrokerOpenOrdersForRunningTouchTurn(orders, "gateway_open_orders")
                     recordTouchTurnLiveChartSamples()
-                    emitUiState()
+                    emitUiState(UiRefreshScope.BrokerSnapshot)
                 }
                 .launchIn(scope)
             gateway.fills
                 .onEach {
                     brokerFills = it
-                    emitUiState()
+                    emitUiState(UiRefreshScope.BrokerSnapshot)
                 }
                 .launchIn(scope)
             gateway.connectionState
                 .onEach {
                     brokerConnection = it
-                    emitUiState()
+                    emitUiState(UiRefreshScope.LiveMarket)
                 }
                 .launchIn(scope)
         }
 
-        sessionGateway?.quotes
-            ?.onEach { quotes ->
-                if (livePriceUiLogsEnabled && quotes.isNotEmpty()) {
-                    TimestampedConsoleLog.line(
-                        "LIVE_PRICE_UI",
-                        "quotes snapshot keys=${quotes.keys} size=${quotes.size}"
-                    )
+        sessionGateway?.quotes?.let { quotesFlow ->
+            quotesFlow
+                .onEach { quotes ->
+                    if (livePriceUiLogsEnabled && quotes.isNotEmpty()) {
+                        TimestampedConsoleLog.line(
+                            "LIVE_PRICE_UI",
+                            "quotes snapshot keys=${quotes.keys} size=${quotes.size}"
+                        )
+                    }
+                    brokerQuotes = quotes
+                    recordTouchTurnLiveChartSamples()
                 }
-                brokerQuotes = quotes
-                recordTouchTurnLiveChartSamples()
-                emitUiState()
-            }
-            ?.launchIn(scope)
+                .launchIn(scope)
+            quotesFlow
+                .sample(QUOTE_UI_REFRESH_INTERVAL_MS.milliseconds)
+                .onEach { emitUiState(UiRefreshScope.LiveMarket) }
+                .launchIn(scope)
+        }
 
         if (sessionGateway != null && sessionGateway !== brokerGateway) {
             sessionGateway.connectionState
                 .onEach {
                     marketDataConnection = it
-                    emitUiState()
+                    emitUiState(UiRefreshScope.LiveMarket)
                 }
                 .launchIn(scope)
         }
@@ -264,7 +279,7 @@ class StrategiesViewModel(
                     selected.status == DeploymentStatus.RUNNING
                 if (needsPipelineRefresh) {
                     pipelineRefreshTick++
-                    emitUiState()
+                    emitUiState(UiRefreshScope.PipelineTick)
                 }
             }
         }
@@ -352,9 +367,7 @@ class StrategiesViewModel(
             is TouchTurnEvent.BracketSubmitted -> {
                 val sessionId = activeSessionId(event.instanceId)
                 val instance = deployments.find { it.id == event.instanceId }
-                val symbolOrders = instance?.let {
-                    SymbolMarkets.openOrdersForDeployment(it, brokerOpenOrders)
-                }.orEmpty()
+                val symbolOrders = instance?.let { brokerDeploymentIndex.openOrders(it) }.orEmpty()
                 UiActionLog.log(
                     action = "engine_bracket_submitted",
                     deploymentId = event.instanceId,
@@ -1281,8 +1294,33 @@ class StrategiesViewModel(
         deployments = repository.deployments.value
     }
 
-    private fun emitUiState() {
-        syncDeploymentsFromRepository()
+    private fun refreshBrokerDeploymentIndex() {
+        brokerDeploymentIndex = BrokerDeploymentIndex.build(
+            deployments = deployments,
+            positions = brokerPositions,
+            openOrders = brokerOpenOrders,
+        )
+    }
+
+    private enum class UiRefreshScope {
+        Full,
+        LiveMarket,
+        BrokerSnapshot,
+        PipelineTick,
+    }
+
+    private data class EmitContext(
+        val state: StrategiesAppState,
+        val filtered: List<StrategyDeployment>,
+        val selected: StrategyDeployment?,
+        val sessionDate: String,
+        val hasActiveFilters: Boolean,
+        val recapRunId: String?,
+        val showSessionRecap: Boolean,
+        val marketDataCaptureActive: Boolean,
+    )
+
+    private fun buildEmitContext(): EmitContext? {
         val state = appState
         val filtered = deployments.filter { instance ->
             val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
@@ -1304,7 +1342,7 @@ class StrategiesViewModel(
         val selectedId = state.selectedDeploymentId
         if (selectedId != null && filtered.none { it.id == selectedId }) {
             appStateRepository.update { it.copy(selectedDeploymentId = filtered.firstOrNull()?.id) }
-            return
+            return null
         }
 
         val selected = selectedId?.let { id -> filtered.find { it.id == id } }
@@ -1313,60 +1351,10 @@ class StrategiesViewModel(
             ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it) }
             ?: deployments.firstOrNull()?.let { DeploymentMarket.sessionDateIso(it) }
             ?: TouchTurnLogic.sessionDateIsoInMarketZone(RthMarketSessions.US.zoneId)
-        val selectedBrokerPnL = selected?.let { instance ->
-            SymbolMarkets.findOpenPosition(instance, brokerPositions)
-                ?.takeIf { it.quantity != 0 }
-                ?.totalUnrealizedPnL
-        }
-        val selectedHasOpenPosition = selected?.let { instance ->
-            SymbolMarkets.hasOpenPosition(instance, brokerPositions)
-        } == true
-        val selectedCardPresentation = selected?.let { instance ->
-            DeploymentCardStateMapper.resolve(
-                instance,
-                sessionDate,
-                selectedBrokerPnL,
-                brokerOpenOrders,
-                hasOpenPosition = selectedHasOpenPosition ||
-                    (instance.status == DeploymentStatus.RUNNING &&
-                        instance.live.state == ExecutionState.FILLED)
-            )
-        }
-        val sessionHistory = selected?.let { instance ->
-            SessionHistoryUiMapper.build(
-                instance = instance,
-                sessionDate = sessionDate,
-                sortColumn = runSortColumn,
-                sortDirection = runSortDirection,
-                selectedRunId = selectedSessionHistoryId,
-                marketZoneFilter = selectedMarketZoneId,
-                marketFilterLabel = selectedMarketZoneId?.let(::marketLabelForZone)
-            )
-        }
-
-        val listRows = filtered.map { instance ->
-            val brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
-                ?.takeIf { it.quantity != 0 }
-            val brokerPnL = brokerPosition?.totalUnrealizedPnL
-            StrategyUiMapper.toRowUi(
-                instance,
-                sessionDate,
-                brokerUnrealizedPnL = brokerPnL,
-                brokerOpenOrders = brokerOpenOrders,
-                brokerPosition = brokerPosition
-            )
-        }
-        val filteredSummary = FilteredDeploymentsSummaryMapper.build(
-            instances = filtered,
-            sessionDate = sessionDate,
-            brokerPositions = brokerPositions,
-            brokerOpenOrders = brokerOpenOrders,
-        )
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.deploymentFilter != DeploymentFilter.ALL ||
             state.strategyTypeFilter != null ||
             selectedMarketZoneId != null
-
         val recapRunId = selectedSessionHistoryId?.takeIf { selected?.status != DeploymentStatus.RUNNING }
         val showSessionRecap = selected?.let { instance ->
             TradingPanelRecap.showsSessionRecap(
@@ -1375,126 +1363,260 @@ class StrategiesViewModel(
                 historicRunId = recapRunId,
             )
         } == true
-        val touchTurnPipelineGraph = selected?.let { instance ->
-            if (instance.isTouchTurn &&
-                instance.status == DeploymentStatus.RUNNING
-            ) {
-                pipelineRefreshTick
-            }
-            TouchTurnPipelineUiMapper.graphForDeployment(
-                instance = instance,
-                brokerPositions = brokerPositions,
-                brokerOpenOrders = brokerOpenOrders,
-                brokerFills = brokerFills,
-                showSessionRecap = showSessionRecap,
-                recapRunId = recapRunId,
-                nowEpochMillis = tradingClock.nowEpochMillis()
-            )
-        }
-        val touchTurnOrderLifecycle = selected?.let { instance ->
-            touchTurnOrderLifecycleFor(instance, showSessionRecap, recapRunId)
-        }
-        val touchTurnPrepare = selected?.let { instance ->
-            TouchTurnPrepareUiMapper.forDeployment(
-                instance = instance,
-                prepareInProgress = prepareInProgressIds.contains(instance.id)
-            )
-        }
+        val marketDataCaptureActive = selected?.let { instance ->
+            SessionMarketDataCapture.activeForDeployment(instance.id) != null
+        } == true
+        return EmitContext(
+            state = state,
+            filtered = filtered,
+            selected = selected,
+            sessionDate = sessionDate,
+            hasActiveFilters = hasActiveFilters,
+            recapRunId = recapRunId,
+            showSessionRecap = showSessionRecap,
+            marketDataCaptureActive = marketDataCaptureActive,
+        )
+    }
 
+    private fun emitUiState(scope: UiRefreshScope = UiRefreshScope.Full) {
+        syncDeploymentsFromRepository()
+        if (scope != UiRefreshScope.LiveMarket) {
+            refreshBrokerDeploymentIndex()
+        }
+        val ctx = buildEmitContext() ?: return
+        when (scope) {
+            UiRefreshScope.Full -> applyFullUi(ctx)
+            UiRefreshScope.LiveMarket -> applyLiveMarketUi(ctx)
+            UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi(ctx)
+            UiRefreshScope.PipelineTick -> applyPipelineTickUi(ctx)
+        }
+    }
+
+    private fun applyFullUi(ctx: EmitContext) {
+        val selected = ctx.selected
         val globalClosedSessionHistoryCount = deployments.sumOf { deployment ->
             deployment.sessionHistory.count { it.status != SessionStatus.IN_PROGRESS }
         }
         val globalHasInProgressSessions = deployments.any { deployment ->
             deployment.sessionHistory.any { it.status == SessionStatus.IN_PROGRESS }
         }
-        val marketDataCaptureActive = selected?.let { instance ->
-            SessionMarketDataCapture.activeForDeployment(instance.id) != null
-        } == true
-
         _uiState.update {
             StrategiesUiState(
-                filteredRows = listRows,
-                filteredSummary = filteredSummary,
-                filteredCount = filtered.size,
+                filteredRows = buildListRows(ctx),
+                filteredSummary = buildFilteredSummary(ctx),
+                filteredCount = ctx.filtered.size,
                 totalCount = deployments.size,
                 allDeployments = deployments,
-                hasActiveFilters = hasActiveFilters,
+                hasActiveFilters = ctx.hasActiveFilters,
                 selectedMarketZoneId = selectedMarketZoneId,
                 selectedMarketLabel = selectedMarketZoneId?.let(::marketLabelForZone),
                 selectedDeployment = selected,
-                selectedCardPresentation = selectedCardPresentation,
-                searchQuery = state.searchQuery,
-                deploymentFilter = state.deploymentFilter,
-                strategyTypeFilter = state.strategyTypeFilter,
-                detailTab = state.detailTab,
+                selectedCardPresentation = buildSelectedCardPresentation(ctx),
+                searchQuery = ctx.state.searchQuery,
+                deploymentFilter = ctx.state.deploymentFilter,
+                strategyTypeFilter = ctx.state.strategyTypeFilter,
+                detailTab = ctx.state.detailTab,
                 showAddDialog = showAddDialog,
                 addDialogPrefill = addDialogPrefill,
                 showImportDialog = showImportDialog,
                 symbolImport = symbolImport,
                 selectedDeploymentId = selected?.id,
-                sessionHistory = sessionHistory,
+                sessionHistory = buildSessionHistory(ctx),
                 liveExecution = selected?.let(LiveExecutionUiMapper::toLiveState),
-                liveBroker = selected?.let { instance ->
-                    LiveBrokerUiMapper.forSymbol(
-                        symbol = instance.symbol,
-                        positions = brokerPositions,
-                        quotes = brokerQuotes,
-                        openOrders = brokerOpenOrders,
-                        connection = if (requiresBidAskForFills) marketDataConnection else brokerConnection,
-                        includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
-                            instance,
-                            state.tradingPanelDismissedRecapSessionId,
-                            historicRunId = recapRunId,
-                            marketDataCaptureActive = marketDataCaptureActive,
-                        ),
-                        requireBidAskForFills = requiresBidAskForFills &&
-                            instance.status == DeploymentStatus.RUNNING &&
-                            touchTurnOrderLifecycleFor(instance, showSessionRecap = false, recapRunId = null)
-                                ?.phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
-                    )
-                },
-                liveSessionTrades = selected?.let { instance ->
-                    if (instance.status != DeploymentStatus.RUNNING && !showSessionRecap) {
-                        null
-                    } else {
-                        LiveSessionTradesUiMapper.forDeployment(
-                            instance = instance,
-                            liveFills = brokerFills,
-                            brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions),
-                            recapRunId = recapRunId,
-                        )
-                    }
-                },
+                liveBroker = buildLiveBroker(ctx),
+                liveSessionTrades = buildLiveSessionTrades(ctx),
                 touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(selected),
                 touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(selected),
                 startBlockedAlert = startBlockedAlert,
-                globalAutoStartEnabled = state.globalAutoStartEnabled,
-                tradingPanelShowsSessionRecap = showSessionRecap,
-                tradingPanelRecapRunId = recapRunId,
-                tradingPanelShowsLiveMarketQuotes = selected?.let { instance ->
-                    TradingPanelRecap.showsLiveMarketQuotes(
-                        instance,
-                        state.tradingPanelDismissedRecapSessionId,
-                        historicRunId = recapRunId,
-                        marketDataCaptureActive = marketDataCaptureActive,
-                    )
-                } == true,
-                touchTurnPipelineGraph = touchTurnPipelineGraph,
-                touchTurnOrderLifecycle = touchTurnOrderLifecycle,
-                touchTurnPrepare = touchTurnPrepare,
+                globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
+                tradingPanelShowsSessionRecap = ctx.showSessionRecap,
+                tradingPanelRecapRunId = ctx.recapRunId,
+                tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes(ctx),
+                touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
+                touchTurnOrderLifecycle = orderLifecycleForSelected(ctx),
+                touchTurnPrepare = buildTouchTurnPrepare(ctx),
                 globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
                 globalHasInProgressSessions = globalHasInProgressSessions,
-                sessionMarketDataCapture = selected?.let { instance ->
-                    SessionMarketDataCapture.activeForDeployment(instance.id)?.let { capture ->
-                        SessionMarketDataCaptureUi(
-                            sessionId = capture.sessionId,
-                            symbol = capture.symbol
-                        )
-                    }
-                },
+                sessionMarketDataCapture = buildSessionMarketDataCapture(selected),
             )
         }
     }
+
+    private fun applyLiveMarketUi(ctx: EmitContext) {
+        _uiState.update { current ->
+            current.copy(
+                liveBroker = buildLiveBroker(ctx),
+                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected),
+                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+                touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
+                tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes(ctx),
+            )
+        }
+    }
+
+    private fun applyBrokerSnapshotUi(ctx: EmitContext) {
+        _uiState.update { current ->
+            current.copy(
+                filteredRows = buildListRows(ctx),
+                filteredSummary = buildFilteredSummary(ctx),
+                selectedCardPresentation = buildSelectedCardPresentation(ctx),
+                liveBroker = buildLiveBroker(ctx),
+                liveSessionTrades = buildLiveSessionTrades(ctx),
+                touchTurnOrderLifecycle = orderLifecycleForSelected(ctx),
+                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected),
+                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+                touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
+                tradingPanelShowsLiveMarketQuotes = tradingPanelShowsLiveMarketQuotes(ctx),
+            )
+        }
+    }
+
+    private fun applyPipelineTickUi(ctx: EmitContext) {
+        _uiState.update { current ->
+            current.copy(
+                touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
+                touchTurnOrderLifecycle = orderLifecycleForSelected(ctx),
+                touchTurnLiveOrderChart = buildTouchTurnLiveOrderChart(ctx.selected),
+                touchTurnFormingBarPriceChart = buildTouchTurnFormingBarPriceChart(ctx.selected),
+            )
+        }
+    }
+
+    private fun buildListRows(ctx: EmitContext): List<StrategyDeploymentRowUi> =
+        ctx.filtered.map { instance ->
+            val brokerPosition = brokerDeploymentIndex.openPosition(instance)
+            val brokerPnL = brokerPosition?.totalUnrealizedPnL
+            StrategyUiMapper.toRowUi(
+                instance,
+                ctx.sessionDate,
+                brokerUnrealizedPnL = brokerPnL,
+                brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
+                brokerPosition = brokerPosition
+            )
+        }
+
+    private fun buildFilteredSummary(ctx: EmitContext): FilteredDeploymentsSummaryUi? =
+        FilteredDeploymentsSummaryMapper.build(
+            instances = ctx.filtered,
+            sessionDate = ctx.sessionDate,
+            brokerIndex = brokerDeploymentIndex,
+        )
+
+    private fun buildSelectedCardPresentation(ctx: EmitContext): DeploymentCardPresentation? {
+        val selected = ctx.selected ?: return null
+        val brokerPosition = brokerDeploymentIndex.openPosition(selected)
+        val selectedBrokerPnL = brokerPosition?.totalUnrealizedPnL
+        val selectedHasOpenPosition = brokerDeploymentIndex.hasOpenPosition(selected)
+        return DeploymentCardStateMapper.resolve(
+            selected,
+            ctx.sessionDate,
+            selectedBrokerPnL,
+            brokerDeploymentIndex.openOrders(selected),
+            hasOpenPosition = selectedHasOpenPosition ||
+                (selected.status == DeploymentStatus.RUNNING &&
+                    selected.live.state == ExecutionState.FILLED)
+        )
+    }
+
+    private fun buildSessionHistory(ctx: EmitContext): SessionHistoryUiState? {
+        val selected = ctx.selected ?: return null
+        return SessionHistoryUiMapper.build(
+            instance = selected,
+            sessionDate = ctx.sessionDate,
+            sortColumn = runSortColumn,
+            sortDirection = runSortDirection,
+            selectedRunId = selectedSessionHistoryId,
+            marketZoneFilter = selectedMarketZoneId,
+            marketFilterLabel = selectedMarketZoneId?.let(::marketLabelForZone)
+        )
+    }
+
+    private fun buildTouchTurnPipelineGraph(ctx: EmitContext): TouchTurnPipelineGraph? {
+        val selected = ctx.selected ?: return null
+        if (selected.isTouchTurn && selected.status == DeploymentStatus.RUNNING) {
+            pipelineRefreshTick
+        }
+        return TouchTurnPipelineUiMapper.graphForDeployment(
+            instance = selected,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+            brokerFills = brokerFills,
+            showSessionRecap = ctx.showSessionRecap,
+            recapRunId = ctx.recapRunId,
+            nowEpochMillis = tradingClock.nowEpochMillis(),
+            brokerIndex = brokerDeploymentIndex,
+        )
+    }
+
+    private fun orderLifecycleForSelected(ctx: EmitContext): TouchTurnOrderLifecycleUi? =
+        ctx.selected?.let { instance ->
+            touchTurnOrderLifecycleFor(instance, ctx.showSessionRecap, ctx.recapRunId)
+        }
+
+    private fun buildTouchTurnPrepare(ctx: EmitContext): TouchTurnPrepareUiState? =
+        ctx.selected?.let { instance ->
+            TouchTurnPrepareUiMapper.forDeployment(
+                instance = instance,
+                prepareInProgress = prepareInProgressIds.contains(instance.id)
+            )
+        }
+
+    private fun tradingPanelShowsLiveMarketQuotes(ctx: EmitContext): Boolean =
+        ctx.selected?.let { instance ->
+            TradingPanelRecap.showsLiveMarketQuotes(
+                instance,
+                ctx.state.tradingPanelDismissedRecapSessionId,
+                historicRunId = ctx.recapRunId,
+                marketDataCaptureActive = ctx.marketDataCaptureActive,
+            )
+        } == true
+
+    private fun buildLiveBroker(ctx: EmitContext): LiveBrokerUiState? {
+        val instance = ctx.selected ?: return null
+        val lifecycleForQuotes =
+            touchTurnOrderLifecycleFor(instance, showSessionRecap = false, recapRunId = null)
+        return LiveBrokerUiMapper.forSymbol(
+            symbol = instance.symbol,
+            positions = brokerPositions,
+            quotes = brokerQuotes,
+            openOrders = brokerOpenOrders,
+            connection = if (requiresBidAskForFills) marketDataConnection else brokerConnection,
+            includeMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
+                instance,
+                ctx.state.tradingPanelDismissedRecapSessionId,
+                historicRunId = ctx.recapRunId,
+                marketDataCaptureActive = ctx.marketDataCaptureActive,
+            ),
+            requireBidAskForFills = requiresBidAskForFills &&
+                instance.status == DeploymentStatus.RUNNING &&
+                lifecycleForQuotes?.phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
+        )
+    }
+
+    private fun buildLiveSessionTrades(ctx: EmitContext): LiveSessionTradesUiState? {
+        val instance = ctx.selected ?: return null
+        if (instance.status != DeploymentStatus.RUNNING && !ctx.showSessionRecap) {
+            return null
+        }
+        return LiveSessionTradesUiMapper.forDeployment(
+            instance = instance,
+            liveFills = brokerFills,
+            brokerPosition = brokerDeploymentIndex.openPosition(instance),
+            recapRunId = ctx.recapRunId,
+        )
+    }
+
+    private fun buildSessionMarketDataCapture(
+        selected: StrategyDeployment?
+    ): SessionMarketDataCaptureUi? =
+        selected?.let { instance ->
+            SessionMarketDataCapture.activeForDeployment(instance.id)?.let { capture ->
+                SessionMarketDataCaptureUi(
+                    sessionId = capture.sessionId,
+                    symbol = capture.symbol
+                )
+            }
+        }
 
     private fun touchTurnOrderLifecycleFor(
         instance: StrategyDeployment,
@@ -1511,8 +1633,8 @@ class StrategiesViewModel(
         } else {
             instance.touchTurnSession
         }
-        val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions)
-        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
+        val hasOpenPosition = brokerDeploymentIndex.hasOpenPosition(instance)
+        val hasOpenOrders = brokerDeploymentIndex.hasOpenOrders(instance)
         val sessionTrades = TouchTurnPipelineUiMapper.liveSessionTrades(instance, brokerFills)
         return TouchTurnOrderLifecycleResolver.resolve(
             session = session,
@@ -1619,7 +1741,7 @@ class StrategiesViewModel(
 
     private fun touchTurnChartPrice(deployment: StrategyDeployment): Double? {
         val session = deployment.touchTurnSession ?: return null
-        val hasOpenPosition = SymbolMarkets.hasOpenPosition(deployment, brokerPositions)
+        val hasOpenPosition = brokerDeploymentIndex.hasOpenPosition(deployment)
         return LiveMarkPriceResolver.resolveForTouchTurnChart(
             symbol = deployment.symbol,
             positions = brokerPositions,
@@ -1639,9 +1761,7 @@ class StrategiesViewModel(
         val session = deployment.touchTurnSession ?: return null
         val lifecycle = touchTurnOrderLifecycleFor(deployment, showSessionRecap = false) ?: return null
         if (!lifecycle.showLiveOrderChart) return null
-        val symbolOrders = brokerOpenOrders.filter {
-            SymbolMarkets.symbolsMatch(deployment.symbol, it.symbol)
-        }
+        val symbolOrders = brokerDeploymentIndex.openOrdersForSymbol(deployment.symbol)
 
         val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
         val history = touchTurnPriceHistories[norm]?.snapshot().orEmpty()
@@ -1690,7 +1810,8 @@ class StrategiesViewModel(
             brokerPositions = brokerPositions,
             brokerOpenOrders = brokerOpenOrders,
             brokerFills = brokerFills,
-            nowEpochMillis = tradingClock.nowEpochMillis()
+            nowEpochMillis = tradingClock.nowEpochMillis(),
+            brokerIndex = brokerDeploymentIndex,
         )
         TouchTurnStatusBreadcrumbMapper.graph(
             instance = instance,
@@ -1707,7 +1828,7 @@ class StrategiesViewModel(
         instance: StrategyDeployment,
         hasOpenOrders: Boolean
     ): Map<String, String> {
-        val symbolOrders = SymbolMarkets.openOrdersForDeployment(instance, brokerOpenOrders)
+        val symbolOrders = brokerDeploymentIndex.openOrders(instance)
         val lifecycle = touchTurnOrderLifecycleFor(instance, showSessionRecap = false)
         return mapOf(
             "broker.openOrdersForSymbol" to symbolOrders.size.toString(),
@@ -1727,7 +1848,7 @@ class StrategiesViewModel(
         for (deployment in deployments) {
             if (!deployment.isTouchTurn) continue
             if (deployment.status != DeploymentStatus.RUNNING) continue
-            val symbolOrders = SymbolMarkets.openOrdersForDeployment(deployment, orders)
+            val symbolOrders = brokerDeploymentIndex.openOrders(deployment)
             val fingerprint = symbolOrders.joinToString("|") { "${it.orderId}:${it.status}:${it.remaining}" }
             val last = lastBrokerOpenOrdersFingerprintByDeployment[deployment.id]
             if (last == fingerprint) continue
@@ -1753,4 +1874,9 @@ class StrategiesViewModel(
 
     private fun activeSessionId(deploymentId: String): String? =
         deployments.find { it.id == deploymentId }?.inProgressSession()?.id
+
+    private companion object {
+        /** Throttles quote-driven UI refreshes (~10 Hz) while chart sampling stays on every tick. */
+        const val QUOTE_UI_REFRESH_INTERVAL_MS = 100L
+    }
 }

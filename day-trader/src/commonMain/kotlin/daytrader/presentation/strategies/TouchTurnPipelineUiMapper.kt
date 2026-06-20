@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.BrokerDeploymentIndex
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentStatus
@@ -34,10 +35,13 @@ object TouchTurnPipelineUiMapper {
         brokerFills: List<BrokerFill>,
         inActiveTrade: Boolean = false,
         sessionEnded: Boolean = false,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        brokerIndex: BrokerDeploymentIndex? = null,
     ): LiveContext {
-        val hasOpenPosition = SymbolMarkets.hasOpenPosition(instance, brokerPositions)
-        val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
+        val hasOpenPosition = brokerIndex?.hasOpenPosition(instance)
+            ?: SymbolMarkets.hasOpenPosition(instance, brokerPositions)
+        val hasOpenOrders = brokerIndex?.hasOpenOrders(instance)
+            ?: SymbolMarkets.hasOpenOrders(instance, brokerOpenOrders)
         val sessionTrades = liveSessionTrades(instance, brokerFills)
         return LiveContext(
             hasOpenPosition = hasOpenPosition,
@@ -77,7 +81,8 @@ object TouchTurnPipelineUiMapper {
         brokerFills: List<BrokerFill>,
         showSessionRecap: Boolean,
         recapRunId: String? = null,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        brokerIndex: BrokerDeploymentIndex? = null,
     ): TouchTurnPipelineGraph? {
         if (!instance.isTouchTurn) return null
         return when {
@@ -87,7 +92,8 @@ object TouchTurnPipelineUiMapper {
                     brokerPositions = brokerPositions,
                     brokerOpenOrders = brokerOpenOrders,
                     brokerFills = brokerFills,
-                    nowEpochMillis = nowEpochMillis
+                    nowEpochMillis = nowEpochMillis,
+                    brokerIndex = brokerIndex,
                 )
                 TouchTurnStatusBreadcrumbMapper.graph(
                     instance = instance,

@@ -1,5 +1,6 @@
 package daytrader.presentation.strategies
 
+import daytrader.broker.BrokerDeploymentIndex
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentPositionOutcomeCalculator
 import daytrader.domain.DeploymentStatus
@@ -38,6 +39,17 @@ object FilteredDeploymentsSummaryMapper {
         sessionDate: String,
         brokerPositions: List<AccountPosition>,
         brokerOpenOrders: List<WorkingOrder>,
+    ): FilteredDeploymentsSummaryUi? =
+        build(
+            instances = instances,
+            sessionDate = sessionDate,
+            brokerIndex = BrokerDeploymentIndex.build(instances, brokerPositions, brokerOpenOrders),
+        )
+
+    fun build(
+        instances: List<StrategyDeployment>,
+        sessionDate: String,
+        brokerIndex: BrokerDeploymentIndex,
     ): FilteredDeploymentsSummaryUi? {
         if (instances.isEmpty()) return null
         val runningCount = instances.count { it.status == DeploymentStatus.RUNNING }
@@ -48,9 +60,8 @@ object FilteredDeploymentsSummaryMapper {
         var hasLiveMetrics = false
 
         instances.forEach { instance ->
-            val currency = deploymentCurrency(instance, brokerPositions)
-            val brokerPosition = SymbolMarkets.findOpenPosition(instance, brokerPositions)
-                ?.takeIf { it.quantity != 0 }
+            val currency = deploymentCurrency(instance, brokerIndex)
+            val brokerPosition = brokerIndex.openPosition(instance)
             val hasOpenPosition = brokerPosition != null ||
                 (instance.status == DeploymentStatus.RUNNING &&
                     instance.live.state == ExecutionState.FILLED)
@@ -59,7 +70,11 @@ object FilteredDeploymentsSummaryMapper {
             val unrealized = unrealizedPnL(instance, brokerPosition) ?: return@forEach
             hasLiveMetrics = true
             unrealizedByCurrency.addAmount(currency, unrealized)
-            DeploymentPositionOutcomeCalculator.resolve(instance, brokerPosition, brokerOpenOrders)
+            DeploymentPositionOutcomeCalculator.resolve(
+                instance,
+                brokerPosition,
+                brokerIndex.openOrders(instance),
+            )
                 ?.let { outcome ->
                     maxProfitByCurrency.addAmount(currency, outcome.maxProfit)
                     stopOutcomeByCurrency.addAmount(currency, outcome.stopOutcome)
@@ -73,7 +88,7 @@ object FilteredDeploymentsSummaryMapper {
         val lastSessionByCurrency = mutableMapOf<String, Double>()
         val netPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->
-            val currency = deploymentCurrency(instance, brokerPositions)
+            val currency = deploymentCurrency(instance, brokerIndex)
             val closed = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
             netPnLByCurrency.addAmount(currency, closed.sumOf { it.pnl })
             instance.sessionHistory
@@ -114,9 +129,9 @@ object FilteredDeploymentsSummaryMapper {
 
     private fun deploymentCurrency(
         instance: StrategyDeployment,
-        brokerPositions: List<AccountPosition>
+        brokerIndex: BrokerDeploymentIndex,
     ): String =
-        SymbolMarkets.findOpenPosition(instance, brokerPositions)?.currency
+        brokerIndex.openPosition(instance)?.currency
             ?: instance.instrument?.currency
             ?: SymbolMarkets.currencyCode(instance.symbol)
 

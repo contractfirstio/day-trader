@@ -20,8 +20,8 @@ object DeploymentPositionOutcomeCalculator {
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
     ): DeploymentPositionOutcome? {
         val positionContext = positionContext(deployment, brokerPosition) ?: return null
-        val orders = SymbolMarkets.openOrdersForDeployment(deployment, brokerOpenOrders)
-            .filter { !it.isTrailAdjustment }
+        val orders = brokerOpenOrders
+            .filter { SymbolMarkets.matchesDeployment(deployment, it) && !it.isTrailAdjustment }
         val planned = deployment.touchTurnSession?.plannedBracket
         val stopPrice = liveStopPrice(orders) ?: planned?.stopLoss ?: deployment.live.stopPrice
         val takeProfitPrice = takeProfitPrice(orders) ?: planned?.takeProfit ?: deployment.live.targetPrice
