@@ -111,7 +111,15 @@ class FakeBrokerGateway(
         _connectionState.value = GatewayConnectionState.Disconnected
     }
 
-    override fun reconnect() = connect()
+    override fun reconnect() {
+        disconnect()
+        connect()
+    }
+
+    /** Simulates a brief gateway drop without clearing broker-side test fixtures. */
+    fun simulateBriefDisconnect() {
+        reconnect()
+    }
 
     override suspend fun fetchFirstFifteenMinuteCandle(
         symbol: String,

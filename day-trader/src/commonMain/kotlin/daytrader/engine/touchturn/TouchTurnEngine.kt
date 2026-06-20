@@ -3,6 +3,7 @@ package daytrader.engine
 import daytrader.data.DeploymentSessionStopEvaluator
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.MarketOpenAutoStartLogic
+import daytrader.data.RunningBrokerReconciliation
 import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.TouchTurnManualStopHandler
@@ -608,10 +609,30 @@ class TouchTurnEngine(
         traceNewSessionFills(nextFills, nextPositions)
         recordTouchTurnPositionMilestones(nextPositions)
         if (affectedSymbols.isNotEmpty()) {
+            reconcileRunningBrokerState()
             handlePollStopRules(
                 snapshot = null,
                 logChecks = false,
                 affectedSymbols = affectedSymbols
+            )
+        }
+    }
+
+    private fun reconcileRunningBrokerState() {
+        val findings = RunningBrokerReconciliation.evaluate(
+            deployments = repository.deployments.value,
+            positions = brokerPositions.value,
+            openOrders = brokerOpenOrders.value
+        )
+        for (finding in findings) {
+            SessionTrace.log(
+                type = "broker_reconciliation",
+                deploymentId = finding.deploymentId,
+                symbol = finding.symbol,
+                details = mapOf(
+                    "kind" to finding.kind.name,
+                    "detail" to finding.detail
+                )
             )
         }
     }
@@ -688,6 +709,8 @@ class TouchTurnEngine(
     }
 
     private fun handleBrokerConnected() {
+        reconcileRunningBrokerState()
+        handlePollStopRules(logChecks = false)
         repository.deployments.value
             .asSequence()
             .filter { it.status == DeploymentStatus.RUNNING }
