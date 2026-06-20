@@ -7,11 +7,14 @@ object AppDataFiles {
     const val DEPLOYMENTS = "deployments.json"
     const val DEPLOYMENTS_BACKUP = "deployments.json.bak"
     const val STRATEGIES_SCREEN = "strategies-screen.json"
+    const val STRATEGIES_SCREEN_BACKUP = "strategies-screen.json.bak"
     /** Replay-only UI preferences (quote drip speed, etc.) — not deployment config. */
     const val REPLAY_SETTINGS = "replay-settings.json"
     const val LIQUIDITY_BUCKETS = "liquidity-buckets.json"
+    const val LIQUIDITY_BUCKETS_BACKUP = "liquidity-buckets.json.bak"
     /** Broker-scoped: `{broker-scope}/watchlists.json` (separate file per emulator / hybrid / IB / replay). */
     const val WATCHLISTS = "watchlists.json"
+    const val WATCHLISTS_BACKUP = "watchlists.json.bak"
 
     /**
      * Per-session log root (paired application + price logs).

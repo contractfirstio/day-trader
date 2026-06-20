@@ -20,6 +20,7 @@ fun AppTopBar(
     onMarketClick: (String) -> Unit,
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
+    onExportDebugInfo: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val activeUiFaults by UiFaultBus.faults.collectAsState()
@@ -34,6 +35,7 @@ fun AppTopBar(
             marketDataGateway = marketDataGateway,
             onOpenPriceFeedTester = onOpenPriceFeedTester,
             onChangeBrokerMode = onChangeBrokerMode,
+            onExportDebugInfo = onExportDebugInfo,
             activeUiFaults = activeUiFaults.values.toList(),
             onResetUi = if (activeUiFaults.isNotEmpty()) UiRecoveryBus::resetAllUiState else null,
         )

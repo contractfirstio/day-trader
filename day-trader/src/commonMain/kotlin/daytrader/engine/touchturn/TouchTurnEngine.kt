@@ -349,6 +349,7 @@ class TouchTurnEngine(
             repository.update(instanceId) { current ->
                 current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
             }
+            repository.flushPersistence()
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return
             logLiquidityPollOutcome(
                 instance = instance,
@@ -376,6 +377,7 @@ class TouchTurnEngine(
         repository.update(instanceId) {
             it.withOrdersPlacedForSession(plan = plan, bracketOrderIds = bracketOrderIds)
         }
+        repository.flushPersistence()
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         logLiquidityPollOutcome(
             instance = instance,
@@ -572,6 +574,7 @@ class TouchTurnEngine(
 
     private fun handleClosePosition(command: TouchTurnCommand.ClosePosition) {
         repository.update(command.instanceId) { it.withClosedPosition(command.sessionDate) }
+        repository.flushPersistence()
     }
 
     private fun handleDeleteSessionHistory(command: TouchTurnCommand.DeleteSessionHistory) {

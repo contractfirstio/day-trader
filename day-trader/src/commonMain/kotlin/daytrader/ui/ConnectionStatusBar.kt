@@ -40,6 +40,7 @@ fun ConnectionStatusBar(
     marketDataGateway: BrokerGateway? = null,
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
+    onExportDebugInfo: (() -> Unit)? = null,
     activeUiFaults: List<UiFault> = emptyList(),
     onResetUi: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -79,6 +80,14 @@ fun ConnectionStatusBar(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (onExportDebugInfo != null) {
+                TextButton(
+                    onClick = onExportDebugInfo,
+                    modifier = Modifier.testTag("exportDebugInfoButton")
+                ) {
+                    Text("Debug info", color = TextSecondary)
+                }
+            }
             if (onChangeBrokerMode != null) {
                 TextButton(
                     onClick = onChangeBrokerMode,

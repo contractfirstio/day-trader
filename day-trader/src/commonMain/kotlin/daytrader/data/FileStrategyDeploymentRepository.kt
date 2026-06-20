@@ -4,6 +4,7 @@ import daytrader.data.persistence.DebouncedFileWriter
 import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.DeploymentPersistence
 import daytrader.data.persistence.DeploymentsDocument
+import daytrader.data.persistence.JsonDocumentReader
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LegacyDataCleanup
 import daytrader.data.persistence.LegacyDeploymentPersistence
@@ -63,7 +64,8 @@ class FileStrategyDeploymentRepository(
 
     private fun loadInitial(): List<StrategyDeployment> {
         AppFileSystem.ensureAppDataDirectory()
-        val document = JsonFileStore.readDeployments()
+        val readResult = JsonFileStore.readDeploymentsResult()
+        val document = readResult.value
         if (document != null) {
             if (document.deployments.isNotEmpty()) {
                 LegacyDataCleanup.removeOrphanedLegacyFiles()
@@ -77,7 +79,7 @@ class FileStrategyDeploymentRepository(
                     brokerKind = brokerKind
                 )
             }
-            if (normalized != loaded) {
+            if (normalized != loaded || readResult.source == JsonDocumentReader.Source.BACKUP) {
                 writer.persistNow(normalized)
             }
             return normalized

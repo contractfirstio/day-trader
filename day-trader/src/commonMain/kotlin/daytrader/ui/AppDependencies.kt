@@ -8,6 +8,7 @@ import daytrader.data.FileLiquidityBucketRepository
 import daytrader.data.FileReplaySettingsRepository
 import daytrader.data.FileStrategiesAppStateRepository
 import daytrader.data.FileStrategyDeploymentRepository
+import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.FileWatchlistRepository
 import daytrader.data.ReplaySettingsRepository
 import daytrader.data.LiquidityBucketRepository
@@ -59,6 +60,7 @@ import kotlinx.coroutines.withContext
 
 data class AppDependencies(
     val marketFilter: MarketFilterState,
+    val strategyRepository: StrategyDeploymentRepository,
     val strategiesViewModel: StrategiesViewModel,
     val positionsViewModel: PositionsViewModel,
     val ordersViewModel: OrdersViewModel,
@@ -273,6 +275,7 @@ fun rememberAppDependencies(
         }
         AppDependencies(
             marketFilter = marketFilter,
+            strategyRepository = strategyRepository,
             strategiesViewModel = viewModel,
             positionsViewModel = PositionsViewModel(positionRepository),
             ordersViewModel = OrdersViewModel(

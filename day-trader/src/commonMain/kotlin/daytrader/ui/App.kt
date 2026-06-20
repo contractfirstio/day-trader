@@ -26,6 +26,11 @@ import daytrader.presentation.ui.UiRecoveryBus
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.platform.TradingClock
 import daytrader.platform.WallClock
+import daytrader.platform.AppFileSystem
+import daytrader.diagnostics.AppHealthCollector
+import daytrader.diagnostics.AppHealthSnapshot
+import daytrader.diagnostics.DebugBundleExporter
+import daytrader.diagnostics.TimestampedConsoleLog
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.SessionBundle
 import daytrader.ui.tools.PriceFeedTesterDialog
@@ -76,7 +81,10 @@ fun App(
     var screenRetryNonce by remember { mutableStateOf(0) }
     val globalUiRecoveryGeneration by UiRecoveryBus.generation.collectAsState()
     var showPriceFeedTester by remember { mutableStateOf(false) }
+    var debugHealthSnapshot by remember { mutableStateOf<AppHealthSnapshot?>(null) }
+    var debugExportPath by remember { mutableStateOf<String?>(null) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
+    val deployments by dependencies.strategyRepository.deployments.collectAsState()
     val strategiesListState by dependencies.strategiesViewModel.listState.collectAsState()
     val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
 
@@ -120,8 +128,34 @@ fun App(
                     selectedMarketZoneId = selectedMarketZoneId,
                     onMarketClick = dependencies.marketFilter::toggle,
                     onOpenPriceFeedTester = { showPriceFeedTester = true },
-                    onChangeBrokerMode = onChangeBrokerMode
+                    onChangeBrokerMode = onChangeBrokerMode,
+                    onExportDebugInfo = {
+                        val snapshot = AppHealthCollector.collect(
+                            brokerKind = brokerKind,
+                            dataDirectory = AppFileSystem.appDataDirectory(),
+                            executionGateway = brokerGateway,
+                            marketDataGateway = touchTurnSessionGateway.takeIf { it !== brokerGateway },
+                            deployments = deployments,
+                            trackedDataFiles = DebugBundleExporter.trackedPersistenceFiles(),
+                        )
+                        debugExportPath = DebugBundleExporter.export(snapshot)
+                        debugHealthSnapshot = snapshot
+                        TimestampedConsoleLog.line(
+                            "DEBUG_BUNDLE",
+                            "exported health snapshot to ${debugExportPath.orEmpty()}",
+                        )
+                    },
                 )
+                debugHealthSnapshot?.let { snapshot ->
+                    DebugHealthDialog(
+                        snapshot = snapshot,
+                        exportPath = debugExportPath,
+                        onDismiss = {
+                            debugHealthSnapshot = null
+                            debugExportPath = null
+                        },
+                    )
+                }
                 if (showPriceFeedTester) {
                     PriceFeedTesterDialog(
                         brokerKind = brokerKind,

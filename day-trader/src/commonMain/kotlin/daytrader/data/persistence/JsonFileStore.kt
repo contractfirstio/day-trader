@@ -2,7 +2,6 @@ package daytrader.data.persistence
 
 import daytrader.domain.SessionTrade
 import daytrader.platform.AppFileSystem
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
@@ -16,25 +15,27 @@ object JsonFileStore {
     }
 
     fun readDeployments(): DeploymentsDocument? =
-        read<DeploymentsDocument>(AppDataFiles.DEPLOYMENTS)
+        readDeploymentsResult().value
+
+    internal fun readDeploymentsResult(): JsonDocumentReader.Result<DeploymentsDocument> =
+        readWithBackup<DeploymentsDocument>(AppDataFiles.DEPLOYMENTS, AppDataFiles.DEPLOYMENTS_BACKUP)
 
     fun writeDeployments(document: DeploymentsDocument) {
-        backupDeploymentsIfPresent()
+        backupIfPresent(AppDataFiles.DEPLOYMENTS, AppDataFiles.DEPLOYMENTS_BACKUP)
         write(AppDataFiles.DEPLOYMENTS, document)
-    }
-
-    private fun backupDeploymentsIfPresent() {
-        val current = AppFileSystem.readText(AppDataFiles.DEPLOYMENTS) ?: return
-        AppFileSystem.writeTextAtomic(AppDataFiles.DEPLOYMENTS_BACKUP, current)
     }
 
     internal fun readLegacyInstancesJson(): LegacyInstancesJsonDocument? =
         read<LegacyInstancesJsonDocument>(AppDataFiles.LEGACY_INSTANCES_JSON)
 
     fun readStrategiesScreen(): StrategiesScreenDocument? =
-        read<StrategiesScreenDocument>(AppDataFiles.STRATEGIES_SCREEN)
+        readWithBackup<StrategiesScreenDocument>(
+            AppDataFiles.STRATEGIES_SCREEN,
+            AppDataFiles.STRATEGIES_SCREEN_BACKUP
+        ).value
 
     fun writeStrategiesScreen(document: StrategiesScreenDocument) {
+        backupIfPresent(AppDataFiles.STRATEGIES_SCREEN, AppDataFiles.STRATEGIES_SCREEN_BACKUP)
         write(AppDataFiles.STRATEGIES_SCREEN, document)
     }
 
@@ -46,16 +47,21 @@ object JsonFileStore {
     }
 
     fun readWatchlists(): WatchlistsDocument? =
-        read<WatchlistsDocument>(AppDataFiles.WATCHLISTS)
+        readWithBackup<WatchlistsDocument>(AppDataFiles.WATCHLISTS, AppDataFiles.WATCHLISTS_BACKUP).value
 
     fun writeWatchlists(document: WatchlistsDocument) {
+        backupIfPresent(AppDataFiles.WATCHLISTS, AppDataFiles.WATCHLISTS_BACKUP)
         write(AppDataFiles.WATCHLISTS, document)
     }
 
     fun readLiquidityBuckets(): LiquidityBucketsDocument? =
-        read<LiquidityBucketsDocument>(AppDataFiles.LIQUIDITY_BUCKETS)
+        readWithBackup<LiquidityBucketsDocument>(
+            AppDataFiles.LIQUIDITY_BUCKETS,
+            AppDataFiles.LIQUIDITY_BUCKETS_BACKUP
+        ).value
 
     fun writeLiquidityBuckets(document: LiquidityBucketsDocument) {
+        backupIfPresent(AppDataFiles.LIQUIDITY_BUCKETS, AppDataFiles.LIQUIDITY_BUCKETS_BACKUP)
         write(AppDataFiles.LIQUIDITY_BUCKETS, document)
     }
 
@@ -120,13 +126,26 @@ object JsonFileStore {
     internal fun readLegacyStrategiesScreen(): LegacyStrategiesScreenDocument? =
         read<LegacyStrategiesScreenDocument>(AppDataFiles.LEGACY_STRATEGIES_APP_STATE)
 
+    internal inline fun <reified T> readWithBackup(
+        fileName: String,
+        backupFileName: String,
+        readText: (String) -> String? = AppFileSystem::readText,
+    ): JsonDocumentReader.Result<T> =
+        JsonDocumentReader.read(
+            json = json,
+            fileName = fileName,
+            backupFileName = backupFileName,
+            readText = readText,
+        )
+
     private inline fun <reified T> read(fileName: String): T? {
         val raw = AppFileSystem.readText(fileName) ?: return null
-        return try {
-            json.decodeFromString(serializer<T>(), raw)
-        } catch (_: SerializationException) {
-            null
-        }
+        return JsonDocumentReader.decode(json, raw)
+    }
+
+    private fun backupIfPresent(fileName: String, backupFileName: String) {
+        val current = AppFileSystem.readText(fileName) ?: return
+        AppFileSystem.writeTextAtomic(backupFileName, current)
     }
 
     private inline fun <reified T> write(fileName: String, document: T) {
