@@ -39,6 +39,8 @@ data class LiquidityAllocatorRowUi(
     val entryTouchable: Boolean?,
     val winRateLabel: String,
     val winRateSampleSize: Int,
+    val winDays: Int,
+    val lossDays: Int,
     val bracketOrderIds: TouchTurnBracketOrderIds?,
     val isApplying: Boolean,
     val applyError: String?

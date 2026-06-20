@@ -103,6 +103,34 @@ class LiquidityAllocatorViewModel(
     }
 
     fun distributeEvenly() {
+        val context = distributionContext() ?: return
+        val perRow = context.available / context.rows.size
+        val remainder = context.available % context.rows.size
+        applyDistribution(
+            context.rows.mapIndexed { index, row ->
+                row.deploymentId to (perRow + if (index == 0) remainder else 0)
+            }.toMap()
+        )
+    }
+
+    fun distributeByWinRate() {
+        val context = distributionContext() ?: return
+        applyDistribution(
+            distributeLiquidityByBayesianWinRate(
+                rows = context.rows.map { row ->
+                    row.deploymentId to (row.winDays to row.lossDays)
+                },
+                available = context.available,
+            )
+        )
+    }
+
+    private data class DistributionContext(
+        val available: Int,
+        val rows: List<LiquidityAllocatorRowUi>,
+    )
+
+    private fun distributionContext(): DistributionContext? {
         val sessionDate = currentSessionDateIso()
         val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
         val bucket = LiquidityBucketLogic.rollBucketForDate(
@@ -116,13 +144,14 @@ class LiquidityAllocatorViewModel(
             selectedCurrency = currency,
             sessionRollupCache = sessionRollupCache,
         )
-        if (rows.isEmpty() || bucket.available <= 0) return
-        val perRow = bucket.available / rows.size
-        val remainder = bucket.available % rows.size
+        if (rows.isEmpty() || bucket.available <= 0) return null
+        return DistributionContext(available = bucket.available, rows = rows)
+    }
+
+    private fun applyDistribution(distribution: Map<String, Int>) {
         allocations.clear()
-        rows.forEachIndexed { index, row ->
-            val amount = perRow + if (index == 0) remainder else 0
-            if (amount > 0) allocations[row.deploymentId] = amount
+        distribution.forEach { (deploymentId, amount) ->
+            if (amount > 0) allocations[deploymentId] = amount
         }
         applyErrors.clear()
         publishUi()

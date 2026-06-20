@@ -1,8 +1,11 @@
 package daytrader.e2e.support
 
 import daytrader.domain.LiquidityBucketLogic
+import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.currentConfigurationFingerprint
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
@@ -12,17 +15,54 @@ object E2ELiquidityAllocatorHelper {
     fun allocatorEligibleDeployment(
         symbol: String = E2ETestFixtures.SYMBOL,
         deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
+        winDays: Int = 0,
+        lossDays: Int = 0,
     ): StrategyDeployment {
         val plan = E2EBracketHelper.liquidityPlan(symbol = symbol)
-        return E2ETestFixtures.runningDeployment(symbol = symbol)
+        var deployment = E2ETestFixtures.runningDeployment(symbol = symbol)
             .copy(id = deploymentId)
-            .withOrdersPlacedForSession(plan = plan)
+        if (winDays > 0 || lossDays > 0) {
+            deployment = deployment.copy(
+                sessionHistory = winLossSessionHistory(deployment, winDays, lossDays),
+            )
+        }
+        return deployment.withOrdersPlacedForSession(plan = plan)
     }
 
-    fun bracketOpenOrders(symbol: String = E2ETestFixtures.SYMBOL): List<WorkingOrder> {
-        val entryId = 1_000
-        val tpId = 1_001
-        val stopId = 1_002
+    fun winLossSessionHistory(
+        deployment: StrategyDeployment,
+        winDays: Int,
+        lossDays: Int,
+    ): List<StrategySession> {
+        val fingerprint = deployment.currentConfigurationFingerprint()
+        val sessions = mutableListOf<StrategySession>()
+        var dayOffset = 1
+        repeat(winDays) { index ->
+            sessions += closedTradedSession(
+                id = "win-$index",
+                date = historySessionDate(dayOffset++),
+                pnl = 10.0,
+                configurationFingerprint = fingerprint,
+            )
+        }
+        repeat(lossDays) { index ->
+            sessions += closedTradedSession(
+                id = "loss-$index",
+                date = historySessionDate(dayOffset++),
+                pnl = -5.0,
+                configurationFingerprint = fingerprint,
+            )
+        }
+        return sessions
+    }
+
+    fun bracketOpenOrders(
+        symbol: String = E2ETestFixtures.SYMBOL,
+        orderIdBase: Int = 1_000,
+    ): List<WorkingOrder> {
+        val entryId = orderIdBase
+        val tpId = orderIdBase + 1
+        val stopId = orderIdBase + 2
         return listOf(
             WorkingOrder(
                 orderId = entryId,
@@ -95,5 +135,28 @@ object E2ELiquidityAllocatorHelper {
                 creditedAtEpochMs = System.currentTimeMillis(),
             )
         }
+    }
+
+    private fun closedTradedSession(
+        id: String,
+        date: String,
+        pnl: Double,
+        configurationFingerprint: String,
+    ): StrategySession = StrategySession(
+        id = id,
+        date = date,
+        startedAt = "${date}T09:30:00",
+        stoppedAt = "${date}T10:00:00",
+        pnl = pnl,
+        trades = 1,
+        maxAtRisk = 500,
+        status = SessionStatus.CLOSED,
+        positionOpened = true,
+        configurationFingerprint = configurationFingerprint,
+    )
+
+    private fun historySessionDate(dayOffset: Int): String {
+        val day = dayOffset.coerceIn(1, 28)
+        return "2026-05-${day.toString().padStart(2, '0')}"
     }
 }

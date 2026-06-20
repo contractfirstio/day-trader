@@ -207,6 +207,8 @@ object LiquidityAllocatorMapper {
             entryTouchable = touchable,
             winRateLabel = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateSampleSize = configRollup.tradedDays,
+            winDays = configRollup.winDays,
+            lossDays = configRollup.lossDays,
             bracketOrderIds = session.bracketOrderIds,
             isApplying = isApplying,
             applyError = applyError

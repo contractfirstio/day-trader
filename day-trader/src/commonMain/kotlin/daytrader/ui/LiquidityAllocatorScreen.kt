@@ -18,11 +18,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -96,6 +100,7 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
             remaining = uiState.remainingLiquidity,
             creditCount = uiState.creditCount,
             onDistributeEvenly = viewModel::distributeEvenly,
+            onDistributeByWinRate = viewModel::distributeByWinRate,
             onApplyAll = viewModel::applyAll,
             canApply = uiState.allocatedPending > 0 && uiState.rows.isNotEmpty()
         )
@@ -128,6 +133,7 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BucketSummaryCard(
     currencyCode: String,
@@ -136,6 +142,7 @@ private fun BucketSummaryCard(
     remaining: Int,
     creditCount: Int,
     onDistributeEvenly: () -> Unit,
+    onDistributeByWinRate: () -> Unit,
     onApplyAll: () -> Unit,
     canApply: Boolean
 ) {
@@ -170,6 +177,10 @@ private fun BucketSummaryCard(
             ) {
                 Text("Distribute evenly", fontSize = 12.sp)
             }
+            WinRateDistributeButton(
+                enabled = available > 0,
+                onClick = onDistributeByWinRate,
+            )
             Button(
                 onClick = onApplyAll,
                 enabled = canApply,
@@ -177,6 +188,34 @@ private fun BucketSummaryCard(
             ) {
                 Text("Apply allocations", fontSize = 12.sp)
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WinRateDistributeButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tooltipState = rememberTooltipState()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            Text(
+                "Allocates by configuration win rate. Strategies with little history are weighted closer to 50%.",
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                fontSize = 12.sp,
+            )
+        },
+        state = tooltipState,
+    ) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark, contentColor = Color.White)
+        ) {
+            Text("By win rate", fontSize = 12.sp)
         }
     }
 }
