@@ -31,8 +31,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.data.StrategyCatalog
 import daytrader.domain.*
+import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
+
+/** When set by [InstanceCardChrome], shares one pulse animation with nested chips. */
+internal val LocalCardPulseAlpha = staticCompositionLocalOf<Float?> { null }
 
 @Composable
 internal fun animatedCardPulseAlpha(accent: DeploymentCardAccent): Float {
@@ -60,12 +64,14 @@ internal fun InstanceCardChrome(
     val accentBorder = style.borderColor.copy(alpha = style.borderColor.alpha * pulseAlpha)
     val borderColor = if (isSelected) SelectionBorder else accentBorder
     val borderWidth = if (isSelected) 2.dp else style.borderWidth
-    Box(
-        modifier = modifier
-            .border(borderWidth, borderColor, shape)
-            .background(style.surfaceBrush, shape)
-    ) {
-        content()
+    CompositionLocalProvider(LocalCardPulseAlpha provides pulseAlpha) {
+        Box(
+            modifier = modifier
+                .border(borderWidth, borderColor, shape)
+                .background(style.surfaceBrush, shape)
+        ) {
+            content()
+        }
     }
 }
 
@@ -142,7 +148,7 @@ internal fun InstanceStateChip(
     compact: Boolean = false
 ) {
     val baseColor = instanceChipColor(accent)
-    val pulseAlpha = animatedCardPulseAlpha(accent)
+    val pulseAlpha = LocalCardPulseAlpha.current ?: animatedCardPulseAlpha(accent)
     val color = baseColor.copy(alpha = baseColor.alpha * pulseAlpha)
     val dotSize = if (compact) 5.dp else 8.dp
     val fontSize = if (compact) 9.sp else 12.sp
@@ -507,9 +513,7 @@ internal fun StrategyDeploymentCard(
             }
             Spacer(modifier = Modifier.height(4.dp))
             if (row.hasOpenPosition &&
-                (row.formattedPositionPnL != null ||
-                    row.formattedMaxProfit != null ||
-                    row.formattedStopOutcome != null)
+                (row.positionPnL != null || row.maxProfit != null || row.stopOutcome != null)
             ) {
                 DeploymentCardMetricBand(
                     title = "Live",
@@ -519,24 +523,24 @@ internal fun StrategyDeploymentCard(
                     showPulseDot = true,
                     modifier = Modifier.testTag("DeploymentCardLiveBand-${row.id}")
                 ) {
-                    row.formattedPositionPnL?.let { positionPnL ->
+                    row.positionPnL?.let { positionPnL ->
                         CompactInstanceStat(
                             label = "Unrealized",
-                            value = positionPnL,
+                            value = Formatters.money(positionPnL, row.currencyCode, showSign = true),
                             valueColor = if (row.isPositivePositionPnL == true) GainGreen else LossRed
                         )
                     }
-                    row.formattedMaxProfit?.let { maxProfit ->
+                    row.maxProfit?.let { maxProfit ->
                         CompactInstanceStat(
                             label = "Max profit",
-                            value = maxProfit,
+                            value = Formatters.money(maxProfit, row.currencyCode, showSign = true),
                             valueColor = GainGreen
                         )
                     }
-                    row.formattedStopOutcome?.let { stopOutcome ->
+                    row.stopOutcome?.let { stopOutcome ->
                         CompactInstanceStat(
                             label = if (row.stopOutcomeIsMinWin) "Min win" else "Max loss",
-                            value = stopOutcome,
+                            value = Formatters.money(stopOutcome, row.currencyCode, showSign = true),
                             valueColor = if (row.stopOutcomeIsMinWin) GainGreen else LossRed
                         )
                     }

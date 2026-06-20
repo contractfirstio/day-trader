@@ -1502,7 +1502,7 @@ class StrategiesViewModel(
         val snapshot = buildSelectedLiveSnapshot(ctx)
         _listState.update { current ->
             current.copy(
-                filteredRows = buildListRows(ctx),
+                filteredRows = patchListRows(current.filteredRows, ctx),
                 filteredSummary = buildFilteredSummary(ctx),
             )
         }
@@ -1575,6 +1575,27 @@ class StrategiesViewModel(
                 sessionRollupCache = sessionRollupCache,
             )
         }
+
+    private fun patchListRows(
+        currentRows: List<StrategyDeploymentRowUi>,
+        ctx: EmitContext,
+    ): List<StrategyDeploymentRowUi> {
+        val filteredIds = ctx.filtered.map { it.id }.toSet()
+        if (currentRows.map { it.id }.toSet() != filteredIds) return buildListRows(ctx)
+        val rowById = currentRows.associateBy { it.id }
+        return ctx.filtered.map { instance ->
+            val existing = rowById[instance.id] ?: return buildListRows(ctx)
+            val brokerPosition = brokerDeploymentIndex.openPosition(instance)
+            StrategyUiMapper.patchLiveFields(
+                row = existing,
+                instance = instance,
+                sessionDate = ctx.sessionDate,
+                brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
+                brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
+                brokerPosition = brokerPosition,
+            )
+        }
+    }
 
     private fun buildFilteredSummary(ctx: EmitContext): FilteredDeploymentsSummaryUi? =
         FilteredDeploymentsSummaryMapper.build(

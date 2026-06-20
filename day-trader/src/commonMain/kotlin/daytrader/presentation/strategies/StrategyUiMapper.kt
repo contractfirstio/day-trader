@@ -8,6 +8,7 @@ import daytrader.data.StrategyCatalog
 import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.riskReward
 import daytrader.domain.instanceDisplayName
 import daytrader.domain.inProgressSession
@@ -85,16 +86,55 @@ object StrategyUiMapper {
             isPositiveLastSessionPnL = lastClosedSession?.let { it.pnl >= 0 },
             autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
             hasOpenPosition = hasOpenPosition,
-            formattedPositionPnL = positionPnL?.let {
-                Formatters.money(it, currency, showSign = true)
-            },
+            positionPnL = positionPnL,
             isPositivePositionPnL = positionPnL?.let { it >= 0 },
-            formattedMaxProfit = positionOutcome?.maxProfit?.let {
-                Formatters.money(it, currency, showSign = true)
-            },
-            formattedStopOutcome = positionOutcome?.stopOutcome?.let {
-                Formatters.money(it, currency, showSign = true)
-            },
+            maxProfit = positionOutcome?.maxProfit,
+            stopOutcome = positionOutcome?.stopOutcome,
+            currencyCode = currency,
+            stopOutcomeIsMinWin = positionOutcome?.stopIsMinWin == true
+        )
+    }
+
+    /** Recomputes broker-driven row fields without re-running session rollups or static formatters. */
+    fun patchLiveFields(
+        row: StrategyDeploymentRowUi,
+        instance: StrategyDeployment,
+        sessionDate: String,
+        brokerUnrealizedPnL: Double? = null,
+        brokerOpenOrders: List<WorkingOrder> = emptyList(),
+        brokerPosition: AccountPosition? = null,
+    ): StrategyDeploymentRowUi {
+        val hasOpenPosition = brokerPosition != null ||
+            (instance.status == DeploymentStatus.RUNNING &&
+                instance.live.state == ExecutionState.FILLED)
+        val positionPnL = positionUnrealizedPnL(instance, brokerPosition, brokerUnrealizedPnL)
+        val positionOutcome = if (hasOpenPosition) {
+            DeploymentPositionOutcomeCalculator.resolve(instance, brokerPosition, brokerOpenOrders)
+        } else {
+            null
+        }
+        val currency = brokerPosition?.currency
+            ?: instance.instrument?.currency
+            ?: SymbolMarkets.currencyCode(instance.symbol)
+        val card = DeploymentCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            brokerUnrealizedPnL,
+            brokerOpenOrders,
+            hasOpenPosition = hasOpenPosition
+        )
+        return row.copy(
+            status = instance.status,
+            cardAccent = card.accent,
+            statusChipLabel = card.chipLabel,
+            tradesToday = instance.inProgressSession()?.trades ?: 0,
+            liveTradeSummary = LiveExecutionUiMapper.toListSummary(instance).text,
+            hasOpenPosition = hasOpenPosition,
+            positionPnL = positionPnL,
+            isPositivePositionPnL = positionPnL?.let { it >= 0 },
+            maxProfit = positionOutcome?.maxProfit,
+            stopOutcome = positionOutcome?.stopOutcome,
+            currencyCode = currency,
             stopOutcomeIsMinWin = positionOutcome?.stopIsMinWin == true
         )
     }

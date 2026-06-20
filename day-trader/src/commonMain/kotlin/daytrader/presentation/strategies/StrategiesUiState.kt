@@ -44,11 +44,14 @@ data class StrategyDeploymentRowUi(
     val isPositiveLastSessionPnL: Boolean? = null,
     val autoStartOnMarketOpen: Boolean = false,
     val hasOpenPosition: Boolean = false,
-    val formattedPositionPnL: String? = null,
+    /** Raw unrealized P&L for open positions; formatted in Compose on the live band. */
+    val positionPnL: Double? = null,
     val isPositivePositionPnL: Boolean? = null,
-    val formattedMaxProfit: String? = null,
-    val formattedStopOutcome: String? = null,
-    /** When true, [formattedStopOutcome] is a guaranteed minimum win (trailing stop past entry). */
+    val maxProfit: Double? = null,
+    val stopOutcome: Double? = null,
+    /** Currency for [positionPnL], [maxProfit], and [stopOutcome] display. */
+    val currencyCode: String,
+    /** When true, [stopOutcome] is a guaranteed minimum win (trailing stop past entry). */
     val stopOutcomeIsMinWin: Boolean = false
 )
 

@@ -55,10 +55,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.FlowPreview
+import kotlin.time.Duration.Companion.milliseconds
 
+@OptIn(FlowPreview::class)
 class WatchlistViewModel(
     private val repository: WatchlistRepository,
     private val strategyDeploymentRepository: StrategyDeploymentRepository? = null,
@@ -141,7 +145,7 @@ class WatchlistViewModel(
                 if (marketDataGateway === executionGateway) {
                     marketDataConnection = state
                 }
-                emitUiState()
+                emitUiState(UiRefreshScope.LiveMarket)
             }
             ?.launchIn(scope)
 
@@ -153,7 +157,7 @@ class WatchlistViewModel(
             ?.onEach { orders ->
                 brokerOpenOrders = orders
                 recordEntryLivePrices()
-                emitUiState()
+                emitUiState(UiRefreshScope.BrokerSnapshot)
             }
             ?.launchIn(scope)
 
@@ -162,7 +166,7 @@ class WatchlistViewModel(
                 brokerFills = fills
                 syncExecutedBracketLegsFromFills()
                 recordEntryLivePrices()
-                emitUiState()
+                emitUiState(UiRefreshScope.BrokerSnapshot)
             }
             ?.launchIn(scope)
 
@@ -170,26 +174,78 @@ class WatchlistViewModel(
             ?.onEach { positions ->
                 brokerPositions = positions
                 recordEntryLivePrices()
-                emitUiState()
+                emitUiState(UiRefreshScope.BrokerSnapshot)
             }
             ?.launchIn(scope)
 
         if (marketDataGateway != null && marketDataGateway !== executionGateway) {
             marketDataGateway.connectionState
-                .onEach { state ->
+                ?.onEach { state ->
                     marketDataConnection = state
-                    emitUiState()
+                    emitUiState(UiRefreshScope.LiveMarket)
                 }
-                .launchIn(scope)
+                ?.launchIn(scope)
         }
 
-        marketDataGateway?.quotes
-            ?.onEach { quotes ->
-                brokerQuotes = quotes
-                recordEntryLivePrices()
-                emitUiState()
-            }
-            ?.launchIn(scope)
+        marketDataGateway?.quotes?.let { quotesFlow ->
+            quotesFlow
+                .onEach { quotes ->
+                    brokerQuotes = quotes
+                    recordEntryLivePrices()
+                }
+                .launchIn(scope)
+            quotesFlow
+                .sample(QUOTE_UI_REFRESH_INTERVAL_MS.milliseconds)
+                .onEach { emitUiState(UiRefreshScope.LiveMarket) }
+                .launchIn(scope)
+        }
+    }
+
+    private enum class UiRefreshScope {
+        Full,
+        LiveMarket,
+        BrokerSnapshot,
+    }
+
+    private fun emitUiState(scope: UiRefreshScope = UiRefreshScope.Full) {
+        when (scope) {
+            UiRefreshScope.Full -> applyFullUi()
+            UiRefreshScope.LiveMarket -> applyLiveMarketUi()
+            UiRefreshScope.BrokerSnapshot -> applyBrokerSnapshotUi()
+        }
+    }
+
+    private fun applyLiveMarketUi() {
+        refreshTradePlansEditorProximity()
+        refreshBracketOrderState()
+        val resolvedReversalBatch = WatchlistStatusUiMapper.resolvedReversalBatch(
+            inMemory = lastReversalScoreResult,
+            watchlist = selectedWatchlist()
+        )
+        _uiState.update { current ->
+            current.copy(
+                connectionLabel = connectionLabel(executionConnection, marketDataConnection),
+                statusStrip = WatchlistStatusUiMapper.buildStatusStrip(
+                    execution = executionConnection,
+                    marketData = marketDataConnection,
+                    brokerKind = brokerKind,
+                    lastReversalResult = resolvedReversalBatch
+                ),
+                entryCharts = tradePlansEditorDraft?.let(::buildEntryChartsUi),
+                bracketOrderEditor = bracketOrderDraft,
+            )
+        }
+    }
+
+    private fun applyBrokerSnapshotUi() {
+        if (tradePlansEditorDraft == null && bracketOrderDraft == null) return
+        refreshBracketOrderState()
+        _uiState.update { current ->
+            current.copy(
+                entryCharts = tradePlansEditorDraft?.let(::buildEntryChartsUi),
+                bracketOrderEditor = bracketOrderDraft,
+            )
+        }
     }
 
     private fun handleBracketPlacementAck(ack: TouchTurnBracketAck) {
@@ -1399,7 +1455,7 @@ class WatchlistViewModel(
             .toMap()
     }
 
-    private fun emitUiState() {
+    private fun applyFullUi() {
         refreshTradePlansEditorProximity()
         refreshBracketOrderState()
         val watchlist = selectedWatchlist()
@@ -1642,5 +1698,6 @@ class WatchlistViewModel(
 
     companion object {
         private const val BRACKET_ACK_TIMEOUT_MS = 30_000L
+        private const val QUOTE_UI_REFRESH_INTERVAL_MS = 100L
     }
 }

@@ -7,7 +7,6 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
-import daytrader.domain.lastClosed
 import daytrader.domain.riskReward
 import daytrader.domain.rollups
 import daytrader.data.StrategyCatalog
@@ -82,9 +81,7 @@ object FilteredDeploymentsSummaryMapper {
                 }
         }
 
-        val closedSessions = instances.flatMap { deployment ->
-            deployment.sessionHistory.filter { it.status == SessionStatus.CLOSED }
-        }
+        val closedSessions = buildClosedSessions(instances)
         val rollup = sessionRollupCache?.rollupsForSummary(
             deploymentIds = instances.map { it.id },
             closedSessions = closedSessions,
@@ -94,13 +91,20 @@ object FilteredDeploymentsSummaryMapper {
         val netPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->
             val currency = deploymentCurrency(instance, brokerIndex)
-            val closed = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
-            netPnLByCurrency.addAmount(currency, closed.sumOf { it.pnl })
-            instance.sessionHistory
-                .filter { it.status == SessionStatus.CLOSED }
-                .lastClosed()
-                ?.pnl
-                ?.let { lastSessionByCurrency.addAmount(currency, it) }
+            var netPnl = 0.0
+            var lastClosedPnl: Double? = null
+            var lastClosedSortKey: String? = null
+            for (session in instance.sessionHistory) {
+                if (session.status != SessionStatus.CLOSED) continue
+                netPnl += session.pnl
+                val sortKey = session.stoppedAt.ifBlank { session.startedAt }
+                if (lastClosedSortKey == null || sortKey >= lastClosedSortKey) {
+                    lastClosedSortKey = sortKey
+                    lastClosedPnl = session.pnl
+                }
+            }
+            netPnLByCurrency.addAmount(currency, netPnl)
+            lastClosedPnl?.let { lastSessionByCurrency.addAmount(currency, it) }
         }
 
         val stopOutcomeTotals = stopOutcomeByCurrency.filterValues { it != 0.0 }
@@ -130,6 +134,16 @@ object FilteredDeploymentsSummaryMapper {
             formattedNetPnL = formatMoneyTotals(netPnLByCurrency),
             isPositiveNetPnL = singleCurrencySign(netPnLByCurrency),
         )
+    }
+
+    private fun buildClosedSessions(instances: List<StrategyDeployment>): List<daytrader.domain.StrategySession> {
+        val closed = ArrayList<daytrader.domain.StrategySession>()
+        instances.forEach { deployment ->
+            deployment.sessionHistory.forEach { session ->
+                if (session.status == SessionStatus.CLOSED) closed.add(session)
+            }
+        }
+        return closed
     }
 
     private fun deploymentCurrency(

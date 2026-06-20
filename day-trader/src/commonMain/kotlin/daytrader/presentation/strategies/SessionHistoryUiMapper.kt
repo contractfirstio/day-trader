@@ -21,14 +21,19 @@ object SessionHistoryUiMapper {
         marketFilterLabel: String? = null,
         sessionRollupCache: SessionRollupCache? = null,
     ): SessionHistoryUiState {
-        val closedSessions = instance.sessionHistory
-            .filter { it.status == SessionStatus.CLOSED }
-            .filter { DeploymentMarket.sessionMatchesMarketFilter(it, instance, marketZoneFilter) }
-        val displaySessions = instance.sessionHistory
-            .filter {
-                it.status == SessionStatus.CLOSED || it.status == SessionStatus.IN_PROGRESS
+        val closedSessions = mutableListOf<StrategySession>()
+        val displaySessions = mutableListOf<StrategySession>()
+        for (session in instance.sessionHistory) {
+            if (!DeploymentMarket.sessionMatchesMarketFilter(session, instance, marketZoneFilter)) continue
+            when (session.status) {
+                SessionStatus.CLOSED -> {
+                    closedSessions.add(session)
+                    displaySessions.add(session)
+                }
+                SessionStatus.IN_PROGRESS -> displaySessions.add(session)
+                else -> Unit
             }
-            .filter { DeploymentMarket.sessionMatchesMarketFilter(it, instance, marketZoneFilter) }
+        }
         val isTouchTurn = instance.isTouchTurn
         val sortedRows = sortRuns(displaySessions, sortColumn, sortDirection)
             .map { toRowUi(it, isTouchTurn, selectedRunId, instance) }
