@@ -91,15 +91,16 @@ class OrdersViewModel(
             )
         }
         val planLabels = WatchlistPlanOrderLinks.enrichWithPlanLabels(working, watchlists)
-        val groups = sortedKeys.map { symbolKey ->
+        val groups = sortedKeys.mapNotNull { symbolKey ->
             val orders = bySymbol[symbolKey].orEmpty()
                 .sortedWith(
                     compareBy<WorkingOrder> { it.parentOrderId != 0 }
                         .thenBy { it.orderId }
                 )
+            val displaySymbol = orders.firstOrNull()?.symbol ?: return@mapNotNull null
             OrderSymbolGroupUi(
                 symbolKey = symbolKey,
-                displaySymbol = orders.first().symbol,
+                displaySymbol = displaySymbol,
                 orders = orders.map { order ->
                     OpenOrderUiMapper.toRowUi(order, planLabels[order.orderId])
                 },

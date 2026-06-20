@@ -1,8 +1,10 @@
 package daytrader.data
 
 import daytrader.data.persistence.DebouncedFileWriter
+import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LiquidityBucketPersistence
+import daytrader.data.persistence.launchDeferredFileHydration
 import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.LiquidityBucketState
 import daytrader.domain.TouchTurnSessionOutcome
@@ -47,9 +49,16 @@ class FileLiquidityBucketRepository(
     private val writer = DebouncedFileWriter<LiquidityBucketState>(scope) { state ->
         JsonFileStore.writeLiquidityBuckets(LiquidityBucketPersistence.toDocument(state))
     }
+    private val hydration = DeferredFileHydration()
 
-    private val _state = MutableStateFlow(loadInitial())
+    private val _state = MutableStateFlow(LiquidityBucketState())
     override val state: StateFlow<LiquidityBucketState> = _state.asStateFlow()
+
+    init {
+        scope.launchDeferredFileHydration(hydration) {
+            _state.value = loadInitial()
+        }
+    }
 
     override fun update(transform: (LiquidityBucketState) -> LiquidityBucketState) {
         _state.update(transform)

@@ -24,8 +24,17 @@ import daytrader.platform.CrashLogging
 import daytrader.platform.DesktopFolderPicker
 import daytrader.platform.MacApplicationMenu
 import daytrader.replay.SessionBundleDirectoryReader
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import daytrader.ui.theme.TextSecondary
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import daytrader.replay.SessionReplayCatalog
 import daytrader.replay.SessionReplayCatalog.toCaptureRef
+import daytrader.replay.SessionReplayEntry
 import daytrader.ui.App
 import daytrader.ui.ApplicationQuitConfirmDialog
 import daytrader.ui.ApplicationQuitCoordinator
@@ -197,57 +206,74 @@ fun main() {
                     )
 
                     StartupPhase.PickSession -> {
-                        val catalogEntries = remember {
-                            SessionReplayCatalog.discover(AppFileSystem.applicationDataRoot())
+                        var catalogEntries by remember { mutableStateOf<List<SessionReplayEntry>?>(null) }
+                        LaunchedEffect(Unit) {
+                            catalogEntries = withContext(Dispatchers.Default) {
+                                SessionReplayCatalog.discover(AppFileSystem.applicationDataRoot())
+                            }
                         }
-                        val replayCaptureCatalog = remember(catalogEntries) {
-                            catalogEntries.map { it.toCaptureRef() }
-                        }
-                        SessionReplayPickerScreen(
-                            entries = catalogEntries,
-                            onBrowseFolder = { DesktopFolderPicker.pickDirectory("Select captured session folder") },
-                            onContinue = { entry, replayList ->
-                                AppFileSystem.configureDataScope(BrokerKind.REPLAY)
-                                val seedPaths = when {
-                                    replayList.isNotEmpty() -> replayList
-                                    entry != null -> setOf(entry.directoryPath)
-                                    else -> emptySet()
+                        when (val entries = catalogEntries) {
+                            null -> {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Loading session catalog…", color = TextSecondary)
                                 }
-                                val bootstrapEntry = entry
-                                    ?: seedPaths.firstOrNull()?.let { path ->
-                                        catalogEntries.find { it.directoryPath == path }
-                                    }
-                                    ?: catalogEntries.firstOrNull()
-                                    ?: error("No hybrid session captures found under paper-live-ib")
-                                val bundle = SessionBundleDirectoryReader
-                                    .loadReplayableFromDirectory(bootstrapEntry.directoryPath)
-                                    .getOrElse { error(it.message ?: "Failed to load session bundle") }
-                                val catalog = if (seedPaths.isNotEmpty()) {
-                                    catalogEntries
-                                        .filter { it.directoryPath in seedPaths }
-                                        .map { it.toCaptureRef() } +
-                                        listOfNotNull(
-                                            entry?.takeIf { picked ->
-                                                picked.directoryPath !in seedPaths
-                                            }?.toCaptureRef()
+                            }
+                            else -> {
+                                val replayCaptureCatalog = remember(entries) {
+                                    entries.map { it.toCaptureRef() }
+                                }
+                                SessionReplayPickerScreen(
+                                    entries = entries,
+                                    onBrowseFolder = {
+                                        DesktopFolderPicker.pickDirectory("Select captured session folder")
+                                    },
+                                    onContinue = { entry, replayList ->
+                                        AppFileSystem.configureDataScope(BrokerKind.REPLAY)
+                                        val seedPaths = when {
+                                            replayList.isNotEmpty() -> replayList
+                                            entry != null -> setOf(entry.directoryPath)
+                                            else -> emptySet()
+                                        }
+                                        val bootstrapEntry = entry
+                                            ?: seedPaths.firstOrNull()?.let { path ->
+                                                entries.find { it.directoryPath == path }
+                                            }
+                                            ?: entries.firstOrNull()
+                                            ?: return@SessionReplayPickerScreen
+                                        val bundle = SessionBundleDirectoryReader
+                                            .loadReplayableFromDirectory(bootstrapEntry.directoryPath)
+                                            .getOrElse { return@SessionReplayPickerScreen }
+                                        val catalog = if (seedPaths.isNotEmpty()) {
+                                            entries
+                                                .filter { it.directoryPath in seedPaths }
+                                                .map { it.toCaptureRef() } +
+                                                listOfNotNull(
+                                                    entry?.takeIf { picked ->
+                                                        picked.directoryPath !in seedPaths
+                                                    }?.toCaptureRef()
+                                                )
+                                        } else {
+                                            replayCaptureCatalog + listOfNotNull(
+                                                entry?.takeIf { picked ->
+                                                    entries.none { it.directoryPath == picked.directoryPath }
+                                                }?.toCaptureRef()
+                                            )
+                                        }
+                                        val runtime = BrokerRuntime.createReplay(bundle)
+                                        phase = StartupPhase.Running(
+                                            runtime.copy(
+                                                replayCaptureCatalog = catalog,
+                                                replaySeedDirectoryPaths = seedPaths.toList()
+                                            )
                                         )
-                                } else {
-                                    replayCaptureCatalog + listOfNotNull(
-                                        entry?.takeIf { picked ->
-                                            catalogEntries.none { it.directoryPath == picked.directoryPath }
-                                        }?.toCaptureRef()
-                                    )
-                                }
-                                val runtime = BrokerRuntime.createReplay(bundle)
-                                phase = StartupPhase.Running(
-                                    runtime.copy(
-                                        replayCaptureCatalog = catalog,
-                                        replaySeedDirectoryPaths = seedPaths.toList()
-                                    )
+                                    },
+                                    onBack = { phase = StartupPhase.ChooseBroker }
                                 )
-                            },
-                            onBack = { phase = StartupPhase.ChooseBroker }
-                        )
+                            }
+                        }
                     }
 
                     is StartupPhase.Running -> {

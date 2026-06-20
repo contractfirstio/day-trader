@@ -1,10 +1,12 @@
 package daytrader.data
 
 import daytrader.data.persistence.DebouncedFileWriter
+import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LegacyDataCleanup
 import daytrader.data.persistence.LegacyStrategiesScreenPersistence
 import daytrader.data.persistence.StrategiesAppStatePersistence
+import daytrader.data.persistence.launchDeferredFileHydration
 import daytrader.domain.StrategyType
 import daytrader.platform.AppFileSystem
 import daytrader.presentation.strategies.DeploymentFilter
@@ -44,9 +46,16 @@ class FileStrategiesAppStateRepository(
         JsonFileStore.writeStrategiesScreen(StrategiesAppStatePersistence.toDocument(state))
         LegacyDataCleanup.removeOrphanedLegacyFiles()
     }
+    private val hydration = DeferredFileHydration()
 
-    private val _state = MutableStateFlow(loadInitial())
+    private val _state = MutableStateFlow(StrategiesAppState())
     override val state: StateFlow<StrategiesAppState> = _state.asStateFlow()
+
+    init {
+        scope.launchDeferredFileHydration(hydration) {
+            _state.value = loadInitial()
+        }
+    }
 
     override fun update(transform: (StrategiesAppState) -> StrategiesAppState) {
         _state.update(transform)

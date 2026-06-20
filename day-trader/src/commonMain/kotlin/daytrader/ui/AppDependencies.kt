@@ -2,6 +2,7 @@ package daytrader.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import daytrader.data.FileLiquidityBucketRepository
 import daytrader.data.FileReplaySettingsRepository
@@ -53,6 +54,8 @@ import daytrader.platform.defaultMacroYieldDataProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class AppDependencies(
     val marketFilter: MarketFilterState,
@@ -119,28 +122,7 @@ fun rememberAppDependencies(
         tradingClock,
         engineScope
     ) {
-        if (brokerKind == BrokerKind.REPLAY && replaySeedDirectoryPaths.isNotEmpty()) {
-            ReplaySessionController.seedDeploymentsFromDirectories(
-                repository = strategyRepository,
-                directoryPaths = replaySeedDirectoryPaths,
-                loadBundle = loadReplayBundle
-            )
-            replaySeedDirectoryPaths.distinct().forEach { path ->
-                loadReplayBundle(path).onSuccess { bundle ->
-                    replayHybridRuntime?.registerBundle(bundle)
-                }
-            }
-            strategyRepository.flushPersistence()
-        }
         val sessionGateway = touchTurnSessionGateway ?: brokerGateway
-        (brokerGateway ?: sessionGateway)?.let { executionGateway ->
-            RunningSessionShutdown.stopAllRunning(
-                repository = strategyRepository,
-                gateway = executionGateway,
-                brokerKind = brokerKind,
-                trigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
-            )
-        }
         val mutableClock = tradingClock as? MutableTradingClock
         val activateReplayCapture: ((StrategyDeployment) -> String?)? =
             if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null) {
@@ -279,31 +261,13 @@ fun rememberAppDependencies(
         )
         watchlistStrategyCreateBridge.linkDeploymentToWatchlistEntry =
             watchlistViewModel::linkStrategyDeploymentToEntry
-        touchTurnEngine?.let { engine ->
-            if (TouchTurnEngineConfig.useEngine()) {
-                engine.start()
-            }
-        }
-        if (replayHybridRuntime != null && touchTurnEngine != null) {
-            replaySettingsRepository?.let { settingsRepository ->
-                replayHybridRuntime.playbackOrchestrator.quoteIntervalMs = {
-                    settingsRepository.settings.value.quoteIntervalMs
-                }
-            }
-            replayHybridRuntime.attachSessionEngine(touchTurnEngine)
-            replayHybridRuntime.playbackOrchestrator.attach(touchTurnEngine, strategyRepository)
-            ReplaySessionPlaybackBridge(
-                orchestrator = replayHybridRuntime.playbackOrchestrator,
-                scope = engineScope
-            ).attach(touchTurnEngine)
-        }
         val replayController = if (replayHybridRuntime != null && touchTurnEngine != null) {
             ReplaySessionController(
                 runtime = replayHybridRuntime,
                 repository = strategyRepository,
                 engine = touchTurnEngine,
                 scope = engineScope
-            ).also { it.seedDeploymentIfNeeded() }
+            )
         } else {
             null
         }
@@ -324,6 +288,62 @@ fun rememberAppDependencies(
             replayBundle = replayHybridRuntime?.bundle ?: replayBundle,
             replaySettingsRepository = replaySettingsRepository
         )
+    }
+    LaunchedEffect(
+        dependencies,
+        strategyRepository,
+        brokerKind,
+        replaySeedDirectoryPaths,
+        brokerGateway,
+        touchTurnSessionGateway,
+        replayHybridRuntime,
+        replaySettingsRepository,
+    ) {
+        strategyRepository.awaitHydrated()
+        withContext(Dispatchers.Default) {
+            if (brokerKind == BrokerKind.REPLAY && replaySeedDirectoryPaths.isNotEmpty()) {
+                ReplaySessionController.seedDeploymentsFromDirectories(
+                    repository = strategyRepository,
+                    directoryPaths = replaySeedDirectoryPaths,
+                    loadBundle = loadReplayBundle
+                )
+                replaySeedDirectoryPaths.distinct().forEach { path ->
+                    loadReplayBundle(path).onSuccess { bundle ->
+                        replayHybridRuntime?.registerBundle(bundle)
+                    }
+                }
+                strategyRepository.flushPersistence()
+            }
+            val sessionGateway = touchTurnSessionGateway ?: brokerGateway
+            (brokerGateway ?: sessionGateway)?.let { executionGateway ->
+                RunningSessionShutdown.stopAllRunning(
+                    repository = strategyRepository,
+                    gateway = executionGateway,
+                    brokerKind = brokerKind,
+                    trigger = TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN
+                )
+            }
+        }
+        val touchTurnEngine = dependencies.touchTurnEngine
+        touchTurnEngine?.let { engine ->
+            if (TouchTurnEngineConfig.useEngine()) {
+                engine.start()
+            }
+        }
+        if (replayHybridRuntime != null && touchTurnEngine != null) {
+            replaySettingsRepository?.let { settingsRepository ->
+                replayHybridRuntime.playbackOrchestrator.quoteIntervalMs = {
+                    settingsRepository.settings.value.quoteIntervalMs
+                }
+            }
+            replayHybridRuntime.attachSessionEngine(touchTurnEngine)
+            replayHybridRuntime.playbackOrchestrator.attach(touchTurnEngine, strategyRepository)
+            ReplaySessionPlaybackBridge(
+                orchestrator = replayHybridRuntime.playbackOrchestrator,
+                scope = engineScope
+            ).attach(touchTurnEngine)
+            dependencies.replayController?.seedDeploymentIfNeeded()
+        }
     }
     DisposableEffect(dependencies, engineJob) {
         onDispose {

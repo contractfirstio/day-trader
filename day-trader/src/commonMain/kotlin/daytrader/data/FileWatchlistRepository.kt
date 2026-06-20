@@ -1,9 +1,11 @@
 package daytrader.data
 
 import daytrader.data.persistence.DebouncedFileWriter
+import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.WatchlistPersistence
 import daytrader.data.persistence.WatchlistsDocument
+import daytrader.data.persistence.launchDeferredFileHydration
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistEntry
 import daytrader.domain.defaultWatchlistForBrokerKind
@@ -26,9 +28,20 @@ class FileWatchlistRepository(
     private val writer = DebouncedFileWriter<List<Watchlist>>(scope) { watchlists ->
         persistWatchlists(watchlists)
     }
+    private val hydration = DeferredFileHydration()
 
-    private val _watchlists = MutableStateFlow(loadInitial())
+    private val _watchlists = MutableStateFlow<List<Watchlist>>(emptyList())
     override val watchlists: StateFlow<List<Watchlist>> = _watchlists.asStateFlow()
+
+    init {
+        scope.launchDeferredFileHydration(hydration) {
+            _watchlists.value = loadInitial()
+        }
+    }
+
+    suspend fun awaitHydrated() {
+        hydration.awaitComplete()
+    }
 
     override fun addEntry(watchlistId: String, entry: WatchlistEntry) {
         _watchlists.update { lists ->

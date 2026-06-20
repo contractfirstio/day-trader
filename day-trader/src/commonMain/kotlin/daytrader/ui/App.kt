@@ -22,6 +22,7 @@ import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.ui.UiFaultBus
+import daytrader.presentation.ui.UiRecoveryBus
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.platform.TradingClock
 import daytrader.platform.WallClock
@@ -73,6 +74,7 @@ fun App(
     )
     var currentScreen by remember { mutableStateOf(AppScreen.STRATEGIES) }
     var screenRetryNonce by remember { mutableStateOf(0) }
+    val globalUiRecoveryGeneration by UiRecoveryBus.generation.collectAsState()
     var showPriceFeedTester by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val strategiesListState by dependencies.strategiesViewModel.listState.collectAsState()
@@ -238,7 +240,7 @@ fun App(
 
                     SafeScreenHost(
                         screen = currentScreen,
-                        retryNonce = screenRetryNonce,
+                        retryNonce = screenRetryNonce + globalUiRecoveryGeneration,
                         onRetry = {
                             UiFaultBus.clear(currentScreen)
                             screenRetryNonce++

@@ -75,6 +75,7 @@ import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.ui.UiCoroutineScopes
 import daytrader.presentation.ui.launchUiAction
 import daytrader.presentation.ui.safeUiEmit
+import daytrader.presentation.ui.safeUiMap
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
@@ -1617,18 +1618,20 @@ class StrategiesViewModel(
     }
 
     private fun buildListRows(ctx: EmitContext): List<StrategyDeploymentRowUi> =
-        ctx.filtered.map { instance ->
-            val brokerPosition = brokerDeploymentIndex.openPosition(instance)
-            val brokerPnL = brokerPosition?.totalUnrealizedPnL
-            StrategyUiMapper.toRowUi(
-                instance,
-                ctx.sessionDate,
-                brokerUnrealizedPnL = brokerPnL,
-                brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
-                brokerPosition = brokerPosition,
-                sessionRollupCache = sessionRollupCache,
-            )
-        }
+        safeUiMap(AppScreen.STRATEGIES, "buildListRows") {
+            ctx.filtered.map { instance ->
+                val brokerPosition = brokerDeploymentIndex.openPosition(instance)
+                val brokerPnL = brokerPosition?.totalUnrealizedPnL
+                StrategyUiMapper.toRowUi(
+                    instance,
+                    ctx.sessionDate,
+                    brokerUnrealizedPnL = brokerPnL,
+                    brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
+                    brokerPosition = brokerPosition,
+                    sessionRollupCache = sessionRollupCache,
+                )
+            }
+        }.orEmpty()
 
     private fun patchListRows(
         currentRows: List<StrategyDeploymentRowUi>,
@@ -1694,24 +1697,28 @@ class StrategiesViewModel(
         if (selected.isTouchTurn && selected.status == DeploymentStatus.RUNNING) {
             pipelineRefreshTick
         }
-        return TouchTurnPipelineUiMapper.graphForDeployment(
-            instance = selected,
-            brokerPositions = brokerPositions,
-            brokerOpenOrders = brokerOpenOrders,
-            brokerFills = brokerFills,
-            showSessionRecap = ctx.showSessionRecap,
-            recapRunId = ctx.recapRunId,
-            nowEpochMillis = tradingClock.nowEpochMillis(),
-            brokerIndex = brokerDeploymentIndex,
-        )
+        return safeUiMap(AppScreen.STRATEGIES, "buildTouchTurnPipelineGraph") {
+            TouchTurnPipelineUiMapper.graphForDeployment(
+                instance = selected,
+                brokerPositions = brokerPositions,
+                brokerOpenOrders = brokerOpenOrders,
+                brokerFills = brokerFills,
+                showSessionRecap = ctx.showSessionRecap,
+                recapRunId = ctx.recapRunId,
+                nowEpochMillis = tradingClock.nowEpochMillis(),
+                brokerIndex = brokerDeploymentIndex,
+            )
+        }
     }
 
     private fun buildTouchTurnPrepare(ctx: EmitContext): TouchTurnPrepareUiState? =
         ctx.selected?.let { instance ->
-            TouchTurnPrepareUiMapper.forDeployment(
-                instance = instance,
-                prepareInProgress = prepareInProgressIds.contains(instance.id)
-            )
+            safeUiMap(AppScreen.STRATEGIES, "buildTouchTurnPrepare") {
+                TouchTurnPrepareUiMapper.forDeployment(
+                    instance = instance,
+                    prepareInProgress = prepareInProgressIds.contains(instance.id)
+                )
+            }
         }
 
     private fun buildSelectedLiveSnapshot(ctx: EmitContext): SelectedLiveSnapshot? {
@@ -1887,17 +1894,18 @@ class StrategiesViewModel(
         val statusHintIsWarning: Boolean,
     )
 
-    /** Snapshots price history once and builds both Touch Turn charts from the same series. */
     private fun buildTouchTurnCharts(
         deployment: StrategyDeployment?,
         runningLifecycle: TouchTurnOrderLifecycleUi?,
     ): TouchTurnChartsUi {
         if (deployment == null) return TouchTurnChartsUi()
-        val shared = touchTurnChartSharedInputs(deployment) ?: return TouchTurnChartsUi()
-        return TouchTurnChartsUi(
-            liveOrder = buildTouchTurnLiveOrderChart(deployment, runningLifecycle, shared),
-            formingBar = buildTouchTurnFormingBarPriceChart(deployment, shared),
-        )
+        return safeUiMap(AppScreen.STRATEGIES, "buildTouchTurnCharts") {
+            val shared = touchTurnChartSharedInputs(deployment) ?: return@safeUiMap TouchTurnChartsUi()
+            TouchTurnChartsUi(
+                liveOrder = buildTouchTurnLiveOrderChart(deployment, runningLifecycle, shared),
+                formingBar = buildTouchTurnFormingBarPriceChart(deployment, shared),
+            )
+        } ?: TouchTurnChartsUi()
     }
 
     private fun touchTurnChartSharedInputs(deployment: StrategyDeployment): TouchTurnChartSharedInputs? {

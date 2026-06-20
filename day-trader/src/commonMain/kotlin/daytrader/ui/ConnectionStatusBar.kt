@@ -41,6 +41,7 @@ fun ConnectionStatusBar(
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
     activeUiFaults: List<UiFault> = emptyList(),
+    onResetUi: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val executionState by brokerGateway.connectionState.collectAsState()
@@ -72,7 +73,7 @@ fun ConnectionStatusBar(
                     color = brokerStatusColor(executionState)
                 )
             }
-            UiFaultIndicator(faults = activeUiFaults)
+            UiFaultIndicator(faults = activeUiFaults, onResetUi = onResetUi)
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),

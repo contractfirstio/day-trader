@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.presentation.ui.UiFaultBus
+import daytrader.presentation.ui.UiRecoveryBus
 
 @Composable
 fun AppTopBar(
@@ -34,6 +35,7 @@ fun AppTopBar(
             onOpenPriceFeedTester = onOpenPriceFeedTester,
             onChangeBrokerMode = onChangeBrokerMode,
             activeUiFaults = activeUiFaults.values.toList(),
+            onResetUi = if (activeUiFaults.isNotEmpty()) UiRecoveryBus::resetAllUiState else null,
         )
     }
 }

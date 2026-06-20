@@ -997,8 +997,8 @@ class WatchlistViewModel(
             onDeleteLinkedDeployment.invoke(deploymentId)
             val updatedWatchlist = repository.watchlists.value.find { it.id == selectedWatchlistId }
             val updatedEntry = updatedWatchlist?.entries?.find { it.id == draft.entryId }
-            tradePlansEditorDraft = if (updatedEntry != null) {
-                WatchlistUiMapper.toEditorUi(updatedEntry, updatedWatchlist!!, strategyDeployments)
+            tradePlansEditorDraft = if (updatedEntry != null && updatedWatchlist != null) {
+                WatchlistUiMapper.toEditorUi(updatedEntry, updatedWatchlist, strategyDeployments)
             } else {
                 refreshEditorStrategies(
                     draft,

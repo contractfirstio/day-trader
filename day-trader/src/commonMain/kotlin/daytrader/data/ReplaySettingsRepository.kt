@@ -1,8 +1,10 @@
 package daytrader.data
 
 import daytrader.data.persistence.DebouncedFileWriter
+import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.ReplaySettingsPersistence
+import daytrader.data.persistence.launchDeferredFileHydration
 import daytrader.platform.AppFileSystem
 import daytrader.replay.ReplaySettings
 import kotlinx.coroutines.CoroutineScope
@@ -24,9 +26,16 @@ class FileReplaySettingsRepository(
     private val writer = DebouncedFileWriter<ReplaySettings>(scope) { settings ->
         JsonFileStore.writeReplaySettings(ReplaySettingsPersistence.toDocument(settings))
     }
+    private val hydration = DeferredFileHydration()
 
-    private val _settings = MutableStateFlow(loadInitial())
+    private val _settings = MutableStateFlow(ReplaySettings())
     override val settings: StateFlow<ReplaySettings> = _settings.asStateFlow()
+
+    init {
+        scope.launchDeferredFileHydration(hydration) {
+            _settings.value = loadInitial()
+        }
+    }
 
     override fun update(transform: (ReplaySettings) -> ReplaySettings) {
         _settings.update(transform)

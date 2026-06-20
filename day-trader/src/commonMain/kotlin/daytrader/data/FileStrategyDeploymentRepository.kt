@@ -1,12 +1,14 @@
 package daytrader.data
 
 import daytrader.data.persistence.DebouncedFileWriter
+import daytrader.data.persistence.DeferredFileHydration
 import daytrader.data.persistence.DeploymentPersistence
 import daytrader.data.persistence.DeploymentsDocument
 import daytrader.data.persistence.JsonFileStore
 import daytrader.data.persistence.LegacyDataCleanup
 import daytrader.data.persistence.LegacyDeploymentPersistence
 import daytrader.data.persistence.LegacyInstancesJsonPersistence
+import daytrader.data.persistence.launchDeferredFileHydration
 import daytrader.domain.StrategyDeployment
 import daytrader.platform.AppFileSystem
 import kotlinx.coroutines.CoroutineScope
@@ -23,9 +25,20 @@ class FileStrategyDeploymentRepository(
     private val writer = DebouncedFileWriter<List<StrategyDeployment>>(scope) { deployments ->
         persistDeployments(deployments)
     }
+    private val hydration = DeferredFileHydration()
 
-    private val _deployments = MutableStateFlow(loadInitial())
+    private val _deployments = MutableStateFlow<List<StrategyDeployment>>(emptyList())
     override val deployments: StateFlow<List<StrategyDeployment>> = _deployments.asStateFlow()
+
+    init {
+        scope.launchDeferredFileHydration(hydration) {
+            _deployments.value = loadInitial()
+        }
+    }
+
+    suspend fun awaitHydrated() {
+        hydration.awaitComplete()
+    }
 
     override fun add(deployment: StrategyDeployment) {
         _deployments.update { it + deployment }
