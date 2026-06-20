@@ -6,6 +6,7 @@ import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.e2e.support.E2EEngineLiquidityHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.support.FakeBrokerGateway
@@ -32,10 +33,11 @@ class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_manualStart_navigatesToLiveTabAndShowsRunningStatus() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.stoppedDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -49,6 +51,7 @@ class E2EStrategiesViewModelIntegrationTest {
                 repository.deployments.value.single().status
             )
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -56,6 +59,7 @@ class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_engineAutoStop_navigatesToSessionHistoryAndUpdatesStatusChip() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val bar = E2ETestFixtures.nonLiquidityOpeningBar()
@@ -63,7 +67,7 @@ class E2EStrategiesViewModelIntegrationTest {
                 brokerId = BrokerId.INTERACTIVE_BROKERS,
                 signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar))
             )
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(
                 E2ETestFixtures.stoppedDeployment().copy(
                     touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
@@ -95,6 +99,7 @@ class E2EStrategiesViewModelIntegrationTest {
                 TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
             )
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -102,6 +107,7 @@ class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_startBlockedByOpenPosition_surfacesAlertAndDoesNotStart() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -120,7 +126,7 @@ class E2EStrategiesViewModelIntegrationTest {
                     )
                 )
             )
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.stoppedDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -136,6 +142,7 @@ class E2EStrategiesViewModelIntegrationTest {
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
             harness.awaitListRowStatus(E2ETestFixtures.DEPLOYMENT_ID, DeploymentStatus.STOPPED)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -143,10 +150,11 @@ class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_shutdownRunningSessions_stopsActiveDeployment() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.runningDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -159,6 +167,7 @@ class E2EStrategiesViewModelIntegrationTest {
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
             assertEquals(false, harness.viewModel.hasRunningSessions())
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -166,10 +175,11 @@ class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_brokerPositionUpdate_refreshesListRowUnrealizedPnL() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.runningDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -212,6 +222,7 @@ class E2EStrategiesViewModelIntegrationTest {
             assertEquals(true, row.hasOpenPosition)
             assertNull(harness.viewModel.chromeState.value.startBlockedAlert)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

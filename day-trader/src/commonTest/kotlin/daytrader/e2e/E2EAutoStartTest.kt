@@ -5,6 +5,7 @@ import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.e2e.support.E2EAutoStartHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEvent
@@ -31,12 +32,13 @@ class E2EAutoStartTest {
     @Test
     fun viewModel_evaluateAutoStart_startsDeploymentAndUpdatesUiWithoutManualToggle() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val sessionDate = "2026-06-04"
             val now = E2EAutoStartHelper.epochMillisAfterMarketOpenDelay(sessionDate)
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -67,6 +69,7 @@ class E2EAutoStartTest {
             harness.awaitListRowStatus(E2ETestFixtures.DEPLOYMENT_ID, DeploymentStatus.RUNNING)
             harness.awaitDetailTab(StrategyDetailTab.LIVE)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -74,12 +77,13 @@ class E2EAutoStartTest {
     @Test
     fun viewModel_globalAutoStartDisabled_doesNotAutoStartEligibleDeployment() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val sessionDate = "2026-06-04"
             val now = E2EAutoStartHelper.epochMillisAfterMarketOpenDelay(sessionDate)
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -96,6 +100,7 @@ class E2EAutoStartTest {
             assertEquals(DeploymentStatus.STOPPED, deployment.status)
             assertEquals(null, deployment.lastAutoStartSessionDate)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -103,12 +108,13 @@ class E2EAutoStartTest {
     @Test
     fun viewModel_lastAutoStartSessionDate_deduplicatesSameDayAutoStart() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val sessionDate = "2026-06-04"
             val now = E2EAutoStartHelper.epochMillisAfterMarketOpenDelay(sessionDate)
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -136,6 +142,7 @@ class E2EAutoStartTest {
             delay(300)
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

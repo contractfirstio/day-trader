@@ -5,6 +5,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2EStartBlockedHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.TouchTurnEvent
@@ -33,10 +34,11 @@ class E2EStartBlockedByPositionTest {
     @Test
     fun viewModel_openPositionBlocksManualStart_emitsEventAndPlacesNoOrders() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             val blockedEvents = mutableListOf<TouchTurnEvent.StartBlocked>()
             val startedEvents = mutableListOf<TouchTurnEvent.SessionStarted>()
             harness.engine.events
@@ -75,6 +77,7 @@ class E2EStartBlockedByPositionTest {
             assertNull(deployment.touchTurnSession)
             assertTrue(deployment.sessionHistory.none { it.status == SessionStatus.IN_PROGRESS })
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -82,10 +85,11 @@ class E2EStartBlockedByPositionTest {
     @Test
     fun viewModel_secondDeploymentOnSameSymbol_blockedWhileBrokerPositionOpen() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.runningDeployment())
             repository.add(
                 E2ETestFixtures.stoppedDeployment().copy(id = E2ETestFixtures.DEPLOYMENT_ID_2)
@@ -102,6 +106,7 @@ class E2EStartBlockedByPositionTest {
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.first { it.id == E2ETestFixtures.DEPLOYMENT_ID_2 }.status)
             assertTrue(gateway.placedBrackets.isEmpty())
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -109,10 +114,11 @@ class E2EStartBlockedByPositionTest {
     @Test
     fun viewModel_hkSymbolAlias_openPositionBlocksStart() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             val deploymentId = "dep-hk-e2e"
             repository.add(
                 defaultStrategyDeployment(
@@ -143,6 +149,7 @@ class E2EStartBlockedByPositionTest {
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
             assertTrue(gateway.placedBrackets.isEmpty())
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -150,10 +157,11 @@ class E2EStartBlockedByPositionTest {
     @Test
     fun viewModel_dismissStartBlockedAlert_clearsChromeState() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.stoppedDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -168,6 +176,7 @@ class E2EStartBlockedByPositionTest {
             assertNull(harness.viewModel.chromeState.value.startBlockedAlert)
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

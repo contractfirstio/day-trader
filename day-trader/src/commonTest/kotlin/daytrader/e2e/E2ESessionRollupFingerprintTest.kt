@@ -2,6 +2,7 @@ package daytrader.e2e
 
 import daytrader.e2e.support.E2ESessionRollupHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -25,10 +26,11 @@ class E2ESessionRollupFingerprintTest {
     @Test
     fun viewModel_sessionHistoryReplacement_keepsRollupTotalsAndUpdatesRowId() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
-            val harness = E2EStrategiesViewModelHarness.createWithGateway(
+            harness = E2EStrategiesViewModelHarness.createWithGateway(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -75,6 +77,7 @@ class E2ESessionRollupFingerprintTest {
             assertNotNull(history)
             assertEquals("run-b", history.rows.single().id)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

@@ -75,6 +75,7 @@ import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -85,7 +86,6 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.FlowPreview
@@ -105,8 +105,10 @@ class StrategiesViewModel(
     private val watchlistRepository: WatchlistRepository? = null,
     private val tradingClock: TradingClock = WallClock,
     private val replayTurboActive: () -> Boolean = { false },
+    viewModelScope: CoroutineScope? = null,
+    private val enableBackgroundWatchers: Boolean = true,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = viewModelScope ?: CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
     private val requiresBidAskForFills = brokerKind.usesLiveIbMarketData
     private val useTouchTurnEngine = touchTurnEngine != null && TouchTurnEngineConfig.useEngine()
@@ -287,29 +289,29 @@ class StrategiesViewModel(
             ?.onEach { event -> handleTouchTurnEvent(event) }
             ?.launchIn(scope)
 
-        MarketOpenCountdownWatcher(scope = scope).start()
-        // Emulator testing often spans US/HK symbols; do not hide deployments behind a live-market filter.
-        if (brokerKind != BrokerKind.EMULATOR) {
-            marketFilter.applyStartupDefaultIfNeeded()
-        }
-
-        brokerGateway?.let { gateway ->
-            PreMarketClosePositionWatcher(gateway, repository, scope).start()
-        }
-
-        scope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(1_000)
-                val selected = deployments.find { it.id == appState.selectedDeploymentId }
-                val needsPipelineRefresh = selected?.isTouchTurn == true &&
-                    selected.status == DeploymentStatus.RUNNING
-                if (needsPipelineRefresh) {
-                    pipelineRefreshTick++
-                    if (!replayTurboActive()) {
-                        emitUiState(UiRefreshScope.PipelineTick)
+        if (enableBackgroundWatchers) {
+            MarketOpenCountdownWatcher(scope = scope).start()
+            brokerGateway?.let { gateway ->
+                PreMarketClosePositionWatcher(gateway, repository, scope).start()
+            }
+            scope.launch {
+                while (true) {
+                    kotlinx.coroutines.delay(1_000)
+                    val selected = deployments.find { it.id == appState.selectedDeploymentId }
+                    val needsPipelineRefresh = selected?.isTouchTurn == true &&
+                        selected.status == DeploymentStatus.RUNNING
+                    if (needsPipelineRefresh) {
+                        pipelineRefreshTick++
+                        if (!replayTurboActive()) {
+                            emitUiState(UiRefreshScope.PipelineTick)
+                        }
                     }
                 }
             }
+        }
+        // Emulator testing often spans US/HK symbols; do not hide deployments behind a live-market filter.
+        if (brokerKind != BrokerKind.EMULATOR) {
+            marketFilter.applyStartupDefaultIfNeeded(tradingClock.nowEpochMillis())
         }
     }
 
@@ -492,6 +494,13 @@ class StrategiesViewModel(
         stopAllSessionMarketDataCaptures(trigger = trigger.name.lowercase())
         syncDeploymentsFromRepository()
         emitUiState()
+    }
+
+    /** Cancels in-flight UI jobs and stops background collectors. Production UI never calls this. */
+    fun close() {
+        searchDebounceJob?.cancel()
+        searchDebounceJob = null
+        scope.coroutineContext[Job]?.cancel()
     }
 
     fun onGlobalAutoStartEnabledChange(enabled: Boolean) {
@@ -1385,7 +1394,7 @@ class StrategiesViewModel(
         val showsLiveMarketQuotes: Boolean,
     )
 
-    private fun buildEmitContext(): EmitContext? {
+    private fun buildEmitContext(): EmitContext {
         val state = appState
         val filtered = deployments.filter { instance ->
             val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
@@ -1404,13 +1413,18 @@ class StrategiesViewModel(
             matchesSearch && matchesFilter && matchesStrategyType && matchesMarket
         }
 
-        val selectedId = state.selectedDeploymentId
-        if (selectedId != null && filtered.none { it.id == selectedId }) {
-            appStateRepository.update { it.copy(selectedDeploymentId = filtered.firstOrNull()?.id) }
-            return null
+        var effectiveSelectedId = state.selectedDeploymentId
+        if (effectiveSelectedId != null && filtered.none { it.id == effectiveSelectedId }) {
+            effectiveSelectedId = filtered.firstOrNull()?.id
+            if (effectiveSelectedId != state.selectedDeploymentId) {
+                val correctedId = effectiveSelectedId
+                scope.launch {
+                    appStateRepository.update { it.copy(selectedDeploymentId = correctedId) }
+                }
+            }
         }
 
-        val selected = selectedId?.let { id -> filtered.find { it.id == id } }
+        val selected = effectiveSelectedId?.let { id -> filtered.find { it.id == id } }
         selected?.let { reconcileSessionHistorySelection(it) }
         val sessionDate = selected?.let { DeploymentMarket.sessionDateIso(it) }
             ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it) }
@@ -1448,7 +1462,7 @@ class StrategiesViewModel(
         if (scope != UiRefreshScope.LiveMarket) {
             refreshBrokerDeploymentIndex()
         }
-        val ctx = buildEmitContext() ?: return
+        val ctx = buildEmitContext()
         when (scope) {
             UiRefreshScope.Full -> applyFullUi(ctx)
             UiRefreshScope.LiveMarket -> applyLiveMarketUi(ctx)

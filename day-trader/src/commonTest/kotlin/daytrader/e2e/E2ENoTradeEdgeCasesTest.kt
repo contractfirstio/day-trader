@@ -9,7 +9,10 @@ import daytrader.domain.withOrdersPlacedForSession
 import daytrader.e2e.support.E2EBracketExitHelper
 import daytrader.e2e.support.E2EEngineLiquidityHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
+import daytrader.e2e.support.EmulatorModeTestHarness
+import daytrader.e2e.support.shutdownEmulatorHarness
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -32,10 +35,11 @@ class E2ENoTradeEdgeCasesTest {
     @Test
     fun viewModel_manualStopDuringRunning_clearsTouchTurnSession() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.stoppedDeployment())
             harness.selectDeployment(E2ETestFixtures.DEPLOYMENT_ID)
             harness.start()
@@ -50,6 +54,7 @@ class E2ENoTradeEdgeCasesTest {
             assertEquals(DeploymentStatus.STOPPED, deployment.status)
             assertNull(deployment.touchTurnSession)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -57,10 +62,12 @@ class E2ENoTradeEdgeCasesTest {
     @Test
     fun viewModel_neverFillEntry_emulatorStaysRunningUntilManualStop() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
+        var emulatorHarness: EmulatorModeTestHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val emulatorHarness = daytrader.e2e.support.EmulatorModeTestHarness.neverFillEntry(scope)
-            val harness = E2EStrategiesViewModelHarness.createWithEmulator(scope, repository, emulatorHarness)
+            emulatorHarness = daytrader.e2e.support.EmulatorModeTestHarness.neverFillEntry(scope)
+            harness = E2EStrategiesViewModelHarness.createWithEmulator(scope, repository, emulatorHarness)
             val deploymentId = E2ETestFixtures.DEPLOYMENT_ID
             val symbol = E2ETestFixtures.SYMBOL
 
@@ -82,6 +89,8 @@ class E2ENoTradeEdgeCasesTest {
             harness.viewModel.onToggleSession(deploymentId)
             harness.awaitListRowStatus(deploymentId, DeploymentStatus.STOPPED)
         } finally {
+            harness.closeE2EHarness()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }
@@ -89,6 +98,7 @@ class E2ENoTradeEdgeCasesTest {
     @Test
     fun ib_engineLiquidity_noTradeOutcome_recordsClosedHistory() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val bar = E2ETestFixtures.nonLiquidityOpeningBar()
@@ -96,7 +106,7 @@ class E2ENoTradeEdgeCasesTest {
                 brokerId = BrokerId.INTERACTIVE_BROKERS,
                 signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar))
             )
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(
                 E2ETestFixtures.stoppedDeployment().copy(
                     touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
@@ -128,6 +138,7 @@ class E2ENoTradeEdgeCasesTest {
                 deployment.sessionHistory.last().touchTurnRunRecord?.stopEvent?.stopTrigger
             )
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

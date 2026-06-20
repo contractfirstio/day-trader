@@ -15,9 +15,12 @@ import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
 import daytrader.platform.TradingClock
 import daytrader.presentation.markets.MarketFilterState
+import daytrader.presentation.strategies.StrategiesListUiState
 import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.presentation.strategies.StrategyDetailTab
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 
 /**
@@ -41,9 +44,13 @@ class E2EStrategiesViewModelHarness(
     }
 
     fun shutdown() {
+        viewModel.close()
         engine.shutdown()
         onShutdown()
     }
+
+    /** Call from test `finally` to stop engine, view-model collectors, and broker hooks. */
+    fun close() = shutdown()
 
     /** Mirrors [daytrader.ui.App] `DisposableEffect` teardown before broker runtime shutdown. */
     fun simulateApplicationDispose() {
@@ -57,6 +64,42 @@ class E2EStrategiesViewModelHarness(
                 selectedDeploymentId = deploymentId,
                 detailTab = StrategyDetailTab.CONFIGURATION
             )
+        }
+    }
+
+    suspend fun awaitListFilter(
+        label: String,
+        timeoutMs: Long = 15_000,
+        pollIntervalMs: Long = 25,
+        predicate: (StrategiesListUiState) -> Boolean,
+    ): StrategiesListUiState {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val state = viewModel.listState.value
+            if (predicate(state)) return state
+            delay(pollIntervalMs)
+        }
+        error(
+            "Timed out after ${timeoutMs}ms waiting for $label\n${listFilterSnapshot()}"
+        )
+    }
+
+    private fun listFilterSnapshot(): String {
+        val list = viewModel.listState.value
+        val rows = list.filteredRows.joinToString(separator = "\n") { row ->
+            "  - id=${row.id} name=${row.name} status=${row.status}"
+        }.ifEmpty { "  (none)" }
+        return buildString {
+            appendLine("listState snapshot:")
+            appendLine("  filteredCount=${list.filteredCount} totalCount=${list.totalCount}")
+            appendLine("  deploymentFilter=${list.deploymentFilter} searchQuery=\"${list.searchQuery}\"")
+            appendLine(
+                "  selectedMarketZoneId=${list.selectedMarketZoneId} " +
+                    "hasActiveFilters=${list.hasActiveFilters}"
+            )
+            appendLine("  marketFilter.selectedZoneId=${marketFilter.selectedZoneId.value}")
+            appendLine("  filteredRows (${list.filteredRows.size}):")
+            append(rows)
         }
     }
 
@@ -190,6 +233,10 @@ class E2EStrategiesViewModelHarness(
                 sessionGateway = gateway,
                 executionGateway = gateway
             )
+            val parentJob = scope.coroutineContext[Job]
+            val viewModelScope = CoroutineScope(
+                scope.coroutineContext.minusKey(Job) + SupervisorJob(parentJob)
+            )
             val viewModel = StrategiesViewModel(
                 repository = repository,
                 appStateRepository = appStateRepository,
@@ -200,6 +247,8 @@ class E2EStrategiesViewModelHarness(
                 touchTurnEngine = engine,
                 tradingClock = tradingClock,
                 watchlistRepository = watchlistRepository,
+                viewModelScope = viewModelScope,
+                enableBackgroundWatchers = false,
             )
             return E2EStrategiesViewModelHarness(
                 repository = repository,

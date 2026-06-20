@@ -13,6 +13,8 @@ import daytrader.domain.withOrdersPlacedForSession
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
+import daytrader.e2e.support.shutdownEmulatorHarness
+import daytrader.e2e.support.shutdownEngine
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEvent
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -37,16 +39,18 @@ class E2EFullTradeLifecycleTest {
     @Test
     fun emulator_entryFill_exitFill_autoStopsWithClosedSessionHistory() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var emulatorHarness: EmulatorModeTestHarness? = null
+        var engine: daytrader.engine.TouchTurnEngine? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = EmulatorModeTestHarness.fullTradeLifecycle(scope)
+            emulatorHarness = EmulatorModeTestHarness.fullTradeLifecycle(scope)
             val deploymentId = E2ETestFixtures.DEPLOYMENT_ID
             val symbol = E2ETestFixtures.SYMBOL
 
             repository.add(E2ETestFixtures.runningDeployment(symbol = symbol))
             seedLiquidityReadyDeployment(repository, deploymentId)
 
-            val engine = harness.createEngine(repository)
+            engine = emulatorHarness.createEngine(repository)
             val sessionStoppedEvents = mutableListOf<TouchTurnEvent.SessionStopped>()
             engine.events
                 .onEach { event ->
@@ -56,17 +60,17 @@ class E2EFullTradeLifecycleTest {
                 }
                 .launchIn(scope)
 
-            harness.start()
+            emulatorHarness.start()
             engine.start()
-            harness.adapter.ensureStreamingMarketData(symbol)
+            emulatorHarness.adapter.ensureStreamingMarketData(symbol)
 
             val plan = E2EBracketHelper.liquidityPlan(symbol = symbol)
-            harness.gateway.placeTouchTurnBracket(plan)
+            emulatorHarness.gateway.placeTouchTurnBracket(plan)
             repository.update(deploymentId) { current ->
                 current.withOrdersPlacedForSession(plan = plan)
             }
 
-            awaitDeploymentStopped(engine, repository, deploymentId, harness, symbol, timeoutMs = 45_000)
+            awaitDeploymentStopped(engine, repository, deploymentId, emulatorHarness, symbol, timeoutMs = 45_000)
 
             val stopped = repository.deployments.value.single { it.id == deploymentId }
             assertEquals(DeploymentStatus.STOPPED, stopped.status)
@@ -92,6 +96,8 @@ class E2EFullTradeLifecycleTest {
             assertNotNull(stopEvent, "expected TouchTurnEvent.SessionStopped from engine")
             assertEquals(TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN, stopEvent.trigger)
         } finally {
+            engine.shutdownEngine()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }

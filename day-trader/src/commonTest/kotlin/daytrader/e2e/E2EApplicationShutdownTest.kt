@@ -6,6 +6,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.inProgressSession
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.engine.TouchTurnCommand
@@ -36,10 +37,11 @@ class E2EApplicationShutdownTest {
     @Test
     fun viewModel_applicationShutdown_flattensOpenPositionAndRecordsShutdownTrigger() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.runningDeployment())
             harness.start()
             gateway.setPositions(
@@ -76,6 +78,7 @@ class E2EApplicationShutdownTest {
             assertTrue(repository.flushInvocationCount >= 1, "expected persistence flush on shutdown")
             assertFalse(harness.viewModel.hasRunningSessions())
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -83,12 +86,13 @@ class E2EApplicationShutdownTest {
     @Test
     fun ib_applicationShutdown_releasesSessionMarketDataCapture() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             SessionMarketDataCapture.stopAll()
             val repository = InMemoryStrategyDeploymentRepository()
             val releasedSymbols = mutableListOf<String>()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.createWithGateway(
+            harness = E2EStrategiesViewModelHarness.createWithGateway(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -114,6 +118,7 @@ class E2EApplicationShutdownTest {
             assertEquals(listOf(E2ETestFixtures.SYMBOL.uppercase()), releasedSymbols)
         } finally {
             SessionMarketDataCapture.stopAll()
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -121,10 +126,11 @@ class E2EApplicationShutdownTest {
     @Test
     fun emulatorBrokerKind_applicationShutdown_flattensBrokerState() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
-            val harness = E2EStrategiesViewModelHarness.createWithGateway(
+            harness = E2EStrategiesViewModelHarness.createWithGateway(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -147,6 +153,7 @@ class E2EApplicationShutdownTest {
             assertNotNull(runRecord)
             assertEquals(TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN, runRecord.stopEvent.stopTrigger)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -154,10 +161,11 @@ class E2EApplicationShutdownTest {
     @Test
     fun applicationQuitSequence_stopsSessionsEngineAndBlocksFurtherEngineCommands() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             repository.add(E2ETestFixtures.runningDeployment())
             repository.add(
                 E2ETestFixtures.runningDeployment(symbol = "MSFT").copy(id = E2ETestFixtures.DEPLOYMENT_ID_2)
@@ -191,6 +199,7 @@ class E2EApplicationShutdownTest {
             delay(100)
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.first().status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

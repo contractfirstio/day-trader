@@ -4,6 +4,7 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -16,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -26,9 +26,10 @@ class E2EMultiDeploymentFilterTest {
     @Test
     fun viewModel_deploymentFilter_running_showsOnlyActiveDeployments() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope,
                 repository,
                 FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -44,17 +45,23 @@ class E2EMultiDeploymentFilterTest {
             )
             harness.start()
             harness.marketFilter.clear()
+            harness.awaitListFilter("market filter cleared with both deployments visible") { state ->
+                state.selectedMarketZoneId == null && state.filteredRows.size == 2
+            }
 
             harness.viewModel.onDeploymentFilterChange(DeploymentFilter.RUNNING)
-            delay(50)
-
-            val rows = harness.viewModel.listState.value.filteredRows
-            assertEquals(1, rows.size)
-            assertEquals(E2ETestFixtures.DEPLOYMENT_ID, rows.single().id)
-            assertEquals(DeploymentStatus.RUNNING, rows.single().status)
-            assertEquals(1, harness.viewModel.listState.value.filteredCount)
-            assertEquals(2, harness.viewModel.listState.value.totalCount)
+            val listState = harness.awaitListFilter("RUNNING deployment filter") { state ->
+                state.deploymentFilter == DeploymentFilter.RUNNING &&
+                    state.filteredRows.size == 1 &&
+                    state.filteredRows.single().id == E2ETestFixtures.DEPLOYMENT_ID &&
+                    state.filteredRows.single().status == DeploymentStatus.RUNNING &&
+                    state.filteredCount == 1 &&
+                    state.totalCount == 2
+            }
+            assertEquals(E2ETestFixtures.DEPLOYMENT_ID, listState.filteredRows.single().id)
+            assertEquals(DeploymentStatus.RUNNING, listState.filteredRows.single().status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -62,9 +69,10 @@ class E2EMultiDeploymentFilterTest {
     @Test
     fun viewModel_deploymentFilter_stopped_showsOnlyStoppedDeployments() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope,
                 repository,
                 FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -80,15 +88,21 @@ class E2EMultiDeploymentFilterTest {
             )
             harness.start()
             harness.marketFilter.clear()
+            harness.awaitListFilter("market filter cleared with both deployments visible") { state ->
+                state.selectedMarketZoneId == null && state.filteredRows.size == 2
+            }
 
             harness.viewModel.onDeploymentFilterChange(DeploymentFilter.STOPPED)
-            delay(50)
-
-            val rows = harness.viewModel.listState.value.filteredRows
-            assertEquals(1, rows.size)
-            assertEquals(E2ETestFixtures.DEPLOYMENT_ID_2, rows.single().id)
-            assertEquals(DeploymentStatus.STOPPED, rows.single().status)
+            val listState = harness.awaitListFilter("STOPPED deployment filter") { state ->
+                state.deploymentFilter == DeploymentFilter.STOPPED &&
+                    state.filteredRows.size == 1 &&
+                    state.filteredRows.single().id == E2ETestFixtures.DEPLOYMENT_ID_2 &&
+                    state.filteredRows.single().status == DeploymentStatus.STOPPED
+            }
+            assertEquals(E2ETestFixtures.DEPLOYMENT_ID_2, listState.filteredRows.single().id)
+            assertEquals(DeploymentStatus.STOPPED, listState.filteredRows.single().status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -96,9 +110,10 @@ class E2EMultiDeploymentFilterTest {
     @Test
     fun viewModel_searchQuery_filtersBySymbolSubstring() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope,
                 repository,
                 FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -114,15 +129,21 @@ class E2EMultiDeploymentFilterTest {
             )
             harness.start()
             harness.marketFilter.clear()
+            harness.awaitListFilter("market filter cleared with both deployments visible") { state ->
+                state.selectedMarketZoneId == null && state.filteredRows.size == 2
+            }
 
             harness.viewModel.onSearchChange("msf")
-            delay(300)
-
-            val rows = harness.viewModel.listState.value.filteredRows
-            assertEquals(1, rows.size)
-            assertTrue(rows.single().name.contains("MSFT", ignoreCase = true))
-            assertTrue(harness.viewModel.listState.value.hasActiveFilters)
+            val listState = harness.awaitListFilter("search query \"msf\"") { state ->
+                state.searchQuery == "msf" &&
+                    state.filteredRows.size == 1 &&
+                    state.filteredRows.single().name.contains("MSFT", ignoreCase = true) &&
+                    state.hasActiveFilters
+            }
+            assertTrue(listState.filteredRows.single().name.contains("MSFT", ignoreCase = true))
+            assertTrue(listState.hasActiveFilters)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

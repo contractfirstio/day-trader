@@ -3,8 +3,8 @@ package daytrader.replay
 import daytrader.domain.RthMarketSessions
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 /**
  * Optional probe against the local Day Trader data directory (ignored when absent).
@@ -13,6 +13,7 @@ class SessionReplayCatalogLiveDataProbeTest {
 
     @Test
     fun filter_hkJune18_matchesLocalCapturesIfPresent() {
+        if (System.getenv("DAY_TRADER_LIVE_DATA_PROBE") != "true") return
         val base = Path.of(System.getProperty("user.home"), "Library/Application Support/Day Trader")
         if (!Files.isDirectory(base)) return
 

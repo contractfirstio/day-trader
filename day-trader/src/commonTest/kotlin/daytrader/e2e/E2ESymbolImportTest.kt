@@ -5,6 +5,7 @@ import daytrader.domain.StrategyType
 import daytrader.domain.SymbolImportCsvParser
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -26,10 +27,11 @@ class E2ESymbolImportTest {
     @Test
     fun viewModel_csvParsedSymbol_resolvesAndAppearsInDeploymentList() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.createWithGateway(
+            harness = E2EStrategiesViewModelHarness.createWithGateway(
                 scope = scope,
                 repository = repository,
                 gateway = gateway,
@@ -70,6 +72,7 @@ class E2ESymbolImportTest {
             assertTrue(listRow.name.contains("NVDA", ignoreCase = true))
             assertEquals(1, harness.viewModel.listState.value.totalCount)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

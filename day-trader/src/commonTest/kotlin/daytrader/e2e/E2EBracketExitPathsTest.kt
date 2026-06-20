@@ -7,6 +7,8 @@ import daytrader.e2e.support.E2EBracketExitHelper
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
+import daytrader.e2e.support.shutdownEmulatorHarness
+import daytrader.e2e.support.shutdownEngine
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -77,24 +79,26 @@ class E2EBracketExitPathsTest {
         assertClosedSession: (daytrader.domain.StrategySession) -> Unit,
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var emulatorHarness: EmulatorModeTestHarness? = null
+        var engine: daytrader.engine.TouchTurnEngine? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = harnessFactory(scope)
+            emulatorHarness = harnessFactory(scope)
             val deploymentId = E2ETestFixtures.DEPLOYMENT_ID
             val symbol = E2ETestFixtures.SYMBOL
 
             repository.add(E2ETestFixtures.runningDeployment(symbol = symbol))
             E2EBracketExitHelper.seedLiquidityReadyDeployment(repository, deploymentId)
 
-            val engine = harness.createEngine(repository)
+            engine = emulatorHarness.createEngine(repository)
             E2EBracketExitHelper.runBracketExitCycle(
                 engine = engine,
                 repository = repository,
-                harness = harness,
+                harness = emulatorHarness,
                 deploymentId = deploymentId,
                 symbol = symbol,
                 plan = plan,
-                onPoll = { onPoll(harness) },
+                onPoll = { onPoll(emulatorHarness) },
             )
 
             val stopped = repository.deployments.value.single { it.id == deploymentId }
@@ -111,6 +115,8 @@ class E2EBracketExitPathsTest {
 
             assertClosedSession(closedSession)
         } finally {
+            engine.shutdownEngine()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }

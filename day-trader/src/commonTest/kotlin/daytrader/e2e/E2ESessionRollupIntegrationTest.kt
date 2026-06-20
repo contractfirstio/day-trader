@@ -15,6 +15,8 @@ import daytrader.domain.withOrdersPlacedForSession
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ESessionRollupHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
+import daytrader.e2e.support.shutdownEmulatorHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
 import daytrader.engine.TouchTurnCommand
@@ -42,10 +44,12 @@ class E2ESessionRollupIntegrationTest {
     @Test
     fun viewModel_engineSessionClose_rollupsAgreeOnListSummaryAndHistory() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var harness: E2EStrategiesViewModelHarness? = null
+        var emulatorHarness: EmulatorModeTestHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val emulatorHarness = EmulatorModeTestHarness.fullTradeLifecycle(scope)
-            val harness = E2EStrategiesViewModelHarness.createWithEmulator(scope, repository, emulatorHarness)
+            emulatorHarness = EmulatorModeTestHarness.fullTradeLifecycle(scope)
+            harness = E2EStrategiesViewModelHarness.createWithEmulator(scope, repository, emulatorHarness)
             val deploymentId = E2ETestFixtures.DEPLOYMENT_ID
             val symbol = E2ETestFixtures.SYMBOL
 
@@ -78,6 +82,8 @@ class E2ESessionRollupIntegrationTest {
             harness.awaitListRowTotalPnL(deploymentId, expected.formattedTotalPnL)
             E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expected)
         } finally {
+            harness.closeE2EHarness()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }
@@ -85,10 +91,12 @@ class E2ESessionRollupIntegrationTest {
     @Test
     fun viewModel_historyChangeThenBrokerTick_doesNotStaleRollupMetrics() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
+        var emulatorHarness: EmulatorModeTestHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             val deploymentId = E2ETestFixtures.DEPLOYMENT_ID
             val priorSession = E2ESessionRollupHelper.closedTradedSession(id = "run-prior", pnl = 50.0)
             repository.add(
@@ -137,6 +145,8 @@ class E2ESessionRollupIntegrationTest {
 
             E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expectedAfter)
         } finally {
+            harness.closeE2EHarness()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }
@@ -144,10 +154,12 @@ class E2ESessionRollupIntegrationTest {
     @Test
     fun viewModel_twoDeployments_summaryRollupsInvalidateOnHistoryChange() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
+        var emulatorHarness: EmulatorModeTestHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val gateway = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
-            val harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
+            harness = E2EStrategiesViewModelHarness.create(scope, repository, gateway)
             val dep1Id = E2ETestFixtures.DEPLOYMENT_ID
             val dep2Id = E2ETestFixtures.DEPLOYMENT_ID_2
 
@@ -204,6 +216,8 @@ class E2ESessionRollupIntegrationTest {
             assertEquals("100%", summary.formattedWinRate)
             assertEquals("+$80.00", summary.formattedLastSessionPnL)
         } finally {
+            harness.closeE2EHarness()
+            emulatorHarness.shutdownEmulatorHarness()
             scope.cancel()
         }
     }

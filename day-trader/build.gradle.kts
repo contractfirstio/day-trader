@@ -76,10 +76,23 @@ kotlin {
 }
 
 tasks.named<Test>("desktopTest") {
+    configureTestDefaults()
+    description = "Full desktop test suite (~500+ tests, several minutes). Do not pipe through tail/rg."
+}
+
+fun Test.configureTestDefaults() {
     useJUnitPlatform()
+    maxParallelForks = 1
+    // Recycle JVM every 50 classes so coroutine leaks cannot accumulate across the full suite.
+    forkEvery = 50
+    systemProperty("junit.jupiter.execution.timeout.default", "30s")
     testLogging {
         events("passed", "skipped", "failed")
         showStandardStreams = false
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
     }
 }
 

@@ -7,6 +7,7 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnStopEvent
 import daytrader.e2e.support.E2ESessionRollupHelper
 import daytrader.e2e.support.E2EStrategiesViewModelHarness
+import daytrader.e2e.support.closeE2EHarness
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
@@ -30,9 +31,10 @@ class E2ESessionHistoryViewModelTest {
     @Test
     fun viewModel_selectSessionHistoryRow_marksSelectedAndShowsRecap() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope,
                 repository,
                 FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -67,6 +69,7 @@ class E2ESessionHistoryViewModelTest {
             assertTrue(row.opensOnTradingTab)
             assertTrue(harness.viewModel.detailState.value.tradingPanelShowsSessionRecap)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }
@@ -74,9 +77,10 @@ class E2ESessionHistoryViewModelTest {
     @Test
     fun viewModel_sessionHistorySortByPnl_reordersRowsDescending() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var harness: E2EStrategiesViewModelHarness? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
-            val harness = E2EStrategiesViewModelHarness.create(
+            harness = E2EStrategiesViewModelHarness.create(
                 scope,
                 repository,
                 FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
@@ -111,6 +115,7 @@ class E2ESessionHistoryViewModelTest {
             assertEquals(SessionStatus.CLOSED, repository.deployments.value.single()
                 .sessionHistory.first { it.id == rows.first().id }.status)
         } finally {
+            harness.closeE2EHarness()
             scope.cancel()
         }
     }

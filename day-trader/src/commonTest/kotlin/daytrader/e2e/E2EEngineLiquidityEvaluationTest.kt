@@ -6,6 +6,8 @@ import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.e2e.support.E2EEngineLiquidityHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.IbModeTestHarness
+import daytrader.e2e.support.shutdownEngine
+import daytrader.e2e.support.shutdownIbHarness
 import daytrader.engine.TouchTurnEngine
 import daytrader.engine.TouchTurnEvent
 import daytrader.execution.BrokerGatewayExecutionManager
@@ -34,6 +36,8 @@ class E2EEngineLiquidityEvaluationTest {
     @Test
     fun ib_enginePollLiquidity_nonLiquidityBar_autoStopsWithNoTradeDecision() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var ibHarness: IbModeTestHarness? = null
+        var engine: TouchTurnEngine? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val bar = E2ETestFixtures.nonLiquidityOpeningBar()
@@ -41,10 +45,10 @@ class E2EEngineLiquidityEvaluationTest {
                 brokerId = BrokerId.INTERACTIVE_BROKERS,
                 signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar))
             )
-            val harness = IbModeTestHarness(gateway)
+            ibHarness = IbModeTestHarness(gateway)
             repository.add(E2EEngineLiquidityHelper.liquidityEnabledDeployment())
 
-            val engine = harness.createEngine(repository, scope)
+            engine = ibHarness.createEngine(repository, scope)
             val stopEvents = mutableListOf<TouchTurnEvent.SessionStopped>()
             engine.events
                 .onEach { event ->
@@ -52,7 +56,7 @@ class E2EEngineLiquidityEvaluationTest {
                 }
                 .launchIn(scope)
 
-            harness.start()
+            ibHarness.start()
             E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(engine, repository)
 
             assertTrue(gateway.placedBrackets.isEmpty(), "engine must not place bracket for non-liquidity bar")
@@ -69,6 +73,8 @@ class E2EEngineLiquidityEvaluationTest {
             assertNotNull(stopEvent)
             assertEquals(TouchTurnSessionStopTrigger.NO_TRADE_DECISION, stopEvent.trigger)
         } finally {
+            engine.shutdownEngine()
+            ibHarness.shutdownIbHarness()
             scope.cancel()
         }
     }
@@ -76,6 +82,8 @@ class E2EEngineLiquidityEvaluationTest {
     @Test
     fun ib_enginePollLiquidity_liquidityBar_placesBracketViaEngine() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var ibHarness: IbModeTestHarness? = null
+        var engine: TouchTurnEngine? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val bar = E2ETestFixtures.redLiquidityOpeningBar()
@@ -83,10 +91,10 @@ class E2EEngineLiquidityEvaluationTest {
                 brokerId = BrokerId.INTERACTIVE_BROKERS,
                 signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar))
             )
-            val harness = IbModeTestHarness(gateway)
+            ibHarness = IbModeTestHarness(gateway)
             repository.add(E2EEngineLiquidityHelper.liquidityEnabledDeployment())
 
-            val engine = harness.createEngine(repository, scope)
+            engine = ibHarness.createEngine(repository, scope)
             val bracketEvents = mutableListOf<TouchTurnEvent.BracketSubmitted>()
             engine.events
                 .onEach { event ->
@@ -94,7 +102,7 @@ class E2EEngineLiquidityEvaluationTest {
                 }
                 .launchIn(scope)
 
-            harness.start()
+            ibHarness.start()
             E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(engine, repository)
 
             val deployment = repository.deployments.value.single()
@@ -109,6 +117,8 @@ class E2EEngineLiquidityEvaluationTest {
             assertEquals(E2ETestFixtures.SYMBOL.uppercase(), gateway.placedBrackets.single().symbol)
             assertEquals(1, bracketEvents.size)
         } finally {
+            engine.shutdownEngine()
+            ibHarness.shutdownIbHarness()
             scope.cancel()
         }
     }
@@ -116,17 +126,18 @@ class E2EEngineLiquidityEvaluationTest {
     @Test
     fun emulatorBrokerKind_enginePollLiquidity_liquidityBar_placesBracketViaEngine() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        var engine: TouchTurnEngine? = null
+        var gateway: FakeBrokerGateway? = null
         try {
             val repository = InMemoryStrategyDeploymentRepository()
             val bar = E2ETestFixtures.redLiquidityOpeningBar()
-            val gateway = FakeBrokerGateway(
+            gateway = FakeBrokerGateway(
                 brokerId = BrokerId.EMULATOR,
                 signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar))
             )
-            val harness = IbModeTestHarness(gateway)
             repository.add(E2EEngineLiquidityHelper.liquidityEnabledDeployment())
 
-            val engine = TouchTurnEngine(
+            engine = TouchTurnEngine(
                 marketData = BrokerGatewayMarketDataProvider(gateway),
                 execution = BrokerGatewayExecutionManager(gateway),
                 repository = repository,
@@ -143,7 +154,7 @@ class E2EEngineLiquidityEvaluationTest {
                 }
                 .launchIn(scope)
 
-            harness.start()
+            gateway.connect()
             E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(engine, repository)
 
             val deployment = repository.deployments.value.single()
@@ -156,6 +167,8 @@ class E2EEngineLiquidityEvaluationTest {
             assertEquals(1, gateway.placedBrackets.size)
             assertEquals(1, bracketEvents.size)
         } finally {
+            engine.shutdownEngine()
+            gateway?.runCatching { disconnect() }
             scope.cancel()
         }
     }
