@@ -44,6 +44,12 @@ class E2EStrategiesViewModelHarness(
         onShutdown()
     }
 
+    /** Mirrors [daytrader.ui.App] `DisposableEffect` teardown before broker runtime shutdown. */
+    fun simulateApplicationDispose() {
+        viewModel.shutdownRunningSessions()
+        engine.shutdown()
+    }
+
     fun selectDeployment(deploymentId: String) {
         appStateRepository.update {
             it.copy(

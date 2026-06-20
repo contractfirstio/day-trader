@@ -12,6 +12,8 @@ class InMemoryStrategyDeploymentRepository(
 ) : StrategyDeploymentRepository {
     private val _deployments = MutableStateFlow(initial)
     override val deployments: StateFlow<List<StrategyDeployment>> = _deployments.asStateFlow()
+    var flushInvocationCount: Int = 0
+        private set
 
     override fun add(deployment: StrategyDeployment) {
         _deployments.update { it + deployment }
@@ -27,5 +29,7 @@ class InMemoryStrategyDeploymentRepository(
         _deployments.update { it.filterNot { deployment -> deployment.id == id } }
     }
 
-    override fun flushPersistence() = Unit
+    override fun flushPersistence() {
+        flushInvocationCount++
+    }
 }
