@@ -133,6 +133,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionStopTrigger.NO_TRADE_DECISION -> "No trade"
         TouchTurnSessionStopTrigger.OPEN_DEADLINE -> "Deadline"
         TouchTurnSessionStopTrigger.MANUAL -> "Manual"
+        TouchTurnSessionStopTrigger.GLOBAL_KILL_SWITCH -> "Kill switch"
         TouchTurnSessionStopTrigger.PRE_MARKET_CLOSE -> "Pre-close"
         TouchTurnSessionStopTrigger.ERROR -> "Error"
         TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN -> "App exit"

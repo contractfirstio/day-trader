@@ -21,6 +21,10 @@ fun AppTopBar(
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
     onExportDebugInfo: (() -> Unit)? = null,
+    portfolioExposureLabel: String? = null,
+    portfolioExposureOverCap: Boolean = false,
+    onKillSwitch: (() -> Unit)? = null,
+    killSwitchEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val activeUiFaults by UiFaultBus.faults.collectAsState()
@@ -36,6 +40,10 @@ fun AppTopBar(
             onOpenPriceFeedTester = onOpenPriceFeedTester,
             onChangeBrokerMode = onChangeBrokerMode,
             onExportDebugInfo = onExportDebugInfo,
+            portfolioExposureLabel = portfolioExposureLabel,
+            portfolioExposureOverCap = portfolioExposureOverCap,
+            onKillSwitch = onKillSwitch,
+            killSwitchEnabled = killSwitchEnabled,
             activeUiFaults = activeUiFaults.values.toList(),
             onResetUi = if (activeUiFaults.isNotEmpty()) UiRecoveryBus::resetAllUiState else null,
         )

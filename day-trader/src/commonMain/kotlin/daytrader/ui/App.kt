@@ -31,6 +31,8 @@ import daytrader.diagnostics.AppHealthCollector
 import daytrader.diagnostics.AppHealthSnapshot
 import daytrader.diagnostics.DebugBundleExporter
 import daytrader.diagnostics.TimestampedConsoleLog
+import daytrader.data.PortfolioExposureCalculator
+import daytrader.data.PortfolioExposureLimits
 import daytrader.replay.ReplayHybridRuntime
 import daytrader.replay.SessionBundle
 import daytrader.ui.tools.PriceFeedTesterDialog
@@ -83,8 +85,42 @@ fun App(
     var showPriceFeedTester by remember { mutableStateOf(false) }
     var debugHealthSnapshot by remember { mutableStateOf<AppHealthSnapshot?>(null) }
     var debugExportPath by remember { mutableStateOf<String?>(null) }
+    var showKillSwitchDialog by remember { mutableStateOf(false) }
     val selectedMarketZoneId by dependencies.marketFilter.selectedZoneId.collectAsState()
     val deployments by dependencies.strategyRepository.deployments.collectAsState()
+    val brokerOpenOrders by brokerGateway.openOrders.collectAsState()
+    val brokerPositions by brokerGateway.positions.collectAsState()
+    val portfolioExposure = remember(deployments) { PortfolioExposureCalculator.calculate(deployments) }
+    val portfolioExposureOverCap = remember(portfolioExposure) { PortfolioExposureLimits.isOverCap(portfolioExposure) }
+    val portfolioExposureLabel = remember(portfolioExposure, portfolioExposureOverCap) {
+        when {
+            portfolioExposure.runningDeploymentCount == 0 -> null
+            portfolioExposureOverCap -> {
+                val cap = PortfolioExposureLimits.configuredMaxAtRisk()
+                "$${portfolioExposure.totalMaxAtRiskUsd} at risk · ${portfolioExposure.runningDeploymentCount} running" +
+                    (cap?.let { " (cap $$it)" } ?: "")
+            }
+            else -> {
+                "$${portfolioExposure.totalMaxAtRiskUsd} at risk · ${portfolioExposure.runningDeploymentCount} running"
+            }
+        }
+    }
+    val runningSymbols = remember(deployments) {
+        deployments.filter { it.status == daytrader.domain.DeploymentStatus.RUNNING }.map { it.symbol }
+    }
+    val killSwitchEnabled = remember(portfolioExposure, brokerOpenOrders, brokerPositions) {
+        portfolioExposure.runningDeploymentCount > 0 ||
+            brokerOpenOrders.isNotEmpty() ||
+            brokerPositions.any { it.quantity != 0 }
+    }
+    val orphanBrokerActivity = remember(runningSymbols, brokerOpenOrders, brokerPositions) {
+        brokerOpenOrders.any { order ->
+            runningSymbols.none { daytrader.broker.SymbolMarkets.symbolsMatch(order.symbol, it) }
+        } || brokerPositions.any { position ->
+            position.quantity != 0 &&
+                runningSymbols.none { daytrader.broker.SymbolMarkets.symbolsMatch(position.symbol, it) }
+        }
+    }
     val strategiesListState by dependencies.strategiesViewModel.listState.collectAsState()
     val watchlistUi by dependencies.watchlistViewModel.uiState.collectAsState()
 
@@ -129,6 +165,10 @@ fun App(
                     onMarketClick = dependencies.marketFilter::toggle,
                     onOpenPriceFeedTester = { showPriceFeedTester = true },
                     onChangeBrokerMode = onChangeBrokerMode,
+                    portfolioExposureLabel = portfolioExposureLabel,
+                    portfolioExposureOverCap = portfolioExposureOverCap,
+                    onKillSwitch = { showKillSwitchDialog = true },
+                    killSwitchEnabled = killSwitchEnabled,
                     onExportDebugInfo = {
                         val snapshot = AppHealthCollector.collect(
                             brokerKind = brokerKind,
@@ -154,6 +194,18 @@ fun App(
                             debugHealthSnapshot = null
                             debugExportPath = null
                         },
+                    )
+                }
+                if (showKillSwitchDialog) {
+                    GlobalKillSwitchDialog(
+                        exposure = portfolioExposure,
+                        runningSymbols = runningSymbols,
+                        orphanBrokerActivity = orphanBrokerActivity,
+                        onConfirm = {
+                            showKillSwitchDialog = false
+                            viewModel.activateGlobalKillSwitch()
+                        },
+                        onDismiss = { showKillSwitchDialog = false },
                     )
                 }
                 if (showPriceFeedTester) {

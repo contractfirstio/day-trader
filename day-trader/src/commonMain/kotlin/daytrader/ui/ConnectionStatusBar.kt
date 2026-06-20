@@ -41,6 +41,10 @@ fun ConnectionStatusBar(
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
     onExportDebugInfo: (() -> Unit)? = null,
+    portfolioExposureLabel: String? = null,
+    portfolioExposureOverCap: Boolean = false,
+    onKillSwitch: (() -> Unit)? = null,
+    killSwitchEnabled: Boolean = false,
     activeUiFaults: List<UiFault> = emptyList(),
     onResetUi: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -74,12 +78,28 @@ fun ConnectionStatusBar(
                     color = brokerStatusColor(executionState)
                 )
             }
+            portfolioExposureLabel?.let { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (portfolioExposureOverCap) LossRed else TextSecondary,
+                    modifier = Modifier.testTag("portfolioExposureLabel"),
+                )
+            }
             UiFaultIndicator(faults = activeUiFaults, onResetUi = onResetUi)
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (onKillSwitch != null && killSwitchEnabled) {
+                TextButton(
+                    onClick = onKillSwitch,
+                    modifier = Modifier.testTag("globalKillSwitchButton"),
+                ) {
+                    Text("Kill switch", color = LossRed)
+                }
+            }
             if (onExportDebugInfo != null) {
                 TextButton(
                     onClick = onExportDebugInfo,

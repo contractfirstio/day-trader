@@ -18,6 +18,8 @@ import daytrader.platform.WallClock
 import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.MarketOpenCountdownWatcher
 import daytrader.data.PreMarketClosePositionWatcher
+import daytrader.data.GlobalSessionKillSwitch
+import daytrader.data.PortfolioExposureCalculator
 import daytrader.data.RunningSessionShutdown
 import daytrader.data.SessionMarketDataCapture
 import daytrader.data.TouchTurnManualStopHandler
@@ -500,6 +502,25 @@ class StrategiesViewModel(
         syncDeploymentsFromRepository()
         emitUiState()
     }
+
+    /** Emergency stop: flatten broker exposure and stop every running deployment. */
+    fun activateGlobalKillSwitch() {
+        val gateway = brokerGateway ?: sessionGateway ?: return
+        GlobalSessionKillSwitch.activate(
+            repository = repository,
+            gateway = gateway,
+            brokerKind = brokerKind,
+            brokerPositions = brokerPositions,
+            brokerOpenOrders = brokerOpenOrders,
+            brokerFills = brokerFills,
+        )
+        stopAllSessionMarketDataCaptures(trigger = TouchTurnSessionStopTrigger.GLOBAL_KILL_SWITCH.name.lowercase())
+        syncDeploymentsFromRepository()
+        emitUiState()
+    }
+
+    fun portfolioExposure(): PortfolioExposureCalculator.Snapshot =
+        PortfolioExposureCalculator.calculate(repository.deployments.value)
 
     /** Cancels in-flight UI jobs and stops background collectors. Production UI never calls this. */
     fun close() {

@@ -61,6 +61,8 @@ enum class TouchTurnSessionStopTrigger {
     NO_TRADE_DECISION,
     OPEN_DEADLINE,
     MANUAL,
+    /** User-triggered emergency stop of all running sessions and broker flatten. */
+    GLOBAL_KILL_SWITCH,
     PRE_MARKET_CLOSE,
     ERROR,
     /** App quit or startup recovery of a persisted in-progress run from a prior process. */

@@ -183,6 +183,11 @@ object TouchTurnSessionReasonUi {
             detail = "You stopped the deployment. Working orders were cancelled when possible.",
             severity = TouchTurnReasonSeverity.Info
         )
+        TouchTurnSessionStopTrigger.GLOBAL_KILL_SWITCH -> TouchTurnSessionStatusUi(
+            headline = "Session stopped — kill switch",
+            detail = "The global kill switch stopped all running sessions and flattened broker exposure.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionStopTrigger.ERROR -> TouchTurnSessionStatusUi(
             headline = "Session stopped — error",
             detail = stopErrorMessage?.takeIf { it.isNotBlank() }
