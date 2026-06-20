@@ -98,6 +98,10 @@ class E2EStrategiesViewModelHarness(
         error("Timed out after ${timeoutMs}ms waiting for startBlockedAlert")
     }
 
+    suspend fun syncBrokerSnapshotToEngine(delayMs: Long = 150) {
+        delay(delayMs)
+    }
+
     suspend fun awaitListRowPositionPnL(
         deploymentId: String,
         expected: Double,
