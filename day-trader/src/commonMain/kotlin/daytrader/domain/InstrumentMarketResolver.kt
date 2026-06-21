@@ -11,7 +11,9 @@ object InstrumentMarketResolver {
         val exchange: String?,
         val primaryExch: String?,
         val currency: String?,
-        val companyName: String? = null
+        val companyName: String? = null,
+        val minOrderSize: Int? = null,
+        val orderSizeIncrement: Int? = null
     )
 
     private val UK_EXCHANGES = listOf("LSE", "LSEETF", "IOB", "CHIX")

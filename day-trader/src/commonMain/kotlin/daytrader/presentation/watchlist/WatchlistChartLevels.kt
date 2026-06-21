@@ -60,39 +60,58 @@ object WatchlistChartLevels {
         val entry = entryPriceText.toDoubleOrNull() ?: return null
         val stop = stopPriceText.toDoubleOrNull() ?: return null
         val target = targetPriceText.toDoubleOrNull() ?: return null
-        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
+        return buildPlannedBracket(
+            side = side.toTouchTurnTradeSide(),
+            entry = entry,
+            stopLoss = stop,
+            takeProfit = target,
+            adjustableTrailingStop = adjustableTrailingStop
+        )
     }
 
     private fun WatchlistPlanEditorUi.toPlannedBracket(side: TradeSide): TouchTurnPlannedBracket? {
         val entry = entryPriceText.toDoubleOrNull() ?: return null
         val stop = stopPriceText.toDoubleOrNull() ?: return null
         val target = targetPriceText.toDoubleOrNull() ?: return null
-        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
+        return buildPlannedBracket(
+            side = side.toTouchTurnTradeSide(),
+            entry = entry,
+            stopLoss = stop,
+            takeProfit = target,
+            adjustableTrailingStop = adjustableTrailingStop
+        )
     }
 
     private fun WatchlistTradePlan.toPlannedBracket(): TouchTurnPlannedBracket? {
         val entry = entryPrice ?: return null
         val stop = stopPrice ?: return null
         val target = targetPrice ?: return null
-        return buildPlannedBracket(side.toTouchTurnTradeSide(), entry, stop, target)
+        return buildPlannedBracket(
+            side = side.toTouchTurnTradeSide(),
+            entry = entry,
+            stopLoss = stop,
+            takeProfit = target,
+            adjustableTrailingStop = adjustableTrailingStop
+        )
     }
 
     private fun buildPlannedBracket(
         side: TouchTurnTradeSide,
         entry: Double,
         stopLoss: Double,
-        takeProfit: Double
+        takeProfit: Double,
+        adjustableTrailingStop: Boolean
     ): TouchTurnPlannedBracket =
         TouchTurnPlannedBracket(
             side = side,
             entry = entry,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
-            trailTriggerPrice = TouchTurnAdjustableStop.compute(
-                entry,
-                stopLoss,
-                takeProfit
-            )?.triggerPrice
+            trailTriggerPrice = if (adjustableTrailingStop) {
+                TouchTurnAdjustableStop.compute(entry, stopLoss, takeProfit)?.triggerPrice
+            } else {
+                null
+            }
         )
 
     private fun TradeSide.toTouchTurnTradeSide(): TouchTurnTradeSide = when (this) {

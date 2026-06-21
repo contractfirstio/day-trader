@@ -544,12 +544,15 @@ class DesktopIbGatewayConnection(
         if (!companyName.isNullOrBlank()) {
             batch.companyName = companyName
         }
+        val orderSizeRules = IbOrderSizeRules.fromContractDetails(contractDetails)
         val snapshot = InstrumentMarketResolver.ContractSnapshot(
             symbol = contract.symbol().orEmpty(),
             exchange = contract.exchange(),
             primaryExch = contract.primaryExch(),
             currency = contract.currency(),
-            companyName = batch.companyName
+            companyName = batch.companyName,
+            minOrderSize = orderSizeRules.minOrderSize,
+            orderSizeIncrement = orderSizeRules.orderSizeIncrement
         )
         val conId = contract.conid().takeIf { it > 0 }?.toLong()
         val resolved = InstrumentMarketResolver.fromIbContract(snapshot).copy(
@@ -560,6 +563,7 @@ class DesktopIbGatewayConnection(
             "IB contract detail ibReqId=$reqId gatewayReqId=$gatewayRequestId " +
                 "symbol=${snapshot.symbol} exchange=${snapshot.exchange} " +
                 "primary=${snapshot.primaryExch} currency=${snapshot.currency} conId=$conId " +
+                "minOrderSize=${orderSizeRules.minOrderSize} orderSizeIncrement=${orderSizeRules.orderSizeIncrement} " +
                 "venue=${resolved.venueLabel} batchSize=${batch.candidates.size}"
         )
         return true

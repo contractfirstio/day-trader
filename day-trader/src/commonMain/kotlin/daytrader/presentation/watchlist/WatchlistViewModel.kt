@@ -885,6 +885,14 @@ class WatchlistViewModel(
         updatePlanEditor(planId) { it.copy(proximityThresholdMode = mode) }
     }
 
+    fun onUpdatePlanStopEntry(planId: String, stopEntry: Boolean) {
+        updatePlanEditor(planId) { it.copy(stopEntry = stopEntry) }
+    }
+
+    fun onUpdatePlanAdjustableTrailingStop(planId: String, enabled: Boolean) {
+        updatePlanEditor(planId) { it.copy(adjustableTrailingStop = enabled) }
+    }
+
     fun onUpdatePlanField(planId: String, field: WatchlistPlanField, value: String) {
         updatePlanEditor(planId) { plan ->
             when (field) {
@@ -1067,7 +1075,9 @@ class WatchlistViewModel(
                 entryPriceText = planEditor.entryPriceText,
                 stopPriceText = planEditor.stopPriceText,
                 targetPriceText = planEditor.targetPriceText,
-                quantityText = outcome.quantity?.toString().orEmpty()
+                quantityText = outcome.quantity?.toString().orEmpty(),
+                stopEntry = planEditor.stopEntry,
+                adjustableTrailingStop = planEditor.adjustableTrailingStop
             ),
             entry
         )
@@ -1161,7 +1171,15 @@ class WatchlistViewModel(
             sizingMode = planEditor.sizingMode,
             proximityAlertEnabled = planEditor.proximityAlertEnabled,
             proximityThresholdMode = planEditor.proximityThresholdMode,
-            proximityThresholdValueText = planEditor.proximityThresholdValueText
+            proximityThresholdValueText = planEditor.proximityThresholdValueText,
+            stopEntry = planEditor.stopEntry,
+            adjustableTrailingStop = planEditor.adjustableTrailingStop
+        )
+
+    private fun bracketOptionsFromDraft(draft: WatchlistBracketOrderUi): WatchlistBracketOrderPlanner.BracketOrderOptions =
+        WatchlistBracketOrderPlanner.BracketOrderOptions(
+            stopEntry = draft.stopEntry,
+            adjustableTrailingStop = draft.adjustableTrailingStop
         )
 
     private fun buildTouchTurnPlanFromBracketDraft(
@@ -1184,7 +1202,8 @@ class WatchlistViewModel(
             entryPrice = entryPrice,
             stopPrice = stopPrice,
             targetPrice = targetPrice,
-            quantity = quantity
+            quantity = quantity,
+            options = bracketOptionsFromDraft(draft)
         )
     }
 
@@ -1193,6 +1212,7 @@ class WatchlistViewModel(
         val stopPrice = draft.stopPriceText.toDoubleOrNull()
         val targetPrice = draft.targetPriceText.toDoubleOrNull()
         val quantity = draft.quantityText.toIntOrNull()
+        val options = bracketOptionsFromDraft(draft)
         val previewPlan = WatchlistTradePlan(
             id = draft.planId,
             label = draft.planLabel,
@@ -1200,7 +1220,9 @@ class WatchlistViewModel(
             entryPrice = entryPrice,
             stopPrice = stopPrice,
             targetPrice = targetPrice,
-            investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } }
+            investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } },
+            stopEntry = draft.stopEntry,
+            adjustableTrailingStop = draft.adjustableTrailingStop
         )
         val calculatorOutcome = WatchlistTradePlanCalculator.compute(previewPlan)
         val bracketResult = if (entryPrice != null && stopPrice != null && targetPrice != null && quantity != null) {
@@ -1212,7 +1234,8 @@ class WatchlistViewModel(
                 entryPrice = entryPrice,
                 stopPrice = stopPrice,
                 targetPrice = targetPrice,
-                quantity = quantity
+                quantity = quantity,
+                options = options
             )
         } else {
             Result.failure(IllegalArgumentException("Complete all bracket fields"))
@@ -1223,6 +1246,7 @@ class WatchlistViewModel(
         }.distinct()
         val connected = executionConnection == GatewayConnectionState.Connected && executionGateway != null
         return draft.copy(
+            bracketOrderSummary = WatchlistBracketOrderPlanner.bracketOrderSummary(options),
             outcome = if (calculatorOutcome.isComplete) {
                 WatchlistUiMapper.outcomeUi(calculatorOutcome, draft.currencyCode)
             } else {
@@ -1250,7 +1274,9 @@ class WatchlistViewModel(
                 sizingMode = editor.sizingMode,
                 proximityAlertEnabled = editor.proximityAlertEnabled,
                 proximityThresholdMode = editor.proximityThresholdMode,
-                proximityThresholdValueText = editor.proximityThresholdValueText
+                proximityThresholdValueText = editor.proximityThresholdValueText,
+                stopEntry = editor.stopEntry,
+                adjustableTrailingStop = editor.adjustableTrailingStop
             )
         }
         repository.updateWatchlist(watchlist.id) { current ->

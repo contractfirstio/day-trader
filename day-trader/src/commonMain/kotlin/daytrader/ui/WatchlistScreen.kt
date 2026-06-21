@@ -92,6 +92,8 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             onSizingModeChange = viewModel::onUpdatePlanSizingMode,
             onProximityEnabledChange = viewModel::onUpdatePlanProximityEnabled,
             onProximityModeChange = viewModel::onUpdatePlanProximityMode,
+            onStopEntryChange = viewModel::onUpdatePlanStopEntry,
+            onAdjustableTrailingStopChange = viewModel::onUpdatePlanAdjustableTrailingStop,
             onFieldChange = viewModel::onUpdatePlanField,
             onGroupInputChange = viewModel::onEditorGroupInputChange,
             onAddGroup = viewModel::onAddEditorGroup,

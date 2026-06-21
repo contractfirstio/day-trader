@@ -12,7 +12,9 @@ data class InstrumentIdentityRecord(
     val currency: String,
     val conId: Long? = null,
     val localSymbol: String? = null,
-    val tradingClass: String? = null
+    val tradingClass: String? = null,
+    val minOrderSize: Int? = null,
+    val orderSizeIncrement: Int? = null
 )
 
 internal object InstrumentIdentityPersistence {
@@ -26,7 +28,9 @@ internal object InstrumentIdentityPersistence {
                 currency = it.currency,
                 conId = it.conId,
                 localSymbol = it.localSymbol,
-                tradingClass = it.tradingClass
+                tradingClass = it.tradingClass,
+                minOrderSize = it.minOrderSize,
+                orderSizeIncrement = it.orderSizeIncrement
             )
         }
 
@@ -40,7 +44,9 @@ internal object InstrumentIdentityPersistence {
                 currency = it.currency,
                 conId = it.conId,
                 localSymbol = it.localSymbol,
-                tradingClass = it.tradingClass
+                tradingClass = it.tradingClass,
+                minOrderSize = it.minOrderSize,
+                orderSizeIncrement = it.orderSizeIncrement
             )
         }
 }

@@ -84,6 +84,8 @@ data class WatchlistTradePlanRecord(
     val proximityAlertEnabled: Boolean = false,
     val proximityThresholdMode: String = "percent",
     val proximityThresholdValue: Double? = null,
+    val stopEntry: Boolean = false,
+    val adjustableTrailingStop: Boolean = true,
     val orderPlacedAtEpochMs: Long? = null,
     val placedOrderIds: List<Int> = emptyList(),
     val executedBracketLegs: List<String> = emptyList(),

@@ -5,6 +5,35 @@ import daytrader.domain.TouchTurnOrderRole.STOP_LOSS
 import daytrader.domain.TouchTurnOrderRole.TAKE_PROFIT
 
 object WatchlistBracketOrderPlanner {
+    data class BracketOrderOptions(
+        val stopEntry: Boolean = false,
+        val adjustableTrailingStop: Boolean = true,
+        val trailingStopTriggerFractionOfEntryToTp: Double =
+            TouchTurnDefaults.TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP,
+        val trailingStopArmFractionOfEntryToStop: Double =
+            TouchTurnDefaults.TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP
+    ) {
+        fun entryOrderType(): String = TouchTurnOrderPlanner.entryOrderType(
+            TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = stopEntry)
+        )
+    }
+
+    fun optionsFromPlan(plan: WatchlistTradePlan): BracketOrderOptions =
+        BracketOrderOptions(
+            stopEntry = plan.stopEntry,
+            adjustableTrailingStop = plan.adjustableTrailingStop
+        )
+
+    fun bracketOrderSummary(options: BracketOrderOptions): String {
+        val entryLabel = if (options.stopEntry) "stop entry" else "limit entry"
+        val stopLabel = if (options.adjustableTrailingStop) {
+            "adjustable trailing stop"
+        } else {
+            "fixed stop"
+        }
+        return "DAY $entryLabel with take-profit limit and $stopLabel."
+    }
+
     fun buildTouchTurnPlan(
         symbol: String,
         currencyCode: String,
@@ -13,7 +42,8 @@ object WatchlistBracketOrderPlanner {
         entryPrice: Double,
         stopPrice: Double,
         targetPrice: Double,
-        quantity: Int
+        quantity: Int,
+        options: BracketOrderOptions = BracketOrderOptions()
     ): Result<TouchTurnOrderPlan> {
         if (quantity <= 0) return Result.failure(IllegalArgumentException("Quantity must be at least 1"))
         val draft = WatchlistTradePlan(
@@ -23,7 +53,9 @@ object WatchlistBracketOrderPlanner {
             entryPrice = entryPrice,
             stopPrice = stopPrice,
             targetPrice = targetPrice,
-            investmentAmount = entryPrice * quantity
+            investmentAmount = entryPrice * quantity,
+            stopEntry = options.stopEntry,
+            adjustableTrailingStop = options.adjustableTrailingStop
         )
         val outcome = WatchlistTradePlanCalculator.compute(draft)
         if (outcome.errors.isNotEmpty()) {
@@ -41,10 +73,11 @@ object WatchlistBracketOrderPlanner {
             TradeSide.LONG -> "BUY"
             TradeSide.SHORT -> "SELL"
         }
-        val adjustableStop = TouchTurnAdjustableStop.compute(
+        val adjustableStop = computeAdjustableStop(
             entry = entryPrice,
             stopLoss = stopPrice,
-            takeProfit = targetPrice
+            takeProfit = targetPrice,
+            options = options
         )
         return Result.success(
             TouchTurnOrderPlan(
@@ -57,7 +90,7 @@ object WatchlistBracketOrderPlanner {
                     TouchTurnPlannedOrder(
                         role = ENTRY,
                         action = entryAction,
-                        orderType = "LMT",
+                        orderType = options.entryOrderType(),
                         quantity = quantity,
                         price = entryPrice
                     ),
@@ -98,7 +131,24 @@ object WatchlistBracketOrderPlanner {
             entryPrice = plan.entryPrice!!,
             stopPrice = plan.stopPrice!!,
             targetPrice = plan.targetPrice!!,
-            quantity = outcome.quantity!!
+            quantity = outcome.quantity!!,
+            options = optionsFromPlan(plan)
+        )
+    }
+
+    private fun computeAdjustableStop(
+        entry: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        options: BracketOrderOptions
+    ): TouchTurnAdjustableStopParams? {
+        if (!options.adjustableTrailingStop) return null
+        return TouchTurnAdjustableStop.compute(
+            entry = entry,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            triggerFraction = options.trailingStopTriggerFractionOfEntryToTp,
+            armFractionOfEntryToStop = options.trailingStopArmFractionOfEntryToStop
         )
     }
 }

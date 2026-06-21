@@ -58,6 +58,8 @@ internal fun WatchlistEntryDetailPanel(
     onSizingModeChange: (String, PlanSizingMode) -> Unit,
     onProximityEnabledChange: (String, Boolean) -> Unit,
     onProximityModeChange: (String, ProximityThresholdMode) -> Unit,
+    onStopEntryChange: (String, Boolean) -> Unit,
+    onAdjustableTrailingStopChange: (String, Boolean) -> Unit,
     onFieldChange: (String, WatchlistPlanField, String) -> Unit,
     onGroupInputChange: (String) -> Unit,
     onAddGroup: (String?) -> Unit,
@@ -156,6 +158,8 @@ internal fun WatchlistEntryDetailPanel(
                             onSizingModeChange = { onSizingModeChange(plan.planId, it) },
                             onProximityEnabledChange = { onProximityEnabledChange(plan.planId, it) },
                             onProximityModeChange = { onProximityModeChange(plan.planId, it) },
+                            onStopEntryChange = { onStopEntryChange(plan.planId, it) },
+                            onAdjustableTrailingStopChange = { onAdjustableTrailingStopChange(plan.planId, it) },
                             onFieldChange = { field, value -> onFieldChange(plan.planId, field, value) },
                             onReactivatePlan = { onReactivatePlan(plan.planId) },
                             onOpenDiary = { onOpenDiary(plan.planId) }
@@ -442,6 +446,8 @@ private fun TradePlanCard(
     onSizingModeChange: (PlanSizingMode) -> Unit,
     onProximityEnabledChange: (Boolean) -> Unit,
     onProximityModeChange: (ProximityThresholdMode) -> Unit,
+    onStopEntryChange: (Boolean) -> Unit,
+    onAdjustableTrailingStopChange: (Boolean) -> Unit,
     onFieldChange: (WatchlistPlanField, String) -> Unit,
     onReactivatePlan: () -> Unit,
     onOpenDiary: () -> Unit
@@ -523,6 +529,43 @@ private fun TradePlanCard(
                 selected = plan.side == TradeSide.SHORT,
                 onClick = { onSideChange(TradeSide.SHORT) },
                 label = { Text("Short") }
+            )
+        }
+
+        Text("Entry order", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = !plan.stopEntry,
+                onClick = { onStopEntryChange(false) },
+                label = { Text("Limit (reversal)") },
+                modifier = Modifier.testTag("WatchlistPlanLimitEntry-${plan.planId}")
+            )
+            FilterChip(
+                selected = plan.stopEntry,
+                onClick = { onStopEntryChange(true) },
+                label = { Text("Stop (continuation)") },
+                modifier = Modifier.testTag("WatchlistPlanStopEntry-${plan.planId}")
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Adjustable trailing stop", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(
+                    "Converts the stop to TRAIL after price reaches the trigger.",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp
+                )
+            }
+            Switch(
+                checked = plan.adjustableTrailingStop,
+                onCheckedChange = onAdjustableTrailingStopChange,
+                modifier = Modifier.testTag("WatchlistPlanAdjustableTrailingStop-${plan.planId}")
             )
         }
 

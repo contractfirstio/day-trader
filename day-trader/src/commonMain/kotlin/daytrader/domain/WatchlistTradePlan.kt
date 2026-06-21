@@ -31,6 +31,10 @@ data class WatchlistTradePlan(
     val proximityAlertEnabled: Boolean = false,
     val proximityThresholdMode: ProximityThresholdMode = ProximityThresholdMode.PERCENT,
     val proximityThresholdValue: Double? = null,
+    /** Stop entry on breakout (Touch Turn continuation / invert mode); otherwise limit entry at the level. */
+    val stopEntry: Boolean = false,
+    /** IB adjustable stop that converts the stop leg to TRAIL at the trigger price. */
+    val adjustableTrailingStop: Boolean = true,
     /** Set when a bracket order was submitted for this plan from the watchlist. */
     val orderPlacedAtEpochMs: Long? = null,
     val placedOrderIds: List<Int> = emptyList(),

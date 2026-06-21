@@ -122,7 +122,9 @@ object WatchlistUiMapper {
             sizingMode = plan.sizingMode,
             proximityAlertEnabled = plan.proximityAlertEnabled,
             proximityThresholdMode = plan.proximityThresholdMode,
-            proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty()
+            proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty(),
+            stopEntry = plan.stopEntry,
+            adjustableTrailingStop = plan.adjustableTrailingStop
         )
         return WatchlistPlanEditorUi(
             planId = plan.id,
@@ -136,6 +138,8 @@ object WatchlistUiMapper {
             proximityAlertEnabled = plan.proximityAlertEnabled,
             proximityThresholdMode = plan.proximityThresholdMode,
             proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty(),
+            stopEntry = plan.stopEntry,
+            adjustableTrailingStop = plan.adjustableTrailingStop,
             outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
             isNearEntry = isPlanNearEntry(draft, scannedPrice),
             orderPlacedLabel = orderPlacedLabel(plan),
@@ -213,7 +217,9 @@ object WatchlistUiMapper {
             sizingMode = editor.sizingMode,
             proximityAlertEnabled = editor.proximityAlertEnabled,
             proximityThresholdMode = editor.proximityThresholdMode,
-            proximityThresholdValueText = editor.proximityThresholdValueText
+            proximityThresholdValueText = editor.proximityThresholdValueText,
+            stopEntry = editor.stopEntry,
+            adjustableTrailingStop = editor.adjustableTrailingStop
         )
         return editor.copy(
             outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
@@ -237,7 +243,9 @@ object WatchlistUiMapper {
         sizingMode: PlanSizingMode,
         proximityAlertEnabled: Boolean,
         proximityThresholdMode: ProximityThresholdMode,
-        proximityThresholdValueText: String
+        proximityThresholdValueText: String,
+        stopEntry: Boolean = false,
+        adjustableTrailingStop: Boolean = true
     ): WatchlistTradePlan =
         plan.copy(
             side = side,
@@ -248,7 +256,9 @@ object WatchlistUiMapper {
             sizingMode = sizingMode,
             proximityAlertEnabled = proximityAlertEnabled,
             proximityThresholdMode = proximityThresholdMode,
-            proximityThresholdValue = proximityThresholdValueText.toDoubleOrNull()
+            proximityThresholdValue = proximityThresholdValueText.toDoubleOrNull(),
+            stopEntry = stopEntry,
+            adjustableTrailingStop = adjustableTrailingStop
         )
 
     fun outcomeUi(outcome: WatchlistPlanOutcome, currencyCode: String): WatchlistPlanOutcomeUi? {

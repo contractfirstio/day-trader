@@ -81,6 +81,37 @@ class WatchlistPersistenceTest {
         assertEquals(200.0, restored.tradePlans.first().targetPrice)
         assertEquals(10_000.0, restored.tradePlans.first().investmentAmount)
         assertEquals(PlanSizingMode.NOTIONAL, restored.tradePlans.first().sizingMode)
+        assertFalse(restored.tradePlans.first().stopEntry)
+        assertTrue(restored.tradePlans.first().adjustableTrailingStop)
+    }
+
+    @Test
+    fun tradePlansRoundTrip_persistsOrderPlacementOptions() {
+        val plan = WatchlistTradePlan(
+            id = "plan-a",
+            label = "Plan A",
+            side = TradeSide.SHORT,
+            entryPrice = 100.0,
+            stopPrice = 105.0,
+            targetPrice = 90.0,
+            investmentAmount = 5_000.0,
+            stopEntry = true,
+            adjustableTrailingStop = false
+        )
+        val entry = newWatchlistEntry(
+            symbol = "AAPL",
+            marketZoneId = "America/New_York",
+            currencyCode = "USD",
+            companyName = "Apple Inc.",
+            instrument = null
+        ).copy(tradePlans = listOf(plan))
+
+        val restored = WatchlistPersistence.toDomain(
+            WatchlistPersistence.toRecord(defaultWatchlist().copy(entries = listOf(entry)))
+        ).entries.first().tradePlans.first()
+
+        assertTrue(restored.stopEntry)
+        assertFalse(restored.adjustableTrailingStop)
     }
 
     @Test

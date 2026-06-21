@@ -57,7 +57,9 @@ internal fun WatchlistBracketOrderDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "DAY limit entry with take-profit and stop children.",
+                    order.bracketOrderSummary.ifBlank {
+                        "DAY limit entry with take-profit and stop children."
+                    },
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -72,6 +74,14 @@ internal fun WatchlistBracketOrderDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     OrderDetailLine("Side", order.side.name.lowercase().replaceFirstChar { it.uppercase() })
+                    OrderDetailLine(
+                        "Entry type",
+                        if (order.stopEntry) "Stop (STP)" else "Limit (LMT)"
+                    )
+                    OrderDetailLine(
+                        "Stop type",
+                        if (order.adjustableTrailingStop) "Adjustable trailing (STP→TRAIL)" else "Fixed (STP)"
+                    )
                     order.entryPriceText.toDoubleOrNull()?.let {
                         OrderDetailLine("Entry", Formatters.moneyPlain(it, order.currencyCode))
                     }
