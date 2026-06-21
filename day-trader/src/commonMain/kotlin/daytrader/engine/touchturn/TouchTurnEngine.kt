@@ -85,6 +85,7 @@ import daytrader.presentation.strategies.StrategyDetailTab
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -146,12 +147,58 @@ class TouchTurnEngine(
     private val brokerFills = MutableStateFlow<List<daytrader.gateway.BrokerFill>>(emptyList())
     private var globalAutoStartEnabled = true
     private val shutdownRequested = AtomicBoolean(false)
+    private val backtestSyncCommands = AtomicBoolean(false)
     private var commandLoopJob: Job? = null
     private var stopRulesPollJob: Job? = null
     private var autoStartPollJob: Job? = null
 
+    override fun setBacktestSyncCommands(enabled: Boolean) {
+        backtestSyncCommands.set(enabled)
+    }
+
+    override suspend fun dispatchAndAwait(command: TouchTurnCommand, idleSpins: Int) {
+        if (shutdownRequested.get()) return
+        if (backtestSyncCommands.get()) {
+            runCatching { handle(command) }.onFailure { error ->
+                val instanceId = (command as? TouchTurnCommand.StartSession)?.instanceId
+                    ?: (command as? TouchTurnCommand.StopSession)?.instanceId
+                SessionTrace.log(
+                    type = "orchestrator_error",
+                    deploymentId = instanceId,
+                    details = mapOf(
+                        "command" to command::class.simpleName.orEmpty(),
+                        "message" to (error.message ?: "unknown")
+                    )
+                )
+                emit(TouchTurnEvent.OrchestratorError(instanceId, error.message ?: "unknown"))
+            }
+            drainUntilIdle(idleSpins)
+            return
+        }
+        dispatch(command)
+        drainUntilIdle(idleSpins)
+    }
+
     override fun dispatch(command: TouchTurnCommand) {
         if (shutdownRequested.get()) return
+        if (backtestSyncCommands.get()) {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { handle(command) }.onFailure { error ->
+                    val instanceId = (command as? TouchTurnCommand.StartSession)?.instanceId
+                        ?: (command as? TouchTurnCommand.StopSession)?.instanceId
+                    SessionTrace.log(
+                        type = "orchestrator_error",
+                        deploymentId = instanceId,
+                        details = mapOf(
+                            "command" to command::class.simpleName.orEmpty(),
+                            "message" to (error.message ?: "unknown")
+                        )
+                    )
+                    emit(TouchTurnEvent.OrchestratorError(instanceId, error.message ?: "unknown"))
+                }
+            }
+            return
+        }
         commandQueue.trySend(command)
     }
 
@@ -207,6 +254,27 @@ class TouchTurnEngine(
         }
         clearBrokerSnapshotsIfIdle()
     }
+
+    override suspend fun drainUntilIdle(maxSpins: Int) {
+        var idleStreak = 0
+        repeat(maxSpins) {
+            yield()
+            if (hasActiveInstanceJobs()) {
+                idleStreak = 0
+            } else {
+                idleStreak++
+                if (idleStreak >= 4) return
+            }
+        }
+    }
+
+    private fun hasActiveInstanceJobs(): Boolean =
+        liquidityJobs.values.any { it.isActive } ||
+            liquidityEvalJobs.values.any { it.isActive } ||
+            closedBarRefetchJobs.values.any { it.isActive } ||
+            loadJobs.values.any { it.isActive } ||
+            prepareJobs.values.any { it.isActive } ||
+            replayLiquidityRetryJobs.values.any { it.isActive }
 
     private fun clearInstanceTracking(instanceId: String) {
         stuckFormingLogged.remove(instanceId)

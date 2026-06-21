@@ -140,26 +140,31 @@ fun rememberAppDependencies(
         val activateReplayCapture: ((StrategyDeployment) -> String?)? =
             if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null) {
                 { deployment ->
-                    val capture = ReplayBundleResolver.selectCapture(deployment, replayCaptureCatalog)
-                    val bundle = capture?.let { loadReplayBundle(it.directoryPath).getOrNull() }
-                    if (capture == null || bundle == null) {
-                        null
+                    val headlessDate = replayHybridRuntime.headlessBacktestSessionDate(deployment.id)
+                    if (headlessDate != null) {
+                        headlessDate
                     } else {
-                        val previous = replayHybridRuntime.captureRegistry.bundleFor(deployment.symbol)?.sessionId
-                        replayHybridRuntime.registerBundle(bundle)
-                        ReplaySessionController.seedDeploymentIfNeeded(strategyRepository, bundle)
-                        SessionTrace.log(
-                            type = "replay_capture_activated",
-                            deploymentId = deployment.id,
-                            symbol = deployment.symbol,
-                            details = mapOf(
-                                "captureDirectory" to capture.directoryPath,
-                                "captureSessionId" to bundle.sessionId,
-                                "previousSessionId" to (previous ?: "null"),
-                                "captureSessionDate" to (bundle.sessionDate ?: "null")
+                        val capture = ReplayBundleResolver.selectCapture(deployment, replayCaptureCatalog)
+                        val bundle = capture?.let { loadReplayBundle(it.directoryPath).getOrNull() }
+                        if (capture == null || bundle == null) {
+                            null
+                        } else {
+                            val previous = replayHybridRuntime.captureRegistry.bundleFor(deployment.symbol)?.sessionId
+                            replayHybridRuntime.registerBundle(bundle)
+                            ReplaySessionController.seedDeploymentIfNeeded(strategyRepository, bundle)
+                            SessionTrace.log(
+                                type = "replay_capture_activated",
+                                deploymentId = deployment.id,
+                                symbol = deployment.symbol,
+                                details = mapOf(
+                                    "captureDirectory" to capture.directoryPath,
+                                    "captureSessionId" to bundle.sessionId,
+                                    "previousSessionId" to (previous ?: "null"),
+                                    "captureSessionDate" to (bundle.sessionDate ?: "null")
+                                )
                             )
-                        )
-                        bundle.sessionDate
+                            bundle.sessionDate
+                        }
                     }
                 }
             } else {
@@ -168,17 +173,19 @@ fun rememberAppDependencies(
         val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? =
             if (brokerKind == BrokerKind.REPLAY && replayHybridRuntime != null && mutableClock != null) {
                 { instance, sessionDate ->
-                    val othersRunning = strategyRepository.deployments.value.any {
-                        it.status == DeploymentStatus.RUNNING && it.id != instance.id
+                    if (replayHybridRuntime.headlessBacktestDeploymentId != instance.id) {
+                        val othersRunning = strategyRepository.deployments.value.any {
+                            it.status == DeploymentStatus.RUNNING && it.id != instance.id
+                        }
+                        if (!othersRunning) {
+                            ReplaySessionTiming.alignClockToSessionOpen(mutableClock, instance, sessionDate)
+                        }
+                        replayHybridRuntime.prepareForSession(
+                            instanceId = instance.id,
+                            symbol = instance.symbol,
+                            otherSessionsRunning = othersRunning
+                        )
                     }
-                    if (!othersRunning) {
-                        ReplaySessionTiming.alignClockToSessionOpen(mutableClock, instance, sessionDate)
-                    }
-                    replayHybridRuntime.prepareForSession(
-                        instanceId = instance.id,
-                        symbol = instance.symbol,
-                        otherSessionsRunning = othersRunning
-                    )
                 }
             } else {
                 null
@@ -238,6 +245,26 @@ fun rememberAppDependencies(
             if (replaySettingsRepository?.settings?.value?.turboDuringPlayback != true) return false
             return replayHybridRuntime?.playbackOrchestrator?.isPlaying() == true
         }
+        val replayController = if (replayHybridRuntime != null && touchTurnEngine != null) {
+            ReplaySessionController(
+                runtime = replayHybridRuntime,
+                repository = strategyRepository,
+                engine = touchTurnEngine,
+                scope = engineScope
+            )
+        } else {
+            null
+        }
+        val batchReplayRunner = replayController?.let { controller ->
+            BatchReplayRunner(
+                controller = controller,
+                repository = strategyRepository,
+                loadBundle = loadReplayBundle,
+                restoreEngineGlobalAutoStart = {
+                    appStateRepository.state.value.globalAutoStartEnabled
+                },
+            )
+        }
         val viewModel = StrategiesViewModel(
             repository = strategyRepository,
             appStateRepository = appStateRepository,
@@ -252,6 +279,7 @@ fun rememberAppDependencies(
             watchlistRepository = watchlistRepository,
             tradingClock = tradingClock,
             replayTurboActive = ::replayTurboActive,
+            batchReplayProgress = batchReplayRunner?.progress,
         )
         val liquidityAllocatorViewModel = LiquidityAllocatorViewModel(
             deploymentRepository = strategyRepository,
@@ -274,23 +302,6 @@ fun rememberAppDependencies(
         )
         watchlistStrategyCreateBridge.linkDeploymentToWatchlistEntry =
             watchlistViewModel::linkStrategyDeploymentToEntry
-        val replayController = if (replayHybridRuntime != null && touchTurnEngine != null) {
-            ReplaySessionController(
-                runtime = replayHybridRuntime,
-                repository = strategyRepository,
-                engine = touchTurnEngine,
-                scope = engineScope
-            )
-        } else {
-            null
-        }
-        val batchReplayRunner = replayController?.let { controller ->
-            BatchReplayRunner(
-                controller = controller,
-                repository = strategyRepository,
-                loadBundle = loadReplayBundle
-            )
-        }
         AppDependencies(
             marketFilter = marketFilter,
             strategyRepository = strategyRepository,

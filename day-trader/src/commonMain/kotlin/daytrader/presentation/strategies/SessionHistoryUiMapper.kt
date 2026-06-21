@@ -25,7 +25,7 @@ object SessionHistoryUiMapper {
     ): SessionHistoryUiState {
         val closedSessions = mutableListOf<StrategySession>()
         val displaySessions = mutableListOf<StrategySession>()
-        for (session in instance.sessionHistory) {
+        for (session in instance.sessionHistory.toList()) {
             if (!DeploymentMarket.sessionMatchesMarketFilter(session, instance, marketZoneFilter)) continue
             when (session.status) {
                 SessionStatus.CLOSED -> {

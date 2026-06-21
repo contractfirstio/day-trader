@@ -11,4 +11,11 @@ class ReplayClockTest {
         clock.delayMillis(3_000L)
         assertEquals(4_000L, clock.nowEpochMillis())
     }
+
+    @Test
+    fun delayMillis_withoutWallClockDelays_advancesVirtualTimeOnly() = runBlocking {
+        val clock = ReplayClock(initialEpochMs = 1_000L).apply { useWallClockDelays = false }
+        clock.delayMillis(3_000L)
+        assertEquals(4_000L, clock.nowEpochMillis())
+    }
 }

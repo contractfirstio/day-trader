@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 /**
  * Drives interactive replay per deployment: fast-forward the opening bar, then arm merged
@@ -33,6 +34,7 @@ class ReplayPlaybackOrchestrator(
 ) {
     private var engine: TouchTurnEnginePort? = null
     private var repository: StrategyDeploymentRepository? = null
+    private var hybridRuntime: ReplayHybridRuntime? = null
 
     private val _state = MutableStateFlow<ReplayPlaybackState>(ReplayPlaybackState.Idle)
     val state: StateFlow<ReplayPlaybackState> = _state.asStateFlow()
@@ -56,12 +58,20 @@ class ReplayPlaybackOrchestrator(
         quoteFeeder.onOpeningBarQuotesReady = { symbol -> onOpeningBarQuotesReady(symbol) }
     }
 
+    fun bindRuntime(runtime: ReplayHybridRuntime) {
+        hybridRuntime = runtime
+        quoteFeeder.onMaxSpeedQuotePublished = { symbol -> onMaxSpeedQuotePublished(symbol) }
+        quoteFeeder.onDripFinished = { hybridRuntime?.disableBacktestFastPath() }
+    }
+
     fun attach(engine: TouchTurnEnginePort, repository: StrategyDeploymentRepository) {
         this.engine = engine
         this.repository = repository
     }
 
     fun isPlaying(): Boolean = playbackJobs.values.any { it.isActive }
+
+    private fun isMaxSpeed(): Boolean = ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())
 
     /**
      * Refcounted subscription for [symbol]; quotes drip only after [enableDrip] post fast-forward.
@@ -108,6 +118,7 @@ class ReplayPlaybackOrchestrator(
         }
         if (playbackJobs.isEmpty()) {
             _state.value = ReplayPlaybackState.Idle
+            hybridRuntime?.disableBacktestFastPath()
         }
         trace(instanceId, "playback_stopped")
     }
@@ -117,6 +128,7 @@ class ReplayPlaybackOrchestrator(
         playbackJobs.clear()
         quoteFeeder.stopDrip()
         _state.value = ReplayPlaybackState.Idle
+        hybridRuntime?.disableBacktestFastPath()
     }
 
     suspend fun fastForwardOpeningBar(
@@ -164,13 +176,16 @@ class ReplayPlaybackOrchestrator(
         val settleMs = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS
         val targetMs = barEnd + settleMs + 1
         val quotesBefore = feeder.publishedQuoteCount
+        val maxSpeed = isMaxSpeed()
+        val wallDurationMs = if (maxSpeed) 0L else formingWallDurationMs
 
         trace(
             instanceId,
             "fast_forward_started",
             instance,
             mapOf(
-                "formingWallDurationMs" to formingWallDurationMs.toString(),
+                "formingWallDurationMs" to wallDurationMs.toString(),
+                "maxSpeed" to maxSpeed.toString(),
                 "openEpochMs" to openMs.toString(),
                 "barEndEpochMs" to barEnd.toString(),
                 "targetEpochMs" to targetMs.toString(),
@@ -182,11 +197,15 @@ class ReplayPlaybackOrchestrator(
         )
 
         val steps = ReplayPlaybackConfig.FORMING_STEPS.coerceAtLeast(1)
-        if (formingWallDurationMs <= 0L) {
+        if (wallDurationMs <= 0L) {
             clock.advanceTo(targetMs)
-            quoteFeeder.publishUpTo(symbol, targetMs)
+            if (maxSpeed) {
+                hybridRuntime?.publishBacktestQuotesUpTo(symbol, targetMs)
+            } else {
+                quoteFeeder.publishUpTo(symbol, targetMs)
+            }
         } else {
-            val wallStep = (formingWallDurationMs / steps).coerceAtLeast(1L)
+            val wallStep = (wallDurationMs / steps).coerceAtLeast(1L)
             val clockAtFormingStart = clock.nowEpochMillis()
             for (step in 1..steps) {
                 val quoteEpochMs = openMs + (barEnd - openMs) * step / steps
@@ -239,7 +258,12 @@ class ReplayPlaybackOrchestrator(
         var polls = 0
         repeat(ReplayPlaybackConfig.CLOSED_BAR_WAIT_POLLS) {
             polls++
-            delay(ReplayPlaybackConfig.CLOSED_BAR_WAIT_POLL_MS)
+            if (maxSpeed) {
+                repeat(ReplayBacktestFastPath.ENGINE_DRAIN_YIELD_ROUNDS) { yield() }
+                engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
+            } else {
+                delay(ReplayPlaybackConfig.CLOSED_BAR_WAIT_POLL_MS)
+            }
             val touchTurn = repository.deployments.value.find { it.id == instanceId }?.touchTurnSession
             val barClosed = touchTurn?.milestones?.barClosedAt != null
             val hasCandle = touchTurn?.candle != null
@@ -275,7 +299,16 @@ class ReplayPlaybackOrchestrator(
     private suspend fun runInteractivePlayback(instanceId: String) {
         val instance = repository?.deployments?.value?.find { it.id == instanceId }
         val symbol = instance?.symbol ?: return
-        trace(instanceId, "playback_started", instance)
+        val maxSpeed = isMaxSpeed()
+        if (maxSpeed) {
+            hybridRuntime?.enableBacktestFastPath()
+        }
+        trace(
+            instanceId,
+            "playback_started",
+            instance,
+            mapOf("maxSpeed" to maxSpeed.toString())
+        )
         fastForwardOpeningBar(instanceId)
         val feeder = quoteFeeder.feederForSymbol(symbol)
         val total = feeder?.totalQuoteCount ?: 0
@@ -289,6 +322,7 @@ class ReplayPlaybackOrchestrator(
                 "totalQuotes" to total.toString(),
                 "alreadyPublished" to published.toString(),
                 "quoteIntervalMs" to quoteIntervalMs().toString(),
+                "maxSpeed" to maxSpeed.toString(),
                 "clockEpochMs" to clock.nowEpochMillis().toString(),
                 "symbol" to symbol
             )
@@ -303,9 +337,17 @@ class ReplayPlaybackOrchestrator(
             traceAbort(instanceId, "repository_not_attached")
             return
         }
-        trace(instanceId, "bootstrap_wait_started")
-        repeat(400) { poll ->
-            delay(15L)
+        val engine = engine
+        val maxSpeed = isMaxSpeed()
+        trace(instanceId, "bootstrap_wait_started", extra = mapOf("maxSpeed" to maxSpeed.toString()))
+        val maxPolls = if (maxSpeed) ReplayBacktestFastPath.BOOTSTRAP_MAX_YIELDS else 400
+        repeat(maxPolls) { poll ->
+            if (maxSpeed) {
+                yield()
+                engine?.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
+            } else {
+                delay(15L)
+            }
             val deployment = repository.deployments.value.find { it.id == instanceId }
             val session = deployment?.touchTurnSession
             if (session?.openingBarTime != null && session.status == TouchTurnCandleStatus.READY) {
@@ -356,6 +398,20 @@ class ReplayPlaybackOrchestrator(
                     engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
                 }
         }
+    }
+
+    private suspend fun onMaxSpeedQuotePublished(symbol: String) {
+        val engine = engine ?: return
+        val repository = repository ?: return
+        quotesPublishedSinceLiquidityNudge++
+        updateDrippingState()
+        repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+            .forEach { deployment ->
+                engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
+                engine.dispatch(TouchTurnCommand.PollStopRules)
+            }
+        engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
     }
 
     private fun updateDrippingState() {

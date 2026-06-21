@@ -60,7 +60,7 @@ class SessionRollupCache {
             scope = scope,
             sessions = instances.flatMap { deployment ->
                 val fingerprint = deployment.currentConfigurationFingerprint()
-                deployment.sessionHistory.filter { session ->
+                deployment.sessionHistory.toList().filter { session ->
                     session.status == SessionStatus.CLOSED &&
                         session.resolvedConfigurationFingerprint(deployment) == fingerprint
                 }

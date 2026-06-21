@@ -18,12 +18,19 @@ object ReplayGroundTruthApplier {
         repository.update(deploymentId) { deployment ->
             val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
                 ?: return@update deployment
+            val groundTruth = bundle.groundTruth ?: return@update deployment
             val pnl = fills.sessionRealizedPnL()
+            val runRecord = closed.touchTurnRunRecord
+            val updatedRecord = runRecord?.copy(
+                decision = groundTruth.runRecord.decision,
+                stopEvent = groundTruth.runRecord.stopEvent,
+            ) ?: groundTruth.runRecord
             val updated = closed.copy(
                 sessionTrades = fills,
                 pnl = pnl,
                 trades = fills.roundTripCount(),
-                positionOpened = fills.any { it.parentOrderId == 0 }
+                positionOpened = fills.any { it.parentOrderId == 0 },
+                touchTurnRunRecord = updatedRecord,
             )
             deployment.copy(
                 sessionHistory = deployment.sessionHistory.map { session ->

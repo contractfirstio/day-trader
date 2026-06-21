@@ -67,12 +67,103 @@ class ReplayHybridRuntime(
     )
 
     init {
+        wireInteractiveQuoteIngest()
+        quoteFeeder.backtestQuoteIngest = { event ->
+            emulator.ingestExternalQuoteFromReplay(
+                symbol = event.symbol,
+                quote = event.quote,
+                priorClose = null
+            )
+        }
+        playbackOrchestrator.bindRuntime(this)
+    }
+
+    private var backtestFastPathEnabled = false
+
+    /** When set, session-start hooks must not reset runtime or swap captures (headless batch item). */
+    @Volatile
+    var headlessBacktestDeploymentId: String? = null
+        private set
+
+    private var headlessBacktestBundle: SessionBundle? = null
+
+    fun beginHeadlessBacktest(deploymentId: String, bundle: SessionBundle) {
+        headlessBacktestDeploymentId = deploymentId
+        headlessBacktestBundle = bundle
+    }
+
+    fun endHeadlessBacktest() {
+        headlessBacktestDeploymentId = null
+        headlessBacktestBundle = null
+    }
+
+    /**
+     * During headless batch replay, [TouchTurnEngine] must use the bundle already registered by
+     * [ReplaySessionController.runBacktestReplay] — not re-resolve from the catalog on StartSession.
+     */
+    fun headlessBacktestSessionDate(deploymentId: String): String? {
+        if (headlessBacktestDeploymentId != deploymentId) return null
+        return headlessBacktestBundle?.sessionDate
+    }
+
+    private fun wireInteractiveQuoteIngest() {
         quoteFeeder.onCapturedQuotePublished = { event ->
             emulator.ingestExternalQuoteSynchronously(
                 symbol = event.symbol,
                 quote = event.quote,
                 priorClose = null
             )
+        }
+    }
+
+    /** Headless backtest and max-speed interactive replay: no wall-clock sleeps on virtual time. */
+    fun enableBacktestFastPath() {
+        backtestFastPathEnabled = true
+        (clock as? ReplayClock)?.useWallClockDelays = false
+        quoteFeeder.onCapturedQuotePublished = null
+    }
+
+    fun disableBacktestFastPath() {
+        backtestFastPathEnabled = false
+        (clock as? ReplayClock)?.useWallClockDelays = true
+        wireInteractiveQuoteIngest()
+    }
+
+    suspend fun publishBacktestQuotesUpTo(symbol: String, epochMs: Long) {
+        quoteFeeder.publishUpToForBacktest(symbol, epochMs) { event ->
+            emulator.ingestExternalQuoteFromReplay(
+                symbol = event.symbol,
+                quote = event.quote,
+                priorClose = null
+            )
+        }
+    }
+
+    /** Lets the emulator order actor run between headless replay ticks. */
+    suspend fun drainEmulatorPipeline(maxSpins: Int = 8) {
+        if (backtestFastPathEnabled) {
+            emulator.drainOrderActorQueue(maxRounds = maxSpins)
+        } else {
+            emulator.yieldOrderActor(maxSpins)
+        }
+    }
+
+    /** Waits for async bracket placement to finish before replay quotes drive fills. */
+    suspend fun awaitEmulatorBracketPipeline(maxSpins: Int = ReplayBacktestFastPath.BRACKET_ACK_MAX_YIELDS) {
+        if (backtestFastPathEnabled) {
+            emulator.drainOrderActorQueue(maxRounds = maxSpins)
+        } else {
+            emulator.awaitIdleForReplay(maxSpins)
+        }
+    }
+
+    /** Opening-bar publish with no forming-bar wall-clock animation (backtest / max speed). */
+    suspend fun fastForwardOpeningBarForBacktest(symbol: String, targetEpochMs: Long) {
+        clock.advanceTo(targetEpochMs)
+        if (backtestFastPathEnabled) {
+            quoteFeeder.seedGatewayQuotesUpTo(symbol, targetEpochMs)
+        } else {
+            quoteFeeder.publishUpTo(symbol, targetEpochMs)
         }
     }
 
@@ -114,6 +205,7 @@ class ReplayHybridRuntime(
      * resets that symbol/instance so parallel sessions are not torn down.
      */
     fun prepareForSession(instanceId: String, symbol: String, otherSessionsRunning: Boolean) {
+        if (headlessBacktestDeploymentId == instanceId) return
         if (otherSessionsRunning) {
             playbackOrchestrator.stop(instanceId)
             marketDataGateway.resetRefetchIndex(symbol)
@@ -175,13 +267,15 @@ class ReplayHybridRuntime(
             nowEpochMillis = clock::nowEpochMillis,
             delayMillis = clock::delayMillis,
             onReplaySessionStarting = { deployment, _ ->
+                if (headlessBacktestDeploymentId == deployment.id) return@TouchTurnEngine
                 val othersRunning = repository.deployments.value.any {
                     it.status == DeploymentStatus.RUNNING && it.id != deployment.id
                 }
                 prepareForSession(deployment.id, deployment.symbol, othersRunning)
             },
             activateReplayCapture = { deployment ->
-                captureRegistry.bundleFor(deployment.symbol)?.sessionDate
+                headlessBacktestSessionDate(deployment.id)
+                    ?: captureRegistry.bundleFor(deployment.symbol)?.sessionDate
             },
             isReplayOpeningBarQuotesReady = { symbol -> isOpeningBarQuotesReady(symbol) },
             sessionGateway = marketDataGateway,

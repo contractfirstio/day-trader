@@ -31,6 +31,7 @@ object StrategyUiMapper {
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
         brokerPosition: AccountPosition? = null,
         sessionRollupCache: SessionRollupCache? = null,
+        headlessBatchActive: Boolean = false,
     ): StrategyDeploymentRowUi {
         val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
         val lastClosedSession = closedSessions.lastClosed()
@@ -41,9 +42,11 @@ object StrategyUiMapper {
             closedSessions = closedSessions,
             asOfSessionDate = sessionDate,
         ) ?: closedSessions.rollupsForConfiguration(sessionDate, instance)
-        val hasOpenPosition = brokerPosition != null ||
-            (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
-                instance.live.state == ExecutionState.FILLED)
+        val hasOpenPosition = !headlessBatchActive && (
+            brokerPosition != null ||
+                (instance.status == daytrader.domain.DeploymentStatus.RUNNING &&
+                    instance.live.state == ExecutionState.FILLED)
+            )
         val positionPnL = positionUnrealizedPnL(instance, brokerPosition, brokerUnrealizedPnL)
         val positionOutcome = if (hasOpenPosition) {
             DeploymentPositionOutcomeCalculator.resolve(instance, brokerPosition, brokerOpenOrders)
@@ -58,13 +61,18 @@ object StrategyUiMapper {
             sessionDate,
             brokerUnrealizedPnL,
             brokerOpenOrders,
-            hasOpenPosition = hasOpenPosition
+            hasOpenPosition = hasOpenPosition,
+            headlessBatchActive = headlessBatchActive,
         )
         return StrategyDeploymentRowUi(
             id = instance.id,
             name = displayName(instance),
             instrumentName = instrumentDisplayName(instance),
-            status = instance.status,
+            status = if (headlessBatchActive && instance.status == DeploymentStatus.RUNNING) {
+                DeploymentStatus.STOPPED
+            } else {
+                instance.status
+            },
             cardAccent = card.accent,
             statusChipLabel = card.chipLabel,
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
@@ -99,10 +107,13 @@ object StrategyUiMapper {
         brokerUnrealizedPnL: Double? = null,
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
         brokerPosition: AccountPosition? = null,
+        headlessBatchActive: Boolean = false,
     ): StrategyDeploymentRowUi {
-        val hasOpenPosition = brokerPosition != null ||
-            (instance.status == DeploymentStatus.RUNNING &&
-                instance.live.state == ExecutionState.FILLED)
+        val hasOpenPosition = !headlessBatchActive && (
+            brokerPosition != null ||
+                (instance.status == DeploymentStatus.RUNNING &&
+                    instance.live.state == ExecutionState.FILLED)
+            )
         val positionPnL = positionUnrealizedPnL(instance, brokerPosition, brokerUnrealizedPnL)
         val positionOutcome = if (hasOpenPosition) {
             DeploymentPositionOutcomeCalculator.resolve(instance, brokerPosition, brokerOpenOrders)
@@ -117,10 +128,15 @@ object StrategyUiMapper {
             sessionDate,
             brokerUnrealizedPnL,
             brokerOpenOrders,
-            hasOpenPosition = hasOpenPosition
+            hasOpenPosition = hasOpenPosition,
+            headlessBatchActive = headlessBatchActive,
         )
         return row.copy(
-            status = instance.status,
+            status = if (headlessBatchActive && instance.status == DeploymentStatus.RUNNING) {
+                DeploymentStatus.STOPPED
+            } else {
+                instance.status
+            },
             cardAccent = card.accent,
             statusChipLabel = card.chipLabel,
             hasOpenPosition = hasOpenPosition,

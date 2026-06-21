@@ -14,6 +14,16 @@ class LoggingTouchTurnEngine(
         delegate.dispatch(command)
     }
 
+    override fun setBacktestSyncCommands(enabled: Boolean) =
+        delegate.setBacktestSyncCommands(enabled)
+
+    override suspend fun dispatchAndAwait(command: TouchTurnCommand, idleSpins: Int) {
+        log("dispatchAndAwait $command")
+        delegate.dispatchAndAwait(command, idleSpins)
+    }
+
+    override suspend fun drainUntilIdle(maxSpins: Int) = delegate.drainUntilIdle(maxSpins)
+
     override fun start() = delegate.start()
 
     override fun shutdown() = delegate.shutdown()

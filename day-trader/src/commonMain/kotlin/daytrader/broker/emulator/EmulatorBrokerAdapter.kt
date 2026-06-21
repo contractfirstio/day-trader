@@ -26,6 +26,7 @@ import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.yield
 
 /**
  * Single-threaded access to [BrokerEmulatorEngine] via [engineMutex].
@@ -377,8 +378,18 @@ class EmulatorBrokerAdapter(
         ingestExternalQuote(symbol, quote, priorClose)
 
     /**
-     * Evaluates fills immediately on the caller thread. Used by replay so every captured tick
-     * reaches [BrokerEmulatorEngine] without 50ms coalescing.
+     * Evaluates fills immediately on the caller coroutine. Used by headless replay backtest so
+     * every captured tick reaches [BrokerEmulatorEngine] without runBlocking or 50ms coalescing.
+     */
+    suspend fun ingestExternalQuoteFromReplay(symbol: String, quote: LiveQuote, priorClose: Double?) {
+        withEngine {
+            engine.ingestExternalQuote(symbol, quote, priorClose)
+        }
+    }
+
+    /**
+     * Evaluates fills immediately on the caller thread. Used by interactive replay when the publish
+     * path is not suspend-capable.
      */
     fun ingestExternalQuoteSynchronously(symbol: String, quote: LiveQuote, priorClose: Double?) {
         runBlocking {
@@ -425,6 +436,34 @@ class EmulatorBrokerAdapter(
     fun pruneSymbolSessionState(symbol: String) {
         latestExternalQuotes.remove(SymbolMarkets.normalizeSymbol(symbol))
         runBlocking { withEngine { engine.pruneSymbolSessionState(symbol) } }
+    }
+
+    /**
+     * Short yield for interactive replay drive loops — enough for the order actor to dequeue one bracket.
+     */
+    suspend fun yieldOrderActor(maxSpins: Int = 16) {
+        repeat(maxSpins) {
+            yield()
+            delay(ORDER_SELECT_TIMEOUT_MS)
+        }
+    }
+
+    /**
+     * Headless backtest: process queued bracket/control messages without wall-clock pacing.
+     */
+    suspend fun drainOrderActorQueue(maxRounds: Int = 16) {
+        repeat(maxRounds) {
+            drainControlChannel()
+            runCoalescedSimulationWork()
+            yield()
+        }
+    }
+
+    /**
+     * Longer wait after bracket submit before quote-driven fill replay begins.
+     */
+    suspend fun awaitIdleForReplay(maxSpins: Int = 512) {
+        yieldOrderActor(maxSpins)
     }
 
     override fun shutdown() {

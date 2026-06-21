@@ -40,11 +40,14 @@ import daytrader.replay.ReplayQuoteSpeed
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.ReplaySettings
 import daytrader.replay.SessionBundle
+import daytrader.diagnostics.SessionTrace
 import daytrader.ui.theme.GainGreen
 import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TextSecondary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ReplayControlBar(
@@ -155,7 +158,15 @@ fun ReplayControlBar(
                 onClick = {
                     if (running || batchReplayRunner == null) return@Button
                     scope.launch {
-                        batchReplayRunner.runCatalog(targets)
+                        withContext(Dispatchers.Default) {
+                            batchReplayRunner.runCatalog(targets)
+                            batchReplayRunner.lastRunDiagnostics?.let { diagnostics ->
+                                SessionTrace.log(
+                                    type = "batch_replay_completed",
+                                    details = diagnostics.toTraceDetails(),
+                                )
+                            }
+                        }
                     }
                 },
                 enabled = !running && batchReplayRunner != null && targets.isNotEmpty(),
@@ -227,15 +238,15 @@ private fun batchSummaryLabel(summary: BatchReplaySummary): String {
 }
 
 private fun playbackStatusLabel(state: ReplayPlaybackState, settings: ReplaySettings): String {
-    val intervalLabel = if (settings.quoteIntervalMs <= 0L) {
-        "instant"
+    val intervalLabel = if (ReplayQuoteSpeed.isMaxSpeed(settings.quoteIntervalMs)) {
+        "max speed"
     } else {
         "${settings.quoteIntervalMs} ms"
     }
     val turboLabel = if (settings.turboDuringPlayback) " · turbo on" else ""
     return when (state) {
         ReplayPlaybackState.Idle ->
-            "Interactive Start uses quote speed $intervalLabel$turboLabel · Run Replay is headless batch"
+        "Interactive Start uses quote speed $intervalLabel$turboLabel · Run Replay is headless batch (progress bar only until complete)"
         is ReplayPlaybackState.FastForming ->
             "Opening bar fast-forward (${state.step}/${state.totalSteps})$turboLabel"
         ReplayPlaybackState.AwaitingClosedBar -> "Loading closed candle from capture…$turboLabel"

@@ -80,6 +80,7 @@ import daytrader.presentation.ui.safeUiEmit
 import daytrader.presentation.ui.safeUiMap
 import daytrader.presentation.markets.marketLabelForZone
 import daytrader.presentation.positions.SortDirection
+import daytrader.replay.BatchReplayProgress
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -112,9 +113,16 @@ class StrategiesViewModel(
     private val watchlistRepository: WatchlistRepository? = null,
     private val tradingClock: TradingClock = WallClock,
     private val replayTurboActive: () -> Boolean = { false },
+    private val batchReplayProgress: StateFlow<BatchReplayProgress>? = null,
     viewModelScope: CoroutineScope? = null,
     private val enableBackgroundWatchers: Boolean = true,
 ) {
+    /** When true, batch Run Replay is in progress — hide live session UI until results land. */
+    private var headlessBatchReplayActive = false
+
+    private fun isHeadlessBatchReplayRunning(): Boolean =
+        headlessBatchReplayActive || batchReplayProgress?.value?.running == true
+
     private val scope = viewModelScope ?: UiCoroutineScopes.forScreen(AppScreen.STRATEGIES, "StrategiesViewModel")
     private val sessionGateway = touchTurnSessionGateway ?: brokerGateway
     private val requiresBidAskForFills = brokerKind.usesLiveIbMarketData
@@ -207,10 +215,12 @@ class StrategiesViewModel(
                 pruneTouchTurnPriceHistories()
                 invalidateRollupCacheForChangedDeployments(list)
                 refreshBrokerDeploymentIndex()
-                reconcileSelectedDeployment(list)
-                // Engine auto-start/stop updates the repository off the manual toggle path;
-                // refresh the left-rail cards immediately so status chips don't stay on Stopped.
-                emitUiState()
+                if (!isHeadlessBatchReplayRunning()) {
+                    reconcileSelectedDeployment(list)
+                    // Engine auto-start/stop updates the repository off the manual toggle path;
+                    // refresh the left-rail cards immediately so status chips don't stay on Stopped.
+                    emitUiState()
+                }
             }
             .launchIn(scope)
 
@@ -225,6 +235,21 @@ class StrategiesViewModel(
         selectedMarketZoneId = marketFilter.selectedZoneId.value
         refreshBrokerDeploymentIndex()
         emitUiState()
+
+        batchReplayProgress
+            ?.onEach { progress ->
+                val active = progress.running
+                if (headlessBatchReplayActive != active) {
+                    headlessBatchReplayActive = active
+                    if (!active) {
+                        syncDeploymentsFromRepository()
+                        invalidateRollupCacheForChangedDeployments(deployments)
+                        refreshBrokerDeploymentIndex()
+                    }
+                    emitUiState()
+                }
+            }
+            ?.launchIn(scope)
 
         brokerGateway?.let { gateway ->
             gateway.positions
@@ -342,6 +367,7 @@ class StrategiesViewModel(
                     deploymentId = event.instanceId,
                     details = mapOf("tab" to event.tab.name)
                 )
+                if (isHeadlessBatchReplayRunning()) return
                 appStateRepository.update {
                     it.copy(selectedDeploymentId = event.instanceId, detailTab = event.tab)
                 }
@@ -354,6 +380,7 @@ class StrategiesViewModel(
                     details = mapOf("trigger" to event.trigger.name)
                 )
                 TouchTurnStateSyncLog.clearDeployment(event.instanceId)
+                if (isHeadlessBatchReplayRunning()) return
                 appStateRepository.update {
                     it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.SESSION_HISTORY)
                 }
@@ -377,6 +404,7 @@ class StrategiesViewModel(
                         "startedBy" to event.startedBy.name
                     )
                 )
+                if (isHeadlessBatchReplayRunning()) return
                 appStateRepository.update {
                     it.copy(selectedDeploymentId = event.instanceId, detailTab = StrategyDetailTab.LIVE)
                 }
@@ -1381,7 +1409,7 @@ class StrategiesViewModel(
         val currentIds = list.map { it.id }.toSet()
         val invalidated = mutableSetOf<String>()
         for (deployment in list) {
-            val closedSessions = deployment.sessionHistory.filter { it.status == SessionStatus.CLOSED }
+            val closedSessions = deployment.sessionHistory.toList().filter { it.status == SessionStatus.CLOSED }
             val fingerprint = SessionRollupCache.fingerprint(closedSessions)
             val previous = closedSessionFingerprintsByDeployment.put(deployment.id, fingerprint)
             if (previous != null && previous != fingerprint) {
@@ -1487,6 +1515,7 @@ class StrategiesViewModel(
     }
 
     private fun emitUiState(scope: UiRefreshScope = UiRefreshScope.Full) {
+        if (isHeadlessBatchReplayRunning()) return
         safeUiEmit(AppScreen.STRATEGIES, "emitUiState") {
             syncDeploymentsFromRepository()
             if (scope != UiRefreshScope.LiveMarket) {
@@ -1642,6 +1671,7 @@ class StrategiesViewModel(
                     brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
                     brokerPosition = brokerPosition,
                     sessionRollupCache = sessionRollupCache,
+                    headlessBatchActive = headlessBatchReplayActive,
                 )
             }
         }.orEmpty()
@@ -1663,6 +1693,7 @@ class StrategiesViewModel(
                 brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
                 brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
                 brokerPosition = brokerPosition,
+                headlessBatchActive = headlessBatchReplayActive,
             )
         }
     }
@@ -1679,15 +1710,18 @@ class StrategiesViewModel(
         val selected = ctx.selected ?: return null
         val brokerPosition = brokerDeploymentIndex.openPosition(selected)
         val selectedBrokerPnL = brokerPosition?.totalUnrealizedPnL
-        val selectedHasOpenPosition = brokerDeploymentIndex.hasOpenPosition(selected)
+        val selectedHasOpenPosition = !headlessBatchReplayActive && (
+            brokerDeploymentIndex.hasOpenPosition(selected) ||
+                (selected.status == DeploymentStatus.RUNNING &&
+                    selected.live.state == ExecutionState.FILLED)
+            )
         return DeploymentCardStateMapper.resolve(
             selected,
             ctx.sessionDate,
             selectedBrokerPnL,
             brokerDeploymentIndex.openOrders(selected),
-            hasOpenPosition = selectedHasOpenPosition ||
-                (selected.status == DeploymentStatus.RUNNING &&
-                    selected.live.state == ExecutionState.FILLED)
+            hasOpenPosition = selectedHasOpenPosition,
+            headlessBatchActive = headlessBatchReplayActive,
         )
     }
 
@@ -1707,6 +1741,7 @@ class StrategiesViewModel(
 
     private fun buildTouchTurnPipelineGraph(ctx: EmitContext): TouchTurnPipelineGraph? {
         val selected = ctx.selected ?: return null
+        if (headlessBatchReplayActive && selected.status == DeploymentStatus.RUNNING) return null
         if (selected.isTouchTurn && selected.status == DeploymentStatus.RUNNING) {
             pipelineRefreshTick
         }
@@ -1736,7 +1771,7 @@ class StrategiesViewModel(
 
     private fun buildSelectedLiveSnapshot(ctx: EmitContext): SelectedLiveSnapshot? {
         val instance = ctx.selected ?: return null
-        val showsLiveMarketQuotes = TradingPanelRecap.showsLiveMarketQuotes(
+        val showsLiveMarketQuotes = !headlessBatchReplayActive && TradingPanelRecap.showsLiveMarketQuotes(
             instance,
             ctx.state.tradingPanelDismissedRecapSessionId,
             historicRunId = ctx.recapRunId,
@@ -1769,6 +1804,7 @@ class StrategiesViewModel(
             connection = if (requiresBidAskForFills) marketDataConnection else brokerConnection,
             includeMarketQuotes = snapshot?.showsLiveMarketQuotes == true,
             requireBidAskForFills = requiresBidAskForFills &&
+                !headlessBatchReplayActive &&
                 instance.status == DeploymentStatus.RUNNING &&
                 lifecycleForQuotes?.phase != TouchTurnOrderLifecyclePhase.NOT_PLACED
         )
@@ -1776,6 +1812,7 @@ class StrategiesViewModel(
 
     private fun buildLiveSessionTrades(ctx: EmitContext): LiveSessionTradesUiState? {
         val instance = ctx.selected ?: return null
+        if (headlessBatchReplayActive && instance.status == DeploymentStatus.RUNNING) return null
         if (instance.status != DeploymentStatus.RUNNING && !ctx.showSessionRecap) {
             return null
         }

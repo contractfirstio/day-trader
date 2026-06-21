@@ -30,6 +30,35 @@ class QuoteFeederTest {
     }
 
     @Test
+    fun seedGatewayQuotesUpTo_updatesGatewayWithoutAdvancingIndex() {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val gateway = ReplayMarketDataGateway(ReplayCaptureRegistry(bundle))
+        val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
+        val lastEpoch = bundle.quoteEvents.last().epochMs
+
+        feeder.seedGatewayQuotesUpTo(lastEpoch)
+
+        assertEquals(0, feeder.publishedQuoteCount)
+        assertNotNull(gateway.quotes.value[bundle.symbol])
+        assertEquals(1, feeder.indexOfFirstQuoteAfter(lastEpoch - 1))
+    }
+
+    @Test
+    fun seekToFirstQuoteAfter_positionsForPostOpeningBarDrive() {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
+        val gateway = ReplayMarketDataGateway(ReplayCaptureRegistry(bundle))
+        val feeder = QuoteFeeder(bundle, quoteBus = null, marketDataGateway = gateway)
+        val splitEpoch = bundle.quoteEvents.first().epochMs
+
+        feeder.seekToFirstQuoteAfter(splitEpoch - 1)
+        assertEquals(0, feeder.publishedQuoteCount)
+
+        feeder.seekToFirstQuoteAfter(splitEpoch)
+        assertEquals(1, feeder.publishedQuoteCount)
+        assertNotNull(feeder.peekNext())
+    }
+
+    @Test
     fun publishSymbolOverride_republishesUnderDeploymentSymbol() {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.minimalContents()).getOrThrow()
         val gateway = ReplayMarketDataGateway(ReplayCaptureRegistry(bundle))

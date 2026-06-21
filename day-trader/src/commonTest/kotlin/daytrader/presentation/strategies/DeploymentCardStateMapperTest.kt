@@ -24,6 +24,32 @@ class DeploymentCardStateMapperTest {
     }
 
     @Test
+    fun headlessBatch_showsStoppedPresentationWhileEngineRunning() {
+        val instance = deployment(
+            status = DeploymentStatus.RUNNING,
+            live = ActiveExecution.flat(),
+            sessionHistory = listOf(
+                StrategySession(
+                    id = "r1",
+                    date = sessionDate,
+                    pnl = 25.0,
+                    trades = 1,
+                    maxAtRisk = 1000,
+                    status = SessionStatus.CLOSED,
+                    stoppedAt = "2026-05-22T16:00:00"
+                )
+            )
+        )
+        val card = DeploymentCardStateMapper.resolve(
+            instance,
+            sessionDate,
+            headlessBatchActive = true,
+        )
+        assertEquals(DeploymentCardAccent.STOPPED_WIN, card.accent)
+        assertEquals("Win", card.chipLabel)
+    }
+
+    @Test
     fun running_inTheMoney_whenFilledAndPositiveUnrealized() {
         val instance = deployment(
             status = DeploymentStatus.RUNNING,

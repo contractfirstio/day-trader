@@ -14,6 +14,13 @@ class ReplayClock(initialEpochMs: Long) : MutableTradingClock {
     @Volatile
     private var nowMs: Long = initialEpochMs
 
+    /**
+     * When false (headless backtest), [delayMillis] advances virtual time only — no wall-clock sleep.
+     * Interactive replay keeps this true so background poll loops can interleave.
+     */
+    @Volatile
+    var useWallClockDelays: Boolean = true
+
     override fun nowEpochMillis(): Long = nowMs
 
     override fun reset(epochMs: Long) {
@@ -31,6 +38,10 @@ class ReplayClock(initialEpochMs: Long) : MutableTradingClock {
     override suspend fun delayMillis(ms: Long) {
         if (ms <= 0) return
         advanceBy(ms)
+        if (!useWallClockDelays) {
+            yield()
+            return
+        }
         yield()
         delay(1L)
     }

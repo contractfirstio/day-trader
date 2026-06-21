@@ -79,9 +79,7 @@ object ReplayBacktestResultBuilder {
         }
         val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
         val trades = closed?.sessionTrades?.dedupeByExecId().orEmpty()
-        val outcome = closed?.touchTurnRunRecord?.decision?.outcome
-            ?: deployment.touchTurnSession?.decisionOutcome
-            ?: deployment.touchTurnSession?.let(::resolveTouchTurnSessionOutcome)
+        val outcome = resolveOutcome(deployment, closed)
         val pnl = trades.sessionRealizedPnL().takeIf { it != 0.0 } ?: (closed?.pnl ?: 0.0)
         val roundTrips = trades.roundTripCount().takeIf { it > 0 } ?: (closed?.trades ?: 0)
         val tangible = errorMessage == null && closed != null && outcome != null
@@ -100,6 +98,16 @@ object ReplayBacktestResultBuilder {
             usedGroundTruthFills = usedGroundTruthFills,
             errorMessage = errorMessage
         )
+    }
+
+    fun resolveOutcome(
+        deployment: StrategyDeployment,
+        closed: daytrader.domain.StrategySession?,
+    ): TouchTurnSessionOutcome? {
+        closed?.touchTurnRunRecord?.decision?.outcome?.let { return it }
+        deployment.touchTurnSession?.decisionOutcome?.let { return it }
+        deployment.touchTurnSession?.let(::resolveTouchTurnSessionOutcome)?.let { return it }
+        return null
     }
 
     fun summarize(results: List<ReplayBacktestResult>): BatchReplaySummary {

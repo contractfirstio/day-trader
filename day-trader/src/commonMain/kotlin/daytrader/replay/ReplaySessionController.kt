@@ -2,6 +2,7 @@ package daytrader.replay
 
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnRuleConfig
@@ -10,12 +11,16 @@ import daytrader.gateway.BrokerKind
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
+import daytrader.domain.TouchTurnDefaults
+import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.platform.MutableTradingClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
+import kotlin.coroutines.CoroutineContext
 import kotlin.math.min
 
 /**
@@ -28,6 +33,9 @@ class ReplaySessionController(
     private val engine: TouchTurnEnginePort,
     private val scope: CoroutineScope
 ) {
+    /** Engine scope — batch replay must run here so sync backtest commands can execute. */
+    val engineCoroutineContext: CoroutineContext get() = scope.coroutineContext
+
     private val bundle: SessionBundle
         get() = runtime.bundle
 
@@ -38,6 +46,8 @@ class ReplaySessionController(
 
     var lastFillComparison: ReplayFillComparison? = null
         private set
+
+    private var backtestFastPath = false
 
     fun seedDeploymentIfNeeded() {
         seedDeploymentIfNeeded(repository, bundle)
@@ -92,26 +102,32 @@ class ReplaySessionController(
      */
     suspend fun runBacktestReplay(
         bundle: SessionBundle,
-        captureDirectory: String? = null
-    ): ReplayBacktestResult {
+        captureDirectory: String? = null,
+        options: ReplayBacktestOptions = ReplayBacktestOptions(),
+    ): ReplayBacktestRun {
         require(bundle.hasGroundTruth) { "Replay bundle missing ground truth (session_closed)" }
         val sessionDate = bundle.sessionDate ?: error("Replay bundle missing sessionDate")
         val deploymentId = bundle.deploymentId
+        val orchestrator = runtime.playbackOrchestrator
+        stopAllRunningSessions()
+        orchestrator.stopAll()
+        orchestrator.interactiveAutoStartEnabled = false
         seedDeploymentIfNeeded(repository, bundle)
-        runtime.registerBundle(bundle)
         runtime.resetExecutionState(engine)
+        runtime.registerBundle(bundle)
         runtime.reseedBacktestRandom(ReplayBacktestPolicy.emulatorSeed(bundle))
         repository.update(deploymentId) { it.withoutClosedSessionHistory() }
         val deploymentBefore = repository.deployments.value.find { it.id == deploymentId }
         val useGroundTruthFills = deploymentBefore?.let {
             ReplayBacktestPolicy.useGroundTruthFills(it, bundle)
         } == true
-        val orchestrator = runtime.playbackOrchestrator
-        orchestrator.interactiveAutoStartEnabled = false
-        clock.reset(bundle.timeline.sessionStartedEpochMs)
+        alignBacktestClock(deploymentBefore, sessionDate, bundle)
+        enableBacktestFastPath()
+        runtime.beginHeadlessBacktest(deploymentId, bundle)
 
+        var runError: Throwable? = null
         try {
-            engine.dispatch(
+            dispatchEngine(
                 TouchTurnCommand.StartSession(
                     instanceId = deploymentId,
                     sessionDate = sessionDate,
@@ -119,43 +135,167 @@ class ReplaySessionController(
                 )
             )
             awaitBootstrap(deploymentId)
-            orchestrator.fastForwardOpeningBar(
-                instanceId = deploymentId,
-                formingWallDurationMs = ReplayPlaybackConfig.FORMING_WALL_DURATION_MS
-            )
+            fastForwardOpeningBarForBacktest(deploymentId, bundle.symbol)
+            if (shouldAwaitBacktestBracketOutcome(deploymentId)) {
+                awaitBacktestBracketOutcome(deploymentId)
+            }
             driveSessionToCompletion(deploymentId, bundle)
+            awaitBacktestSessionStopped(deploymentId)
+            forceStopIfRunning(deploymentId)
+            awaitClosedSessionForGroundTruth(deploymentId)
+
+            if (useGroundTruthFills) {
+                ReplayGroundTruthApplier.apply(repository, deploymentId, bundle)
+            }
+        } catch (error: Throwable) {
+            runError = error
         } finally {
-            orchestrator.interactiveAutoStartEnabled = true
+            runtime.endHeadlessBacktest()
+            disableBacktestFastPath()
+            if (!options.deferRepositoryUpdates) {
+                orchestrator.interactiveAutoStartEnabled = true
+            }
+            forceStopIfRunning(deploymentId)
+            if (!options.deferRepositoryUpdates) {
+                runtime.resetExecutionState(engine)
+            }
         }
 
-        if (useGroundTruthFills) {
-            ReplayGroundTruthApplier.apply(repository, deploymentId, bundle)
-        }
-
-        repository.flushPersistenceBlocking()
         val deployment = repository.deployments.value.find { it.id == deploymentId }
         val result = ReplayBacktestResultBuilder.fromDeployment(
             deployment = deployment,
             bundle = bundle,
             captureDirectory = captureDirectory,
-            usedGroundTruthFills = useGroundTruthFills
+            usedGroundTruthFills = useGroundTruthFills,
+            errorMessage = runError?.message ?: runError?.let { it::class.simpleName },
         )
+        if (!options.deferRepositoryUpdates) {
+            repository.flushPersistenceBlocking()
+        }
+        runError?.let { throw it }
+        return ReplayBacktestRun(result = result, deploymentAfterReplay = deployment)
+    }
+
+    private suspend fun dispatchEngine(command: TouchTurnCommand) {
+        if (backtestFastPath) {
+            engine.dispatchAndAwait(
+                command,
+                idleSpins = ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS,
+            )
+        } else {
+            engine.dispatch(command)
+        }
+    }
+
+    suspend fun cleanupAfterBacktestRun() {
+        stopAllRunningSessions()
         runtime.resetExecutionState(engine)
-        return result
+    }
+
+    fun setInteractiveAutoStartEnabled(enabled: Boolean) {
+        runtime.playbackOrchestrator.interactiveAutoStartEnabled = enabled
+    }
+
+    fun setEngineGlobalAutoStartEnabled(enabled: Boolean) {
+        engine.updateGlobalAutoStartEnabled(enabled)
+    }
+
+    /** One headless catalog run at a time — no parallel replay sessions or market-open auto-starts. */
+    suspend fun beginBatchReplayIsolation() {
+        setEngineGlobalAutoStartEnabled(false)
+        setInteractiveAutoStartEnabled(false)
+        runtime.playbackOrchestrator.stopAll()
+        stopAllRunningSessions()
+    }
+
+    suspend fun endBatchReplayIsolation(restoreEngineGlobalAutoStart: Boolean) {
+        stopAllRunningSessions()
+        cleanupAfterBacktestRun()
+        setEngineGlobalAutoStartEnabled(restoreEngineGlobalAutoStart)
+        setInteractiveAutoStartEnabled(true)
     }
 
     /** Regression replay for a single primary [bundle]; compares against captured ground truth. */
     suspend fun runReplay(): ReplayComparison {
-        val result = runBacktestReplay(bundle)
+        val run = runBacktestReplay(bundle)
         val deployment = repository.deployments.value.find { it.id == bundle.deploymentId }
             ?: error("Deployment missing after replay")
         val comparison = ReplayAssertions.compare(deployment, bundle)
         lastComparison = comparison
         lastFillComparison = ReplayFillAssertions.compare(deployment, bundle)
-        if (!result.hasTangibleResult && result.errorMessage != null) {
-            error(result.errorMessage)
+        if (!run.result.hasTangibleResult && run.result.errorMessage != null) {
+            error(run.result.errorMessage)
         }
         return comparison
+    }
+
+    private fun alignBacktestClock(
+        deployment: daytrader.domain.StrategyDeployment?,
+        sessionDate: String,
+        bundle: SessionBundle,
+    ) {
+        if (deployment != null &&
+            ReplaySessionTiming.alignClockToSessionOpen(clock, deployment, sessionDate) != null
+        ) {
+            return
+        }
+        clock.reset(bundle.timeline.sessionStartedEpochMs)
+    }
+
+    private suspend fun forceStopIfRunning(instanceId: String) {
+        if (currentDeployment(instanceId)?.status != DeploymentStatus.RUNNING) return
+        dispatchEngine(
+            TouchTurnCommand.StopSession(
+                instanceId = instanceId,
+                trigger = TouchTurnSessionStopTrigger.MANUAL,
+            )
+        )
+        awaitStopped(instanceId)
+    }
+
+    suspend fun stopAllRunningSessions() {
+        val maxRounds = if (backtestFastPath) {
+            ReplayBacktestFastPath.STOP_MAX_YIELDS
+        } else {
+            MAX_STOP_TICKS
+        }
+        repeat(maxRounds) {
+            val running = repository.deployments.value.filter { it.status == DeploymentStatus.RUNNING }
+            if (running.isEmpty()) return
+            running.forEach { deployment ->
+                dispatchEngine(
+                    TouchTurnCommand.StopSession(
+                        instanceId = deployment.id,
+                        trigger = TouchTurnSessionStopTrigger.MANUAL,
+                    )
+                )
+            }
+            drainEngine()
+            yield()
+        }
+    }
+
+    private suspend fun fastForwardOpeningBarForBacktest(instanceId: String, symbol: String) {
+        val deployment = currentDeployment(instanceId) ?: return
+        val session = deployment.touchTurnSession ?: return
+        val openingBarTime = session.resolvedOpeningBarTime() ?: return
+        val zoneId = session.marketZoneId
+        val barEnd = TouchTurnLogic.barEndEpochMillis(openingBarTime, zoneId) ?: return
+        val targetMs = TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + barEnd + 1
+        runtime.fastForwardOpeningBarForBacktest(symbol, targetMs)
+        runtime.quoteFeeder.markOpeningBarQuotesReady(symbol)
+        dispatchEngine(TouchTurnCommand.PollLiquidity(instanceId))
+        awaitClosedBarAfterFastForward(instanceId)
+        runtime.quoteFeeder.seekToFirstQuoteAfter(symbol, targetMs)
+    }
+
+    private suspend fun awaitClosedBarAfterFastForward(instanceId: String) {
+        repeat(ReplayPlaybackConfig.CLOSED_BAR_WAIT_POLLS) {
+            drainEngine()
+            val session = currentDeployment(instanceId)?.touchTurnSession
+            if (session?.milestones?.barClosedAt != null && session.candle != null) return
+            dispatchEngine(TouchTurnCommand.PollLiquidity(instanceId))
+        }
     }
 
     private suspend fun driveSessionToCompletion(instanceId: String, bundle: SessionBundle) {
@@ -174,8 +314,8 @@ class ReplaySessionController(
 
         while (rounds < maxDriveRounds) {
             rounds++
-            val deployment = currentDeployment(instanceId) ?: break
-            if (deployment.status != DeploymentStatus.RUNNING) break
+            val deployment = currentDeployment(instanceId) ?: return
+            if (deployment.status != DeploymentStatus.RUNNING) return
 
             val feeder = runtime.quoteFeeder.feederForSymbol(symbol)
             val published = feeder?.publishedQuoteCount ?: 0
@@ -183,69 +323,175 @@ class ReplaySessionController(
                 val targetIndex = min(published + BACKTEST_QUOTE_CHUNK_SIZE, quotes.size) - 1
                 val targetEpoch = quotes[targetIndex].epochMs
                 clock.advanceTo(targetEpoch)
-                runtime.quoteFeeder.publishUpTo(symbol, targetEpoch)
+                publishBacktestQuotesUpTo(symbol, targetEpoch)
             } else if (clock.nowEpochMillis() < maxEpoch) {
                 clock.advanceTo(maxEpoch)
-                runtime.quoteFeeder.publishUpTo(symbol, maxEpoch)
+                publishBacktestQuotesUpTo(symbol, maxEpoch)
             }
 
-            engine.dispatch(TouchTurnCommand.PollLiquidity(instanceId))
-            engine.dispatch(TouchTurnCommand.PollStopRules)
+            dispatchEngine(TouchTurnCommand.PollLiquidity(instanceId))
+            dispatchEngine(TouchTurnCommand.PollStopRules)
             drainEngine()
 
-            val touchTurn = deployment.touchTurnSession
+            val after = currentDeployment(instanceId)
+            if (after?.status != DeploymentStatus.RUNNING) return
+
+            val touchTurn = after.touchTurnSession
             if (touchTurn?.candle == null && touchTurn?.milestones?.barClosedAt != null) {
                 clock.advanceBy(TouchTurnEngineConfig.CLOSED_BAR_REFETCH_RETRY_DELAY_MS)
-                runtime.quoteFeeder.publishUpTo(symbol, clock.nowEpochMillis())
-                engine.dispatch(TouchTurnCommand.PollLiquidity(instanceId))
+                publishBacktestQuotesUpTo(symbol, clock.nowEpochMillis())
+                dispatchEngine(TouchTurnCommand.PollLiquidity(instanceId))
                 drainEngine()
             }
 
-            val after = currentDeployment(instanceId)
-            if (after?.status != DeploymentStatus.RUNNING) break
+            if (touchTurn?.ordersPlacedForSession == true) {
+                stuckPolls = 0
+            }
 
             val nowPublished = runtime.quoteFeeder.feederForSymbol(symbol)?.publishedQuoteCount ?: published
-            if (nowPublished >= quotes.size && nowPublished == lastPublished) {
+            val quotesExhausted = nowPublished >= quotes.size
+            val clockAtEnd = clock.nowEpochMillis() >= maxEpoch
+            val awaitingFillOutcome = touchTurn?.ordersPlacedForSession == true &&
+                !quotesExhausted
+            if (!awaitingFillOutcome && quotesExhausted && clockAtEnd && nowPublished == lastPublished) {
                 stuckPolls++
-                if (stuckPolls >= STUCK_STOP_RULE_POLLS) break
-            } else {
+                if (stuckPolls >= STUCK_STOP_RULE_POLLS) return
+            } else if (!awaitingFillOutcome) {
                 stuckPolls = 0
             }
             lastPublished = nowPublished
         }
+    }
 
-        if (currentDeployment(instanceId)?.status == DeploymentStatus.RUNNING) {
-            engine.dispatch(
-                TouchTurnCommand.StopSession(
-                    instanceId = instanceId,
-                    trigger = TouchTurnSessionStopTrigger.MANUAL
-                )
-            )
-            awaitStopped(instanceId)
+    private fun shouldAwaitBacktestBracketOutcome(instanceId: String): Boolean {
+        val session = currentDeployment(instanceId)?.touchTurnSession ?: return false
+        if (session.ordersPlacedForSession) return false
+        if (session.decisionOutcome in backtestTerminalNoBracketOutcomes) return false
+        val setup = session.setup ?: return false
+        return session.entryOrdersPermitted == true &&
+            TouchTurnLogic.setupActionableForEntry(setup, session.rules)
+    }
+
+    private suspend fun awaitBacktestBracketOutcome(instanceId: String) {
+        repeat(ReplayBacktestFastPath.BRACKET_ACK_MAX_YIELDS) {
+            drainEngine()
+            runtime.awaitEmulatorBracketPipeline(maxSpins = 8)
+            val session = currentDeployment(instanceId)?.touchTurnSession ?: return
+            if (session.ordersPlacedForSession) return
+            if (session.decisionOutcome in backtestTerminalNoBracketOutcomes) return
+            if (session.milestones.liquidityEvaluatedAt != null &&
+                (session.setup == null || session.entryOrdersPermitted != true)
+            ) {
+                return
+            }
+            yield()
         }
     }
 
-    private suspend fun drainEngine() {
-        repeat(ENGINE_DRAIN_ROUNDS) {
+    private val backtestTerminalNoBracketOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+        TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+        TouchTurnSessionOutcome.NO_TRADE_DOJI,
+        TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
+    )
+
+    private suspend fun awaitBacktestSessionStopped(instanceId: String) {
+        val maxTicks = if (backtestFastPath) {
+            ReplayBacktestFastPath.STOP_MAX_YIELDS
+        } else {
+            MAX_STOP_TICKS
+        }
+        repeat(maxTicks) {
+            if (currentDeployment(instanceId)?.status != DeploymentStatus.RUNNING) return
+            dispatchEngine(TouchTurnCommand.PollStopRules)
+            drainEngine()
             yield()
-            delay(ENGINE_DRAIN_MS)
+        }
+    }
+
+    private suspend fun publishBacktestQuotesUpTo(symbol: String, epochMs: Long) {
+        if (backtestFastPath) {
+            runtime.publishBacktestQuotesUpTo(symbol, epochMs)
+        } else {
+            runtime.quoteFeeder.publishUpTo(symbol, epochMs)
+        }
+    }
+
+    private fun enableBacktestFastPath() {
+        backtestFastPath = true
+        runtime.enableBacktestFastPath()
+        engine.setBacktestSyncCommands(true)
+    }
+
+    private fun disableBacktestFastPath() {
+        backtestFastPath = false
+        engine.setBacktestSyncCommands(false)
+        runtime.disableBacktestFastPath()
+    }
+
+    private suspend fun drainEngine() {
+        if (backtestFastPath) {
+            repeat(ReplayBacktestFastPath.ENGINE_DRAIN_YIELD_ROUNDS) { yield() }
+            engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
+            runtime.drainEmulatorPipeline()
+        } else {
+            repeat(ENGINE_DRAIN_ROUNDS) {
+                yield()
+                delay(ENGINE_DRAIN_MS)
+            }
         }
     }
 
     private suspend fun awaitBootstrap(instanceId: String) {
-        repeat(MAX_BOOTSTRAP_TICKS) {
-            yield()
-            delay(ENGINE_DRAIN_MS)
+        val maxTicks = if (backtestFastPath) {
+            ReplayBacktestFastPath.BOOTSTRAP_MAX_YIELDS
+        } else {
+            MAX_BOOTSTRAP_TICKS
+        }
+        repeat(maxTicks) {
+            drainEngine()
             val session = currentDeployment(instanceId)?.touchTurnSession
             if (session?.status == TouchTurnCandleStatus.READY && session.openingBarTime != null) return
+            yield()
+            if (!backtestFastPath) delay(ENGINE_DRAIN_MS)
         }
         error("Replay bootstrap timed out")
     }
 
-    private suspend fun awaitStopped(instanceId: String) {
-        repeat(MAX_STOP_TICKS) {
+    private suspend fun awaitClosedSessionForGroundTruth(instanceId: String) {
+        val maxTicks = if (backtestFastPath) {
+            ReplayBacktestFastPath.STOP_MAX_YIELDS
+        } else {
+            MAX_STOP_TICKS
+        }
+        repeat(maxTicks) {
+            drainEngine()
+            val deployment = currentDeployment(instanceId) ?: return
+            val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
+            val outcome = ReplayBacktestResultBuilder.resolveOutcome(deployment, closed)
+            if (deployment.status != DeploymentStatus.RUNNING && closed != null && outcome != null) return
+            if (deployment.status == DeploymentStatus.RUNNING) {
+                dispatchEngine(TouchTurnCommand.PollStopRules)
+            }
             yield()
-            delay(ENGINE_DRAIN_MS)
+            if (!backtestFastPath) delay(ENGINE_DRAIN_MS)
+        }
+    }
+
+    private suspend fun awaitStopped(instanceId: String) {
+        val maxTicks = if (backtestFastPath) {
+            ReplayBacktestFastPath.STOP_MAX_YIELDS
+        } else {
+            MAX_STOP_TICKS
+        }
+        repeat(maxTicks) {
+            yield()
+            if (!backtestFastPath) delay(ENGINE_DRAIN_MS)
+            engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
             if (currentDeployment(instanceId)?.status != DeploymentStatus.RUNNING) return
         }
     }

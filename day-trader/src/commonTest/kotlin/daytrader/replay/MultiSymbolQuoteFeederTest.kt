@@ -47,6 +47,7 @@ class MultiSymbolQuoteFeederTest {
         val gateway = ReplayMarketDataGateway(registry)
         val feeder = MultiSymbolQuoteFeeder(registry, quoteBus = null, gateway, clock, scope)
         feeder.quoteIntervalMs = { 0L }
+        feeder.backtestQuoteIngest = { }
 
         feeder.ensureStreaming(bundleA.symbol)
         feeder.ensureStreaming(bundleB.symbol)

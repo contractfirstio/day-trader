@@ -41,8 +41,17 @@ class MultiSymbolQuoteFeeder(
     var onOpeningBarQuotesReady: ((symbol: String) -> Unit)? = null
 
     /**
-     * Wired by [ReplayHybridRuntime] so each captured quote reaches the emulator synchronously
-     * (no 50ms coalescing).
+     * Suspend ingest wired by [ReplayHybridRuntime] for max-speed replay (no runBlocking per tick).
+     */
+    var backtestQuoteIngest: (suspend (QuoteEvent) -> Unit)? = null
+
+    /** After each max-speed tick: engine poll + drain (P&L-accurate sequencing). */
+    var onMaxSpeedQuotePublished: (suspend (symbol: String) -> Unit)? = null
+
+    var onDripFinished: (() -> Unit)? = null
+
+    /**
+     * Wired by [ReplayHybridRuntime] for throttled interactive replay (runBlocking ingest).
      */
     var onCapturedQuotePublished: ((QuoteEvent) -> Unit)? = null
         set(value) {
@@ -122,6 +131,18 @@ class MultiSymbolQuoteFeeder(
         feederForSymbol(symbol)?.publishUpTo(epochMs)
     }
 
+    suspend fun publishUpToForBacktest(symbol: String, epochMs: Long, onQuote: suspend (QuoteEvent) -> Unit) {
+        feederForSymbol(symbol)?.publishUpToForBacktest(epochMs, onQuote)
+    }
+
+    fun seedGatewayQuotesUpTo(symbol: String, epochMs: Long) {
+        feederForSymbol(symbol)?.seedGatewayQuotesUpTo(epochMs)
+    }
+
+    fun seekToFirstQuoteAfter(symbol: String, epochMs: Long) {
+        feederForSymbol(symbol)?.seekToFirstQuoteAfter(epochMs)
+    }
+
     fun resetSymbol(symbol: String) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         feeders[norm]?.reset()
@@ -153,13 +174,27 @@ class MultiSymbolQuoteFeeder(
                 runMergedDrip()
             } catch (_: CancellationException) {
                 // expected on session teardown
+            } finally {
+                onDripFinished?.invoke()
             }
         }
     }
 
     private suspend fun runMergedDrip() {
         while (dripEnabled.isNotEmpty() && streamRefCount.isNotEmpty()) {
-            val next = pickNextQuote() ?: break
+            if (ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())) {
+                val target = pickNextQuoteTarget() ?: break
+                val (symbol, event) = target
+                clockMutex.withLock {
+                    clock.advanceTo(event.epochMs)
+                }
+                val ingest = backtestQuoteIngest ?: break
+                feederForSymbol(symbol)?.publishNextForBacktest(ingest) ?: break
+                onQuotePublished?.invoke(symbol)
+                onMaxSpeedQuotePublished?.invoke(symbol)
+                continue
+            }
+            val next = pickNextQuoteThrottled() ?: break
             clockMutex.withLock {
                 clock.advanceTo(next.epochMs)
             }
@@ -170,7 +205,7 @@ class MultiSymbolQuoteFeeder(
         }
     }
 
-    private fun pickNextQuote(): QuoteEvent? {
+    private fun pickNextQuoteTarget(): Pair<String, QuoteEvent>? {
         var bestSymbol: String? = null
         var bestEvent: QuoteEvent? = null
         for (symbol in dripEnabled) {
@@ -182,6 +217,13 @@ class MultiSymbolQuoteFeeder(
             }
         }
         val symbol = bestSymbol ?: return null
+        val event = bestEvent ?: return null
+        return symbol to event
+    }
+
+    private fun pickNextQuoteThrottled(): QuoteEvent? {
+        val target = pickNextQuoteTarget() ?: return null
+        val (symbol, _) = target
         val published = feederForSymbol(symbol)?.publishNext() ?: return null
         onQuotePublished?.invoke(symbol)
         return published

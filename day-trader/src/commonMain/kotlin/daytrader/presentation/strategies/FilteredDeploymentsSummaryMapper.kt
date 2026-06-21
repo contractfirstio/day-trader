@@ -92,7 +92,7 @@ object FilteredDeploymentsSummaryMapper {
             var netPnl = 0.0
             var lastClosedPnl: Double? = null
             var lastClosedSortKey: String? = null
-            for (session in instance.sessionHistory) {
+            for (session in instance.sessionHistory.toList()) {
                 if (session.status != SessionStatus.CLOSED) continue
                 netPnl += session.pnl
                 val sortKey = session.stoppedAt.ifBlank { session.startedAt }

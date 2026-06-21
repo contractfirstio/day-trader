@@ -17,8 +17,12 @@ object DeploymentCardStateMapper {
         sessionDate: String,
         brokerUnrealizedPnL: Double? = null,
         brokerOpenOrders: List<WorkingOrder> = emptyList(),
-        hasOpenPosition: Boolean = false
+        hasOpenPosition: Boolean = false,
+        headlessBatchActive: Boolean = false,
     ): DeploymentCardPresentation {
+        if (headlessBatchActive && instance.status == DeploymentStatus.RUNNING) {
+            return stoppedPresentation(instance, sessionDate)
+        }
         if (instance.status == DeploymentStatus.ERROR) {
             return DeploymentCardPresentation(
                 accent = DeploymentCardAccent.ERROR,
