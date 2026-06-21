@@ -70,6 +70,14 @@ fun OrdersScreen(
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
+        uiState.cancelMessage?.let { message ->
+            Text(
+                message,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -82,6 +90,7 @@ fun OrdersScreen(
             OrdersTableHeader(
                 activeSortColumn = uiState.sortColumn,
                 sortDirection = uiState.sortDirection,
+                showCancelColumn = uiState.canCancelOrders,
                 onHeaderClick = viewModel::onHeaderClick
             )
 
@@ -104,6 +113,7 @@ fun OrdersScreen(
                             if (group.isGrouped) {
                                 OrdersGroupSummaryRow(
                                     group = group,
+                                    showCancelColumn = uiState.canCancelOrders,
                                     onClick = { viewModel.onSymbolGroupClick(group.symbolKey) }
                                 )
                                 if (group.isExpanded) {
@@ -117,12 +127,18 @@ fun OrdersScreen(
                                         }
                                         OrdersDetailRow(
                                             row = order,
+                                            showCancelColumn = uiState.canCancelOrders,
+                                            onCancel = { viewModel.onCancelOrder(order.orderId) },
                                             modifier = Modifier.padding(start = 20.dp)
                                         )
                                     }
                                 }
                             } else {
-                                OrdersTableRow(row = group.orders.single())
+                                OrdersTableRow(
+                                    row = group.orders.single(),
+                                    showCancelColumn = uiState.canCancelOrders,
+                                    onCancel = { viewModel.onCancelOrder(group.orders.single().orderId) }
+                                )
                             }
                             if (groupIndex < uiState.groups.lastIndex) {
                                 HorizontalDivider(color = DarkBackground, thickness = 1.dp)
@@ -160,6 +176,7 @@ private fun emptyOrdersMessage(
 private fun OrdersTableHeader(
     activeSortColumn: OrderSortColumn,
     sortDirection: SortDirection,
+    showCancelColumn: Boolean,
     onHeaderClick: (OrderSortColumn) -> Unit
 ) {
     Row(
@@ -178,6 +195,13 @@ private fun OrdersTableHeader(
         OrdersHeaderCell("Price", OrderSortColumn.PRICE, activeSortColumn, sortDirection, Modifier.weight(0.85f), onHeaderClick)
         OrdersHeaderCell("Status", OrderSortColumn.STATUS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick)
         OrdersHeaderCell("Order #", OrderSortColumn.ORDER_ID, activeSortColumn, sortDirection, Modifier.weight(0.65f), onHeaderClick)
+        if (showCancelColumn) {
+            Text(
+                text = "",
+                modifier = Modifier.width(56.dp),
+                fontSize = 11.sp
+            )
+        }
     }
 }
 
@@ -224,6 +248,7 @@ private fun RowScope.OrdersHeaderCell(
 @Composable
 private fun OrdersGroupSummaryRow(
     group: OrderSymbolGroupUi,
+    showCancelColumn: Boolean,
     onClick: () -> Unit
 ) {
     val summary = OpenOrderUiMapper.collapsedSummary(group)
@@ -273,17 +298,30 @@ private fun OrdersGroupSummaryRow(
             fontSize = 12.sp,
             maxLines = 1
         )
+        if (showCancelColumn) {
+            Spacer(modifier = Modifier.width(56.dp))
+        }
     }
 }
 
 @Composable
-private fun OrdersTableRow(row: OpenOrderRowUi) {
-    OrdersDetailRow(row = row)
+private fun OrdersTableRow(
+    row: OpenOrderRowUi,
+    showCancelColumn: Boolean,
+    onCancel: () -> Unit
+) {
+    OrdersDetailRow(
+        row = row,
+        showCancelColumn = showCancelColumn,
+        onCancel = onCancel
+    )
 }
 
 @Composable
 private fun OrdersDetailRow(
     row: OpenOrderRowUi,
+    showCancelColumn: Boolean,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -305,6 +343,41 @@ private fun OrdersDetailRow(
         Text(row.priceLabel.ifBlank { "—" }, Modifier.weight(0.85f), color = Color.White, fontSize = 13.sp, maxLines = 1)
         Text(row.status, Modifier.weight(0.9f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
         Text(row.orderId.toString(), Modifier.weight(0.65f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
+        if (showCancelColumn) {
+            OrdersCancelCell(
+                row = row,
+                onCancel = onCancel,
+                modifier = Modifier.width(56.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun OrdersCancelCell(
+    row: OpenOrderRowUi,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.CenterEnd) {
+        when {
+            row.isCancelling -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = TextSecondary
+                )
+            }
+            row.canCancel -> {
+                TextButton(
+                    onClick = onCancel,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.testTag("CancelOrderButton-${row.orderId}")
+                ) {
+                    Text("Cancel", color = TextSecondary, fontSize = 11.sp, maxLines = 1)
+                }
+            }
+        }
     }
 }
 

@@ -5,11 +5,14 @@ import daytrader.data.OpenOrderRepository
 import daytrader.data.WatchlistRepository
 import daytrader.domain.Watchlist
 import daytrader.domain.WatchlistPlanOrderLinks
+import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
+import daytrader.gateway.GatewayConnectionState
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.navigation.AppScreen
 import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.ui.UiCoroutineScopes
+import daytrader.presentation.ui.launchUiAction
 import daytrader.presentation.ui.safeUiEmit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.update
 class OrdersViewModel(
     private val repository: OpenOrderRepository,
     private val watchlistRepository: WatchlistRepository? = null,
+    private val executionGateway: BrokerGateway? = null,
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     scope: CoroutineScope = UiCoroutineScopes.forScreen(AppScreen.ORDERS, "OrdersViewModel"),
 ) {
@@ -32,6 +36,9 @@ class OrdersViewModel(
     private var sortColumn = OrderSortColumn.SYMBOL
     private var sortDirection = SortDirection.ASCENDING
     private var expandedSymbolKey: String? = null
+    private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
+    private val cancellingOrderIds = mutableSetOf<Int>()
+    private var cancelMessage: String? = null
 
     private val _uiState = MutableStateFlow(OrdersUiState())
     val uiState: StateFlow<OrdersUiState> = _uiState.asStateFlow()
@@ -50,6 +57,34 @@ class OrdersViewModel(
                 emitUiState()
             }
             ?.launchIn(scope)
+
+        executionGateway?.connectionState
+            ?.onEach { state ->
+                connectionState = state
+                if (state != GatewayConnectionState.Connected) {
+                    cancellingOrderIds.clear()
+                }
+                emitUiState()
+            }
+            ?.launchIn(scope)
+    }
+
+    fun onCancelOrder(orderId: Int) {
+        if (executionGateway == null) return
+        if (connectionState != GatewayConnectionState.Connected) {
+            cancelMessage = "Connect to your broker to cancel orders."
+            emitUiState()
+            return
+        }
+        if (orderId in cancellingOrderIds) return
+        cancellingOrderIds.add(orderId)
+        cancelMessage = null
+        emitUiState()
+        scope.launchUiAction(AppScreen.ORDERS, "onCancelOrder") {
+            executionGateway.cancelOrder(orderId)
+            cancellingOrderIds.remove(orderId)
+            emitUiState()
+        }
     }
 
     fun onHeaderClick(column: OrderSortColumn) {
@@ -102,7 +137,9 @@ class OrdersViewModel(
                 symbolKey = symbolKey,
                 displaySymbol = displaySymbol,
                 orders = orders.map { order ->
-                    OpenOrderUiMapper.toRowUi(order, planLabels[order.orderId])
+                    OpenOrderUiMapper.toRowUi(order, planLabels[order.orderId]).let { row ->
+                        row.copy(isCancelling = row.canCancel && order.orderId in cancellingOrderIds)
+                    }
                 },
                 isExpanded = expandedSymbolKey == symbolKey
             )
@@ -113,7 +150,9 @@ class OrdersViewModel(
                 totalOrderCount = working.size,
                 sortColumn = sortColumn,
                 sortDirection = sortDirection,
-                brokerLabel = brokerKind.displayName
+                brokerLabel = brokerKind.displayName,
+                canCancelOrders = executionGateway != null && connectionState == GatewayConnectionState.Connected,
+                cancelMessage = cancelMessage
             )
         }
     }

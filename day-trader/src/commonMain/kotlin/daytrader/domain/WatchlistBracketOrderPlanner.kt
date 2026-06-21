@@ -46,6 +46,10 @@ object WatchlistBracketOrderPlanner {
         options: BracketOrderOptions = BracketOrderOptions()
     ): Result<TouchTurnOrderPlan> {
         if (quantity <= 0) return Result.failure(IllegalArgumentException("Quantity must be at least 1"))
+        val orderSizeRules = instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        orderSizeRules.validateQuantity(quantity)?.let { message ->
+            return Result.failure(IllegalArgumentException(message))
+        }
         val draft = WatchlistTradePlan(
             id = "draft",
             label = "Bracket",
@@ -57,7 +61,7 @@ object WatchlistBracketOrderPlanner {
             stopEntry = options.stopEntry,
             adjustableTrailingStop = options.adjustableTrailingStop
         )
-        val outcome = WatchlistTradePlanCalculator.compute(draft)
+        val outcome = WatchlistTradePlanCalculator.compute(draft, orderSizeRules)
         if (outcome.errors.isNotEmpty()) {
             return Result.failure(IllegalArgumentException(outcome.errors.joinToString("; ")))
         }
@@ -119,7 +123,8 @@ object WatchlistBracketOrderPlanner {
         entry: WatchlistEntry,
         plan: WatchlistTradePlan
     ): Result<TouchTurnOrderPlan> {
-        val outcome = WatchlistTradePlanCalculator.compute(plan)
+        val orderSizeRules = entry.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val outcome = WatchlistTradePlanCalculator.compute(plan, orderSizeRules)
         if (!outcome.isComplete) {
             return Result.failure(IllegalArgumentException(outcome.errors.joinToString("; ")))
         }

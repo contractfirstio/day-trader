@@ -310,6 +310,7 @@ fun rememberAppDependencies(
             ordersViewModel = OrdersViewModel(
                 repository = openOrderRepository,
                 watchlistRepository = watchlistRepository,
+                executionGateway = brokerGateway ?: touchTurnSessionGateway,
                 brokerKind = brokerKind
             ),
             watchlistViewModel = watchlistViewModel,

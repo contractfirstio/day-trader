@@ -111,4 +111,59 @@ class WatchlistBracketOrderPlannerTest {
         assertEquals("STP", built.orders.first { it.role == TouchTurnOrderRole.ENTRY }.orderType)
         assertNull(built.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.trailTriggerPrice)
     }
+
+    @Test
+    fun fromWatchlistPlan_sizesQuantityFromInvestmentWithBoardLot() {
+        val entry = newWatchlistEntry(
+            symbol = "939",
+            marketZoneId = "Asia/Hong_Kong",
+            currencyCode = "HKD",
+            companyName = "CCB",
+            instrument = InstrumentIdentity(
+                symbol = "939",
+                exchange = "SEHK",
+                primaryExch = "SEHK",
+                currency = "HKD",
+                minOrderSize = 1_000,
+                orderSizeIncrement = 1_000
+            ),
+            notes = null
+        )
+        val plan = WatchlistTradePlan(
+            id = "plan-1",
+            label = "Plan A",
+            side = TradeSide.LONG,
+            entryPrice = 5.0,
+            stopPrice = 4.5,
+            targetPrice = 6.0,
+            investmentAmount = 12_000.0,
+            sizingMode = PlanSizingMode.NOTIONAL
+        )
+        val result = WatchlistBracketOrderPlanner.fromWatchlistPlan(entry, plan)
+        assertTrue(result.isSuccess)
+        assertEquals(2_000, result.getOrThrow().quantity)
+    }
+
+    @Test
+    fun buildTouchTurnPlan_rejectsInvalidLotSize() {
+        val instrument = InstrumentIdentity(
+            symbol = "939",
+            exchange = "SEHK",
+            primaryExch = "SEHK",
+            currency = "HKD",
+            minOrderSize = 1_000,
+            orderSizeIncrement = 1_000
+        )
+        val result = WatchlistBracketOrderPlanner.buildTouchTurnPlan(
+            symbol = "939",
+            currencyCode = "HKD",
+            instrument = instrument,
+            side = TradeSide.LONG,
+            entryPrice = 5.0,
+            stopPrice = 4.5,
+            targetPrice = 6.0,
+            quantity = 500
+        )
+        assertTrue(result.isFailure)
+    }
 }

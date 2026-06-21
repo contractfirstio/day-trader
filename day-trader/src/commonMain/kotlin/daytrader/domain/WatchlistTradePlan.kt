@@ -74,7 +74,10 @@ fun defaultWatchlistTradePlans(): List<WatchlistTradePlan> = listOf(
 )
 
 object WatchlistTradePlanCalculator {
-    fun compute(plan: WatchlistTradePlan): WatchlistPlanOutcome {
+    fun compute(
+        plan: WatchlistTradePlan,
+        orderSizeRules: InstrumentOrderSizeRules = InstrumentOrderSizeRules.DEFAULT
+    ): WatchlistPlanOutcome {
         val errors = mutableListOf<String>()
         val entry = plan.entryPrice
         val stop = plan.stopPrice
@@ -99,8 +102,17 @@ object WatchlistTradePlanCalculator {
         val safeTarget = target!!
         val safeInvestment = investment!!
 
-        val quantity = quantityFor(plan.sizingMode, safeInvestment, safeEntry, safeStop)
+        val rawQuantity = rawQuantityFor(plan.sizingMode, safeInvestment, safeEntry, safeStop)
             ?: return WatchlistPlanOutcome(errors = listOf("Could not size position"))
+
+        val quantity = when (val snap = orderSizeRules.snapQuantityDown(rawQuantity)) {
+            is SnapOrderSizeResult.Ok -> snap.quantity
+            is SnapOrderSizeResult.BelowMinimum -> return WatchlistPlanOutcome(
+                errors = listOf(
+                    "Investment too small for minimum lot of ${snap.minimum} shares"
+                )
+            )
+        }
 
         val notionalAtEntry = safeEntry * quantity
         val lossAtStop = pnlAtPrice(plan.side, safeEntry, safeStop, quantity)
@@ -146,7 +158,7 @@ object WatchlistTradePlanCalculator {
         }
     }
 
-    private fun quantityFor(
+    private fun rawQuantityFor(
         sizingMode: PlanSizingMode,
         investment: Double,
         entry: Double,

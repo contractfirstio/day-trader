@@ -81,4 +81,44 @@ class WatchlistTradePlanCalculatorTest {
         assertTrue(outcome.errors.isNotEmpty())
         assertEquals(null, outcome.quantity)
     }
+
+    @Test
+    fun notionalSizing_snapsDownToBoardLot() {
+        val plan = WatchlistTradePlan(
+            id = "p1",
+            label = "Plan A",
+            side = TradeSide.LONG,
+            entryPrice = 5.0,
+            stopPrice = 4.5,
+            targetPrice = 6.0,
+            investmentAmount = 12_000.0,
+            sizingMode = PlanSizingMode.NOTIONAL
+        )
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+
+        val outcome = WatchlistTradePlanCalculator.compute(plan, rules)
+
+        assertTrue(outcome.errors.isEmpty())
+        assertEquals(2_000, outcome.quantity)
+    }
+
+    @Test
+    fun notionalSizing_belowMinimumLot_returnsError() {
+        val plan = WatchlistTradePlan(
+            id = "p1",
+            label = "Plan A",
+            side = TradeSide.LONG,
+            entryPrice = 100.0,
+            stopPrice = 95.0,
+            targetPrice = 110.0,
+            investmentAmount = 500.0,
+            sizingMode = PlanSizingMode.NOTIONAL
+        )
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+
+        val outcome = WatchlistTradePlanCalculator.compute(plan, rules)
+
+        assertTrue(outcome.errors.any { it.contains("minimum lot") })
+        assertEquals(null, outcome.quantity)
+    }
 }

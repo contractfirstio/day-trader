@@ -22,7 +22,9 @@ data class OpenOrderRowUi(
     val priceLabel: String,
     val status: String,
     val legLabel: String,
-    val sourcePlanLabel: String? = null
+    val sourcePlanLabel: String? = null,
+    val canCancel: Boolean = true,
+    val isCancelling: Boolean = false
 )
 
 data class OrderSymbolGroupSummaryUi(
@@ -49,5 +51,7 @@ data class OrdersUiState(
     val totalOrderCount: Int = 0,
     val sortColumn: OrderSortColumn = OrderSortColumn.SYMBOL,
     val sortDirection: SortDirection = SortDirection.ASCENDING,
-    val brokerLabel: String = "Broker"
+    val brokerLabel: String = "Broker",
+    val canCancelOrders: Boolean = false,
+    val cancelMessage: String? = null
 )

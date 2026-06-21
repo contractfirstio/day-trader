@@ -14,10 +14,10 @@ data class InstrumentIdentity(
     val conId: Long? = null,
     val localSymbol: String? = null,
     val tradingClass: String? = null,
-    /** IB [ContractDetails.minSize] when resolved via reqContractDetails. */
-    val minOrderSize: Int? = null,
-    /** IB [ContractDetails.sizeIncrement] (or suggested increment) when resolved. */
-    val orderSizeIncrement: Int? = null
+    /** IB [ContractDetails.minSize] when resolved via reqContractDetails; 1 for US unit lots. */
+    val minOrderSize: Int = 1,
+    /** IB [ContractDetails.sizeIncrement] (or suggested increment); 1 for US unit lots. */
+    val orderSizeIncrement: Int = 1
 ) {
     /** Stable key for deduplicating contract-detail rows. */
     fun dedupeKey(): String =
@@ -37,14 +37,18 @@ data class InstrumentIdentity(
                     InstrumentMarketResolver.fromIbContract(snapshot).marketZoneId
                 )
             }
+            val orderSizeRules = InstrumentOrderSizeRules.fromIbValues(
+                minOrderSize = snapshot.minOrderSize,
+                orderSizeIncrement = snapshot.orderSizeIncrement
+            )
             return InstrumentIdentity(
                 symbol = symbol,
                 exchange = exchange,
                 primaryExch = primary,
                 currency = currency,
                 conId = conId?.takeIf { it > 0 },
-                minOrderSize = snapshot.minOrderSize,
-                orderSizeIncrement = snapshot.orderSizeIncrement
+                minOrderSize = orderSizeRules.minOrderSize,
+                orderSizeIncrement = orderSizeRules.orderSizeIncrement
             )
         }
 

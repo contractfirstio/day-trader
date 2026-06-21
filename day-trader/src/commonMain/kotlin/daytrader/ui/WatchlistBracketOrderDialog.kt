@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.domain.PlanSizingMode
 import daytrader.presentation.Formatters
 import daytrader.presentation.watchlist.WatchlistBracketOrderUi
 import daytrader.presentation.watchlist.WatchlistPlanOutcomeUi
@@ -91,8 +92,18 @@ internal fun WatchlistBracketOrderDialog(
                     order.targetPriceText.toDoubleOrNull()?.let {
                         OrderDetailLine("Target", Formatters.moneyPlain(it, order.currencyCode))
                     }
-                    order.quantityText.toIntOrNull()?.let {
-                        OrderDetailLine("Quantity", it.toString())
+                    order.investmentAmountText.toDoubleOrNull()?.let {
+                        OrderDetailLine(
+                            label = if (order.sizingMode == PlanSizingMode.NOTIONAL) {
+                                "Investment"
+                            } else {
+                                "Risk budget"
+                            },
+                            value = Formatters.moneyPlain(it, order.currencyCode)
+                        )
+                    }
+                    order.quantityText.toIntOrNull()?.let { quantity ->
+                        OrderDetailLine("Quantity", formatBracketQuantityLabel(order, quantity))
                     }
                     order.outcome?.let { outcome ->
                         BracketOrderOutcomeLines(outcome)
@@ -155,4 +166,12 @@ private fun OrderDetailLine(label: String, value: String, valueColor: Color = Co
         Text(label, color = TextSecondary, fontSize = 13.sp)
         Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
+}
+
+private fun formatBracketQuantityLabel(order: WatchlistBracketOrderUi, quantity: Int): String {
+    if (order.minOrderSize <= 1 && order.orderSizeIncrement <= 1) {
+        return quantity.toString()
+    }
+    val lotCount = quantity / order.minOrderSize
+    return "$quantity shares ($lotCount lots of ${order.minOrderSize})"
 }

@@ -48,11 +48,20 @@ object TouchTurnOrderPlanner {
         if (rules.invertTradeSide) "STP" else "LMT"
 
     /**
-     * Suggested share count from [maxDollars] and entry price (minimum 1).
+     * Suggested share count from [maxDollars] and entry price, snapped down to [orderSizeRules].
+     * Returns null when the budget cannot cover the minimum board lot.
      */
-    fun suggestedQuantity(maxDollars: Int, entryPrice: Double): Int {
-        if (maxDollars <= 0 || entryPrice <= 0.0) return 1
-        return max(1, (maxDollars / entryPrice).toInt())
+    fun suggestedQuantity(
+        maxDollars: Int,
+        entryPrice: Double,
+        orderSizeRules: InstrumentOrderSizeRules = InstrumentOrderSizeRules.DEFAULT
+    ): Int? {
+        if (maxDollars <= 0 || entryPrice <= 0.0) return null
+        val raw = max(1, (maxDollars / entryPrice).toInt())
+        return when (val snap = orderSizeRules.snapQuantityDown(raw)) {
+            is SnapOrderSizeResult.Ok -> snap.quantity
+            is SnapOrderSizeResult.BelowMinimum -> null
+        }
     }
 
     /**
@@ -69,7 +78,8 @@ object TouchTurnOrderPlanner {
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnOrderPlan? {
         if (!TouchTurnLogic.setupActionableForEntry(setup, rules)) return null
-        val quantity = suggestedQuantity(maxDollars, setup.entry)
+        val orderSizeRules = instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val quantity = suggestedQuantity(maxDollars, setup.entry, orderSizeRules) ?: return null
         val exitAction = when (setup.side) {
             TouchTurnTradeSide.SHORT -> "BUY"
             TouchTurnTradeSide.LONG -> "SELL"

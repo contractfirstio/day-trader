@@ -42,4 +42,27 @@ class InstrumentIdentityOrderSizeTest {
 
         assertEquals(identity, restored)
     }
+
+    @Test
+    fun persistenceRestoresNullOrderSizeFieldsAsUnitLot() {
+        val record = InstrumentIdentityRecord(
+            symbol = "AAPL",
+            exchange = "SMART",
+            currency = "USD",
+            minOrderSize = null,
+            orderSizeIncrement = null
+        )
+
+        val identity = InstrumentIdentityPersistence.toDomain(record)
+
+        assertEquals(1, identity?.minOrderSize)
+        assertEquals(1, identity?.orderSizeIncrement)
+    }
+
+    @Test
+    fun heuristicIdentity_defaultsToUnitLot() {
+        val identity = InstrumentIdentity.heuristic("AAPL")
+        assertEquals(1, identity.minOrderSize)
+        assertEquals(1, identity.orderSizeIncrement)
+    }
 }

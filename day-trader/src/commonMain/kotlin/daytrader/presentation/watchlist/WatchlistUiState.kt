@@ -194,7 +194,13 @@ data class WatchlistTradePlansEditorUi(
     val assignedStrategies: List<WatchlistStrategyUi> = emptyList(),
     val availableStrategies: List<WatchlistStrategyUi> = emptyList(),
     val assignedStrategyDeploymentIds: List<String> = emptyList(),
-    val plans: List<WatchlistPlanEditorUi>
+    val plans: List<WatchlistPlanEditorUi>,
+    val savedListingLabel: String? = null,
+    val minOrderSize: Int = 1,
+    val orderSizeIncrement: Int = 1,
+    val canRelookupInstrument: Boolean = false,
+    val instrumentRelookupInProgress: Boolean = false,
+    val instrumentRelookupMessage: String? = null
 )
 
 data class WatchlistNearHitUi(
@@ -219,9 +225,14 @@ data class WatchlistBracketOrderUi(
     val entryPriceText: String,
     val stopPriceText: String,
     val targetPriceText: String,
+    val investmentAmountText: String,
+    val sizingMode: PlanSizingMode = PlanSizingMode.NOTIONAL,
+    /** Derived from investment, prices, and board-lot rules — not user-edited. */
     val quantityText: String,
     val stopEntry: Boolean = false,
     val adjustableTrailingStop: Boolean = true,
+    val minOrderSize: Int = 1,
+    val orderSizeIncrement: Int = 1,
     val bracketOrderSummary: String = "",
     val outcome: WatchlistPlanOutcomeUi? = null,
     val validationErrors: List<String> = emptyList(),
@@ -231,7 +242,7 @@ data class WatchlistBracketOrderUi(
 )
 
 enum class WatchlistBracketOrderField {
-    ENTRY, STOP, TARGET, QUANTITY
+    ENTRY, STOP, TARGET
 }
 
 data class WatchlistPlanDiaryEntryUi(

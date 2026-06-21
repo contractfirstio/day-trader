@@ -386,7 +386,11 @@ internal fun DeploymentMarketSection(
     deployment: StrategyDeployment,
     canEdit: Boolean,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
-    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit
+    onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
+    canRelookupInstrument: Boolean = false,
+    instrumentRelookupInProgress: Boolean = false,
+    instrumentRelookupMessage: String? = null,
+    onRelookupInstrument: () -> Unit = {}
 ) {
     var ibSuggestion by remember(deployment.id) { mutableStateOf<ResolvedInstrument?>(null) }
     var resolving by remember { mutableStateOf(false) }
@@ -446,14 +450,24 @@ internal fun DeploymentMarketSection(
         )
     }
     deployment.instrument?.let { identity ->
-        Text(
-            "Saved listing: ${identity.primaryExch ?: identity.exchange} · ${identity.currency}",
-            fontSize = 12.sp,
-            color = TextSecondary,
-            lineHeight = 15.sp,
-            modifier = Modifier.testTag("SavedInstrumentListing")
+        InstrumentLotSizePanel(
+            listingLabel = daytrader.presentation.watchlist.WatchlistUiMapper.listingLabelForIdentity(identity),
+            orderSizeRules = identity.orderSizeRules(),
+            canRelookup = canRelookupInstrument,
+            relookupInProgress = instrumentRelookupInProgress,
+            relookupMessage = instrumentRelookupMessage,
+            onRelookup = onRelookupInstrument,
+            testTagPrefix = "DeploymentInstrument"
         )
-    }
+    } ?: InstrumentLotSizePanel(
+        listingLabel = null,
+        orderSizeRules = InstrumentOrderSizeRules.DEFAULT,
+        canRelookup = canRelookupInstrument,
+        relookupInProgress = instrumentRelookupInProgress,
+        relookupMessage = instrumentRelookupMessage,
+        onRelookup = onRelookupInstrument,
+        testTagPrefix = "DeploymentInstrument"
+    )
 }
 
 @Composable

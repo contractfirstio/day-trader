@@ -2,7 +2,9 @@ package daytrader.presentation.liquidity
 
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.InstrumentOrderSizeRules
 import daytrader.domain.LiquidityBucketLogic
+import daytrader.domain.orderSizeRules
 import daytrader.domain.LiquidityBucketState
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnAdjustableStop
@@ -179,7 +181,11 @@ object LiquidityAllocatorMapper {
             asOfSessionDate = session.sessionDate,
         ) ?: closedSessions.rollupsForConfiguration(session.sessionDate, deployment)
         val additionalQty = if (allocationDollars > 0) {
-            TouchTurnOrderPlanner.suggestedQuantity(allocationDollars, bracket.entry)
+            TouchTurnOrderPlanner.suggestedQuantity(
+                maxDollars = allocationDollars,
+                entryPrice = bracket.entry,
+                orderSizeRules = deployment.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+            ) ?: 0
         } else {
             0
         }

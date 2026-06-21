@@ -82,6 +82,9 @@ data class StrategiesDetailUiState(
     val globalAutoStartEnabled: Boolean = true,
     /** All deployments (id + market only) for copy-rules market targeting. */
     val deploymentCopyTargets: List<StrategyDeploymentCopyTarget> = emptyList(),
+    val canRelookupInstrument: Boolean = false,
+    val instrumentRelookupInProgress: Boolean = false,
+    val instrumentRelookupMessage: String? = null,
 )
 
 /** Live quotes, charts, and pipeline — updates on quote ticks and pipeline timer. */

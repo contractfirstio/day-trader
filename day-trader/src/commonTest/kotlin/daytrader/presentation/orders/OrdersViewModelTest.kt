@@ -1,6 +1,8 @@
 package daytrader.presentation.orders
 
 import daytrader.data.OpenOrderRepository
+import daytrader.engine.support.FakeBrokerGateway
+import daytrader.gateway.BrokerId
 import daytrader.gateway.WorkingOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -157,6 +159,56 @@ class OrdersViewModelTest {
         val viewModel = OrdersViewModel(repository = repository)
         delay(50)
         assertEquals(listOf("AAPL", "MSFT"), viewModel.uiState.value.groups.map { it.displaySymbol })
+    }
+
+    @Test
+    fun cancelOrder_requestsGatewayCancelWhenConnected() = runBlocking {
+        val order = sampleOrder(orderId = 42, symbol = "AAPL")
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        gateway.setOpenOrders(listOf(order))
+        val repository = FakeOpenOrderRepository(listOf(order))
+        val viewModel = OrdersViewModel(
+            repository = repository,
+            executionGateway = gateway
+        )
+        delay(50)
+        assertTrue(viewModel.uiState.value.canCancelOrders)
+
+        viewModel.onCancelOrder(42)
+        delay(50)
+
+        assertEquals(listOf(42), gateway.cancelledOrderIds)
+    }
+
+    @Test
+    fun cancelOrder_whenDisconnected_showsMessage() = runBlocking {
+        val order = sampleOrder(orderId = 42, symbol = "AAPL")
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        gateway.disconnect()
+        val repository = FakeOpenOrderRepository(listOf(order))
+        val viewModel = OrdersViewModel(
+            repository = repository,
+            executionGateway = gateway
+        )
+        delay(50)
+        assertEquals(false, viewModel.uiState.value.canCancelOrders)
+
+        viewModel.onCancelOrder(42)
+        delay(25)
+
+        assertEquals(
+            "Connect to your broker to cancel orders.",
+            viewModel.uiState.value.cancelMessage
+        )
+        assertTrue(gateway.cancelledOrderIds.isEmpty())
+    }
+
+    @Test
+    fun toRowUi_trailAdjustmentOrdersAreNotCancellable() {
+        val row = OpenOrderUiMapper.toRowUi(
+            sampleOrder(orderId = 99, symbol = "AAPL").copy(isTrailAdjustment = true)
+        )
+        assertEquals(false, row.canCancel)
     }
 
     private fun sampleOrder(orderId: Int, symbol: String, parentOrderId: Int = 0, orderType: String = "LMT") = WorkingOrder(

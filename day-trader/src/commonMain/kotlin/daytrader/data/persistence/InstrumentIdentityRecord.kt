@@ -1,6 +1,7 @@
 package daytrader.data.persistence
 
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentOrderSizeRules
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -20,6 +21,10 @@ data class InstrumentIdentityRecord(
 internal object InstrumentIdentityPersistence {
     fun toDomain(record: InstrumentIdentityRecord?): InstrumentIdentity? =
         record?.let {
+            val orderSizeRules = InstrumentOrderSizeRules.fromIbValues(
+                minOrderSize = it.minOrderSize,
+                orderSizeIncrement = it.orderSizeIncrement
+            )
             InstrumentIdentity(
                 symbol = it.symbol,
                 secType = it.secType,
@@ -29,8 +34,8 @@ internal object InstrumentIdentityPersistence {
                 conId = it.conId,
                 localSymbol = it.localSymbol,
                 tradingClass = it.tradingClass,
-                minOrderSize = it.minOrderSize,
-                orderSizeIncrement = it.orderSizeIncrement
+                minOrderSize = orderSizeRules.minOrderSize,
+                orderSizeIncrement = orderSizeRules.orderSizeIncrement
             )
         }
 

@@ -8,7 +8,7 @@ import kotlin.math.roundToInt
 /** IB [ContractDetails] order-size constraints for stocks and other instruments. */
 internal object IbOrderSizeRules {
     fun fromContractDetails(details: ContractDetails): InstrumentOrderSizeRules =
-        InstrumentOrderSizeRules(
+        InstrumentOrderSizeRules.fromIbValues(
             minOrderSize = positiveQuantity(details.minSize()),
             orderSizeIncrement = positiveQuantity(details.sizeIncrement())
                 ?: positiveQuantity(details.suggestedSizeIncrement())

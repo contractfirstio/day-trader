@@ -56,6 +56,7 @@ import daytrader.domain.clearTouchTurnPrepareIfRulesChanged
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.MarketSource
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentRelookup
 import daytrader.domain.InstrumentResolution
 import daytrader.domain.DeploymentSymbolResolver
 import daytrader.domain.InstrumentListingCandidates
@@ -131,6 +132,58 @@ class StrategiesViewModel(
         System.getenv("DAY_TRADER_LIVE_PRICE_UI_LOGS")?.equals("true", ignoreCase = true) == true
 
     private var appState = StrategiesAppState()
+    private var instrumentRelookupDeploymentId: String? = null
+    private var instrumentRelookupInProgress = false
+    private var instrumentRelookupMessage: String? = null
+
+    private fun instrumentResolveGateway(): BrokerGateway? = sessionGateway ?: brokerGateway
+
+    private fun canRelookupInstrument(): Boolean =
+        InstrumentRelookup.supportsBrokerKind(brokerKind) &&
+            instrumentResolveGateway()?.connectionState?.value == GatewayConnectionState.Connected
+
+    fun onRelookupDeploymentInstrument(deploymentId: String) {
+        val deployment = repository.deployments.value.find { it.id == deploymentId } ?: return
+        val gateway = instrumentResolveGateway()
+        if (gateway == null || !canRelookupInstrument()) {
+            instrumentRelookupDeploymentId = deploymentId
+            instrumentRelookupMessage = "Connect to Interactive Brokers to refresh listing details"
+            emitUiState()
+            return
+        }
+        instrumentRelookupDeploymentId = deploymentId
+        instrumentRelookupInProgress = true
+        instrumentRelookupMessage = null
+        emitUiState()
+        scope.launchUiAction(
+            screen = AppScreen.STRATEGIES,
+            source = "relookupDeploymentInstrument",
+            onFailure = { error ->
+                instrumentRelookupInProgress = false
+                instrumentRelookupMessage = error.message ?: "Instrument lookup failed"
+                emitUiState()
+            }
+        ) {
+            val outcome = InstrumentRelookup.relookup(
+                gateway = gateway,
+                symbol = deployment.symbol,
+                existingInstrument = deployment.instrument,
+                marketZoneId = DeploymentMarket.effectiveZoneId(deployment)
+            ).getOrThrow()
+            repository.update(deploymentId) { current ->
+                current.copy(
+                    instrument = outcome.identity,
+                    companyName = outcome.companyName?.takeIf { it.isNotBlank() } ?: current.companyName,
+                    marketSource = MarketSource.IB
+                )
+            }
+            instrumentRelookupInProgress = false
+            instrumentRelookupMessage =
+                "Updated board lot: ${InstrumentRelookup.lotSizeLabel(outcome.orderSizeRules)}"
+            emitUiState()
+        }
+    }
+
     private var showAddDialog = false
     private var addDialogPrefill: StrategyDeploymentAddPrefill? = null
     private var showImportDialog = false
@@ -1566,6 +1619,11 @@ class StrategiesViewModel(
             tradingPanelRecapRunId = ctx.recapRunId,
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
             deploymentCopyTargets = StrategyUiMapper.toCopyTargets(deployments),
+            canRelookupInstrument = canRelookupInstrument(),
+            instrumentRelookupInProgress = instrumentRelookupInProgress &&
+                selected?.id == instrumentRelookupDeploymentId,
+            instrumentRelookupMessage = instrumentRelookupMessage
+                ?.takeIf { selected?.id == instrumentRelookupDeploymentId },
         )
         _liveState.value = buildLiveUiState(ctx, selected)
         _chromeState.value = StrategiesChromeUiState(

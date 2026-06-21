@@ -103,6 +103,7 @@ fun WatchlistScreen(viewModel: WatchlistViewModel) {
             onPlaceBracket = viewModel::onOpenBracketOrder,
             onReactivatePlan = viewModel::onReactivatePlan,
             onOpenDiary = viewModel::onOpenPlanDiary,
+            onRelookupInstrument = viewModel::onRelookupEntryInstrument,
             modifier = Modifier.fillMaxSize().padding(16.dp)
         )
         return

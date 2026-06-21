@@ -38,6 +38,7 @@ import daytrader.domain.ProximityThresholdMode
 import daytrader.domain.StrategyType
 import daytrader.domain.TradeSide
 import daytrader.domain.WatchlistLabels
+import daytrader.domain.InstrumentOrderSizeRules
 import daytrader.presentation.watchlist.WatchlistEntryChartsUi
 import daytrader.presentation.watchlist.WatchlistLabelUi
 import daytrader.presentation.watchlist.WatchlistStrategyUi
@@ -69,6 +70,7 @@ internal fun WatchlistEntryDetailPanel(
     onPlaceBracket: (String) -> Unit,
     onReactivatePlan: (String) -> Unit,
     onOpenDiary: (String) -> Unit,
+    onRelookupInstrument: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -146,6 +148,18 @@ internal fun WatchlistEntryDetailPanel(
                         assignedStrategies = editor.assignedStrategies,
                         onCreateStrategyDeployment = onCreateStrategyDeployment,
                         onRemoveStrategy = onRemoveStrategy
+                    )
+                    InstrumentLotSizePanel(
+                        listingLabel = editor.savedListingLabel,
+                        orderSizeRules = InstrumentOrderSizeRules(
+                            minOrderSize = editor.minOrderSize,
+                            orderSizeIncrement = editor.orderSizeIncrement
+                        ),
+                        canRelookup = editor.canRelookupInstrument,
+                        relookupInProgress = editor.instrumentRelookupInProgress,
+                        relookupMessage = editor.instrumentRelookupMessage,
+                        onRelookup = onRelookupInstrument,
+                        testTagPrefix = "WatchlistEntry"
                     )
                     editor.plans.forEach { plan ->
                         TradePlanCard(

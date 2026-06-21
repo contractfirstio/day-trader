@@ -12,8 +12,11 @@ import daytrader.data.StrategyCatalog
 import daytrader.domain.DEFAULT_WATCHLIST_ID
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentOrderSizeRules
+import daytrader.domain.orderSizeRules
 import daytrader.domain.InstrumentListingCandidates
 import daytrader.domain.InstrumentResolution
+import daytrader.domain.InstrumentRelookup
 import daytrader.domain.InstrumentResolveLog
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
@@ -89,6 +92,100 @@ class WatchlistViewModel(
     private var executionConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var marketDataConnection: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var showAddDialog = false
+    private var instrumentRelookupInProgress = false
+    private var instrumentRelookupMessage: String? = null
+
+    private fun instrumentResolveGateway(): BrokerGateway? = marketDataGateway ?: executionGateway
+
+    private fun canRelookupInstrument(): Boolean =
+        InstrumentRelookup.supportsBrokerKind(brokerKind) &&
+            instrumentResolveGateway()?.connectionState?.value == GatewayConnectionState.Connected
+
+    private fun enrichEditorInstrumentState(draft: WatchlistTradePlansEditorUi): WatchlistTradePlansEditorUi =
+        draft.copy(
+            canRelookupInstrument = canRelookupInstrument(),
+            instrumentRelookupInProgress = instrumentRelookupInProgress,
+            instrumentRelookupMessage = instrumentRelookupMessage
+        )
+
+    fun onRelookupEntryInstrument() {
+        val draft = tradePlansEditorDraft ?: return
+        val entry = findEntry(draft.entryId) ?: return
+        val gateway = instrumentResolveGateway()
+        if (gateway == null || !canRelookupInstrument()) {
+            instrumentRelookupMessage = "Connect to Interactive Brokers to refresh listing details"
+            tradePlansEditorDraft = enrichEditorInstrumentState(draft)
+            emitUiState()
+            return
+        }
+        instrumentRelookupInProgress = true
+        instrumentRelookupMessage = null
+        tradePlansEditorDraft = enrichEditorInstrumentState(draft)
+        emitUiState()
+        scope.launchUiAction(
+            screen = AppScreen.WATCHLIST,
+            source = "relookupEntryInstrument",
+            onFailure = { error ->
+                instrumentRelookupInProgress = false
+                instrumentRelookupMessage = error.message ?: "Instrument lookup failed"
+                tradePlansEditorDraft = tradePlansEditorDraft?.let(::enrichEditorInstrumentState)
+                emitUiState()
+            }
+        ) {
+            val outcome = InstrumentRelookup.relookup(
+                gateway = gateway,
+                symbol = entry.symbol,
+                existingInstrument = entry.instrument,
+                marketZoneId = entry.marketZoneId
+            ).getOrThrow()
+            val watchlist = selectedWatchlist() ?: return@launchUiAction
+            repository.updateEntry(watchlist.id, entry.id) { current ->
+                current.copy(
+                    instrument = outcome.identity,
+                    companyName = outcome.companyName?.takeIf { it.isNotBlank() } ?: current.companyName
+                )
+            }
+            instrumentRelookupInProgress = false
+            instrumentRelookupMessage =
+                "Updated board lot: ${InstrumentRelookup.lotSizeLabel(outcome.orderSizeRules)}"
+            refreshEntryInstrumentUi(entry.id)
+        }
+    }
+
+    private fun refreshEntryInstrumentUi(entryId: String) {
+        val watchlist = selectedWatchlist() ?: return
+        val entry = findEntry(entryId) ?: return
+        tradePlansEditorDraft = tradePlansEditorDraft
+            ?.takeIf { it.entryId == entryId }
+            ?.let { draft ->
+                enrichEditorInstrumentState(
+                    WatchlistUiMapper.toEditorUi(entry, watchlist, strategyDeployments).copy(
+                        assignedLabelIds = draft.assignedLabelIds,
+                        pendingLabels = draft.pendingLabels,
+                        newGroupInput = draft.newGroupInput,
+                        assignedStrategyDeploymentIds = draft.assignedStrategyDeploymentIds,
+                        plans = draft.plans.map { planEditor ->
+                            val base = entry.tradePlans.find { it.id == planEditor.planId }
+                                ?: WatchlistTradePlan(id = planEditor.planId, label = planEditor.label)
+                            WatchlistUiMapper.recomputeEditorPlan(
+                                editor = planEditor,
+                                base = base,
+                                currencyCode = draft.currencyCode,
+                                scannedPrice = entry.lastScannedPrice,
+                                orderSizeRules = entry.instrument?.orderSizeRules()
+                            )
+                        }
+                    )
+                )
+            }
+        bracketOrderDraft?.takeIf { it.entryId == entryId }?.let { draft ->
+            findEntry(entryId)?.let { refreshedEntry ->
+                bracketOrderDraft = recomputeBracketOrder(draft, refreshedEntry)
+            }
+        }
+        emitUiState()
+    }
+
     private var tradePlansEditorDraft: WatchlistTradePlansEditorUi? = null
     private var planDiaryEditorDraft: WatchlistPlanDiaryEditorUi? = null
     private var dueDiaryNotificationQueue: List<WatchlistPlanDiaryNotifications.DueNotification> = emptyList()
@@ -289,8 +386,7 @@ class WatchlistViewModel(
         val entryPrice = bracketDraft.entryPriceText.toDoubleOrNull()
         val stopPrice = bracketDraft.stopPriceText.toDoubleOrNull()
         val targetPrice = bracketDraft.targetPriceText.toDoubleOrNull()
-        val quantity = bracketDraft.quantityText.toIntOrNull()
-        val investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } }
+        val investmentAmount = bracketDraft.investmentAmountText.toDoubleOrNull()
         repository.updateWatchlist(watchlist.id) { current ->
             current.copy(
                 entries = current.entries.map { entry ->
@@ -304,6 +400,7 @@ class WatchlistViewModel(
                                 stopPrice = stopPrice ?: plan.stopPrice,
                                 targetPrice = targetPrice ?: plan.targetPrice,
                                 investmentAmount = investmentAmount ?: plan.investmentAmount,
+                                sizingMode = bracketDraft.sizingMode,
                                 orderPlacedAtEpochMs = placedAt,
                                 placedOrderIds = orderIds
                             )
@@ -846,7 +943,9 @@ class WatchlistViewModel(
     fun onOpenTradePlans(entryId: String) {
         val entry = findEntry(entryId) ?: return
         val watchlist = selectedWatchlist() ?: return
-        tradePlansEditorDraft = refreshEditorDraft(
+        instrumentRelookupMessage = null
+        instrumentRelookupInProgress = false
+        tradePlansEditorDraft = enrichEditorInstrumentState(
             WatchlistUiMapper.toEditorUi(entry = entry, watchlist = watchlist, deployments = strategyDeployments)
         )
         startEntryCharts(entry)
@@ -1059,10 +1158,6 @@ class WatchlistViewModel(
         val plansDraft = tradePlansEditorDraft ?: return
         val entry = findEntry(plansDraft.entryId) ?: return
         val planEditor = plansDraft.plans.find { it.planId == planId } ?: return
-        val base = entry.tradePlans.find { it.id == planId }
-            ?: WatchlistTradePlan(id = planId, label = planEditor.label)
-        val plan = planFromEditor(planEditor, base)
-        val outcome = WatchlistTradePlanCalculator.compute(plan)
         bracketOrderDraft = recomputeBracketOrder(
             WatchlistBracketOrderUi(
                 entryId = plansDraft.entryId,
@@ -1075,9 +1170,14 @@ class WatchlistViewModel(
                 entryPriceText = planEditor.entryPriceText,
                 stopPriceText = planEditor.stopPriceText,
                 targetPriceText = planEditor.targetPriceText,
-                quantityText = outcome.quantity?.toString().orEmpty(),
+                investmentAmountText = planEditor.investmentAmountText,
+                sizingMode = planEditor.sizingMode,
+                quantityText = "",
                 stopEntry = planEditor.stopEntry,
-                adjustableTrailingStop = planEditor.adjustableTrailingStop
+                adjustableTrailingStop = planEditor.adjustableTrailingStop,
+                minOrderSize = entry.instrument?.minOrderSize ?: InstrumentOrderSizeRules.DEFAULT.minOrderSize,
+                orderSizeIncrement = entry.instrument?.orderSizeIncrement
+                    ?: InstrumentOrderSizeRules.DEFAULT.orderSizeIncrement
             ),
             entry
         )
@@ -1104,7 +1204,6 @@ class WatchlistViewModel(
             WatchlistBracketOrderField.ENTRY -> draft.copy(entryPriceText = value)
             WatchlistBracketOrderField.STOP -> draft.copy(stopPriceText = value)
             WatchlistBracketOrderField.TARGET -> draft.copy(targetPriceText = value)
-            WatchlistBracketOrderField.QUANTITY -> draft.copy(quantityText = value)
         }
         bracketOrderDraft = recomputeBracketOrder(updated, entry)
         emitUiState()
@@ -1186,46 +1285,54 @@ class WatchlistViewModel(
         draft: WatchlistBracketOrderUi,
         entry: WatchlistEntry
     ): Result<daytrader.domain.TouchTurnOrderPlan> {
-        val entryPrice = draft.entryPriceText.toDoubleOrNull()
-            ?: return Result.failure(IllegalArgumentException("Entry price required"))
-        val stopPrice = draft.stopPriceText.toDoubleOrNull()
-            ?: return Result.failure(IllegalArgumentException("Stop price required"))
-        val targetPrice = draft.targetPriceText.toDoubleOrNull()
-            ?: return Result.failure(IllegalArgumentException("Target price required"))
-        val quantity = draft.quantityText.toIntOrNull()
-            ?: return Result.failure(IllegalArgumentException("Quantity required"))
+        val orderSizeRules = entry.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val sizingOutcome = WatchlistTradePlanCalculator.compute(bracketSizingPlan(draft), orderSizeRules)
+        if (sizingOutcome.errors.isNotEmpty()) {
+            return Result.failure(IllegalArgumentException(sizingOutcome.errors.joinToString("; ")))
+        }
+        val quantity = sizingOutcome.quantity
+            ?: return Result.failure(IllegalArgumentException("Could not size position from investment amount"))
         return WatchlistBracketOrderPlanner.buildTouchTurnPlan(
             symbol = SymbolMarkets.normalizeSymbol(entry.symbol),
             currencyCode = entry.currencyCode,
             instrument = entry.instrument,
             side = draft.side,
-            entryPrice = entryPrice,
-            stopPrice = stopPrice,
-            targetPrice = targetPrice,
+            entryPrice = draft.entryPriceText.toDoubleOrNull()
+                ?: return Result.failure(IllegalArgumentException("Entry price required")),
+            stopPrice = draft.stopPriceText.toDoubleOrNull()
+                ?: return Result.failure(IllegalArgumentException("Stop price required")),
+            targetPrice = draft.targetPriceText.toDoubleOrNull()
+                ?: return Result.failure(IllegalArgumentException("Target price required")),
             quantity = quantity,
             options = bracketOptionsFromDraft(draft)
         )
     }
 
-    private fun recomputeBracketOrder(draft: WatchlistBracketOrderUi, entry: WatchlistEntry): WatchlistBracketOrderUi {
-        val entryPrice = draft.entryPriceText.toDoubleOrNull()
-        val stopPrice = draft.stopPriceText.toDoubleOrNull()
-        val targetPrice = draft.targetPriceText.toDoubleOrNull()
-        val quantity = draft.quantityText.toIntOrNull()
-        val options = bracketOptionsFromDraft(draft)
-        val previewPlan = WatchlistTradePlan(
+    private fun bracketSizingPlan(draft: WatchlistBracketOrderUi): WatchlistTradePlan =
+        WatchlistTradePlan(
             id = draft.planId,
             label = draft.planLabel,
             side = draft.side,
-            entryPrice = entryPrice,
-            stopPrice = stopPrice,
-            targetPrice = targetPrice,
-            investmentAmount = entryPrice?.let { price -> quantity?.let { price * it } },
+            entryPrice = draft.entryPriceText.toDoubleOrNull(),
+            stopPrice = draft.stopPriceText.toDoubleOrNull(),
+            targetPrice = draft.targetPriceText.toDoubleOrNull(),
+            investmentAmount = draft.investmentAmountText.toDoubleOrNull(),
+            sizingMode = draft.sizingMode,
             stopEntry = draft.stopEntry,
             adjustableTrailingStop = draft.adjustableTrailingStop
         )
-        val calculatorOutcome = WatchlistTradePlanCalculator.compute(previewPlan)
-        val bracketResult = if (entryPrice != null && stopPrice != null && targetPrice != null && quantity != null) {
+
+    private fun recomputeBracketOrder(draft: WatchlistBracketOrderUi, entry: WatchlistEntry): WatchlistBracketOrderUi {
+        val orderSizeRules = entry.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val calculatorOutcome = WatchlistTradePlanCalculator.compute(bracketSizingPlan(draft), orderSizeRules)
+        val quantity = calculatorOutcome.quantity
+        val options = bracketOptionsFromDraft(draft)
+        val entryPrice = draft.entryPriceText.toDoubleOrNull()
+        val stopPrice = draft.stopPriceText.toDoubleOrNull()
+        val targetPrice = draft.targetPriceText.toDoubleOrNull()
+        val bracketResult = if (
+            entryPrice != null && stopPrice != null && targetPrice != null && quantity != null
+        ) {
             WatchlistBracketOrderPlanner.buildTouchTurnPlan(
                 symbol = entry.symbol,
                 currencyCode = entry.currencyCode,
@@ -1242,10 +1349,16 @@ class WatchlistViewModel(
         }
         val errors = buildList {
             addAll(calculatorOutcome.errors)
+            if (draft.investmentAmountText.toDoubleOrNull() == null) {
+                add("Investment amount required")
+            }
             bracketResult.exceptionOrNull()?.message?.let { add(it) }
         }.distinct()
         val connected = executionConnection == GatewayConnectionState.Connected && executionGateway != null
         return draft.copy(
+            minOrderSize = orderSizeRules.minOrderSize,
+            orderSizeIncrement = orderSizeRules.orderSizeIncrement,
+            quantityText = quantity?.toString().orEmpty(),
             bracketOrderSummary = WatchlistBracketOrderPlanner.bracketOrderSummary(options),
             outcome = if (calculatorOutcome.isComplete) {
                 WatchlistUiMapper.outcomeUi(calculatorOutcome, draft.currencyCode)
@@ -1324,7 +1437,8 @@ class WatchlistViewModel(
                         editor = transform(editor),
                         base = base,
                         currencyCode = draft.currencyCode,
-                        scannedPrice = draft.scannedPrice
+                        scannedPrice = draft.scannedPrice,
+                        orderSizeRules = entry.instrument?.orderSizeRules()
                     )
                 }
             }
@@ -1595,7 +1709,7 @@ class WatchlistViewModel(
                 sortColumn = sortColumn,
                 sortDirection = sortDirection,
                 showAddDialog = showAddDialog,
-                tradePlansEditor = tradePlansEditorDraft,
+                tradePlansEditor = tradePlansEditorDraft?.let(::enrichEditorInstrumentState),
                 entryCharts = tradePlansEditorDraft?.let(::buildEntryChartsUi),
                 planDiaryEditor = planDiaryEditorDraft,
                 pendingDiaryNotification = dueDiaryNotificationQueue.firstOrNull()
@@ -1645,7 +1759,8 @@ class WatchlistViewModel(
                     editor = planEditor,
                     base = base,
                     currencyCode = draft.currencyCode,
-                    scannedPrice = scannedPrice
+                    scannedPrice = scannedPrice,
+                    orderSizeRules = entry.instrument?.orderSizeRules()
                 )
             }
         )

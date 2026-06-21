@@ -67,6 +67,7 @@ class FakeBrokerGateway(
     private val refetchIndex = java.util.concurrent.atomic.AtomicInteger(0)
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
     val flattenedSymbols = mutableListOf<String>()
+    val cancelledOrderIds = mutableListOf<Int>()
 
     private val _connectionState = MutableStateFlow<GatewayConnectionState>(GatewayConnectionState.Connected)
     override val connectionState: StateFlow<GatewayConnectionState> = _connectionState.asStateFlow()
@@ -179,7 +180,9 @@ class FakeBrokerGateway(
         refetchIndex.set(0)
     }
 
-    override fun cancelOrder(orderId: Int) = Unit
+    override fun cancelOrder(orderId: Int) {
+        cancelledOrderIds.add(orderId)
+    }
 
     override suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution> =
         Result.success(InstrumentResolution(emptyList()))

@@ -242,6 +242,10 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         onUpdateDeployment = viewModel::onUpdateDeployment,
         onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
         deploymentCopyTargets = detailState.deploymentCopyTargets,
+        canRelookupInstrument = detailState.canRelookupInstrument,
+        instrumentRelookupInProgress = detailState.instrumentRelookupInProgress,
+        instrumentRelookupMessage = detailState.instrumentRelookupMessage,
+        onRelookupInstrument = viewModel::onRelookupDeploymentInstrument,
         onStartStop = viewModel::onToggleSession,
         onPrepareSession = viewModel::onPrepareSession,
         onSessionHistoryHeaderClick = viewModel::onSessionHistoryHeaderClick,
@@ -282,6 +286,10 @@ private fun StrategyDeploymentDetailPanel(
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (String, Set<String>) -> Unit,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
+    canRelookupInstrument: Boolean,
+    instrumentRelookupInProgress: Boolean,
+    instrumentRelookupMessage: String?,
+    onRelookupInstrument: (String) -> Unit,
     onStartStop: (String) -> Unit,
     onPrepareSession: (String) -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -329,6 +337,10 @@ private fun StrategyDeploymentDetailPanel(
                     onCopyTouchTurnRulesToOther(selectedDeployment.id, marketZoneIds)
                 },
                 deploymentCopyTargets = deploymentCopyTargets,
+                canRelookupInstrument = canRelookupInstrument,
+                instrumentRelookupInProgress = instrumentRelookupInProgress,
+                instrumentRelookupMessage = instrumentRelookupMessage,
+                onRelookupInstrument = onRelookupInstrument,
                 onStartStop = { onStartStop(selectedDeployment.id) },
                 onPrepareSession = { onPrepareSession(selectedDeployment.id) },
                 onSessionHistoryHeaderClick = onSessionHistoryHeaderClick,
@@ -462,6 +474,10 @@ private fun StrategyDeploymentDetail(
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
+    canRelookupInstrument: Boolean,
+    instrumentRelookupInProgress: Boolean,
+    instrumentRelookupMessage: String?,
+    onRelookupInstrument: (String) -> Unit,
     onStartStop: () -> Unit,
     onPrepareSession: () -> Unit,
     onSessionHistoryHeaderClick: (SessionHistorySortColumn) -> Unit,
@@ -608,7 +624,11 @@ private fun StrategyDeploymentDetail(
                         deploymentCopyTargets = deploymentCopyTargets,
                         onResolveSymbol = onResolveSymbol,
                         onUpdate = onUpdate,
-                        onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther
+                        onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther,
+                        canRelookupInstrument = canRelookupInstrument,
+                        instrumentRelookupInProgress = instrumentRelookupInProgress,
+                        instrumentRelookupMessage = instrumentRelookupMessage,
+                        onRelookupInstrument = { onRelookupInstrument(instance.id) }
                     )
                     StrategyDetailTab.LIVE -> LiveTab(
                         instance = instance,
@@ -767,7 +787,11 @@ private fun ConfigurationTab(
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
-    onCopyTouchTurnRulesToOther: (Set<String>) -> Unit
+    onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
+    canRelookupInstrument: Boolean,
+    instrumentRelookupInProgress: Boolean,
+    instrumentRelookupMessage: String?,
+    onRelookupInstrument: () -> Unit
 ) {
     val canEdit = instance.status != DeploymentStatus.RUNNING
     val otherDeploymentCount = remember(instance.id, deploymentCopyTargets) {
@@ -793,7 +817,11 @@ private fun ConfigurationTab(
             deployment = instance,
             canEdit = canEdit,
             onResolveSymbol = onResolveSymbol,
-            onUpdate = onUpdate
+            onUpdate = onUpdate,
+            canRelookupInstrument = canRelookupInstrument,
+            instrumentRelookupInProgress = instrumentRelookupInProgress,
+            instrumentRelookupMessage = instrumentRelookupMessage,
+            onRelookupInstrument = onRelookupInstrument
         )
         if (!canEdit) {
             Text(

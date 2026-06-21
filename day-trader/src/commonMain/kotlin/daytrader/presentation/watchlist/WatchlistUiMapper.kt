@@ -1,5 +1,8 @@
 package daytrader.presentation.watchlist
 
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentOrderSizeRules
+import daytrader.domain.orderSizeRules
 import daytrader.domain.PlanSizingMode
 import daytrader.domain.ProximityThresholdMode
 import daytrader.domain.TradeSide
@@ -86,9 +89,20 @@ object WatchlistUiMapper {
             ),
             assignedStrategyDeploymentIds = assignedStrategyIds,
             plans = entry.tradePlans.map { plan ->
-                toPlanEditorUi(plan, entry.currencyCode, entry.lastScannedPrice)
-            }
+                toPlanEditorUi(plan, entry.currencyCode, entry.lastScannedPrice, entry.instrument?.orderSizeRules())
+            },
+            savedListingLabel = entry.instrument?.let(::listingLabelForIdentity),
+            minOrderSize = entry.instrument?.minOrderSize ?: InstrumentOrderSizeRules.DEFAULT.minOrderSize,
+            orderSizeIncrement = entry.instrument?.orderSizeIncrement
+                ?: InstrumentOrderSizeRules.DEFAULT.orderSizeIncrement
         )
+    }
+
+    fun listingLabelForIdentity(identity: InstrumentIdentity): String {
+        val venue = identity.primaryExch?.takeIf { it.isNotBlank() }
+            ?: identity.exchange.takeIf { it.isNotBlank() && !it.equals("SMART", ignoreCase = true) }
+            ?: identity.exchange
+        return "$venue · ${identity.currency.uppercase()}"
     }
 
     fun toStrategyUi(deployments: List<StrategyDeployment>): List<WatchlistStrategyUi> =
@@ -110,6 +124,7 @@ object WatchlistUiMapper {
         plan: WatchlistTradePlan,
         currencyCode: String,
         scannedPrice: Double? = null,
+        orderSizeRules: InstrumentOrderSizeRules? = null,
         todayIso: String = currentSessionDateIso()
     ): WatchlistPlanEditorUi {
         val draft = planFromEditorFields(
@@ -140,7 +155,13 @@ object WatchlistUiMapper {
             proximityThresholdValueText = plan.proximityThresholdValue?.let(::formatInputNumber).orEmpty(),
             stopEntry = plan.stopEntry,
             adjustableTrailingStop = plan.adjustableTrailingStop,
-            outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
+            outcome = outcomeUi(
+                WatchlistTradePlanCalculator.compute(
+                    draft,
+                    orderSizeRules ?: InstrumentOrderSizeRules.DEFAULT
+                ),
+                currencyCode
+            ),
             isNearEntry = isPlanNearEntry(draft, scannedPrice),
             orderPlacedLabel = orderPlacedLabel(plan),
             diaryEntryCount = plan.diaryEntries.size,
@@ -205,7 +226,8 @@ object WatchlistUiMapper {
         editor: WatchlistPlanEditorUi,
         base: WatchlistTradePlan,
         currencyCode: String,
-        scannedPrice: Double? = null
+        scannedPrice: Double? = null,
+        orderSizeRules: InstrumentOrderSizeRules? = null
     ): WatchlistPlanEditorUi {
         val draft = planFromEditorFields(
             plan = base.copy(label = editor.label),
@@ -222,7 +244,13 @@ object WatchlistUiMapper {
             adjustableTrailingStop = editor.adjustableTrailingStop
         )
         return editor.copy(
-            outcome = outcomeUi(WatchlistTradePlanCalculator.compute(draft), currencyCode),
+            outcome = outcomeUi(
+                WatchlistTradePlanCalculator.compute(
+                    draft,
+                    orderSizeRules ?: InstrumentOrderSizeRules.DEFAULT
+                ),
+                currencyCode
+            ),
             isNearEntry = isPlanNearEntry(draft, scannedPrice),
             orderPlacedLabel = orderPlacedLabel(base),
             diaryEntryCount = base.diaryEntries.size,
@@ -283,7 +311,12 @@ object WatchlistUiMapper {
 
     private fun planSummary(entry: WatchlistEntry): String? {
         val complete = entry.tradePlans
-            .map { plan -> plan to WatchlistTradePlanCalculator.compute(plan) }
+            .map { plan ->
+                plan to WatchlistTradePlanCalculator.compute(
+                    plan,
+                    entry.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+                )
+            }
             .firstOrNull { (_, outcome) -> outcome.isComplete }
             ?: return null
         val (plan, outcome) = complete

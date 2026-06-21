@@ -23,7 +23,8 @@ object OpenOrderUiMapper {
             priceLabel = priceLabel,
             status = order.status,
             legLabel = legLabel(order),
-            sourcePlanLabel = sourcePlanLabel
+            sourcePlanLabel = sourcePlanLabel,
+            canCancel = !order.isTrailAdjustment
         )
     }
 

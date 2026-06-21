@@ -38,7 +38,7 @@ class IbOrderSizeRulesTest {
 
         val rules = IbOrderSizeRules.fromContractDetails(details)
 
-        assertNull(rules.minOrderSize)
-        assertNull(rules.orderSizeIncrement)
+        assertEquals(1, rules.minOrderSize)
+        assertEquals(1, rules.orderSizeIncrement)
     }
 }
