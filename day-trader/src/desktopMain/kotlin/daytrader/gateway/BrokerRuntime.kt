@@ -24,9 +24,9 @@ data class BrokerRuntime(
     val gateway: QueuedBrokerGateway,
     /** IB or replay market-data gateway for Touch Turn ADR / first candle / quotes. */
     val marketDataGateway: BrokerGateway? = null,
-    /** Subscribes to IB streaming quotes for a symbol (used by hybrid paper mode for emulator marks). */
+    /** Subscribes to IB streaming quotes for a symbol (IB + hybrid paper mode). */
     val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
-    /** Cancels symbol-only streaming when no session needs quotes (hybrid mode only). */
+    /** Cancels symbol-only streaming when no session needs quotes (IB + hybrid). */
     val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)? = null,
     /** IB streaming quote mode (live / delayed / delayed-frozen); null when not on an IB connection. */
     val getStreamingMarketDataType: (() -> IbStreamingMarketDataType)? = null,
@@ -122,25 +122,38 @@ data class BrokerRuntime(
                 scope = scope
             )
             val ibConnection = adapter as? DesktopIbGatewayConnection
-            val emulatorEnsureRelease = if (kind == BrokerKind.EMULATOR) {
-                Pair(
-                    { symbol: String, instrument: daytrader.domain.InstrumentIdentity? ->
+            val ensureLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)?
+            val releaseLiveMarketData: ((String, daytrader.domain.InstrumentIdentity?) -> Unit)?
+            when (kind) {
+                BrokerKind.EMULATOR -> {
+                    ensureLiveMarketData = { symbol, instrument ->
                         emulatorAdapter.ensureStreamingMarketData(symbol, instrument)
-                    },
-                    { symbol: String, instrument: daytrader.domain.InstrumentIdentity? ->
+                    }
+                    releaseLiveMarketData = { symbol, instrument ->
                         emulatorAdapter.releaseStreamingMarketData(symbol, instrument)
                     }
-                )
-            } else {
-                null to null
+                }
+                BrokerKind.INTERACTIVE_BROKERS -> {
+                    val ib = ibConnection!!
+                    ensureLiveMarketData = { symbol, instrument ->
+                        ib.ensureStreamingMarketData(symbol, instrument)
+                    }
+                    releaseLiveMarketData = { symbol, instrument ->
+                        ib.releaseStreamingMarketData(symbol, instrument)
+                    }
+                }
+                else -> {
+                    ensureLiveMarketData = null
+                    releaseLiveMarketData = null
+                }
             }
             return BrokerRuntime(
                 kind = kind,
                 clock = WallClock,
                 gateway = gateway,
                 quoteBus = quoteBus,
-                ensureLiveMarketData = emulatorEnsureRelease.first,
-                releaseLiveMarketData = emulatorEnsureRelease.second,
+                ensureLiveMarketData = ensureLiveMarketData,
+                releaseLiveMarketData = releaseLiveMarketData,
                 getStreamingMarketDataType = ibConnection?.let { ib -> { ib.currentStreamingMarketDataType() } },
                 setStreamingMarketDataType = ibConnection?.let { ib -> { type -> ib.setStreamingMarketDataType(type) } },
                 adapters = listOf(adapter),

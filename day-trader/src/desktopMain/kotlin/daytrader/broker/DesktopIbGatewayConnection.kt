@@ -684,6 +684,7 @@ class DesktopIbGatewayConnection(
         paced { requestPositions() }
         paced { requestOpenOrders() }
         scheduleExecutionsRefresh()
+        resubscribeAllStreamingSymbols()
     }
 
     override fun execDetails(reqId: Int, contract: Contract, execution: Execution) {

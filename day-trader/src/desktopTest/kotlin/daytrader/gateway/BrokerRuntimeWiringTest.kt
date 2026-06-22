@@ -34,4 +34,16 @@ class BrokerRuntimeWiringTest {
         val runtime = BrokerRuntime.create(BrokerKind.EMULATOR)
         assertNotNull(runtime.quoteBus)
     }
+
+    @Test
+    fun createIb_runtimeWiresStreamingMarketDataHooks() {
+        val runtime = BrokerRuntime.create(BrokerKind.INTERACTIVE_BROKERS)
+        assertEquals(BrokerKind.INTERACTIVE_BROKERS, runtime.kind)
+        assertEquals(BrokerId.INTERACTIVE_BROKERS, runtime.gateway.brokerId)
+        assertEquals(null, runtime.marketDataGateway)
+        assertNotNull(runtime.ensureLiveMarketData)
+        assertNotNull(runtime.releaseLiveMarketData)
+        assertNotNull(runtime.getStreamingMarketDataType)
+        assertNotNull(runtime.setStreamingMarketDataType)
+    }
 }

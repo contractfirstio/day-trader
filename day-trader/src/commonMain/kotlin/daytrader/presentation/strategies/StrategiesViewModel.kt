@@ -331,6 +331,9 @@ class StrategiesViewModel(
             gateway.connectionState
                 .onEach {
                     brokerConnection = it
+                    if (sessionGateway == null || sessionGateway === brokerGateway) {
+                        marketDataConnection = it
+                    }
                     emitUiState(UiRefreshScope.LiveMarket)
                 }
                 .launchIn(scope)
