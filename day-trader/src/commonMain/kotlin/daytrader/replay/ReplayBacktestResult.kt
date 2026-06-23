@@ -4,9 +4,11 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.dedupeByExecId
+import daytrader.domain.effectivePnL
+import daytrader.domain.hasCompleteCommissionData
 import daytrader.domain.resolveTouchTurnSessionOutcome
 import daytrader.domain.roundTripCount
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 
 /** Outcome of replaying one captured session with the deployment's current configuration. */
 data class ReplayBacktestResult(
@@ -80,7 +82,8 @@ object ReplayBacktestResultBuilder {
         val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
         val trades = closed?.sessionTrades?.dedupeByExecId().orEmpty()
         val outcome = resolveOutcome(deployment, closed)
-        val pnl = trades.sessionRealizedPnL().takeIf { it != 0.0 } ?: (closed?.pnl ?: 0.0)
+        val pnl = trades.sessionDisplayPnL().takeIf { it != 0.0 || trades.hasCompleteCommissionData() }
+            ?: (closed?.effectivePnL() ?: 0.0)
         val roundTrips = trades.roundTripCount().takeIf { it > 0 } ?: (closed?.trades ?: 0)
         val tangible = errorMessage == null && closed != null && outcome != null
         return ReplayBacktestResult(

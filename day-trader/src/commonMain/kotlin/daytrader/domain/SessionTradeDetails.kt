@@ -22,7 +22,8 @@ data class SessionFillDisplay(
     val price: Double,
     val currency: String,
     val time: String,
-    val realizedPnL: Double?
+    val realizedPnL: Double?,
+    val commission: Double?,
 )
 
 object SessionTradeDetailsBuilder {
@@ -67,7 +68,8 @@ object SessionTradeDetailsBuilder {
                 price = trade.price,
                 currency = trade.currency,
                 time = trade.time,
-                realizedPnL = trade.realizedPnL
+                realizedPnL = trade.realizedPnL,
+                commission = trade.commission,
             )
         }
 

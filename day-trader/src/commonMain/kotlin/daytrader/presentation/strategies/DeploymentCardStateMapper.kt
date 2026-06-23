@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.gateway.WorkingOrder
 import daytrader.broker.SymbolMarkets
 import daytrader.data.StrategyCatalog
+import daytrader.domain.effectivePnL
 import daytrader.domain.ExecutionState
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionStatus
@@ -96,11 +97,11 @@ object DeploymentCardStateMapper {
             )
         }
         return when {
-            run.pnl > NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
+            run.effectivePnL() > NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
                 accent = DeploymentCardAccent.STOPPED_WIN,
                 chipLabel = "Win"
             )
-            run.pnl < -NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
+            run.effectivePnL() < -NEUTRAL_PNL_EPSILON -> DeploymentCardPresentation(
                 accent = DeploymentCardAccent.STOPPED_LOSS,
                 chipLabel = "Loss"
             )

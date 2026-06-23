@@ -1,7 +1,7 @@
 package daytrader.replay
 
 import daytrader.domain.TouchTurnSessionOutcome
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 
 /** Closed-session result extracted from a captured session bundle for replay picker display. */
 data class SessionReplayCaptureSummary(
@@ -21,7 +21,7 @@ fun SessionBundle.toReplayCaptureSummary(): SessionReplayCaptureSummary? {
                 record.decision.executedLegs.isNotEmpty()
             )
     return SessionReplayCaptureSummary(
-        pnl = deduped.sessionRealizedPnL(),
+        pnl = deduped.sessionDisplayPnL(),
         currencyCode = record.marketInputs.currencyCode,
         positionOpened = positionOpened,
         outcome = record.decision.outcome

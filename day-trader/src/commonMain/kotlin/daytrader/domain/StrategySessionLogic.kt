@@ -160,6 +160,17 @@ data class SessionRollups(
     val tradedDays: Int get() = winDays + lossDays
 }
 
+/** Closed-run P&L for display and rollups — net when fill commissions are complete. */
+fun StrategySession.effectivePnL(): Double {
+    val trades = sessionTrades.dedupeByExecId()
+    if (trades.isEmpty()) return pnl
+    if (trades.hasCompleteCommissionData()) return trades.sessionNetPnL()
+    val gross = trades.sessionRealizedPnL()
+    // Persisted fills may have lost commission while session.pnl was saved net at stop.
+    if (kotlin.math.abs(pnl - gross) > 0.005) return pnl
+    return gross
+}
+
 /** True when this closed run opened a broker position (entry filled), not merely rules passed. */
 fun StrategySession.hadPosition(): Boolean {
     when (positionOpened) {
@@ -173,7 +184,7 @@ fun StrategySession.hadPosition(): Boolean {
     touchTurnRunRecord?.decision?.outcome?.let { outcome ->
         if (outcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) return false
     }
-    return trades > 0 && kotlin.math.abs(pnl) >= 0.01
+    return trades > 0 && kotlin.math.abs(effectivePnL()) >= 0.01
 }
 
 /** Most recently stopped closed run, by [StrategySession.stoppedAt] then [StrategySession.startedAt]. */
@@ -198,15 +209,16 @@ fun List<StrategySession>.rollups(asOfSessionDate: String): SessionRollups {
         if (!isClosed && !inProgressRelevant) continue
 
         val dayDelta = asOf - session.date.toSessionDayOrdinal()
-        if (dayDelta < 7) pnl7d += session.pnl
-        if (dayDelta < 14) pnl14d += session.pnl
-        if (dayDelta < 30) pnl30d += session.pnl
+        if (dayDelta < 7) pnl7d += session.effectivePnL()
+        if (dayDelta < 14) pnl14d += session.effectivePnL()
+        if (dayDelta < 30) pnl30d += session.effectivePnL()
 
         if (isClosed) {
             closedDays++
-            totalPnl += session.pnl
+            val sessionPnl = session.effectivePnL()
+            totalPnl += sessionPnl
             if (session.hadPosition()) {
-                if (session.pnl > 0) winDays++ else lossDays++
+                if (sessionPnl > 0) winDays++ else lossDays++
             } else {
                 noTradeDays++
             }

@@ -327,9 +327,9 @@ fun StrategyDeployment.touchTurnRecapSessionTrades(runId: String? = null): List<
 fun StrategyDeployment.touchTurnRecapSessionPnl(runId: String? = null): Double? {
     val trades = touchTurnRecapSessionTrades(runId)
     if (trades.isEmpty()) return null
-    val fromFills = trades.sessionRealizedPnL()
-    if (fromFills != 0.0) return fromFills
-    return touchTurnRecapSessionRun(runId)?.pnl
+    val fromFills = trades.sessionDisplayPnL()
+    if (fromFills != 0.0 || trades.hasCompleteCommissionData()) return fromFills
+    return touchTurnRecapSessionRun(runId)?.effectivePnL()
 }
 
 /**
@@ -381,7 +381,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
             trades = sessionTrades,
             plannedBracket = plannedBracket,
             bracketSetup = setup,
-            sessionPnl = pnl.takeIf { sessionTrades.isNotEmpty() }
+            sessionPnl = effectivePnL().takeIf { sessionTrades.isNotEmpty() }
         )
     return TouchTurnSessionContext(
         sessionDate = date,

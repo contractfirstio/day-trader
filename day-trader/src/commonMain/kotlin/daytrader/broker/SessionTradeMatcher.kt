@@ -62,7 +62,7 @@ object SessionTradeMatcher {
                 time = fill.time,
                 currency = fill.currency,
                 commission = fill.commission,
-                realizedPnL = fill.realizedPnL
+                realizedPnL = fill.realizedPnL,
             )
         }
 

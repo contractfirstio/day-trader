@@ -120,7 +120,7 @@ object DeploymentPersistence {
             time = record.time,
             currency = record.currency,
             commission = record.commission,
-            realizedPnL = record.realizedPnL
+            realizedPnL = record.realizedPnL,
         )
 
     private fun toSessionTradeRecord(trade: SessionTrade): SessionTradeRecord =
@@ -135,7 +135,7 @@ object DeploymentPersistence {
             time = trade.time,
             currency = trade.currency,
             commission = trade.commission,
-            realizedPnL = trade.realizedPnL
+            realizedPnL = trade.realizedPnL,
         )
 
     private fun toLiveDomain(record: LiveRecord): ActiveExecution =

@@ -240,13 +240,13 @@ fun buildTouchTurnRunRecord(
                     takeProfit = setup.takeProfit
                 )
             }
-    val fillPnl = sessionTrades.sessionRealizedPnL()
+    val fillPnl = sessionTrades.sessionDisplayPnL()
     val executedLegs = TouchTurnBracketExecution.resolveFromTrades(
         trades = sessionTrades,
         plannedBracket = plannedBracket,
         bracketSetup = touchTurnSession.setup,
-        sessionPnl = fillPnl.takeIf { sessionTrades.isNotEmpty() && it != 0.0 }
-            ?: session.pnl.takeIf { sessionTrades.isNotEmpty() }
+        sessionPnl = fillPnl.takeIf { sessionTrades.isNotEmpty() && (it != 0.0 || sessionTrades.hasCompleteCommissionData()) }
+            ?: session.effectivePnL().takeIf { sessionTrades.isNotEmpty() }
     )
     return TouchTurnRunRecord(
         runContext = TouchTurnRunContext(

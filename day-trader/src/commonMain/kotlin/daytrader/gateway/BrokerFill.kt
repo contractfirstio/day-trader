@@ -16,5 +16,5 @@ data class BrokerFill(
     val time: String,
     val currency: String = "USD",
     val commission: Double? = null,
-    val realizedPnL: Double? = null
+    val realizedPnL: Double? = null,
 )

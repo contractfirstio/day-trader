@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.SessionRollups
+import daytrader.domain.effectivePnL
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
@@ -113,7 +114,7 @@ class SessionRollupCache {
                 hash = fnvMix(hash, session.id.hashCode())
                 hash = fnvMix(hash, session.status.hashCode())
                 hash = fnvMix(hash, session.date.hashCode())
-                hash = fnvMix(hash, session.pnl.toRawBits())
+                hash = fnvMix(hash, session.effectivePnL().toRawBits())
                 hash = fnvMix(hash, session.trades)
                 hash = fnvMix(hash, session.positionOpened?.hashCode() ?: 0)
                 hash = fnvMix(hash, session.sessionTrades.size)

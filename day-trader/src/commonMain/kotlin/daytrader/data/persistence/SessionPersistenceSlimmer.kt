@@ -23,8 +23,8 @@ internal object SessionPersistenceSlimmer {
             price = trade.price,
             time = trade.time,
             currency = trade.currency,
-            commission = null,
-            realizedPnL = trade.realizedPnL
+            commission = trade.commission,
+            realizedPnL = trade.realizedPnL,
         )
 
     fun prepareClosedSessionForPersist(session: StrategySession): StrategySession {

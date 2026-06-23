@@ -69,7 +69,7 @@ import daytrader.domain.touchTurnAnalysisSessionForRun
 import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.touchTurnRecapSessionPnl
 import daytrader.domain.touchTurnRecapSessionTrades
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
 import kotlinx.coroutines.flow.map
 import daytrader.presentation.Formatters
@@ -1814,7 +1814,12 @@ private fun TouchTurnLivePipelineDetailHost(
     }
     val recapSessionPnl = remember(instance.id, instance.sessionHistory.size, recapSessionTrades, recapRunId) {
         instance.touchTurnRecapSessionPnl(recapRunId)
-            ?: liveSessionTrades?.tradeDetail?.realizedPnL
+            ?: liveSessionTrades?.tradeDetail?.let { detail ->
+                when {
+                    detail.showNetAsPrimary -> detail.netPnL
+                    else -> detail.realizedPnL
+                }
+            }
     }
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1880,7 +1885,7 @@ private fun TouchTurnLivePipelineDetailHost(
                         sessionPnl = if (sessionEnded) {
                             recapSessionPnl
                         } else {
-                            liveSessionTrades?.sessionTrades?.sessionRealizedPnL()
+                            liveSessionTrades?.sessionTrades?.sessionDisplayPnL()
                         }
                     )
                 }

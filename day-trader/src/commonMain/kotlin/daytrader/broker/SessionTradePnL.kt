@@ -1,7 +1,7 @@
 package daytrader.broker
 
 import daytrader.domain.SessionTrade
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 
@@ -12,7 +12,7 @@ object SessionTradePnL {
             ?: 0.0
 
     fun totalSessionPnL(trades: List<SessionTrade>, unrealizedPnL: Double): Double =
-        trades.sessionRealizedPnL() + unrealizedPnL
+        trades.sessionDisplayPnL() + unrealizedPnL
 
     fun fillsForDisplay(
         symbol: String,

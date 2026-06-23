@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.DeploymentMarket
+import daytrader.domain.effectivePnL
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
@@ -81,7 +82,7 @@ object SessionHistoryUiMapper {
         val formattedPnL = if (inProgress) {
             "—"
         } else {
-            Formatters.runPnLDisplay(run.pnl, run.positionOpened)
+            Formatters.runPnLDisplay(run.effectivePnL(), run.positionOpened)
         }
         val isPnLFlat = formattedPnL == Formatters.FLAT_PNL_LABEL
         val (_, tradeSummary) = SessionTradeDetailUiMapper.tradeSummaryForRow(run.sessionTrades)
@@ -103,7 +104,7 @@ object SessionHistoryUiMapper {
             positionLine = positionLine,
             isSelected = isSelected,
             formattedPnL = formattedPnL,
-            isPositivePnL = run.pnl > 0.005,
+            isPositivePnL = run.effectivePnL() > 0.005,
             isPnLFlat = isPnLFlat,
             isInProgress = inProgress,
             canDelete = !inProgress,
@@ -118,7 +119,7 @@ object SessionHistoryUiMapper {
     ): List<StrategySession> {
         val comparator = when (sortColumn) {
             SessionHistorySortColumn.TIME -> compareBy<StrategySession> { it.startedAt.ifBlank { it.date } }
-            SessionHistorySortColumn.PNL -> compareBy { it.pnl }
+            SessionHistorySortColumn.PNL -> compareBy { it.effectivePnL() }
         }
         return if (sortDirection == SortDirection.DESCENDING) {
             runs.sortedWith(comparator.reversed())

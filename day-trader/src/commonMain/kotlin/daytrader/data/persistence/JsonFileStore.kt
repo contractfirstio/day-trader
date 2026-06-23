@@ -115,7 +115,7 @@ object JsonFileStore {
                     time = trade.time,
                     currency = trade.currency,
                     commission = trade.commission,
-                    realizedPnL = trade.realizedPnL
+                    realizedPnL = trade.realizedPnL,
                 )
             }
         )

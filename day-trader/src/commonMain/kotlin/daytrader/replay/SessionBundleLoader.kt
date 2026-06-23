@@ -174,7 +174,7 @@ object SessionBundleLoader {
                     time = record.time,
                     currency = record.currency,
                     commission = record.commission,
-                    realizedPnL = record.realizedPnL
+                    realizedPnL = record.realizedPnL,
                 )
             }.getOrNull()
         }

@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.DeploymentSessionStopLogic
+import daytrader.domain.effectivePnL
 import daytrader.domain.OhlcBar
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnRunRecord
@@ -56,7 +57,7 @@ object TouchTurnRunRecordUiMapper {
                         "${fmt(bracket.takeProfit, currency)}"
                 )
             }
-            val pnlAtStop = record.stopEvent.brokerUnrealizedPnLAtStop ?: session?.pnl
+            val pnlAtStop = record.stopEvent.brokerUnrealizedPnLAtStop ?: session?.effectivePnL()
             pnlAtStop?.let { pnl ->
                 add("PnL@stop ${Formatters.money(pnl, currency, showSign = true)}")
             }

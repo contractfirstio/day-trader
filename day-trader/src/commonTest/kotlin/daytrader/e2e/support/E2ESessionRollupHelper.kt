@@ -4,6 +4,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
+import daytrader.domain.effectivePnL
 import daytrader.domain.configurationRollupsForDeployments
 import daytrader.domain.rollups
 import daytrader.domain.rollupsForConfiguration
@@ -56,7 +57,7 @@ object E2ESessionRollupHelper {
                 ?: SymbolMarkets.currencyCode(instance.symbol)
             val closedPnL = instance.sessionHistory
                 .filter { it.status == SessionStatus.CLOSED }
-                .sumOf { it.pnl }
+                .sumOf { it.effectivePnL() }
             netPnLByCurrency.merge(instanceCurrency, closedPnL, Double::plus)
         }
         val formattedNetPnL = when {

@@ -117,6 +117,65 @@ class FilteredDeploymentsSummaryMapperTest {
         assertEquals("+$50.00", summary.formattedUnrealized)
     }
 
+    @Test
+    fun build_netPnLSubtractsCommissionWhenFillDataComplete() {
+        val a = deployment(
+            id = "a",
+            sessions = listOf(
+                closedSessionWithTrades(
+                    id = "s1",
+                    pnl = 500.0,
+                    stoppedAt = "2026-06-14T10:00:00",
+                    sessionTrades = listOf(
+                        sessionTrade(commission = 0.35, realizedPnL = 0.0),
+                        sessionTrade(commission = 0.35, realizedPnL = 500.0),
+                    ),
+                ),
+            ),
+        )
+        val summary = FilteredDeploymentsSummaryMapper.build(
+            instances = listOf(a),
+            sessionDate = sessionDate,
+            brokerPositions = emptyList(),
+            brokerOpenOrders = emptyList(),
+        )
+        assertNotNull(summary)
+        assertEquals("+$499.30", summary.formattedNetPnL)
+    }
+
+    private fun closedSessionWithTrades(
+        id: String,
+        pnl: Double,
+        stoppedAt: String,
+        sessionTrades: List<daytrader.domain.SessionTrade>,
+    ) = StrategySession(
+        id = id,
+        date = sessionDate,
+        startedAt = "${sessionDate}T09:30:00",
+        stoppedAt = stoppedAt,
+        pnl = pnl,
+        trades = 1,
+        maxAtRisk = 1000,
+        status = SessionStatus.CLOSED,
+        positionOpened = true,
+        sessionTrades = sessionTrades,
+    )
+
+    private fun sessionTrade(commission: Double, realizedPnL: Double) =
+        daytrader.domain.SessionTrade(
+            execId = "exec-$commission-$realizedPnL",
+            orderId = 1,
+            permId = 1L,
+            parentOrderId = 0,
+            side = "BUY",
+            quantity = 10,
+            price = 100.0,
+            time = "${sessionDate}T10:00:00",
+            currency = "USD",
+            commission = commission,
+            realizedPnL = realizedPnL,
+        )
+
     private fun deployment(
         id: String = "d1",
         symbol: String = "TSLA",

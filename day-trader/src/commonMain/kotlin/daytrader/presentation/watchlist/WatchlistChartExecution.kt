@@ -4,7 +4,8 @@ import daytrader.broker.SessionTradeMatcher
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.WatchlistEntry
 import daytrader.domain.WatchlistTradePlan
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.effectivePnL
+import daytrader.domain.sessionDisplayPnL
 import daytrader.gateway.BrokerFill
 import daytrader.presentation.strategies.TouchTurnExecutedBracketLegs
 import daytrader.presentation.strategies.TouchTurnOrderLevelKind
@@ -24,7 +25,7 @@ object WatchlistChartExecution {
         val bracket = WatchlistChartLevels.plannedBracketForEntry(entry, bracketDraft, planEditors)
             ?: return emptySet()
         val trades = sessionTradesForPlan(symbol, plan, fills)
-        val sessionPnl = trades.sessionRealizedPnL().takeIf { trades.isNotEmpty() }
+        val sessionPnl = trades.sessionDisplayPnL().takeIf { trades.isNotEmpty() }
         return TouchTurnExecutedBracketLegs.resolve(
             trades = trades,
             plannedBracket = bracket,

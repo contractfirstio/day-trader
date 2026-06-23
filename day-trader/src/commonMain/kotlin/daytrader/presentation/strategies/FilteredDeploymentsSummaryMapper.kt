@@ -8,6 +8,7 @@ import daytrader.domain.ExecutionState
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.riskReward
+import daytrader.domain.effectivePnL
 import daytrader.domain.configurationRollupsForDeployments
 import daytrader.data.StrategyCatalog
 import daytrader.gateway.AccountPosition
@@ -89,7 +90,7 @@ object FilteredDeploymentsSummaryMapper {
             val netPnl = instance.sessionHistory
                 .asSequence()
                 .filter { it.status == SessionStatus.CLOSED }
-                .sumOf { it.pnl }
+                .sumOf { it.effectivePnL() }
             netPnLByCurrency.addAmount(currency, netPnl)
         }
 

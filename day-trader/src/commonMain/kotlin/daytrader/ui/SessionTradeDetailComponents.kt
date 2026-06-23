@@ -192,6 +192,7 @@ fun SessionTradeDetailPanel(
     ) {
         TradeDetailHero(detail, testTagPrefix)
         TradeDetailPnLStrip(detail, testTagPrefix)
+        TradeDetailCostStrip(detail, testTagPrefix)
         TradeDetailPriceStrip(detail, testTagPrefix)
         if (detail.fills.isNotEmpty()) {
             TradeFillsTable(detail.fills, testTagPrefix)
@@ -248,7 +249,11 @@ private fun TradeDetailHero(detail: SessionTradeDetailUiState, testTagPrefix: St
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
-                text = if (detail.isOpen) "Unrealized" else "Realized",
+                text = when {
+                    detail.isOpen -> "Unrealized"
+                    detail.showNetAsPrimary -> "Net"
+                    else -> "Realized"
+                },
                 fontSize = 9.sp,
                 color = TextSecondary
             )
@@ -260,6 +265,45 @@ private fun TradeDetailHero(detail: SessionTradeDetailUiState, testTagPrefix: St
                 modifier = Modifier.testTag("${testTagPrefix}PrimaryPnL")
             )
         }
+    }
+}
+
+@Composable
+private fun TradeDetailCostStrip(detail: SessionTradeDetailUiState, testTagPrefix: String) {
+    if (!detail.hasCommissionData || detail.isOpen) return
+    val gross = detail.formattedRealizedPnL
+    val commission = detail.formattedTotalCommission ?: return
+    val net = detail.formattedNetPnL ?: return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("${testTagPrefix}CostStrip"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TradePnLChip(
+            label = "Gross",
+            value = gross,
+            positive = detail.isPositiveRealizedPnL,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("${testTagPrefix}Chip_Gross")
+        )
+        TradeMetricCell(
+            label = "Commission",
+            value = commission,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("${testTagPrefix}Commission"),
+            valueColor = LossRed,
+        )
+        TradePnLChip(
+            label = "Net",
+            value = net,
+            positive = detail.isPositiveNetPnL == true,
+            modifier = Modifier
+                .weight(1f)
+                .testTag("${testTagPrefix}Chip_Net")
+        )
     }
 }
 
@@ -348,6 +392,7 @@ private fun TradeDetailPriceStrip(detail: SessionTradeDetailUiState, testTagPref
 
 @Composable
 private fun TradeFillsTable(fills: List<SessionTradeFillUi>, testTagPrefix: String) {
+    val showCommission = fills.any { it.formattedCommission != null }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -360,6 +405,15 @@ private fun TradeFillsTable(fills: List<SessionTradeFillUi>, testTagPrefix: Stri
             Text("Leg", fontSize = 8.sp, color = TextSecondary, modifier = Modifier.width(44.dp))
             Text("Fill", fontSize = 8.sp, color = TextSecondary, modifier = Modifier.weight(1f))
             Text("Time", fontSize = 8.sp, color = TextSecondary, modifier = Modifier.width(52.dp))
+            if (showCommission) {
+                Text(
+                    "Comm",
+                    fontSize = 8.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.width(48.dp),
+                    textAlign = TextAlign.End
+                )
+            }
             Text(
                 "P&L",
                 fontSize = 8.sp,
@@ -373,13 +427,17 @@ private fun TradeFillsTable(fills: List<SessionTradeFillUi>, testTagPrefix: Stri
             if (index > 0) {
                 HorizontalDivider(color = TableHeaderBg.copy(alpha = 0.5f))
             }
-            TradeFillTableRow(fill, testTagPrefix)
+            TradeFillTableRow(fill, testTagPrefix, showCommission)
         }
     }
 }
 
 @Composable
-private fun TradeFillTableRow(fill: SessionTradeFillUi, testTagPrefix: String) {
+private fun TradeFillTableRow(
+    fill: SessionTradeFillUi,
+    testTagPrefix: String,
+    showCommission: Boolean,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -409,6 +467,19 @@ private fun TradeFillTableRow(fill: SessionTradeFillUi, testTagPrefix: String) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+        if (showCommission) {
+            Text(
+                text = fill.formattedCommission ?: "—",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Medium,
+                color = when {
+                    fill.formattedCommission == null -> TextSecondary
+                    else -> LossRed
+                },
+                modifier = Modifier.width(48.dp),
+                textAlign = TextAlign.End
+            )
+        }
         Text(
             text = fill.formattedRealizedPnL ?: "—",
             fontSize = 9.sp,
@@ -493,13 +564,14 @@ private val SessionTradeDetailUiState.showPriceStrip: Boolean
     get() = formattedEntryPrice != null
 
 private fun primaryPnLText(detail: SessionTradeDetailUiState): String =
-    if (detail.isOpen) {
-        detail.formattedUnrealizedPnL ?: detail.formattedRealizedPnL
-    } else {
-        detail.formattedRealizedPnL
+    when {
+        detail.isOpen -> detail.formattedUnrealizedPnL ?: detail.formattedRealizedPnL
+        detail.showNetAsPrimary -> detail.formattedNetPnL ?: detail.formattedRealizedPnL
+        else -> detail.formattedRealizedPnL
     }
 
 private fun primaryPnLColor(detail: SessionTradeDetailUiState): Color = when {
     detail.isOpen -> if ((detail.unrealizedPnL ?: 0.0) >= 0) GainGreen else LossRed
+    detail.showNetAsPrimary -> if (detail.isPositiveNetPnL == true) GainGreen else LossRed
     else -> if (detail.isPositiveRealizedPnL) GainGreen else LossRed
 }

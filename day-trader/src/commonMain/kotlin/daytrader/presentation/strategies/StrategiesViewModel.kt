@@ -46,7 +46,7 @@ import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.newWatchlistEntry
 import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 import daytrader.domain.instanceDisplayName
 import daytrader.broker.SymbolMarkets
 import daytrader.broker.BrokerDeploymentIndex
@@ -2149,7 +2149,7 @@ class StrategiesViewModel(
             trades = sessionTrades,
             plannedBracket = session.plannedBracket,
             bracketSetup = session.setup,
-            sessionPnl = sessionTrades.sessionRealizedPnL().takeIf { sessionTrades.isNotEmpty() },
+            sessionPnl = sessionTrades.sessionDisplayPnL().takeIf { sessionTrades.isNotEmpty() },
             persistedLegs = session.executedBracketLegs
         )
         return TouchTurnLiveOrderChartUiMapper.build(

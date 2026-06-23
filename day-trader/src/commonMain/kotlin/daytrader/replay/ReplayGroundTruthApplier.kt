@@ -4,7 +4,7 @@ import daytrader.data.StrategyDeploymentRepository
 import daytrader.domain.SessionStatus
 import daytrader.domain.dedupeByExecId
 import daytrader.domain.roundTripCount
-import daytrader.domain.sessionRealizedPnL
+import daytrader.domain.sessionDisplayPnL
 
 /** Replaces emulator fills on a closed replay session with captured ground-truth fills. */
 object ReplayGroundTruthApplier {
@@ -19,7 +19,7 @@ object ReplayGroundTruthApplier {
             val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
                 ?: return@update deployment
             val groundTruth = bundle.groundTruth ?: return@update deployment
-            val pnl = fills.sessionRealizedPnL()
+            val pnl = fills.sessionDisplayPnL()
             val runRecord = closed.touchTurnRunRecord
             val updatedRecord = runRecord?.copy(
                 decision = groundTruth.runRecord.decision,

@@ -35,13 +35,14 @@ private fun StrategyDeployment.touchTurnStopSnapshot(
     val hadLiquidity = session?.setup?.isLiquidityCandle == true
     val ordersPlaced = session?.ordersPlacedForSession == true
     val positionOpened = hadOpenBrokerPosition || sessionTrades.isNotEmpty()
-    val realized = sessionTrades.sessionRealizedPnL()
+    val deduped = sessionTrades.dedupeByExecId()
+    val displayPnl = deduped.sessionDisplayPnL()
     val pnl = when {
-        sessionTrades.isNotEmpty() && realized != 0.0 -> realized
+        sessionTrades.isNotEmpty() &&
+            (displayPnl != 0.0 || deduped.hasCompleteCommissionData()) -> displayPnl
         positionOpened && brokerUnrealizedPnL != null -> brokerUnrealizedPnL
         else -> 0.0
     }
-    val deduped = sessionTrades.dedupeByExecId()
     val tradeCount = deduped.roundTripCount().takeIf { it > 0 }
         ?: if (positionOpened) 1 else 0
     return SessionStopSnapshot(
@@ -61,14 +62,15 @@ private fun StrategyDeployment.quickFlipStopSnapshot(
 ): SessionStopSnapshot {
     val demoPosition = live.state == ExecutionState.FILLED
     val positionOpened = hadOpenBrokerPosition || demoPosition || sessionTrades.isNotEmpty()
-    val realized = sessionTrades.sessionRealizedPnL()
+    val deduped = sessionTrades.dedupeByExecId()
+    val displayPnl = deduped.sessionDisplayPnL()
     val pnl = when {
-        sessionTrades.isNotEmpty() && realized != 0.0 -> realized
+        sessionTrades.isNotEmpty() &&
+            (displayPnl != 0.0 || deduped.hasCompleteCommissionData()) -> displayPnl
         hadOpenBrokerPosition && brokerUnrealizedPnL != null -> brokerUnrealizedPnL
         demoPosition -> liveUnrealizedPnL()
         else -> 0.0
     }
-    val deduped = sessionTrades.dedupeByExecId()
     val tradeCount = deduped.roundTripCount().takeIf { it > 0 }
         ?: if (positionOpened) maxOf(inProgressSession()?.trades ?: 0, 1) else 0
     return SessionStopSnapshot(

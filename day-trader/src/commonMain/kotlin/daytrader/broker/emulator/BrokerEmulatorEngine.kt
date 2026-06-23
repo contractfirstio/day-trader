@@ -1,5 +1,7 @@
 package daytrader.broker.emulator
 
+import daytrader.broker.FillCommissionReportApplier
+import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.MacroTrendState
@@ -1416,7 +1418,7 @@ class BrokerEmulatorEngine(
         fillPrice: Double
     ) {
         val execId = "emu-${order.orderId}-${sessionFills.size}"
-        val fill = BrokerFill(
+        val execution = BrokerFill(
             execId = execId,
             orderId = order.orderId,
             permId = order.orderId.toLong(),
@@ -1427,10 +1429,21 @@ class BrokerEmulatorEngine(
             price = fillPrice,
             time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             currency = order.currency,
-            commission = 0.0,
-            realizedPnL = realizedPnL
+            commission = null,
+            realizedPnL = null,
         )
-        sessionFills.add(fill)
+        sessionFills.add(execution)
+        val fill = FillCommissionReportApplier.applyReport(
+            fill = execution,
+            orderType = order.orderType,
+            priceBasedRealizedPnL = realizedPnL,
+        )
+        sessionFills[sessionFills.lastIndex] = fill
+        if (realizedPnL != null) {
+            FillCommissionReportApplier.validateRoundTripEdge(
+                SessionTradeMatcher.toSessionTrades(sessionFills),
+            )
+        }
         EmulatorLog.orderFilled(
             symbol = order.symbol,
             orderId = order.orderId,
