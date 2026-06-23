@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import daytrader.data.StrategyCatalog
 import daytrader.domain.*
 import daytrader.presentation.Formatters
+import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.strategies.*
 import daytrader.ui.theme.*
 
@@ -405,11 +408,6 @@ internal fun FilteredDeploymentsSummaryPanel(
             modifier = Modifier.testTag("FilteredDeploymentsAllTimeBand")
         ) {
             CompactInstanceStat(
-                label = "Last session",
-                value = summary.formattedLastSessionPnL,
-                valueColor = lastSessionPnLColor(summary.isPositiveLastSessionPnL)
-            )
-            CompactInstanceStat(
                 label = "Win %",
                 value = summary.formattedWinRate,
                 valueColor = winRateColor(summary.winRateIsPositive)
@@ -422,7 +420,94 @@ internal fun FilteredDeploymentsSummaryPanel(
             CompactInstanceStat(
                 label = "Net P&L",
                 value = summary.formattedNetPnL,
-                valueColor = lastSessionPnLColor(summary.isPositiveNetPnL)
+                valueColor = pnlColor(summary.isPositiveNetPnL)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun DeploymentListSortBar(
+    activeSortColumn: DeploymentListSortColumn?,
+    sortDirection: SortDirection,
+    onHeaderClick: (DeploymentListSortColumn) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(TableHeaderBg.copy(alpha = 0.75f))
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .testTag("DeploymentListSortBar"),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "Sort",
+            color = TextSecondary.copy(alpha = 0.9f),
+            fontSize = 7.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.4.sp,
+            lineHeight = 8.sp
+        )
+        DeploymentListSortChip(
+            label = "Win %",
+            column = DeploymentListSortColumn.WIN_RATE,
+            activeColumn = activeSortColumn,
+            direction = sortDirection,
+            onClick = onHeaderClick
+        )
+        DeploymentListSortChip(
+            label = "No trade %",
+            column = DeploymentListSortColumn.NO_TRADE_RATE,
+            activeColumn = activeSortColumn,
+            direction = sortDirection,
+            onClick = onHeaderClick
+        )
+        DeploymentListSortChip(
+            label = "P&L",
+            column = DeploymentListSortColumn.PNL,
+            activeColumn = activeSortColumn,
+            direction = sortDirection,
+            onClick = onHeaderClick
+        )
+    }
+}
+
+@Composable
+private fun DeploymentListSortChip(
+    label: String,
+    column: DeploymentListSortColumn,
+    activeColumn: DeploymentListSortColumn?,
+    direction: SortDirection,
+    onClick: (DeploymentListSortColumn) -> Unit,
+) {
+    val isActive = activeColumn == column
+    Row(
+        modifier = Modifier
+            .clickable { onClick(column) }
+            .padding(vertical = 2.dp)
+            .testTag("DeploymentListSort-${column.name}"),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = if (isActive) Color.White else TextSecondary,
+            fontSize = 9.sp,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+        )
+        if (isActive) {
+            Spacer(modifier = Modifier.width(3.dp))
+            Icon(
+                imageVector = if (direction == SortDirection.ASCENDING) {
+                    Icons.Default.ArrowUpward
+                } else {
+                    Icons.Default.ArrowDownward
+                },
+                tint = GainGreen,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp)
             )
         }
     }
@@ -556,11 +641,6 @@ internal fun StrategyDeploymentCard(
                 modifier = Modifier.testTag("DeploymentCardAllTimeBand-${row.id}")
             ) {
                 CompactInstanceStat(
-                    label = "Last session",
-                    value = row.formattedLastSessionPnL,
-                    valueColor = lastSessionPnLColor(row.isPositiveLastSessionPnL)
-                )
-                CompactInstanceStat(
                     label = "Win %",
                     value = row.formattedWinRate,
                     valueColor = winRateColor(row.winRateIsPositive)
@@ -655,7 +735,7 @@ internal fun winRateColor(winRateIsPositive: Boolean?): Color = when (winRateIsP
     null -> TextSecondary
 }
 
-internal fun lastSessionPnLColor(isPositive: Boolean?): Color = when (isPositive) {
+internal fun pnlColor(isPositive: Boolean?): Color = when (isPositive) {
     true -> GainGreen
     false -> LossRed
     null -> TextSecondary

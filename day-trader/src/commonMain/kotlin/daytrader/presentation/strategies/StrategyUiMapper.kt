@@ -12,7 +12,6 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.riskReward
 import daytrader.domain.instanceDisplayName
 import daytrader.domain.inProgressSession
-import daytrader.domain.lastClosed
 import daytrader.domain.rollups
 import daytrader.domain.rollupsForConfiguration
 import daytrader.presentation.Formatters
@@ -34,7 +33,6 @@ object StrategyUiMapper {
         headlessBatchActive: Boolean = false,
     ): StrategyDeploymentRowUi {
         val closedSessions = instance.sessionHistory.filter { it.status == SessionStatus.CLOSED }
-        val lastClosedSession = closedSessions.lastClosed()
         val rollup = sessionRollupCache?.rollupsForDeployment(instance.id, closedSessions, sessionDate)
             ?: closedSessions.rollups(sessionDate)
         val configRollup = sessionRollupCache?.rollupsForDeploymentConfiguration(
@@ -77,6 +75,11 @@ object StrategyUiMapper {
             statusChipLabel = card.chipLabel,
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             isPositiveTotalPnL = rollup.totalPnl >= 0,
+            totalPnL = rollup.totalPnl,
+            winRatePercent = when {
+                configRollup.tradedDays == 0 -> null
+                else -> configRollup.winDays.toDouble() / configRollup.tradedDays * 100.0
+            },
             formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateIsPositive = when {
                 configRollup.tradedDays == 0 -> null
@@ -84,10 +87,10 @@ object StrategyUiMapper {
                 else -> false
             },
             formattedNoTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
-            formattedLastSessionPnL = lastClosedSession?.let {
-                Formatters.money(it.pnl, currency, showSign = true)
-            } ?: "—",
-            isPositiveLastSessionPnL = lastClosedSession?.let { it.pnl >= 0 },
+            noTradeRatePercent = when {
+                configRollup.closedDays == 0 -> null
+                else -> configRollup.noTradeDays.toDouble() / configRollup.closedDays * 100.0
+            },
             autoStartOnMarketOpen = instance.autoStartOnMarketOpen,
             hasOpenPosition = hasOpenPosition,
             positionPnL = positionPnL,

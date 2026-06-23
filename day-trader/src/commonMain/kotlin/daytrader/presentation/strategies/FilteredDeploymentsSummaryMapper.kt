@@ -23,8 +23,6 @@ data class FilteredDeploymentsSummaryUi(
     val formattedMaxProfit: String? = null,
     val formattedStopOutcome: String? = null,
     val stopOutcomeIsMinWin: Boolean = false,
-    val formattedLastSessionPnL: String = "—",
-    val isPositiveLastSessionPnL: Boolean? = null,
     val formattedWinRate: String,
     val winRateIsPositive: Boolean? = null,
     val formattedNoTradeRate: String = "—",
@@ -85,24 +83,14 @@ object FilteredDeploymentsSummaryMapper {
             instances = instances,
             asOfSessionDate = sessionDate,
         ) ?: configurationRollupsForDeployments(instances, sessionDate)
-        val lastSessionByCurrency = mutableMapOf<String, Double>()
         val netPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->
             val currency = deploymentCurrency(instance, brokerIndex)
-            var netPnl = 0.0
-            var lastClosedPnl: Double? = null
-            var lastClosedSortKey: String? = null
-            for (session in instance.sessionHistory.toList()) {
-                if (session.status != SessionStatus.CLOSED) continue
-                netPnl += session.pnl
-                val sortKey = session.stoppedAt.ifBlank { session.startedAt }
-                if (lastClosedSortKey == null || sortKey >= lastClosedSortKey) {
-                    lastClosedSortKey = sortKey
-                    lastClosedPnl = session.pnl
-                }
-            }
+            val netPnl = instance.sessionHistory
+                .asSequence()
+                .filter { it.status == SessionStatus.CLOSED }
+                .sumOf { it.pnl }
             netPnLByCurrency.addAmount(currency, netPnl)
-            lastClosedPnl?.let { lastSessionByCurrency.addAmount(currency, it) }
         }
 
         val stopOutcomeTotals = stopOutcomeByCurrency.filterValues { it != 0.0 }
@@ -120,8 +108,6 @@ object FilteredDeploymentsSummaryMapper {
                 .takeIf { it.isNotEmpty() }
                 ?.let { formatMoneyTotals(it) },
             stopOutcomeIsMinWin = stopOutcomeTotals.isNotEmpty() && stopSum >= 0.0,
-            formattedLastSessionPnL = formatMoneyTotals(lastSessionByCurrency),
-            isPositiveLastSessionPnL = singleCurrencySign(lastSessionByCurrency),
             formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateIsPositive = when {
                 configRollup.tradedDays == 0 -> null

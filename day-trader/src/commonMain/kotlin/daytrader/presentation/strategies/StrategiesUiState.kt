@@ -2,6 +2,7 @@ package daytrader.presentation.strategies
 
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
+import daytrader.presentation.positions.SortDirection
 
 enum class DeploymentFilter {
     ALL,
@@ -15,6 +16,12 @@ enum class StrategyDetailTab {
     SESSION_HISTORY
 }
 
+enum class DeploymentListSortColumn {
+    WIN_RATE,
+    NO_TRADE_RATE,
+    PNL,
+}
+
 data class StrategyDeploymentRowUi(
     val id: String,
     val name: String,
@@ -25,13 +32,15 @@ data class StrategyDeploymentRowUi(
     val statusChipLabel: String,
     val formattedTotalPnL: String,
     val isPositiveTotalPnL: Boolean,
+    /** Raw win rate for list sorting; null when there are no traded sessions. */
+    val winRatePercent: Double? = null,
     val formattedWinRate: String,
     /** null when no closed runs; true when win rate is at least 50%. */
     val winRateIsPositive: Boolean? = null,
     val formattedNoTradeRate: String = "—",
-    val formattedLastSessionPnL: String = "—",
-    /** null when there is no closed session yet. */
-    val isPositiveLastSessionPnL: Boolean? = null,
+    /** Raw no-trade rate for list sorting; null when there are no closed sessions. */
+    val noTradeRatePercent: Double? = null,
+    val totalPnL: Double = 0.0,
     val autoStartOnMarketOpen: Boolean = false,
     val hasOpenPosition: Boolean = false,
     /** Raw unrealized P&L for open positions; formatted in Compose on the live band. */
@@ -45,7 +54,7 @@ data class StrategyDeploymentRowUi(
     val stopOutcomeIsMinWin: Boolean = false
 )
 
-/** Lightweight index for copy-rules targeting — avoids retaining full [StrategyDeployment] graphs in UI state. */
+/** Lightweight index for copy-to-other targeting — avoids retaining full [StrategyDeployment] graphs in UI state. */
 data class StrategyDeploymentCopyTarget(
     val id: String,
     val marketZoneId: String,
@@ -66,6 +75,8 @@ data class StrategiesListUiState(
     val globalAutoStartEnabled: Boolean = true,
     val globalClosedSessionHistoryCount: Int = 0,
     val globalHasInProgressSessions: Boolean = false,
+    val sortColumn: DeploymentListSortColumn? = null,
+    val sortDirection: SortDirection = SortDirection.DESCENDING,
 )
 
 /** Selected deployment detail (non-streaming fields). */

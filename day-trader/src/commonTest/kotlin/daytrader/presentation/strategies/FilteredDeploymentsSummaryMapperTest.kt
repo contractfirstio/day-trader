@@ -52,7 +52,7 @@ class FilteredDeploymentsSummaryMapperTest {
     }
 
     @Test
-    fun build_aggregatesNetPnLAndLastSessionAcrossFilteredDeployments() {
+    fun build_aggregatesNetPnLAcrossFilteredDeployments() {
         val a = deployment(
             id = "a",
             sessions = listOf(
@@ -75,7 +75,6 @@ class FilteredDeploymentsSummaryMapperTest {
         )
         assertNotNull(summary)
         assertEquals("+$60.00", summary.formattedNetPnL)
-        assertEquals("+$10.00", summary.formattedLastSessionPnL)
         assertEquals("67%", summary.formattedWinRate)
     }
 

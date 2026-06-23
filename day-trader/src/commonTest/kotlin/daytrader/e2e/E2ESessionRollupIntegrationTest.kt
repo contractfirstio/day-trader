@@ -202,7 +202,6 @@ class E2ESessionRollupIntegrationTest {
             )
             harness.awaitListRowTotalPnL(dep1Id, expectedDep1.formattedTotalPnL)
             assertEquals("+$80.00", expectedDep1.formattedNetPnL)
-            assertEquals("+$80.00", expectedDep1.formattedSummaryLastSessionPnL)
             assertEquals("100%", expectedDep1.formattedSummaryWinRate)
             E2ESessionRollupHelper.assertRollupsConsistent(
                 viewModel = harness.viewModel,
@@ -214,7 +213,6 @@ class E2ESessionRollupIntegrationTest {
             assertNotNull(summary)
             assertEquals("+$80.00", summary.formattedNetPnL)
             assertEquals("100%", summary.formattedWinRate)
-            assertEquals("+$80.00", summary.formattedLastSessionPnL)
         } finally {
             harness.closeE2EHarness()
             emulatorHarness.shutdownEmulatorHarness()

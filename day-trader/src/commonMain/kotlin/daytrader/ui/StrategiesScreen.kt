@@ -189,6 +189,12 @@ private fun StrategiesDeploymentList(viewModel: StrategiesViewModel) {
                 )
             }
         } else {
+            DeploymentListSortBar(
+                activeSortColumn = listState.sortColumn,
+                sortDirection = listState.sortDirection,
+                onHeaderClick = viewModel::onDeploymentListHeaderClick
+            )
+            Spacer(modifier = Modifier.height(4.dp))
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -241,6 +247,7 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         onResolveSymbol = viewModel::resolveInstrumentForSymbol,
         onUpdateDeployment = viewModel::onUpdateDeployment,
         onCopyTouchTurnRulesToOther = viewModel::onCopyTouchTurnRulesToOther,
+        onCopyRiskBudgetToOther = viewModel::onCopyRiskBudgetToOther,
         deploymentCopyTargets = detailState.deploymentCopyTargets,
         canRelookupInstrument = detailState.canRelookupInstrument,
         instrumentRelookupInProgress = detailState.instrumentRelookupInProgress,
@@ -285,6 +292,7 @@ private fun StrategyDeploymentDetailPanel(
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdateDeployment: (String, (StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (String, Set<String>) -> Unit,
+    onCopyRiskBudgetToOther: (String, Set<String>) -> Unit,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     canRelookupInstrument: Boolean,
     instrumentRelookupInProgress: Boolean,
@@ -335,6 +343,9 @@ private fun StrategyDeploymentDetailPanel(
                 onUpdate = { transform -> onUpdateDeployment(selectedDeployment.id, transform) },
                 onCopyTouchTurnRulesToOther = { marketZoneIds ->
                     onCopyTouchTurnRulesToOther(selectedDeployment.id, marketZoneIds)
+                },
+                onCopyRiskBudgetToOther = { marketZoneIds ->
+                    onCopyRiskBudgetToOther(selectedDeployment.id, marketZoneIds)
                 },
                 deploymentCopyTargets = deploymentCopyTargets,
                 canRelookupInstrument = canRelookupInstrument,
@@ -473,6 +484,7 @@ private fun StrategyDeploymentDetail(
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
+    onCopyRiskBudgetToOther: (Set<String>) -> Unit,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     canRelookupInstrument: Boolean,
     instrumentRelookupInProgress: Boolean,
@@ -625,6 +637,7 @@ private fun StrategyDeploymentDetail(
                         onResolveSymbol = onResolveSymbol,
                         onUpdate = onUpdate,
                         onCopyTouchTurnRulesToOther = onCopyTouchTurnRulesToOther,
+                        onCopyRiskBudgetToOther = onCopyRiskBudgetToOther,
                         canRelookupInstrument = canRelookupInstrument,
                         instrumentRelookupInProgress = instrumentRelookupInProgress,
                         instrumentRelookupMessage = instrumentRelookupMessage,
@@ -666,7 +679,7 @@ private fun StrategyDeploymentDetail(
     }
 }
 
-private fun touchTurnCopyTargetCount(
+private fun deploymentCopyTargetCount(
     sourceId: String,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     selectedMarketZoneIds: Set<String>
@@ -676,7 +689,12 @@ private fun touchTurnCopyTargetCount(
 }
 
 @Composable
-private fun TouchTurnRulesCopyDialog(
+private fun DeploymentMarketCopyDialog(
+    title: String,
+    description: String,
+    confirmButtonText: String,
+    marketCheckboxTestTagPrefix: String,
+    dialogTestTag: String,
     sourceId: String,
     deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
     onDismiss: () -> Unit,
@@ -692,23 +710,22 @@ private fun TouchTurnRulesCopyDialog(
     val selectedZoneIds = selectedMarkets.filterValues { it }.keys
     val marketCounts = remember(sourceId, deploymentCopyTargets) {
         RthMarketSessions.all.associate { session ->
-            session.zoneId to touchTurnCopyTargetCount(sourceId, deploymentCopyTargets, setOf(session.zoneId))
+            session.zoneId to deploymentCopyTargetCount(sourceId, deploymentCopyTargets, setOf(session.zoneId))
         }
     }
     val targetCount = remember(sourceId, deploymentCopyTargets, selectedZoneIds) {
-        touchTurnCopyTargetCount(sourceId, deploymentCopyTargets, selectedZoneIds)
+        deploymentCopyTargetCount(sourceId, deploymentCopyTargets, selectedZoneIds)
     }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = SurfaceDark,
         title = {
-            Text("Copy Touch Turn rules", color = Color.White, fontWeight = FontWeight.Bold)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold)
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Apply this deployment's rules and thresholds to other deployments in the " +
-                        "selected markets. Changes apply on the next session start.",
+                    description,
                     color = TextSecondary,
                     fontSize = 14.sp,
                     lineHeight = 18.sp
@@ -718,7 +735,7 @@ private fun TouchTurnRulesCopyDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("TouchTurnRulesCopyMarket-${session.label}"),
+                            .testTag("$marketCheckboxTestTagPrefix-${session.label}"),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -767,7 +784,7 @@ private fun TouchTurnRulesCopyDialog(
                 enabled = selectedZoneIds.isNotEmpty() && targetCount > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = GainGreen)
             ) {
-                Text("Copy rules")
+                Text(confirmButtonText)
             }
         },
         dismissButton = {
@@ -775,7 +792,48 @@ private fun TouchTurnRulesCopyDialog(
                 Text("Cancel", color = TextSecondary)
             }
         },
-        modifier = Modifier.testTag("TouchTurnRulesCopyToAllDialog")
+        modifier = Modifier.testTag(dialogTestTag)
+    )
+}
+
+@Composable
+private fun TouchTurnRulesCopyDialog(
+    sourceId: String,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit
+) {
+    DeploymentMarketCopyDialog(
+        title = "Copy Touch Turn rules",
+        description = "Apply this deployment's rules and thresholds to other deployments in the " +
+            "selected markets. Changes apply on the next session start.",
+        confirmButtonText = "Copy rules",
+        marketCheckboxTestTagPrefix = "TouchTurnRulesCopyMarket",
+        dialogTestTag = "TouchTurnRulesCopyToAllDialog",
+        sourceId = sourceId,
+        deploymentCopyTargets = deploymentCopyTargets,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm
+    )
+}
+
+@Composable
+private fun RiskBudgetCopyDialog(
+    sourceId: String,
+    deploymentCopyTargets: List<StrategyDeploymentCopyTarget>,
+    onDismiss: () -> Unit,
+    onConfirm: (Set<String>) -> Unit
+) {
+    DeploymentMarketCopyDialog(
+        title = "Copy risk budget",
+        description = "Apply this deployment's risk budget to other deployments in the selected markets.",
+        confirmButtonText = "Copy risk budget",
+        marketCheckboxTestTagPrefix = "RiskBudgetCopyMarket",
+        dialogTestTag = "RiskBudgetCopyToAllDialog",
+        sourceId = sourceId,
+        deploymentCopyTargets = deploymentCopyTargets,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm
     )
 }
 
@@ -788,6 +846,7 @@ private fun ConfigurationTab(
     onResolveSymbol: (String, (Result<InstrumentResolution>) -> Unit) -> Unit,
     onUpdate: ((StrategyDeployment) -> StrategyDeployment) -> Unit,
     onCopyTouchTurnRulesToOther: (Set<String>) -> Unit,
+    onCopyRiskBudgetToOther: (Set<String>) -> Unit,
     canRelookupInstrument: Boolean,
     instrumentRelookupInProgress: Boolean,
     instrumentRelookupMessage: String?,
@@ -837,16 +896,45 @@ private fun ConfigurationTab(
                 onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
             }
         )
-        ConfigField(
-            label = "Risk budget (\$)",
-            value = instance.maxDollars.toString(),
-            enabled = canEdit,
-            onValueChange = { value ->
-                value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
-                    onUpdate { it.copy(maxDollars = max) }
-                }
+        var showCopyRiskBudgetConfirm by remember { mutableStateOf(false) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            ConfigField(
+                label = "Risk budget (\$)",
+                value = instance.maxDollars.toString(),
+                enabled = canEdit,
+                onValueChange = { value ->
+                    value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
+                        onUpdate { it.copy(maxDollars = max) }
+                    }
+                },
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(
+                onClick = { showCopyRiskBudgetConfirm = true },
+                enabled = canEdit && otherDeploymentCount > 0,
+                modifier = Modifier.testTag("RiskBudgetCopyToAllButton")
+            ) {
+                Text(
+                    "Copy budget…",
+                    color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
+                )
             }
-        )
+        }
+        if (showCopyRiskBudgetConfirm) {
+            RiskBudgetCopyDialog(
+                sourceId = instance.id,
+                deploymentCopyTargets = deploymentCopyTargets,
+                onDismiss = { showCopyRiskBudgetConfirm = false },
+                onConfirm = { marketZoneIds ->
+                    showCopyRiskBudgetConfirm = false
+                    onCopyRiskBudgetToOther(marketZoneIds)
+                }
+            )
+        }
         if (instance.isTouchTurn) {
             var showTouchTurnRules by remember(instance.id, instance.touchTurnRules) {
                 mutableStateOf(false)

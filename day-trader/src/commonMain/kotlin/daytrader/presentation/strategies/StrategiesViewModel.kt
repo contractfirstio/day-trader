@@ -192,6 +192,8 @@ class StrategiesViewModel(
     private var deployments: List<StrategyDeployment> = emptyList()
     private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
+    private var deploymentListSortColumn: DeploymentListSortColumn? = null
+    private var deploymentListSortDirection = SortDirection.DESCENDING
     private var brokerPositions: List<AccountPosition> = emptyList()
     private var brokerQuotes: Map<String, LiveQuote> = emptyMap()
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
@@ -1210,6 +1212,20 @@ class StrategiesViewModel(
         emitUiState()
     }
 
+    fun onDeploymentListHeaderClick(column: DeploymentListSortColumn) {
+        if (deploymentListSortColumn == column) {
+            deploymentListSortDirection = if (deploymentListSortDirection == SortDirection.ASCENDING) {
+                SortDirection.DESCENDING
+            } else {
+                SortDirection.ASCENDING
+            }
+        } else {
+            deploymentListSortColumn = column
+            deploymentListSortDirection = SortDirection.DESCENDING
+        }
+        emitUiState()
+    }
+
     fun onUpdateDeployment(id: String, transform: (StrategyDeployment) -> StrategyDeployment) {
         val before = repository.deployments.value.find { it.id == id }
         val previousInstrumentKey = before?.let {
@@ -1249,10 +1265,7 @@ class StrategiesViewModel(
         val source = repository.deployments.value.find { it.id == sourceId } ?: return
         if (source.status == DeploymentStatus.RUNNING) return
         val rules = source.touchTurnRules
-        val targets = repository.deployments.value.filter { deployment ->
-            deployment.id != sourceId &&
-                DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(deployment, targetMarketZoneIds)
-        }
+        val targets = copyTargetsForMarkets(sourceId, targetMarketZoneIds)
         if (targets.isEmpty()) return
         UiActionLog.forDeployment(
             deployment = source,
@@ -1266,6 +1279,36 @@ class StrategiesViewModel(
             repository.update(target.id) { it.copy(touchTurnRules = rules) }
         }
     }
+
+    fun onCopyRiskBudgetToOther(sourceId: String, targetMarketZoneIds: Set<String>) {
+        if (targetMarketZoneIds.isEmpty()) return
+        val source = repository.deployments.value.find { it.id == sourceId } ?: return
+        if (source.status == DeploymentStatus.RUNNING) return
+        val maxDollars = source.maxDollars
+        val targets = copyTargetsForMarkets(sourceId, targetMarketZoneIds)
+        if (targets.isEmpty()) return
+        UiActionLog.forDeployment(
+            deployment = source,
+            action = "copy_risk_budget_to_other",
+            details = mapOf(
+                "maxDollars" to maxDollars.toString(),
+                "targetCount" to targets.size.toString(),
+                "markets" to targetMarketZoneIds.sorted().joinToString(",")
+            )
+        )
+        for (target in targets) {
+            repository.update(target.id) { it.copy(maxDollars = maxDollars) }
+        }
+    }
+
+    private fun copyTargetsForMarkets(
+        sourceId: String,
+        targetMarketZoneIds: Set<String>
+    ): List<StrategyDeployment> =
+        repository.deployments.value.filter { deployment ->
+            deployment.id != sourceId &&
+                DeploymentMarket.deploymentMatchesAnyMarketZoneFilter(deployment, targetMarketZoneIds)
+        }
 
     fun onPrepareSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
@@ -1609,6 +1652,8 @@ class StrategiesViewModel(
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
             globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
             globalHasInProgressSessions = globalHasInProgressSessions,
+            sortColumn = deploymentListSortColumn,
+            sortDirection = deploymentListSortDirection,
         )
         _detailState.value = StrategiesDetailUiState(
             selectedDeploymentId = selected?.id,
@@ -1721,21 +1766,30 @@ class StrategiesViewModel(
     }
 
     private fun buildListRows(ctx: EmitContext): List<StrategyDeploymentRowUi> =
-        safeUiMap(AppScreen.STRATEGIES, "buildListRows") {
-            ctx.filtered.map { instance ->
-                val brokerPosition = brokerDeploymentIndex.openPosition(instance)
-                val brokerPnL = brokerPosition?.totalUnrealizedPnL
-                StrategyUiMapper.toRowUi(
-                    instance,
-                    ctx.sessionDate,
-                    brokerUnrealizedPnL = brokerPnL,
-                    brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
-                    brokerPosition = brokerPosition,
-                    sessionRollupCache = sessionRollupCache,
-                    headlessBatchActive = headlessBatchReplayActive,
-                )
-            }
-        }.orEmpty()
+        sortListRows(
+            safeUiMap(AppScreen.STRATEGIES, "buildListRows") {
+                ctx.filtered.map { instance ->
+                    val brokerPosition = brokerDeploymentIndex.openPosition(instance)
+                    val brokerPnL = brokerPosition?.totalUnrealizedPnL
+                    StrategyUiMapper.toRowUi(
+                        instance,
+                        ctx.sessionDate,
+                        brokerUnrealizedPnL = brokerPnL,
+                        brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
+                        brokerPosition = brokerPosition,
+                        sessionRollupCache = sessionRollupCache,
+                        headlessBatchActive = headlessBatchReplayActive,
+                    )
+                }
+            }.orEmpty()
+        )
+
+    private fun sortListRows(rows: List<StrategyDeploymentRowUi>): List<StrategyDeploymentRowUi> =
+        DeploymentListSorter.sortedRows(
+            rows = rows,
+            column = deploymentListSortColumn,
+            direction = deploymentListSortDirection,
+        )
 
     private fun patchListRows(
         currentRows: List<StrategyDeploymentRowUi>,
@@ -1744,19 +1798,21 @@ class StrategiesViewModel(
         val filteredIds = ctx.filtered.map { it.id }.toSet()
         if (currentRows.map { it.id }.toSet() != filteredIds) return buildListRows(ctx)
         val rowById = currentRows.associateBy { it.id }
-        return ctx.filtered.map { instance ->
-            val existing = rowById[instance.id] ?: return buildListRows(ctx)
-            val brokerPosition = brokerDeploymentIndex.openPosition(instance)
-            StrategyUiMapper.patchLiveFields(
-                row = existing,
-                instance = instance,
-                sessionDate = ctx.sessionDate,
-                brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
-                brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
-                brokerPosition = brokerPosition,
-                headlessBatchActive = headlessBatchReplayActive,
-            )
-        }
+        return sortListRows(
+            ctx.filtered.map { instance ->
+                val existing = rowById[instance.id] ?: return buildListRows(ctx)
+                val brokerPosition = brokerDeploymentIndex.openPosition(instance)
+                StrategyUiMapper.patchLiveFields(
+                    row = existing,
+                    instance = instance,
+                    sessionDate = ctx.sessionDate,
+                    brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
+                    brokerOpenOrders = brokerDeploymentIndex.openOrders(instance),
+                    brokerPosition = brokerPosition,
+                    headlessBatchActive = headlessBatchReplayActive,
+                )
+            }
+        )
     }
 
     private fun buildFilteredSummary(ctx: EmitContext): FilteredDeploymentsSummaryUi? =
