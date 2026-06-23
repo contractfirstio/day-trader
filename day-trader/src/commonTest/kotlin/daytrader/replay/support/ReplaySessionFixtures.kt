@@ -108,6 +108,240 @@ object ReplaySessionFixtures {
     fun hybridTradeLifecycleContents(totalQuoteCount: Int = DEFAULT_TRADE_QUOTE_COUNT): SessionBundleContents =
         asHybridReplayable(tradeLifecycleContents(totalQuoteCount))
 
+    /**
+     * Trade-lifecycle capture with a pre-[ordersPlacedAt] trap quote (paper parity pattern).
+     */
+    fun entryFillParityContents(): SessionBundleContents {
+        val bar = tradeLiquidityBar()
+        val rules = tradeLifecycleRules()
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar = bar,
+            liquidityThresholds = TouchTurnLiquidityThresholds(thresholdDailyAtr = 2.45 * 0.25),
+            rules = rules
+        )
+        val entry = setup.entry
+        val trapBid = entry + 0.01
+        val trapMs = BAR_END_EPOCH_MS + 4_000L
+        val fills = tradeLifecycleFills(entry, setup.takeProfit)
+        val runRecord = tradeLifecycleRunRecord(bar, rules, fills)
+        val quoteLines = tradeLifecycleQuoteLines(entry, setup.takeProfit).lines().toMutableList()
+        val trapIdx = quoteLines.indexOfFirst { it.contains("\"epochMs\":$trapMs") }
+        if (trapIdx >= 0) {
+            quoteLines[trapIdx] = tradePriceLine(trapMs, bid = trapBid, ask = trapBid + 0.02, last = trapBid + 0.01)
+        }
+        return tradeLifecycleContents().copy(
+            manifestJson = tradeManifestJson().replace(
+                "\"sessionStoppedAt\": \"2026-06-04T10:05:00\"",
+                "\"sessionStoppedAt\": \"2026-06-04T10:05:00\",\n            \"milestones\": { \"ordersPlacedAt\": \"2026-06-04T09:45:07\" }"
+            ),
+            pricesJsonl = quoteLines.joinToString("\n"),
+            applicationJsonl = buildString {
+                append(tradeSessionStartedLine())
+                append('\n')
+                append(tradeSessionClosedLine(runRecord, fills))
+            }
+        )
+    }
+
+    fun entryFillParityRules(): TouchTurnRuleConfig = tradeLifecycleRules()
+
+    private const val ENTRY_FILL_DEPLOYMENT_ID = "dep-entry-fill-parity"
+    private const val ENTRY_FILL_SESSION_ID = "sess-entry-fill-parity"
+    private const val ENTRY_FILL_SYMBOL = "00148"
+    private const val ENTRY_FILL_SESSION_DATE = "2026-06-10"
+
+    fun entryFillParityBar(): OhlcBar = OhlcBar(
+        open = 138.0,
+        high = 139.2,
+        low = 135.2,
+        close = 138.5,
+        time = "20260610  09:30:00",
+        volume = 2_000_000.0
+    )
+
+    private fun entryFillParityFills(entry: Double, stopLoss: Double): List<SessionTrade> {
+        val quantity = 500
+        return listOf(
+            SessionTrade(
+                execId = "hk-entry",
+                orderId = 1,
+                permId = 100L,
+                parentOrderId = 0,
+                side = "SLD",
+                quantity = quantity,
+                price = entry,
+                time = "2026-06-10T09:45:10",
+                realizedPnL = 0.0
+            ),
+            SessionTrade(
+                execId = "hk-exit",
+                orderId = 2,
+                permId = 101L,
+                parentOrderId = 1,
+                side = "BOT",
+                quantity = quantity,
+                price = stopLoss,
+                time = "2026-06-10T09:46:00",
+                realizedPnL = quantity * (entry - stopLoss)
+            )
+        )
+    }
+
+    private fun entryFillParityRunRecord(
+        bar: OhlcBar,
+        rules: TouchTurnRuleConfig,
+        fills: List<SessionTrade>
+    ): TouchTurnRunRecord = TouchTurnRunRecord(
+        runContext = TouchTurnRunContext(
+            maxDollars = 100_000,
+            startedBy = TouchTurnSessionStartedBy.MANUAL,
+            brokerId = BrokerId.EMULATOR
+        ),
+        marketInputs = TouchTurnRunMarketInputs(
+            openingBar = bar,
+            adr14 = 2.45,
+            atr14 = 2.45,
+            dailyAtr14 = 2.45,
+            volumeSma20 = 1_500_000.0,
+            marketZoneId = "Asia/Hong_Kong",
+            currencyCode = "HKD"
+        ),
+        decision = TouchTurnSessionDecision(
+            outcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+            executedLegs = listOf(TouchTurnOrderRole.ENTRY, TouchTurnOrderRole.STOP_LOSS)
+        ),
+        rules = rules,
+        stopEvent = TouchTurnStopEvent(stopTrigger = TouchTurnSessionStopTrigger.TRADE_OUTCOME_KNOWN),
+        milestones = TouchTurnMilestoneTimestamps(
+            startingSessionAt = "2026-06-10T09:30:00",
+            dataReadyAt = "2026-06-10T09:31:00",
+            barClosedAt = "2026-06-10T09:45:05",
+            liquidityEvaluatedAt = "2026-06-10T09:45:06",
+            ordersPlacedAt = "2026-06-10T09:45:07",
+            positionOpenedAt = "2026-06-10T09:45:10",
+            closingSessionAt = "2026-06-10T09:46:00"
+        )
+    )
+
+    private fun entryFillManifestJson(openMs: Long, stoppedMs: Long): String = """
+        {
+          "version": 1,
+          "brokerKind": "EMULATOR",
+          "deploymentId": "$ENTRY_FILL_DEPLOYMENT_ID",
+          "sessionId": "$ENTRY_FILL_SESSION_ID",
+          "symbol": "$ENTRY_FILL_SYMBOL",
+          "sessionDate": "$ENTRY_FILL_SESSION_DATE",
+          "instrument": {
+            "symbol": "$ENTRY_FILL_SYMBOL",
+            "secType": "STK",
+            "exchange": "SEHK",
+            "primaryExch": "SEHK",
+            "currency": "HKD",
+            "minOrderSize": 500,
+            "orderSizeIncrement": 500
+          },
+          "timeline": {
+            "sessionStartedEpochMs": $openMs,
+            "sessionStartedAt": "2026-06-10T09:30:00",
+            "sessionStoppedEpochMs": $stoppedMs,
+            "sessionStoppedAt": "2026-06-10T09:47:00",
+            "milestones": {
+              "ordersPlacedAt": "2026-06-10T09:45:07"
+            }
+          }
+        }
+    """.trimIndent()
+
+    private fun entryFillSessionStartedLine(openMs: Long): String = """
+        {"at":"2026-06-10T09:30:00.000","epochMs":$openMs,"type":"session_started","brokerKind":"EMULATOR","deploymentId":"$ENTRY_FILL_DEPLOYMENT_ID","sessionId":"$ENTRY_FILL_SESSION_ID","symbol":"$ENTRY_FILL_SYMBOL","details":{"sessionDate":"$ENTRY_FILL_SESSION_DATE","startedAt":"2026-06-10T09:30:00","startedBy":"MANUAL","strategy":"TOUCH_AND_TURN_SCALPER","maxAtRisk":"50000"}}
+    """.trimIndent()
+
+    private fun entryFillSessionClosedLine(
+        stoppedMs: Long,
+        runRecord: TouchTurnRunRecord,
+        fills: List<SessionTrade>
+    ): String {
+        val persisted = TouchTurnRunPersistence.toRecord(runRecord)!!
+        val fillElements = fills.map { trade ->
+            json.encodeToJsonElement(
+                SessionTradeRecord.serializer(),
+                SessionTradeRecord(
+                    execId = trade.execId,
+                    orderId = trade.orderId,
+                    permId = trade.permId,
+                    parentOrderId = trade.parentOrderId,
+                    side = trade.side,
+                    quantity = trade.quantity,
+                    price = trade.price,
+                    time = trade.time,
+                    currency = trade.currency,
+                    commission = trade.commission,
+                    realizedPnL = trade.realizedPnL
+                )
+            )
+        }
+        val data = buildJsonObject {
+            put("rawFills", JsonArray(fillElements))
+            put("dedupedFills", JsonArray(fillElements))
+            put(
+                "touchTurnRunRecord",
+                json.encodeToJsonElement(TouchTurnRunRecordRecord.serializer(), persisted)
+            )
+        }
+        return """
+            {"at":"2026-06-10T09:47:00.000","epochMs":$stoppedMs,"type":"session_closed","brokerKind":"EMULATOR","deploymentId":"$ENTRY_FILL_DEPLOYMENT_ID","sessionId":"$ENTRY_FILL_SESSION_ID","symbol":"$ENTRY_FILL_SYMBOL","details":{"stopTrigger":"TRADE_OUTCOME_KNOWN","recordedPnl":"-1250.0"},"data":${json.encodeToString(data)}}
+        """.trimIndent()
+    }
+
+    private fun entryFillHistoricalBootstrapLine(openMs: Long, bar: OhlcBar): String {
+        val context = TouchTurnSignalContext(
+            firstCandle = bar,
+            atr14 = 2.45,
+            dailyAtr14 = 2.45,
+            volumeSma20 = 1_500_000.0
+        )
+        return entryFillHistoricalLine(openMs + 5_000, isClosedBarRefetch = false, context = context)
+    }
+
+    private fun entryFillHistoricalRefetchLine(
+        barEndMs: Long,
+        attempt: Int,
+        validation: String,
+        bar: OhlcBar
+    ): String {
+        val context = TouchTurnSignalContext(
+            firstCandle = bar,
+            atr14 = 2.45,
+            dailyAtr14 = 2.45,
+            volumeSma20 = 1_500_000.0
+        )
+        return entryFillHistoricalLine(
+            epochMs = barEndMs + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + attempt * 2_000L,
+            isClosedBarRefetch = true,
+            attempt = attempt,
+            validation = validation,
+            context = context
+        )
+    }
+
+    private fun entryFillHistoricalLine(
+        epochMs: Long,
+        isClosedBarRefetch: Boolean,
+        context: TouchTurnSignalContext,
+        attempt: Int? = null,
+        validation: String? = null
+    ): String {
+        val attemptJson = attempt?.toString() ?: "null"
+        val validationJson = validation?.let { "\"$it\"" } ?: "null"
+        return """
+            {"at":"2026-06-10T09:30:00.000","epochMs":$epochMs,"kind":"signal_context","symbol":"$ENTRY_FILL_SYMBOL","isClosedBarRefetch":$isClosedBarRefetch,"attempt":$attemptJson,"validation":$validationJson,"context":${json.encodeToString(context)}}
+        """.trimIndent()
+    }
+
+    private fun entryFillPriceLine(epochMs: Long, bid: Double, ask: Double, last: Double): String = """
+        {"at":"2026-06-10T09:30:00.000","epochMs":$epochMs,"brokerId":"INTERACTIVE_BROKERS","symbol":"$ENTRY_FILL_SYMBOL","bid":$bid,"ask":$ask,"last":$last,"tickVolume":null,"quoteEpochMillis":$epochMs,"kind":"quote_snapshot"}
+    """.trimIndent()
+
     /** Rewrites EMULATOR captures to hybrid IB market-data captures accepted by [ReplaySourceValidation]. */
     fun asHybridReplayable(contents: SessionBundleContents): SessionBundleContents {
         val hybridKind = "EMULATOR_LIVE_IB_MARKET_DATA"

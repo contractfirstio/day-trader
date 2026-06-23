@@ -35,7 +35,15 @@ class MultiSymbolQuoteFeeder(
     @Volatile
     var quoteIntervalMs: () -> Long = { ReplayPlaybackConfig.DEFAULT_QUOTE_INTERVAL_MS }
 
-    var onQuotePublished: ((symbol: String) -> Unit)? = null
+    /**
+     * After each published quote (interactive drip and max-speed backtest path): poll stop rules
+     * and drain. Return false when no [daytrader.domain.DeploymentStatus.RUNNING] deployment
+     * remains for [symbol] so drip halts.
+     */
+    var onAfterQuotePublished: (suspend (symbol: String) -> Boolean)? = null
+
+    /** Min OPEN_DEADLINE epoch across running deployments for [symbol]; wired by orchestrator. */
+    var resolveStopDeadlineEpochMs: ((symbol: String) -> Long?)? = null
 
     /** Fired when [markOpeningBarQuotesReady] arms bracket/liquidity gating for [symbol]. */
     var onOpeningBarQuotesReady: ((symbol: String) -> Unit)? = null
@@ -44,9 +52,6 @@ class MultiSymbolQuoteFeeder(
      * Suspend ingest wired by [ReplayHybridRuntime] for max-speed replay (no runBlocking per tick).
      */
     var backtestQuoteIngest: (suspend (QuoteEvent) -> Unit)? = null
-
-    /** After each max-speed tick: engine poll + drain (P&L-accurate sequencing). */
-    var onMaxSpeedQuotePublished: (suspend (symbol: String) -> Unit)? = null
 
     var onDripFinished: (() -> Unit)? = null
 
@@ -98,6 +103,15 @@ class MultiSymbolQuoteFeeder(
         if (norm.isBlank()) return
         dripEnabled.add(norm)
         startMergedDripIfNeeded()
+    }
+
+    fun disableDripForSymbol(symbol: String) {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        dripEnabled.remove(norm)
+        if (dripEnabled.isEmpty()) {
+            mergedDripJob?.cancel()
+            mergedDripJob = null
+        }
     }
 
     /** @return true when no subscribers remain for [symbol]. */
@@ -182,26 +196,43 @@ class MultiSymbolQuoteFeeder(
 
     private suspend fun runMergedDrip() {
         while (dripEnabled.isNotEmpty() && streamRefCount.isNotEmpty()) {
-            if (ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())) {
-                val target = pickNextQuoteTarget() ?: break
-                val (symbol, event) = target
-                clockMutex.withLock {
-                    clock.advanceTo(event.epochMs)
+            val target = pickNextQuoteTarget() ?: break
+            val (symbol, nextEvent) = target
+            val deadline = resolveStopDeadlineEpochMs?.invoke(symbol)
+            val cappedAtDeadline = deadline != null && nextEvent.epochMs > deadline
+            if (cappedAtDeadline) {
+                publishThroughDeadline(symbol, deadline!!)
+                clockMutex.withLock { clock.advanceTo(deadline) }
+            } else {
+                val published = publishNextQuote(symbol) ?: break
+                clockMutex.withLock { clock.advanceTo(published.epochMs) }
+                if (!ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())) {
+                    val intervalMs = quoteIntervalMs()
+                    if (intervalMs > 0L) delay(intervalMs)
                 }
-                val ingest = backtestQuoteIngest ?: break
-                feederForSymbol(symbol)?.publishNextForBacktest(ingest) ?: break
-                onQuotePublished?.invoke(symbol)
-                onMaxSpeedQuotePublished?.invoke(symbol)
-                continue
             }
-            val next = pickNextQuoteThrottled() ?: break
-            clockMutex.withLock {
-                clock.advanceTo(next.epochMs)
-            }
-            val intervalMs = quoteIntervalMs()
-            if (intervalMs > 0L) {
-                delay(intervalMs)
-            }
+            val continueDrip = onAfterQuotePublished?.invoke(symbol) ?: true
+            if (!continueDrip) disableDripForSymbol(symbol)
+        }
+    }
+
+    private suspend fun publishThroughDeadline(symbol: String, deadlineMs: Long) {
+        val feeder = feederForSymbol(symbol) ?: return
+        if (ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())) {
+            val ingest = backtestQuoteIngest ?: return
+            feeder.publishUpToForBacktest(deadlineMs, ingest)
+        } else {
+            feeder.publishUpTo(deadlineMs)
+        }
+    }
+
+    private suspend fun publishNextQuote(symbol: String): QuoteEvent? {
+        val feeder = feederForSymbol(symbol) ?: return null
+        return if (ReplayQuoteSpeed.isMaxSpeed(quoteIntervalMs())) {
+            val ingest = backtestQuoteIngest ?: return null
+            feeder.publishNextForBacktest(ingest)
+        } else {
+            feeder.publishNext()
         }
     }
 
@@ -219,13 +250,5 @@ class MultiSymbolQuoteFeeder(
         val symbol = bestSymbol ?: return null
         val event = bestEvent ?: return null
         return symbol to event
-    }
-
-    private fun pickNextQuoteThrottled(): QuoteEvent? {
-        val target = pickNextQuoteTarget() ?: return null
-        val (symbol, _) = target
-        val published = feederForSymbol(symbol)?.publishNext() ?: return null
-        onQuotePublished?.invoke(symbol)
-        return published
     }
 }

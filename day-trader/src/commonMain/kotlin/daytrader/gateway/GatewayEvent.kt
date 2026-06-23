@@ -75,4 +75,7 @@ sealed interface GatewayEvent {
         val requestId: Long,
         val result: Result<MacroRegimeSnapshot>
     ) : GatewayEvent
+
+    /** Poison pill for inbound consumer shutdown (headless replay teardown). */
+    data object InboundShutdown : GatewayEvent
 }

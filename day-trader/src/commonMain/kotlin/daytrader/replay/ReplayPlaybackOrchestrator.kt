@@ -51,16 +51,17 @@ class ReplayPlaybackOrchestrator(
 
     private val playbackJobs = mutableMapOf<String, Job>()
     private var quotesPublishedSinceLiquidityNudge = 0
+    private val fillAnchorAligned = mutableSetOf<String>()
 
     init {
         quoteFeeder.quoteIntervalMs = quoteIntervalMs
-        quoteFeeder.onQuotePublished = { symbol -> onMergedQuotePublished(symbol) }
+        quoteFeeder.onAfterQuotePublished = { symbol -> onAfterQuotePublished(symbol) }
         quoteFeeder.onOpeningBarQuotesReady = { symbol -> onOpeningBarQuotesReady(symbol) }
+        quoteFeeder.resolveStopDeadlineEpochMs = { symbol -> resolveStopDeadlineEpochMs(symbol) }
     }
 
     fun bindRuntime(runtime: ReplayHybridRuntime) {
         hybridRuntime = runtime
-        quoteFeeder.onMaxSpeedQuotePublished = { symbol -> onMaxSpeedQuotePublished(symbol) }
         quoteFeeder.onDripFinished = { hybridRuntime?.disableBacktestFastPath() }
     }
 
@@ -386,32 +387,64 @@ class ReplayPlaybackOrchestrator(
             }
     }
 
-    private fun onMergedQuotePublished(symbol: String) {
-        val engine = engine ?: return
-        val repository = repository ?: return
+    private suspend fun onAfterQuotePublished(symbol: String): Boolean {
+        val engine = engine ?: return true
+        val repository = repository ?: return true
         quotesPublishedSinceLiquidityNudge++
         updateDrippingState()
+        maybeAlignFillAnchor(symbol)
         if (quotesPublishedSinceLiquidityNudge % ReplayPlaybackConfig.LIQUIDITY_NUDGE_EVERY_N_QUOTES == 0) {
             repository.deployments.value
                 .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
                 .forEach { deployment ->
-                    engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
+                    engine.dispatchAndAwait(
+                        TouchTurnCommand.PollLiquidity(deployment.id),
+                        idleSpins = ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS
+                    )
                 }
+        }
+        engine.dispatchAndAwait(
+            TouchTurnCommand.PollStopRules,
+            idleSpins = ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS
+        )
+        return repository.deployments.value.any {
+            it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol)
         }
     }
 
-    private suspend fun onMaxSpeedQuotePublished(symbol: String) {
-        val engine = engine ?: return
+    private fun maybeAlignFillAnchor(symbol: String) {
         val repository = repository ?: return
-        quotesPublishedSinceLiquidityNudge++
-        updateDrippingState()
         repository.deployments.value
             .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
             .forEach { deployment ->
-                engine.dispatch(TouchTurnCommand.PollLiquidity(deployment.id))
-                engine.dispatch(TouchTurnCommand.PollStopRules)
+                if (deployment.id in fillAnchorAligned) return@forEach
+                val session = deployment.touchTurnSession ?: return@forEach
+                if (!session.ordersPlacedForSession) return@forEach
+                val anchorMs = session.milestones.ordersPlacedAt?.let(::parseOrdersPlacedAt) ?: return@forEach
+                ReplayQuoteFillAnchor.alignAfterBracketPlaced(quoteFeeder, clock, symbol, anchorMs)
+                fillAnchorAligned.add(deployment.id)
             }
-        engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
+    }
+
+    private fun parseOrdersPlacedAt(iso: String): Long? = runCatching {
+        java.time.LocalDateTime.parse(iso, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+    }.getOrNull()
+
+    private fun resolveStopDeadlineEpochMs(symbol: String): Long? {
+        val repository = repository ?: return null
+        return repository.deployments.value
+            .asSequence()
+            .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+            .mapNotNull { deployment ->
+                val sessionDate = deployment.inProgressSession()?.date
+                    ?: deployment.touchTurnSession?.sessionDate
+                    ?: return@mapNotNull null
+                ReplayQuoteStopSync.openDeadlineEpochMs(deployment, sessionDate)
+            }
+            .minOrNull()
     }
 
     private fun updateDrippingState() {

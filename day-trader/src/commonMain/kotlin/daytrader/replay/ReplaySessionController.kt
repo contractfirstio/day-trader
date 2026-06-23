@@ -15,6 +15,7 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
+import daytrader.domain.InstrumentIdentity
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.platform.MutableTradingClock
 import kotlinx.coroutines.CoroutineScope
@@ -50,10 +51,37 @@ class ReplaySessionController(
     private var backtestFastPath = false
 
     fun seedDeploymentIfNeeded() {
-        seedDeploymentIfNeeded(repository, bundle)
+        ensureDeploymentForCapture(repository, bundle)
     }
 
     companion object {
+        fun ensureDeploymentForCapture(repository: StrategyDeploymentRepository, bundle: SessionBundle) {
+            seedDeploymentIfNeeded(repository, bundle)
+            syncInstrumentFromCapture(repository, bundle)
+        }
+
+        fun syncInstrumentFromCapture(repository: StrategyDeploymentRepository, bundle: SessionBundle) {
+            val instrument = resolveCaptureInstrument(bundle) ?: return
+            if (!repository.deployments.value.any { it.id == bundle.deploymentId }) return
+            repository.update(bundle.deploymentId) { deployment ->
+                if (deployment.instrument == instrument) deployment
+                else deployment.copy(instrument = instrument)
+            }
+        }
+
+        fun resolveCaptureInstrument(bundle: SessionBundle): InstrumentIdentity? {
+            bundle.manifest?.instrument?.let { return it }
+            val entryFill = bundle.groundTruth?.dedupedFills?.firstOrNull()
+                ?: bundle.groundTruth?.rawFills?.firstOrNull()
+            if (entryFill != null && entryFill.quantity > 1) {
+                return InstrumentIdentity.heuristic(bundle.symbol).copy(
+                    minOrderSize = entryFill.quantity,
+                    orderSizeIncrement = entryFill.quantity
+                )
+            }
+            return null
+        }
+
         fun seedDeploymentIfNeeded(repository: StrategyDeploymentRepository, bundle: SessionBundle) {
             if (repository.deployments.value.any { it.id == bundle.deploymentId }) return
             val groundTruth = bundle.groundTruth ?: return
@@ -112,13 +140,13 @@ class ReplaySessionController(
         stopAllRunningSessions()
         orchestrator.stopAll()
         orchestrator.interactiveAutoStartEnabled = false
-        seedDeploymentIfNeeded(repository, bundle)
+        ensureDeploymentForCapture(repository, bundle)
         runtime.resetExecutionState(engine)
         runtime.registerBundle(bundle)
         runtime.reseedBacktestRandom(ReplayBacktestPolicy.emulatorSeed(bundle))
         repository.update(deploymentId) { it.withoutClosedSessionHistory() }
         val deploymentBefore = repository.deployments.value.find { it.id == deploymentId }
-        val useGroundTruthFills = deploymentBefore?.let {
+        val useGroundTruthFills = options.applyGroundTruthFills && deploymentBefore?.let {
             ReplayBacktestPolicy.useGroundTruthFills(it, bundle)
         } == true
         alignBacktestClock(deploymentBefore, sessionDate, bundle)
@@ -139,6 +167,10 @@ class ReplaySessionController(
             if (shouldAwaitBacktestBracketOutcome(deploymentId)) {
                 awaitBacktestBracketOutcome(deploymentId)
             }
+            ReplayQuoteFillAnchor.ordersPlacedAnchorEpochMs(bundle)?.let { anchorMs ->
+                ReplayQuoteFillAnchor.alignAfterBracketPlaced(runtime.quoteFeeder, clock, bundle.symbol, anchorMs)
+            }
+            runtime.drainAllPendingInboundEvents()
             driveSessionToCompletion(deploymentId, bundle)
             awaitBacktestSessionStopped(deploymentId)
             forceStopIfRunning(deploymentId)
@@ -438,6 +470,7 @@ class ReplaySessionController(
             repeat(ReplayBacktestFastPath.ENGINE_DRAIN_YIELD_ROUNDS) { yield() }
             engine.drainUntilIdle(ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS)
             runtime.drainEmulatorPipeline()
+            runtime.drainAllPendingInboundEvents()
         } else {
             repeat(ENGINE_DRAIN_ROUNDS) {
                 yield()

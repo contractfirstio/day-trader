@@ -121,12 +121,15 @@ class ReplayHybridRuntime(
         backtestFastPathEnabled = true
         (clock as? ReplayClock)?.useWallClockDelays = false
         quoteFeeder.onCapturedQuotePublished = null
+        executionGateway.setPauseInboundProcessing(true)
     }
 
     fun disableBacktestFastPath() {
         backtestFastPathEnabled = false
         (clock as? ReplayClock)?.useWallClockDelays = true
         wireInteractiveQuoteIngest()
+        drainAllPendingInboundEvents()
+        executionGateway.setPauseInboundProcessing(false)
     }
 
     suspend fun publishBacktestQuotesUpTo(symbol: String, epochMs: Long) {
@@ -137,6 +140,7 @@ class ReplayHybridRuntime(
                 priorClose = null
             )
         }
+        drainAllPendingInboundEvents()
     }
 
     /** Lets the emulator order actor run between headless replay ticks. */
@@ -145,6 +149,14 @@ class ReplayHybridRuntime(
             emulator.drainOrderActorQueue(maxRounds = maxSpins)
         } else {
             emulator.yieldOrderActor(maxSpins)
+        }
+    }
+
+    fun drainAllPendingInboundEvents() {
+        while (true) {
+            val event = inbound.poll() ?: break
+            if (event is GatewayEvent.InboundShutdown) break
+            executionGateway.applyInboundEvent(event)
         }
     }
 
@@ -242,6 +254,8 @@ class ReplayHybridRuntime(
 
     fun shutdown() {
         playbackOrchestrator.stopAll()
+        inbound.offer(GatewayEvent.InboundShutdown)
+        executionGateway.shutdownInboundConsumer()
         emulator.shutdown()
         marketDataGateway.disconnect()
         drainGatewayQueues()
@@ -279,7 +293,14 @@ class ReplayHybridRuntime(
             },
             isReplayOpeningBarQuotesReady = { symbol -> isOpeningBarQuotesReady(symbol) },
             sessionGateway = marketDataGateway,
-            executionGateway = executionGateway
+            executionGateway = executionGateway,
+            replayPrepareSessionStop = { symbol ->
+                quoteFeeder.publishUpTo(symbol, clock.nowEpochMillis())
+            },
+            replayDrainBroker = {
+                drainEmulatorPipeline()
+                drainAllPendingInboundEvents()
+            }
         )
     }
 }

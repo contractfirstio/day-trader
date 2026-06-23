@@ -8,6 +8,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
+import daytrader.domain.sessionRealizedPnL
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import daytrader.replay.support.ReplaySessionFixtures
 import kotlin.test.Test
@@ -224,12 +225,56 @@ class ReplayBacktestSessionTest {
         engine.start()
         try {
             val controller = ReplaySessionController(runtime, repository, engine, scope)
-            val run = controller.runBacktestReplay(bundle)
+            val run = controller.runBacktestReplay(
+                bundle,
+                options = ReplayBacktestOptions(applyGroundTruthFills = true),
+            )
             assertTrue(run.result.hasTangibleResult, run.result.errorMessage)
             assertTrue(
                 run.result.pnl > 0.0,
                 "expected positive P&L, got ${run.result.pnl} outcome=${run.result.outcome}"
             )
+        } finally {
+            engine.shutdown()
+            runtime.shutdown()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun runBacktestReplay_entryFillParity_matchesPaperEntryPriceAndPnl() = runBlocking {
+        val bundle = SessionBundleLoader.load(ReplaySessionFixtures.entryFillParityContents()).getOrThrow()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val repository = InMemoryStrategyDeploymentRepository()
+        repository.add(
+            defaultStrategyDeployment(
+                strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+                symbol = bundle.symbol,
+                maxDollars = bundle.groundTruth!!.runRecord.runContext.maxDollars,
+            ).copy(
+                id = bundle.deploymentId,
+                touchTurnRules = ReplaySessionFixtures.entryFillParityRules(),
+                status = DeploymentStatus.STOPPED,
+            )
+        )
+        val runtime = ReplayHybridRuntime(bundle, ReplayClock(bundle.timeline.sessionStartedEpochMs), scope)
+        runtime.start()
+        runtime.registerBundle(bundle)
+        val engine = runtime.createEngine(repository)
+        runtime.attachSessionEngine(engine)
+        runtime.playbackOrchestrator.attach(engine, repository)
+        engine.start()
+        try {
+            val controller = ReplaySessionController(runtime, repository, engine, scope)
+            val run = controller.runBacktestReplay(
+                bundle,
+                options = ReplayBacktestOptions(applyGroundTruthFills = true),
+            )
+            assertTrue(run.result.hasTangibleResult, run.result.errorMessage)
+            val expectedPnl = bundle.groundTruth!!.dedupedFills.sessionRealizedPnL()
+            val expectedEntry = bundle.groundTruth!!.dedupedFills.first { it.side == "BOT" }.price
+            assertEquals(expectedPnl, run.result.pnl, 0.01)
+            assertTrue(run.result.usedGroundTruthFills)
         } finally {
             engine.shutdown()
             runtime.shutdown()

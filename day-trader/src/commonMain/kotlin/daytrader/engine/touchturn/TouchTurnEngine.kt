@@ -118,7 +118,9 @@ class TouchTurnEngine(
     /** @deprecated Use [marketData] / [execution]; kept for broker connection state subscription. */
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null,
-    private val liquidityBucketRepository: LiquidityBucketRepository? = null
+    private val liquidityBucketRepository: LiquidityBucketRepository? = null,
+    private val replayPrepareSessionStop: ((String) -> Unit)? = null,
+    private val replayDrainBroker: (suspend () -> Unit)? = null
 ) : TouchTurnEnginePort {
     private val commandQueue = Channel<TouchTurnCommand>(Channel.UNLIMITED)
     private val eventFlow = MutableSharedFlow<TouchTurnEvent>(extraBufferCapacity = 64)
@@ -578,7 +580,7 @@ class TouchTurnEngine(
         }
     }
 
-    private fun handleStopSession(command: TouchTurnCommand.StopSession) {
+    private suspend fun handleStopSession(command: TouchTurnCommand.StopSession) {
         val instance = repository.deployments.value.find { it.id == command.instanceId } ?: return
         if (instance.status != DeploymentStatus.RUNNING) {
             maybeReleaseLiveMarketData(instance)
@@ -593,14 +595,25 @@ class TouchTurnEngine(
         cancelJobsForInstance(command.instanceId)
         clearInstanceTracking(command.instanceId)
         val gateway = executionGateway ?: sessionGateway
-        val fillsForStop = command.brokerFillsAtDecision ?: brokerFills.value
+        val replayFlattenHooks = brokerKind == BrokerKind.REPLAY && replayPrepareSessionStop != null
+        if (replayFlattenHooks) {
+            replayPrepareSessionStop?.invoke(instance.symbol)
+            gateway?.flattenSymbolForSymbol(instance.symbol)
+            replayDrainBroker?.invoke()
+        }
+        val fillsForStop = when {
+            replayFlattenHooks && gateway is QueuedBrokerGateway -> gateway.fills.value
+            command.brokerFillsAtDecision != null -> command.brokerFillsAtDecision
+            else -> brokerFills.value
+        }
         val result = TouchTurnManualStopHandler.stop(
             input = TouchTurnManualStopHandler.Input(
                 instance = instance,
                 brokerPositions = brokerPositions.value,
                 brokerOpenOrders = brokerOpenOrders.value,
                 brokerFills = fillsForStop,
-                brokerKind = brokerKind
+                brokerKind = brokerKind,
+                flattenOnBroker = !replayFlattenHooks
             ),
             gateway = gateway,
             explicitTrigger = command.trigger

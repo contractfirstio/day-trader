@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -70,17 +73,39 @@ class QueuedBrokerGateway(
     private val pendingHomeMarketRegime = mutableMapOf<Long, CompletableDeferred<Result<MacroRegimeSnapshot>>>()
     private val pendingBracketResize = mutableMapOf<Long, CompletableDeferred<Result<Unit>>>()
 
+    @Volatile
+    private var pauseInboundProcessing = false
+    private var inboundConsumerJob: Job? = null
+
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {
         nextRequestId++
     }
 
     init {
-        scope.launch(Dispatchers.IO) {
-            while (true) {
+        inboundConsumerJob = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (pauseInboundProcessing) {
+                    delay(1L)
+                    continue
+                }
                 val event = withContext(Dispatchers.IO) { receiveEventBlocking() }
+                if (event is GatewayEvent.InboundShutdown) break
                 apply(event)
             }
         }
+    }
+
+    fun setPauseInboundProcessing(paused: Boolean) {
+        pauseInboundProcessing = paused
+    }
+
+    fun applyInboundEvent(event: GatewayEvent) {
+        apply(event)
+    }
+
+    fun shutdownInboundConsumer() {
+        inboundConsumerJob?.cancel()
+        inboundConsumerJob = null
     }
 
     override fun connect() {
@@ -407,6 +432,7 @@ class QueuedBrokerGateway(
             is GatewayEvent.TouchTurnBracketResized -> {
                 pendingBracketResize.remove(event.requestId)?.complete(event.result.map { Unit })
             }
+            GatewayEvent.InboundShutdown -> Unit
         }
     }
 
