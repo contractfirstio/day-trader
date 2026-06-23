@@ -167,9 +167,8 @@ class ReplaySessionController(
             if (shouldAwaitBacktestBracketOutcome(deploymentId)) {
                 awaitBacktestBracketOutcome(deploymentId)
             }
-            ReplayQuoteFillAnchor.ordersPlacedAnchorEpochMs(bundle)?.let { anchorMs ->
-                ReplayQuoteFillAnchor.alignAfterBracketPlaced(runtime.quoteFeeder, clock, bundle.symbol, anchorMs)
-            }
+            alignFillAnchorAfterBracket(bundle)
+            runtime.awaitEmulatorBracketPipeline()
             runtime.drainAllPendingInboundEvents()
             driveSessionToCompletion(deploymentId, bundle)
             awaitBacktestSessionStopped(deploymentId)
@@ -330,6 +329,17 @@ class ReplaySessionController(
         }
     }
 
+    private fun alignFillAnchorAfterBracket(bundle: SessionBundle) {
+        ReplayQuoteFillAnchor.ordersPlacedAnchorEpochMs(bundle)?.let { anchorMs ->
+            ReplayQuoteFillAnchor.alignAfterBracketPlaced(
+                runtime.quoteFeeder,
+                clock,
+                bundle.symbol,
+                anchorMs,
+            )
+        }
+    }
+
     private suspend fun driveSessionToCompletion(instanceId: String, bundle: SessionBundle) {
         val symbol = bundle.symbol
         val quotes = bundle.quoteEvents
@@ -339,6 +349,7 @@ class ReplaySessionController(
         var rounds = 0
         var lastPublished = -1
         var stuckPolls = 0
+        var fillAnchorAppliedInDrive = false
         val maxDriveRounds = min(
             MAX_DRIVE_ROUNDS_CAP,
             quotes.size + STUCK_STOP_RULE_POLLS + 200
@@ -348,6 +359,13 @@ class ReplaySessionController(
             rounds++
             val deployment = currentDeployment(instanceId) ?: return
             if (deployment.status != DeploymentStatus.RUNNING) return
+
+            val touchTurnBeforePublish = deployment.touchTurnSession
+            if (touchTurnBeforePublish?.ordersPlacedForSession == true && !fillAnchorAppliedInDrive) {
+                alignFillAnchorAfterBracket(bundle)
+                fillAnchorAppliedInDrive = true
+                runtime.drainAllPendingInboundEvents()
+            }
 
             val feeder = runtime.quoteFeeder.feederForSymbol(symbol)
             val published = feeder?.publishedQuoteCount ?: 0

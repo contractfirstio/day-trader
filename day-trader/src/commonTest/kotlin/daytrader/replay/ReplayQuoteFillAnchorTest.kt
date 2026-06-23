@@ -2,7 +2,6 @@ package daytrader.replay
 
 import daytrader.replay.support.ReplaySessionFixtures
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
@@ -21,13 +20,14 @@ class ReplayQuoteFillAnchorTest {
         val entry = bundle.groundTruth!!.dedupedFills.first { it.side == "BOT" }.price
         val trapBid = entry + 0.01
         val trap = bundle.quoteEvents.first { kotlin.math.abs(it.quote.bid!! - trapBid) < 0.001 }
-        val anchorMs = trap.epochMs + 1_000L
+        val anchorMs = ReplayQuoteFillAnchor.ordersPlacedAnchorEpochMs(bundle)
+        assertNotNull(anchorMs)
 
-        val quoteFeeder = feeder.feederForSymbol(bundle.symbol)!!
         ReplayQuoteFillAnchor.alignAfterBracketPlaced(feeder, clock, bundle.symbol, anchorMs)
 
-        val next = quoteFeeder.peekNext()
+        val next = feeder.feederForSymbol(bundle.symbol)!!.peekNext()
         assertNotNull(next)
         assertTrue(next.epochMs > trap.epochMs)
+        assertTrue(next.epochMs > anchorMs)
     }
 }

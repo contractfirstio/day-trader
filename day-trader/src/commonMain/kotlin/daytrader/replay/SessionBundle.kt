@@ -42,7 +42,12 @@ data class SessionBundle(
 data class SessionBundleTimeline(
     val sessionStartedEpochMs: Long,
     val sessionStoppedEpochMs: Long?,
-    val milestones: TouchTurnMilestoneTimestamps?
+    val milestones: TouchTurnMilestoneTimestamps?,
+    /**
+     * Absolute epoch from captured `bracket_acknowledged` / `bracket_submitted` application log lines.
+     * Used as the fill-anchor in quote [QuoteEvent.epochMs] space (not replay wall-clock milestones).
+     */
+    val ordersPlacedAnchorEpochMs: Long? = null,
 )
 
 data class HistoricalEvent(

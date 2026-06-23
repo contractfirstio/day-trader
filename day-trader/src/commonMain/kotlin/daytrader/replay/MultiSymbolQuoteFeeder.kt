@@ -157,6 +157,10 @@ class MultiSymbolQuoteFeeder(
         feederForSymbol(symbol)?.seekToFirstQuoteAfter(epochMs)
     }
 
+    /** Capture [ordersPlacedAt] anchor in quote-timeline epoch space (not live replay session milestones). */
+    fun ordersPlacedAnchorEpochMsFor(symbol: String): Long? =
+        registry.bundleFor(symbol)?.let { ReplayQuoteFillAnchor.ordersPlacedAnchorEpochMs(it) }
+
     fun resetSymbol(symbol: String) {
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         feeders[norm]?.reset()

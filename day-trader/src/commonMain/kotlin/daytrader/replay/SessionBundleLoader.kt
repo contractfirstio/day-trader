@@ -43,7 +43,7 @@ object SessionBundleLoader {
         val sessionDate = manifest?.sessionDate ?: started?.details?.get("sessionDate")
         val brokerKind = manifest?.brokerKind ?: started?.brokerKind ?: closed?.brokerKind
 
-        val timeline = buildTimeline(manifest, started, closed)
+        val timeline = buildTimeline(manifest, applicationLines, started, closed)
         val historicalEvents = parseHistorical(contents.historicalJsonl)
         val quoteEvents = buildQuoteTimeline(
             pricesJsonl = contents.pricesJsonl,
@@ -71,6 +71,7 @@ object SessionBundleLoader {
 
     private fun buildTimeline(
         manifest: SessionManifest?,
+        applicationLines: List<ApplicationTraceLine>,
         started: ApplicationTraceLine?,
         closed: ApplicationTraceLine?
     ): SessionBundleTimeline {
@@ -80,10 +81,16 @@ object SessionBundleLoader {
         val milestones = manifest?.timeline?.milestones ?: closed?.let { line ->
             parseGroundTruth(line)?.runRecord?.milestones
         }
+        val ordersPlacedAnchorEpochMs = applicationLines
+            .lastOrNull { it.type == "bracket_acknowledged" }
+            ?.epochMs
+            ?: applicationLines.lastOrNull { it.type == "bracket_submitted" }
+                ?.epochMs
         return SessionBundleTimeline(
             sessionStartedEpochMs = startedEpoch,
             sessionStoppedEpochMs = stoppedEpoch,
-            milestones = milestones
+            milestones = milestones,
+            ordersPlacedAnchorEpochMs = ordersPlacedAnchorEpochMs,
         )
     }
 

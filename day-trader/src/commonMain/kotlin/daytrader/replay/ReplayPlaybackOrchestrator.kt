@@ -420,18 +420,11 @@ class ReplayPlaybackOrchestrator(
                 if (deployment.id in fillAnchorAligned) return@forEach
                 val session = deployment.touchTurnSession ?: return@forEach
                 if (!session.ordersPlacedForSession) return@forEach
-                val anchorMs = session.milestones.ordersPlacedAt?.let(::parseOrdersPlacedAt) ?: return@forEach
+                val anchorMs = quoteFeeder.ordersPlacedAnchorEpochMsFor(symbol) ?: return@forEach
                 ReplayQuoteFillAnchor.alignAfterBracketPlaced(quoteFeeder, clock, symbol, anchorMs)
                 fillAnchorAligned.add(deployment.id)
             }
     }
-
-    private fun parseOrdersPlacedAt(iso: String): Long? = runCatching {
-        java.time.LocalDateTime.parse(iso, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-            .atZone(java.time.ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-    }.getOrNull()
 
     private fun resolveStopDeadlineEpochMs(symbol: String): Long? {
         val repository = repository ?: return null

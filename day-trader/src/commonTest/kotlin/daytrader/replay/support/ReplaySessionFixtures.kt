@@ -138,6 +138,8 @@ object ReplaySessionFixtures {
             applicationJsonl = buildString {
                 append(tradeSessionStartedLine())
                 append('\n')
+                append(tradeBracketAcknowledgedLine(BAR_END_EPOCH_MS + 7_000L))
+                append('\n')
                 append(tradeSessionClosedLine(runRecord, fills))
             }
         )
@@ -500,6 +502,10 @@ object ReplaySessionFixtures {
 
     private fun tradeSessionStartedLine(): String = """
         {"at":"2026-06-04T09:30:00.000","epochMs":$STARTED_EPOCH_MS,"type":"session_started","brokerKind":"EMULATOR","deploymentId":"$TRADE_DEPLOYMENT_ID","sessionId":"$TRADE_SESSION_ID","symbol":"$TRADE_SYMBOL","details":{"sessionDate":"$SESSION_DATE","startedAt":"2026-06-04T09:30:00","startedBy":"MANUAL","strategy":"TOUCH_AND_TURN_SCALPER","maxAtRisk":"500"}}
+    """.trimIndent()
+
+    private fun tradeBracketAcknowledgedLine(epochMs: Long): String = """
+        {"at":"2026-06-04T09:45:07.000","epochMs":$epochMs,"type":"bracket_acknowledged","brokerKind":"EMULATOR","deploymentId":"$TRADE_DEPLOYMENT_ID","sessionId":"$TRADE_SESSION_ID","symbol":"$TRADE_SYMBOL","details":{"success":"true"}}
     """.trimIndent()
 
     private fun tradeSessionClosedLine(
