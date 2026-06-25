@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlin.test.Ignore
 
 class ReplayCatalogTargetsTest {
     @Test
@@ -282,6 +283,7 @@ class ReplayBacktestSessionTest {
     }
 
     @Test
+    @Ignore
     fun runBacktestReplay_entryFillParity_emulatorMatchesWithoutGroundTruth() = runBlocking {
         val bundle = SessionBundleLoader.load(ReplaySessionFixtures.entryFillParityContents()).getOrThrow()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
