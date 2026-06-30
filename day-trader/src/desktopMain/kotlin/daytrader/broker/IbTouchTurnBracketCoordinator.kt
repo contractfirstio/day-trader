@@ -8,27 +8,23 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Places Touch Turn IB brackets in two phases so child legs never arrive before the parent
- * is registered at the gateway:
- * 1. Send parent only; wait for [onOpenOrder] on the parent id.
- * 2. Send remaining legs atomically (single pacer job, no interleaving).
- * 3. Ack success only after a working child [onOpenOrder] confirms the bracket is live.
+ * Tracks Touch Turn IB brackets after all legs are transmitted atomically.
+ *
+ * IB holds a bracket locally until the final leg is sent with [Order.transmit]=true. Sending only
+ * the parent (transmit=false) and waiting for [openOrder] before children causes Gateway to stall
+ * ~10s then drop the order ("Clear not needed place orders") — no [openOrder] callback arrives.
+ *
+ * All legs are placed in one [IbRequestPacer.enqueuePriority] job; this coordinator waits for
+ * broker acknowledgment via [openOrder] or [orderStatus].
  */
 internal class IbTouchTurnBracketCoordinator(
     private val scope: CoroutineScope,
-    private val parentOpenTimeoutMs: Long = parentOpenTimeoutMsFromEnv(),
-    private val confirmTimeoutMs: Long = confirmTimeoutMsFromEnv(),
+    private val brokerAckTimeoutMs: Long = brokerAckTimeoutMsFromEnv(),
 ) {
-    internal enum class Phase {
-        AWAITING_PARENT,
-        AWAITING_CONFIRM,
-    }
-
     internal data class Pending(
         val plan: TouchTurnOrderPlan,
         val submission: IbTouchTurnBracketSubmission,
-        var phase: Phase,
-        var childrenSent: Boolean,
+        var bracketTransmitted: Boolean,
         var timeoutJob: Job?,
     ) {
         val orderIds: List<Int>
@@ -50,56 +46,71 @@ internal class IbTouchTurnBracketCoordinator(
     ) {
         val parentId = submission.parentOrderId
         registerOrderIds(submission)
-        val timeoutJob = scope.launch {
-            delay(parentOpenTimeoutMs)
-            fail(parentId, "parent_open_order_timeout", onTimeout)
-        }
         pendingByParentId[parentId] = Pending(
             plan = plan,
             submission = submission,
-            phase = Phase.AWAITING_PARENT,
-            childrenSent = false,
-            timeoutJob = timeoutJob
+            bracketTransmitted = false,
+            timeoutJob = null
         )
+    }
+
+    /** Starts the broker-ack wait after every bracket leg has been [EClientSocket.placeOrder]'d. */
+    fun onBracketTransmitted(
+        parentOrderId: Int,
+        onTimeout: (pending: Pending, reason: String) -> Unit,
+    ) {
+        val pending = pendingByParentId[parentOrderId] ?: return
+        if (pending.bracketTransmitted) return
+        pending.bracketTransmitted = true
+        pending.timeoutJob?.cancel()
+        pending.timeoutJob = scope.launch {
+            delay(brokerAckTimeoutMs)
+            fail(parentOrderId, "parent_open_order_timeout", onTimeout)
+        }
         IbGatewayLog.touchTurnBracketParentSubmitted(
-            symbol = submission.symbol,
-            parentOrderId = parentId
+            symbol = pending.submission.symbol,
+            parentOrderId = parentOrderId
+        )
+        IbGatewayLog.touchTurnBracketChildrenSubmitted(
+            symbol = pending.submission.symbol,
+            takeProfitOrderId = pending.submission.takeProfitOrderId,
+            stopLossOrderId = pending.submission.stopLossOrderId,
+            adjustableStopOrderId = pending.submission.adjustableStopOrderId
         )
     }
 
     fun onOpenOrder(
         orderId: Int,
         isWorking: Boolean,
-        sendChildren: (IbTouchTurnBracketSubmission) -> Unit,
-        hasWorkingOrder: (Int) -> Boolean,
         onSuccess: (Pending) -> Unit,
         onFailure: (pending: Pending, reason: String) -> Unit,
     ) {
         val parentId = orderIdToParentId[orderId] ?: return
         val pending = pendingByParentId[parentId] ?: return
-        when (pending.phase) {
-            Phase.AWAITING_PARENT -> {
-                if (orderId != parentId) return
-                if (!isWorking) {
-                    fail(parentId, "parent_order_not_working", onFailure)
-                    return
-                }
-                pending.timeoutJob?.cancel()
-                pending.childrenSent = true
-                sendChildren(pending.submission)
-                pending.phase = Phase.AWAITING_CONFIRM
-                pending.timeoutJob = scope.launch {
-                    delay(confirmTimeoutMs)
-                    fail(parentId, "broker_confirm_timeout", onFailure)
-                }
+        if (!pending.bracketTransmitted) return
+        if (!isWorking) {
+            if (orderId == parentId) {
+                fail(parentId, "parent_order_not_working", onFailure)
             }
-            Phase.AWAITING_CONFIRM -> {
-                if (!pending.childrenSent || !isWorking) return
-                if (!hasWorkingOrder(pending.submission.parentOrderId)) return
-                if (orderId == pending.submission.parentOrderId) return
-                complete(parentId, onSuccess)
-            }
+            return
         }
+        if (orderId == parentId) return
+        complete(parentId, onSuccess)
+    }
+
+    fun onOrderStatus(
+        orderId: Int,
+        status: String,
+        remainingQuantity: Int,
+        onSuccess: (Pending) -> Unit,
+        onFailure: (pending: Pending, reason: String) -> Unit,
+    ) {
+        if (!isAcknowledgementStatus(status, remainingQuantity)) return
+        val parentId = orderIdToParentId[orderId] ?: return
+        val pending = pendingByParentId[parentId] ?: return
+        if (!pending.bracketTransmitted) return
+        if (orderId == parentId) return
+        complete(parentId, onSuccess)
     }
 
     fun onOrderError(
@@ -171,12 +182,23 @@ internal class IbTouchTurnBracketCoordinator(
     }
 
     companion object {
-        private fun parentOpenTimeoutMsFromEnv(): Long =
-            System.getenv("DAY_TRADER_IB_BRACKET_PARENT_TIMEOUT_MS")?.toLongOrNull()?.coerceAtLeast(500L)
-                ?: 5_000L
+        fun isAcknowledgementStatus(status: String, remainingQuantity: Int): Boolean {
+            if (isTerminalOrderStatus(status)) return false
+            if (remainingQuantity > 0) return true
+            return status.equals("Submitted", ignoreCase = true) ||
+                status.equals("PreSubmitted", ignoreCase = true) ||
+                status.equals("PendingSubmit", ignoreCase = true) ||
+                status.equals("ApiPending", ignoreCase = true)
+        }
 
-        private fun confirmTimeoutMsFromEnv(): Long =
-            System.getenv("DAY_TRADER_IB_BRACKET_CONFIRM_TIMEOUT_MS")?.toLongOrNull()?.coerceAtLeast(500L)
-                ?: 3_000L
+        private fun isTerminalOrderStatus(status: String): Boolean =
+            status.equals("Filled", ignoreCase = true) ||
+                status.equals("Cancelled", ignoreCase = true) ||
+                status.equals("ApiCancelled", ignoreCase = true) ||
+                status.equals("Inactive", ignoreCase = true)
+
+        private fun brokerAckTimeoutMsFromEnv(): Long =
+            System.getenv("DAY_TRADER_IB_BRACKET_PARENT_TIMEOUT_MS")?.toLongOrNull()?.coerceAtLeast(500L)
+                ?: 15_000L
     }
 }

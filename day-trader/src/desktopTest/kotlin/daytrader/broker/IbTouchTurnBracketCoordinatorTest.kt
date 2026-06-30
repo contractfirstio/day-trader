@@ -19,13 +19,12 @@ import kotlin.test.assertTrue
 class IbTouchTurnBracketCoordinatorTest {
 
     @Test
-    fun parentOpenOrder_sendsChildren_thenChildOpenOrder_emitsSuccess() = runTest {
+    fun childOpenOrder_afterAtomicTransmit_emitsSuccess() = runTest {
         val harness = Harness(this)
         harness.begin()
+        harness.onBracketTransmitted()
 
         harness.onOpenOrder(submission.parentOrderId, isWorking = true)
-
-        assertTrue(harness.childrenSent)
         assertFalse(harness.successes.isNotEmpty())
 
         harness.onOpenOrder(submission.takeProfitOrderId, isWorking = true)
@@ -35,10 +34,14 @@ class IbTouchTurnBracketCoordinatorTest {
     }
 
     @Test
-    fun parentOpenOrderTimeout_emitsFailure() = runTest {
-        val harness = Harness(this, parentOpenTimeoutMs = 1_000L)
+    fun brokerAckTimeout_startsAfterBracketTransmitted() = runTest {
+        val harness = Harness(this, brokerAckTimeoutMs = 1_000L)
         harness.begin()
 
+        advanceTimeBy(2_000)
+        assertTrue(harness.failures.isEmpty())
+
+        harness.onBracketTransmitted()
         advanceTimeBy(1_001)
 
         assertEquals(1, harness.failures.size)
@@ -46,9 +49,21 @@ class IbTouchTurnBracketCoordinatorTest {
     }
 
     @Test
-    fun orderErrorDuringParentWait_emitsFailure() = runTest {
+    fun childOrderStatusSubmitted_emitsSuccess() = runTest {
         val harness = Harness(this)
         harness.begin()
+        harness.onBracketTransmitted()
+
+        harness.onOrderStatus(submission.stopLossOrderId, status = "Submitted", remaining = 100)
+
+        assertEquals(1, harness.successes.size)
+    }
+
+    @Test
+    fun orderErrorDuringWait_emitsFailure() = runTest {
+        val harness = Harness(this)
+        harness.begin()
+        harness.onBracketTransmitted()
 
         harness.onOrderError(submission.takeProfitOrderId, "Can't find order")
 
@@ -56,9 +71,19 @@ class IbTouchTurnBracketCoordinatorTest {
         assertTrue(harness.failures.single().second.contains("ib_order_error"))
     }
 
+    @Test
+    fun openOrderIgnoredBeforeBracketTransmitted() = runTest {
+        val harness = Harness(this)
+        harness.begin()
+
+        harness.onOpenOrder(submission.takeProfitOrderId, isWorking = true)
+
+        assertTrue(harness.successes.isEmpty())
+    }
+
     private val submission = IbTouchTurnBracketSubmission(
-        symbol = "7709",
-        contract = Contract().also { it.symbol("7709") },
+        symbol = "939",
+        contract = Contract().also { it.symbol("939") },
         parentOrderId = 83,
         takeProfitOrderId = 84,
         stopLossOrderId = 85,
@@ -70,7 +95,7 @@ class IbTouchTurnBracketCoordinatorTest {
     )
 
     private val plan = TouchTurnOrderPlan(
-        symbol = "7709",
+        symbol = "939",
         currencyCode = "HKD",
         side = TouchTurnTradeSide.LONG,
         quantity = 100,
@@ -78,22 +103,22 @@ class IbTouchTurnBracketCoordinatorTest {
             TouchTurnPlannedOrder(
                 role = TouchTurnOrderRole.ENTRY,
                 action = "BUY",
-                orderType = "LMT",
-                price = 100.0,
+                orderType = "STP",
+                price = 8.14,
                 quantity = 100
             ),
             TouchTurnPlannedOrder(
                 role = TouchTurnOrderRole.TAKE_PROFIT,
                 action = "SELL",
                 orderType = "LMT",
-                price = 110.0,
+                price = 8.20,
                 quantity = 100
             ),
             TouchTurnPlannedOrder(
                 role = TouchTurnOrderRole.STOP_LOSS,
                 action = "SELL",
                 orderType = "STP",
-                price = 90.0,
+                price = 8.10,
                 quantity = 100
             )
         )
@@ -101,19 +126,15 @@ class IbTouchTurnBracketCoordinatorTest {
 
     private inner class Harness(
         private val testScope: TestScope,
-        parentOpenTimeoutMs: Long = 5_000L,
-        confirmTimeoutMs: Long = 3_000L,
+        brokerAckTimeoutMs: Long = 5_000L,
     ) {
         private val coordinator = IbTouchTurnBracketCoordinator(
             scope = testScope,
-            parentOpenTimeoutMs = parentOpenTimeoutMs,
-            confirmTimeoutMs = confirmTimeoutMs
+            brokerAckTimeoutMs = brokerAckTimeoutMs
         )
 
-        var childrenSent = false
         val successes = mutableListOf<IbTouchTurnBracketCoordinator.Pending>()
         val failures = mutableListOf<Pair<IbTouchTurnBracketCoordinator.Pending, String>>()
-        private val workingOrderIds = mutableSetOf<Int>()
 
         fun begin() {
             coordinator.begin(plan, submission) { pending, reason ->
@@ -121,19 +142,26 @@ class IbTouchTurnBracketCoordinatorTest {
             }
         }
 
-        fun onOpenOrder(orderId: Int, isWorking: Boolean) {
-            if (isWorking) {
-                workingOrderIds += orderId
-            } else {
-                workingOrderIds -= orderId
+        fun onBracketTransmitted() {
+            coordinator.onBracketTransmitted(submission.parentOrderId) { pending, reason ->
+                failures += pending to reason
             }
+        }
+
+        fun onOpenOrder(orderId: Int, isWorking: Boolean) {
             coordinator.onOpenOrder(
                 orderId = orderId,
                 isWorking = isWorking,
-                sendChildren = {
-                    childrenSent = true
-                },
-                hasWorkingOrder = { id -> workingOrderIds.contains(id) },
+                onSuccess = { pending -> successes += pending },
+                onFailure = { pending, reason -> failures += pending to reason }
+            )
+        }
+
+        fun onOrderStatus(orderId: Int, status: String, remaining: Int) {
+            coordinator.onOrderStatus(
+                orderId = orderId,
+                status = status,
+                remainingQuantity = remaining,
                 onSuccess = { pending -> successes += pending },
                 onFailure = { pending, reason -> failures += pending to reason }
             )

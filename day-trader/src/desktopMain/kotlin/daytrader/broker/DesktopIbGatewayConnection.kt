@@ -717,7 +717,7 @@ class DesktopIbGatewayConnection(
     override fun openOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
         try {
             val status = orderStatusLabel(orderState)
-            val isWorking = !isTerminalOrderStatus(status) && remainingQuantity(order) > 0
+            val isWorking = isWorkingOpenOrder(status, order)
             applyOpenOrder(orderId, contract, order, orderState)
             notifyTouchTurnBracketOpenOrder(orderId, isWorking)
         } catch (e: Exception) {
@@ -748,6 +748,7 @@ class DesktopIbGatewayConnection(
     ) {
         try {
             applyOrderStatus(orderId, status, filled, remaining, permId, parentId)
+            notifyTouchTurnBracketOrderStatus(orderId, status, remaining)
             if (status.equals("Filled", ignoreCase = true)) {
                 scheduleExecutionsRefresh()
             }
@@ -2272,35 +2273,18 @@ class DesktopIbGatewayConnection(
             emitTouchTurnBracketFailure(pending, reason)
         }
         touchTurnBracketCoordinator.begin(plan, submission, onFailure)
-        paced {
+        pacedPriority {
             if (!client.isConnected) {
                 touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected", onFailure)
-                return@paced
+                return@pacedPriority
             }
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
-        }
-    }
-
-    private fun sendTouchTurnBracketChildren(submission: IbTouchTurnBracketSubmission) {
-        val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
-            emitTouchTurnBracketFailure(pending, reason)
-        }
-        paced {
-            if (!client.isConnected) {
-                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected", onFailure)
-                return@paced
-            }
             client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
             client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
-            IbGatewayLog.touchTurnBracketChildrenSubmitted(
-                symbol = submission.symbol,
-                takeProfitOrderId = submission.takeProfitOrderId,
-                stopLossOrderId = submission.stopLossOrderId,
-                adjustableStopOrderId = submission.adjustableStopOrderId
-            )
+            touchTurnBracketCoordinator.onBracketTransmitted(submission.parentOrderId, onFailure)
         }
     }
 
@@ -2308,8 +2292,17 @@ class DesktopIbGatewayConnection(
         touchTurnBracketCoordinator.onOpenOrder(
             orderId = orderId,
             isWorking = isWorking,
-            sendChildren = ::sendTouchTurnBracketChildren,
-            hasWorkingOrder = { id -> openOrdersById.containsKey(id) },
+            onSuccess = ::emitTouchTurnBracketSuccess,
+            onFailure = ::emitTouchTurnBracketFailure
+        )
+    }
+
+    private fun notifyTouchTurnBracketOrderStatus(orderId: Int, status: String, remaining: Decimal) {
+        val remainingQty = decimalToInt(remaining)
+        touchTurnBracketCoordinator.onOrderStatus(
+            orderId = orderId,
+            status = status,
+            remainingQuantity = remainingQty,
             onSuccess = ::emitTouchTurnBracketSuccess,
             onFailure = ::emitTouchTurnBracketFailure
         )
@@ -2461,6 +2454,8 @@ class DesktopIbGatewayConnection(
 
     private fun paced(action: () -> Unit) = requestPacer.enqueue(action)
 
+    private fun pacedPriority(action: () -> Unit) = requestPacer.enqueuePriority(action)
+
     private fun scheduleExecutionsRefresh() {
         if (!client.isConnected) return
         executionsRefresh.schedule()
@@ -2580,6 +2575,13 @@ class DesktopIbGatewayConnection(
 
     private fun decimalToInt(value: Decimal): Int =
         if (!Decimal.isValid(value)) 0 else value.value().toDouble().roundToInt()
+
+    private fun isWorkingOpenOrder(status: String, order: Order): Boolean {
+        if (isTerminalOrderStatus(status)) return false
+        val remaining = remainingQuantity(order)
+        if (remaining > 0) return true
+        return IbTouchTurnBracketCoordinator.isAcknowledgementStatus(status, remaining)
+    }
 
     private fun isTerminalOrderStatus(status: String): Boolean =
         status.equals("Filled", ignoreCase = true) ||

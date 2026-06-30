@@ -35,4 +35,16 @@ class IbRequestPacerTest {
         delay(1_500)
         assertTrue(count.get() >= 3, "backoff should not block queue drain, got ${count.get()}")
     }
+
+    @Test
+    fun enqueuePriority_runsBeforeStandardBacklog() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val pacer = IbRequestPacer(scope, maxMessagesPerSecond = 2, minIntervalMs = 200L)
+        val order = mutableListOf<String>()
+        pacer.enqueue { order += "slow-1" }
+        pacer.enqueue { order += "slow-2" }
+        pacer.enqueuePriority { order += "priority" }
+        delay(1_500)
+        assertTrue(order.indexOf("priority") < order.indexOf("slow-2"), "priority order: $order")
+    }
 }

@@ -19,6 +19,8 @@ internal class IbRequestPacer(
     maxMessagesPerSecond: Int = IbRateLimits.maxMessagesPerSecond(),
     minIntervalMs: Long = IbRateLimits.minIntervalMs()
 ) {
+  /** Drained before [queue] so bracket legs are not stuck behind historical data. */
+    private val priorityQueue = ConcurrentLinkedQueue<() -> Unit>()
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
     private val baselineMaxPerSecond =
         maxMessagesPerSecond.coerceIn(1, IbRateLimits.IB_HARD_LIMIT_PER_SECOND - 1)
@@ -39,7 +41,14 @@ internal class IbRequestPacer(
         startDrainIfNeeded()
     }
 
+    /** Same rate limits as [enqueue], but runs ahead of the standard backlog. */
+    fun enqueuePriority(action: () -> Unit) {
+        priorityQueue.offer(action)
+        startDrainIfNeeded()
+    }
+
     fun clear() {
+        priorityQueue.clear()
         queue.clear()
         drainJob?.cancel()
         drainJob = null
@@ -80,7 +89,7 @@ internal class IbRequestPacer(
 
     private suspend fun drainQueue() {
         while (true) {
-            val action = queue.poll() ?: break
+            val action = priorityQueue.poll() ?: queue.poll() ?: break
             awaitRateLimitSlot()
             try {
                 action()
@@ -89,7 +98,7 @@ internal class IbRequestPacer(
             }
         }
         synchronized(this) {
-            if (queue.isNotEmpty()) {
+            if (priorityQueue.isNotEmpty() || queue.isNotEmpty()) {
                 drainJob = scope.launch { drainQueue() }
             } else {
                 drainJob = null
