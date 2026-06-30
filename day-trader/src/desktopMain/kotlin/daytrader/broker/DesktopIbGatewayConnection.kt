@@ -48,6 +48,7 @@ import daytrader.gateway.IbStreamingMarketDataType
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.QueuedBrokerGateway
 import daytrader.gateway.WorkingOrder
+import daytrader.gateway.TouchTurnBracketAck
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -98,6 +99,7 @@ class DesktopIbGatewayConnection(
     private val client = EClientSocket(this, signal)
     private val connectMutex = Mutex()
     private val requestPacer = IbRequestPacer(scope)
+    private val touchTurnBracketCoordinator = IbTouchTurnBracketCoordinator(scope)
     private val executionsRefresh = IbCoalescedPacedRequest(
         scope = scope,
         pacer = requestPacer,
@@ -714,7 +716,10 @@ class DesktopIbGatewayConnection(
 
     override fun openOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
         try {
+            val status = orderStatusLabel(orderState)
+            val isWorking = !isTerminalOrderStatus(status) && remainingQuantity(order) > 0
             applyOpenOrder(orderId, contract, order, orderState)
+            notifyTouchTurnBracketOpenOrder(orderId, isWorking)
         } catch (e: Exception) {
             logCallbackFailure("openOrder", e)
         }
@@ -1018,6 +1023,12 @@ class DesktopIbGatewayConnection(
                 )
             }
             markInstrumentResolveLegFinished(reqId)
+        }
+
+        if (reqId > 0) {
+            touchTurnBracketCoordinator.onOrderError(reqId, errorMsg ?: "") { pending, reason ->
+                emitTouchTurnBracketFailure(pending, reason)
+            }
         }
 
         when {
@@ -1571,6 +1582,9 @@ class DesktopIbGatewayConnection(
             client.eDisconnect()
         }
         requestPacer.clear()
+        touchTurnBracketCoordinator.clearAll { pending, reason ->
+            emitTouchTurnBracketFailure(pending, reason)
+        }
         executionsRefresh.reset()
         clearPositionState()
         emitConnectionState(GatewayConnectionState.Disconnected)
@@ -2204,17 +2218,8 @@ class DesktopIbGatewayConnection(
         paced {
             if (!client.isConnected) return@paced
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
-        }
-        paced {
-            if (!client.isConnected) return@paced
             client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
-        }
-        paced {
-            if (!client.isConnected) return@paced
             client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
-        }
-        paced {
-            if (!client.isConnected) return@paced
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
@@ -2241,15 +2246,11 @@ class DesktopIbGatewayConnection(
             plan = plan,
             allocateOrderIds = ::allocateOrderIds
         ) ?: run {
-            emit(
-                GatewayEvent.TouchTurnBracketPlaced(
-                    daytrader.gateway.TouchTurnBracketAck(
-                        symbol = symbolForAck,
-                        orderIds = emptyList(),
-                        result = Result.failure(IllegalStateException("bracket_build_failed")),
-                        plan = plan
-                    )
-                )
+            emitTouchTurnBracketFailure(
+                symbol = symbolForAck,
+                plan = plan,
+                orderIds = emptyList(),
+                reason = "bracket_build_failed"
             )
             return
         }
@@ -2267,46 +2268,102 @@ class DesktopIbGatewayConnection(
                     StopTrailParams(triggerPrice = trigger, trailAmount = 0.0)
             }
         }
+        val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
+            emitTouchTurnBracketFailure(pending, reason)
+        }
+        touchTurnBracketCoordinator.begin(plan, submission, onFailure)
         paced {
-            if (!client.isConnected) return@paced
+            if (!client.isConnected) {
+                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected", onFailure)
+                return@paced
+            }
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
         }
+    }
+
+    private fun sendTouchTurnBracketChildren(submission: IbTouchTurnBracketSubmission) {
+        val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
+            emitTouchTurnBracketFailure(pending, reason)
+        }
         paced {
-            if (!client.isConnected) return@paced
+            if (!client.isConnected) {
+                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected", onFailure)
+                return@paced
+            }
             client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
-        }
-        paced {
-            if (!client.isConnected) return@paced
             client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
-        }
-        paced {
-            if (!client.isConnected) return@paced
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
-            IbGatewayLog.touchTurnBracketPlaced(
-                submission.symbol,
-                submission.parentOrderId,
-                submission.takeProfitOrderId,
-                submission.stopLossOrderId
-            )
-            scheduleExecutionsRefresh()
-            emit(
-                GatewayEvent.TouchTurnBracketPlaced(
-                    daytrader.gateway.TouchTurnBracketAck(
-                        symbol = submission.symbol,
-                        orderIds = buildList {
-                            add(submission.parentOrderId)
-                            add(submission.takeProfitOrderId)
-                            add(submission.stopLossOrderId)
-                            submission.adjustableStopOrderId?.let { add(it) }
-                        },
-                        result = Result.success(Unit),
-                        plan = plan
-                    )
-                )
+            IbGatewayLog.touchTurnBracketChildrenSubmitted(
+                symbol = submission.symbol,
+                takeProfitOrderId = submission.takeProfitOrderId,
+                stopLossOrderId = submission.stopLossOrderId,
+                adjustableStopOrderId = submission.adjustableStopOrderId
             )
         }
+    }
+
+    private fun notifyTouchTurnBracketOpenOrder(orderId: Int, isWorking: Boolean) {
+        touchTurnBracketCoordinator.onOpenOrder(
+            orderId = orderId,
+            isWorking = isWorking,
+            sendChildren = ::sendTouchTurnBracketChildren,
+            hasWorkingOrder = { id -> openOrdersById.containsKey(id) },
+            onSuccess = ::emitTouchTurnBracketSuccess,
+            onFailure = ::emitTouchTurnBracketFailure
+        )
+    }
+
+    private fun emitTouchTurnBracketSuccess(pending: IbTouchTurnBracketCoordinator.Pending) {
+        val submission = pending.submission
+        IbGatewayLog.touchTurnBracketPlaced(
+            submission.symbol,
+            submission.parentOrderId,
+            submission.takeProfitOrderId,
+            submission.stopLossOrderId
+        )
+        scheduleExecutionsRefresh()
+        emit(
+            GatewayEvent.TouchTurnBracketPlaced(
+                TouchTurnBracketAck(
+                    symbol = submission.symbol,
+                    orderIds = pending.orderIds,
+                    result = Result.success(Unit),
+                    plan = pending.plan
+                )
+            )
+        )
+    }
+
+    private fun emitTouchTurnBracketFailure(
+        pending: IbTouchTurnBracketCoordinator.Pending,
+        reason: String
+    ) {
+        emitTouchTurnBracketFailure(
+            symbol = pending.submission.symbol,
+            plan = pending.plan,
+            orderIds = pending.orderIds,
+            reason = reason
+        )
+    }
+
+    private fun emitTouchTurnBracketFailure(
+        symbol: String,
+        plan: TouchTurnOrderPlan,
+        orderIds: List<Int>,
+        reason: String
+    ) {
+        emit(
+            GatewayEvent.TouchTurnBracketPlaced(
+                TouchTurnBracketAck(
+                    symbol = symbol,
+                    orderIds = orderIds,
+                    result = Result.failure(IllegalStateException(reason)),
+                    plan = plan
+                )
+            )
+        )
     }
 
     private fun cancelOpenOrdersForSymbol(symbol: String) {

@@ -4,6 +4,8 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnMilestoneTimestamps
+import daytrader.domain.TouchTurnOrderPlanner
+import daytrader.domain.TouchTurnOrderSizingResult
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
@@ -130,6 +132,33 @@ class TouchTurnSessionReasonUiTest {
         )
         assertNotNull(ui)
         assertContains(ui!!.headline, "not liquid")
+    }
+
+    @Test
+    fun insufficientMaxDollars_usesPersistedDetailMessage() {
+        val detail = TouchTurnOrderPlanner.insufficientFundsDetailMessage(
+            maxDollars = 50_000,
+            currencyCode = "HKD",
+            entryPrice = 211.4,
+            sizing = TouchTurnOrderSizingResult.BelowMinimum(
+                rawQuantity = 236,
+                minimumLot = 1_000,
+                minimumNotional = 211_400.0,
+            ),
+        )
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-30",
+            status = TouchTurnCandleStatus.READY,
+            currencyCode = "HKD",
+            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+            decisionDetailMessage = detail,
+        )
+        val ui = TouchTurnSessionReasonUi.forDecisionOutcome(
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+            session
+        )
+        assertContains(ui.headline, "min lot")
+        assertEquals(detail, ui.detail)
     }
 
     @Test

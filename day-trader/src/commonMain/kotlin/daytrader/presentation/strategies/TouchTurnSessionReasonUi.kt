@@ -140,6 +140,12 @@ object TouchTurnSessionReasonUi {
             detail = "Close confirmation must pass within one minute after the opening 15-minute bar closes. The window expired before orders could be sent.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT -> TouchTurnSessionStatusUi(
+            headline = "No trade — max at risk too small for min lot",
+            detail = session?.decisionDetailMessage
+                ?: "Max at risk cannot cover one minimum board lot at the planned entry price. Increase max at risk or choose a symbol with a smaller lot size.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> TouchTurnSessionStatusUi(
             headline = "No trade — orders not sent",
             detail = "Liquidity and confirmation passed but the bracket was not submitted (broker unavailable, plan rejected, or gateway error). Check logs for bracket_submit / ordersSkipped.",

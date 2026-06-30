@@ -51,6 +51,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_STOCK_TREND_MISALIGNED,
     /** Symbol daily trend inputs could not be loaded for stock trend alignment. */
     NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
+    /** [maxDollars] cannot cover one exchange minimum board lot at the planned entry. */
+    NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
     TRADE_BRACKET_SUBMITTED
 }
 
@@ -113,7 +115,9 @@ data class TouchTurnSessionDecision(
     val plannedQuantity: Int? = null,
     val plannedBracket: TouchTurnPlannedBracket? = null,
     /** Filled bracket legs for this run (computed at session stop from broker fills). */
-    val executedLegs: List<TouchTurnOrderRole> = emptyList()
+    val executedLegs: List<TouchTurnOrderRole> = emptyList(),
+    /** User-facing detail when [outcome] needs more context (e.g. min board lot sizing). */
+    val detailMessage: String? = null
 )
 
 @Serializable
@@ -271,7 +275,8 @@ fun buildTouchTurnRunRecord(
             outcome = outcome,
             plannedQuantity = touchTurnSession.plannedQuantity,
             plannedBracket = plannedBracket,
-            executedLegs = executedLegs
+            executedLegs = executedLegs,
+            detailMessage = touchTurnSession.decisionDetailMessage
         ),
         stopEvent = TouchTurnStopEvent(
             stopTrigger = stopTrigger,

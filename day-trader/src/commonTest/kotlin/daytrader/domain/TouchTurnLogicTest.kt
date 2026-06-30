@@ -2,6 +2,7 @@ package daytrader.domain
 
 import java.time.LocalDate
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -854,6 +855,39 @@ class TouchTurnLogicTest {
         )
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 2.0, rules)
         assertNull(TouchTurnOrderPlanner.buildOrderPlan("SPY", setup, maxDollars = 5000, rules = rules))
+    }
+
+    @Test
+    fun sizeQuantity_belowMinimumBoardLot() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        val sizing = TouchTurnOrderPlanner.sizeQuantity(maxDollars = 50_000, entryPrice = 211.4, rules)
+        assertEquals(
+            TouchTurnOrderSizingResult.BelowMinimum(
+                rawQuantity = 236,
+                minimumLot = 1_000,
+                minimumNotional = 211_400.0,
+            ),
+            sizing
+        )
+    }
+
+    @Test
+    fun insufficientFundsDetailMessage_explainsMinLotGap() {
+        val sizing = TouchTurnOrderSizingResult.BelowMinimum(
+            rawQuantity = 236,
+            minimumLot = 1_000,
+            minimumNotional = 211_400.0,
+        )
+        val message = TouchTurnOrderPlanner.insufficientFundsDetailMessage(
+            maxDollars = 50_000,
+            currencyCode = "HKD",
+            entryPrice = 211.4,
+            sizing = sizing,
+        )
+        assertContains(message, "50000 HKD")
+        assertContains(message, "236 shares")
+        assertContains(message, "1000 shares")
+        assertContains(message, "211400")
     }
 
     @Test

@@ -190,11 +190,19 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     return copy(touchTurnSession = updatedSession)
 }
 
-fun StrategyDeployment.withTouchTurnDecisionOutcome(outcome: TouchTurnSessionOutcome): StrategyDeployment {
+fun StrategyDeployment.withTouchTurnDecisionOutcome(
+    outcome: TouchTurnSessionOutcome,
+    detailMessage: String? = null,
+): StrategyDeployment {
     if (!isTouchTurn) return this
     val session = touchTurnSession ?: return this
     if (session.decisionOutcome != null) return this
-    return copy(touchTurnSession = session.copy(decisionOutcome = outcome))
+    return copy(
+        touchTurnSession = session.copy(
+            decisionOutcome = outcome,
+            decisionDetailMessage = detailMessage,
+        )
+    )
 }
 
 fun StrategyDeployment.withOrdersPlacedForSession(
@@ -417,13 +425,15 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
-            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> false
+            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT -> false
             else -> hadLiquidityCandle == true &&
                 setup?.let { TouchTurnLogic.setupActionableForEntry(it, effectiveRules) } == true
         },
         ordersPlacedForSession = ordersPlacedForCandle == true ||
             outcome == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
         decisionOutcome = outcome,
+        decisionDetailMessage = record?.decision?.detailMessage,
         plannedQuantity = record?.decision?.plannedQuantity,
         plannedBracket = plannedBracket,
         executedBracketLegs = executedBracketLegs

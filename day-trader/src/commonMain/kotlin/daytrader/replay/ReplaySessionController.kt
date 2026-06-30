@@ -447,6 +447,7 @@ class ReplaySessionController(
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
     )
 
     private suspend fun awaitBacktestSessionStopped(instanceId: String) {

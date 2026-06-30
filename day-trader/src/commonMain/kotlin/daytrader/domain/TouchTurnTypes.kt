@@ -173,6 +173,8 @@ data class TouchTurnSessionContext(
     val noPositionBracketCancelOutcome: TouchTurnNoPositionCancelOutcome? = null,
     /** Written once when the no-trade / trade decision is known. */
     val decisionOutcome: TouchTurnSessionOutcome? = null,
+    /** Extra context for [decisionOutcome] (shown in UI and persisted on the run record). */
+    val decisionDetailMessage: String? = null,
     val plannedQuantity: Int? = null,
     val plannedBracket: TouchTurnPlannedBracket? = null,
     /** Broker order ids after bracket submit (parent, take-profit, stop, optional adjustable stop). */

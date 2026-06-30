@@ -33,6 +33,7 @@ class DeploymentSessionStopLogicTest {
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
         )
         outcomes.forEach { outcome ->

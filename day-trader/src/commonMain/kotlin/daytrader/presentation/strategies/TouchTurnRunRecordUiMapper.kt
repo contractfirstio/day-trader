@@ -120,6 +120,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER -> "Invert entry+stop"
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE -> "No quote"
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED -> "Window expired"
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT -> "Min lot"
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "No order"
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "Volume exhaustion"
         TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED -> "Macro trend"

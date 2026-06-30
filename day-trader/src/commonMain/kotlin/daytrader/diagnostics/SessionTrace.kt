@@ -332,14 +332,18 @@ object SessionTrace {
         deploymentId: String,
         sessionId: String?,
         symbol: String,
-        reason: String
+        reason: String,
+        extraDetails: Map<String, String> = emptyMap(),
     ) {
         log(
             type = "bracket_submit_skipped",
             deploymentId = deploymentId,
             sessionId = sessionId,
             symbol = symbol,
-            details = mapOf("reason" to reason)
+            details = buildMap {
+                put("reason", reason)
+                putAll(extraDetails)
+            }
         )
     }
 

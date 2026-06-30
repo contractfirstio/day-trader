@@ -358,6 +358,7 @@ object TouchTurnStateSyncLog {
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 }

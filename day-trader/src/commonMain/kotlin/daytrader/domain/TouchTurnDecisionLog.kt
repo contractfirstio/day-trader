@@ -316,6 +316,11 @@ object TouchTurnDecisionLog {
                 detail("  HINT: stock trend alignment — green short needs downtrend, red long needs uptrend")
             TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE ->
                 detail("  HINT: symbol daily trend data unavailable — check IB historical request")
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT ->
+                detail(
+                    "  HINT: max at risk cannot cover one minimum board lot at entry — " +
+                        "increase max dollars or trade a cheaper symbol / smaller lot"
+                )
             else -> Unit
         }
     }

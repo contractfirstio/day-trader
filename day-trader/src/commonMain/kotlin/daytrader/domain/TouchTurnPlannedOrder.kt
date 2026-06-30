@@ -42,10 +42,54 @@ data class TouchTurnOrderPlan(
     val openingBarClose: Double? = null
 )
 
+sealed interface TouchTurnOrderSizingResult {
+    data class Ok(val quantity: Int, val rawQuantity: Int) : TouchTurnOrderSizingResult
+    data class BelowMinimum(
+        val rawQuantity: Int,
+        val minimumLot: Int,
+        val minimumNotional: Double,
+    ) : TouchTurnOrderSizingResult
+
+    data object InvalidInputs : TouchTurnOrderSizingResult
+}
+
 object TouchTurnOrderPlanner {
     /** Reversal mode rests a limit at the bar extreme; invert/continuation uses a stop entry on breakout. */
     fun entryOrderType(rules: TouchTurnRuleConfig): String =
         if (rules.invertTradeSide) "STP" else "LMT"
+
+    /** Sizes an order from [maxDollars] and [entryPrice], snapped down to [orderSizeRules]. */
+    fun sizeQuantity(
+        maxDollars: Int,
+        entryPrice: Double,
+        orderSizeRules: InstrumentOrderSizeRules = InstrumentOrderSizeRules.DEFAULT
+    ): TouchTurnOrderSizingResult {
+        if (maxDollars <= 0 || entryPrice <= 0.0) return TouchTurnOrderSizingResult.InvalidInputs
+        val raw = max(1, (maxDollars / entryPrice).toInt())
+        return when (val snap = orderSizeRules.snapQuantityDown(raw)) {
+            is SnapOrderSizeResult.Ok -> TouchTurnOrderSizingResult.Ok(snap.quantity, raw)
+            is SnapOrderSizeResult.BelowMinimum -> TouchTurnOrderSizingResult.BelowMinimum(
+                rawQuantity = raw,
+                minimumLot = snap.minimum,
+                minimumNotional = snap.minimum * entryPrice,
+            )
+        }
+    }
+
+    fun insufficientFundsDetailMessage(
+        maxDollars: Int,
+        currencyCode: String,
+        entryPrice: Double,
+        sizing: TouchTurnOrderSizingResult.BelowMinimum,
+    ): String {
+        val currency = currencyCode.trim().ifEmpty { "USD" }
+        return buildString {
+            append("Max at risk of $maxDollars $currency covers about ${sizing.rawQuantity} shares ")
+            append("at entry ${formatPrice(entryPrice)}, but the minimum board lot is ")
+            append("${sizing.minimumLot} shares (~${formatPrice(sizing.minimumNotional)} $currency). ")
+            append("Increase max at risk or choose a symbol with a smaller minimum lot.")
+        }
+    }
 
     /**
      * Suggested share count from [maxDollars] and entry price, snapped down to [orderSizeRules].
@@ -55,14 +99,13 @@ object TouchTurnOrderPlanner {
         maxDollars: Int,
         entryPrice: Double,
         orderSizeRules: InstrumentOrderSizeRules = InstrumentOrderSizeRules.DEFAULT
-    ): Int? {
-        if (maxDollars <= 0 || entryPrice <= 0.0) return null
-        val raw = max(1, (maxDollars / entryPrice).toInt())
-        return when (val snap = orderSizeRules.snapQuantityDown(raw)) {
-            is SnapOrderSizeResult.Ok -> snap.quantity
-            is SnapOrderSizeResult.BelowMinimum -> null
-        }
+    ): Int? = when (val sizing = sizeQuantity(maxDollars, entryPrice, orderSizeRules)) {
+        is TouchTurnOrderSizingResult.Ok -> sizing.quantity
+        else -> null
     }
+
+    private fun formatPrice(price: Double): String =
+        if (price == price.toLong().toDouble()) price.toLong().toString() else "%.4f".format(price)
 
     /**
      * Returns a three-leg bracket (entry LMT or STP when inverted, take-profit LMT, stop STP)

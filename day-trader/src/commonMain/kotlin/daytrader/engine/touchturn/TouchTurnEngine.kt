@@ -16,6 +16,7 @@ import daytrader.domain.DeploymentStatus
 import daytrader.domain.ClosedFirstCandleRefetchValidation
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentOrderSizeRules
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCloseConfirmation
@@ -23,12 +24,14 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlanner
+import daytrader.domain.TouchTurnOrderSizingResult
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCandleLog
 import daytrader.domain.TouchTurnDecisionLog
+import daytrader.domain.orderSizeRules
 import daytrader.domain.inProgressSession
 import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.isTouchTurn
@@ -1392,6 +1395,7 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
@@ -1440,6 +1444,45 @@ class TouchTurnEngine(
             return false
         }
         val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
+        val orderSizeRules = deploymentInstrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        when (val sizing = TouchTurnOrderPlanner.sizeQuantity(instance.maxDollars, setup.entry, orderSizeRules)) {
+            is TouchTurnOrderSizingResult.BelowMinimum -> {
+                val outcome = TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT
+                val detail = TouchTurnOrderPlanner.insufficientFundsDetailMessage(
+                    maxDollars = instance.maxDollars,
+                    currencyCode = session.currencyCode,
+                    entryPrice = setup.entry,
+                    sizing = sizing,
+                )
+                repository.update(instanceId) {
+                    it.withTouchTurnDecisionOutcome(outcome, detailMessage = detail)
+                }
+                val updatedSession = repository.deployments.value.find { it.id == instanceId }?.touchTurnSession
+                TouchTurnDecisionLog.ordersSkipped(
+                    instanceId = instance.id,
+                    symbol = instance.symbol,
+                    reason = "insufficient_max_dollars_for_min_lot",
+                    session = updatedSession,
+                    nowEpochMillis = evaluatedAt
+                )
+                SessionTrace.bracketSubmitSkipped(
+                    deploymentId = instanceId,
+                    sessionId = instance.inProgressSession()?.id,
+                    symbol = instance.symbol,
+                    reason = "insufficient_max_dollars_for_min_lot",
+                    extraDetails = mapOf(
+                        "maxDollars" to instance.maxDollars.toString(),
+                        "entryPrice" to setup.entry.toString(),
+                        "rawQuantity" to sizing.rawQuantity.toString(),
+                        "minOrderSize" to sizing.minimumLot.toString(),
+                        "minNotional" to sizing.minimumNotional.toString(),
+                    )
+                )
+                return false
+            }
+            TouchTurnOrderSizingResult.InvalidInputs -> return false
+            is TouchTurnOrderSizingResult.Ok -> Unit
+        }
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
             symbol = instance.symbol,
             setup = setup,
@@ -1557,6 +1600,7 @@ class TouchTurnEngine(
             TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
                 TouchTurnDecisionLog.bootstrapBranch(
                     instanceId = instance.id,

@@ -87,6 +87,28 @@ internal object IbGatewayLog {
         )
     }
 
+    fun touchTurnBracketParentSubmitted(symbol: String, parentOrderId: Int) {
+        info("Touch Turn bracket parent submitted symbol=$symbol parentOrderId=$parentOrderId")
+    }
+
+    fun touchTurnBracketChildrenSubmitted(
+        symbol: String,
+        takeProfitOrderId: Int,
+        stopLossOrderId: Int,
+        adjustableStopOrderId: Int?
+    ) {
+        val legs = buildList {
+            add(takeProfitOrderId)
+            add(stopLossOrderId)
+            adjustableStopOrderId?.let { add(it) }
+        }
+        info("Touch Turn bracket children submitted symbol=$symbol orders=$legs")
+    }
+
+    fun touchTurnBracketFailed(symbol: String, reason: String) {
+        info("Touch Turn bracket failed symbol=$symbol reason=$reason")
+    }
+
     fun touchTurnBracketSkipped(reason: String) {
         info("Touch Turn bracket not placed: $reason")
     }

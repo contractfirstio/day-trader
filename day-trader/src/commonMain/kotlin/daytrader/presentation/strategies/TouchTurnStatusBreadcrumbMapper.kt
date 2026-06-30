@@ -250,7 +250,8 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_INVERT_ENTRY_MARKETABLE,
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
-            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED ->
+            TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_ORDERS, terminal = true)
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_POSITION, terminal = true)
@@ -859,6 +860,7 @@ object TouchTurnStatusBreadcrumbMapper {
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
