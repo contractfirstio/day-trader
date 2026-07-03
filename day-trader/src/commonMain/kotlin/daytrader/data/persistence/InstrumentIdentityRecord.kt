@@ -15,7 +15,8 @@ data class InstrumentIdentityRecord(
     val localSymbol: String? = null,
     val tradingClass: String? = null,
     val minOrderSize: Int? = null,
-    val orderSizeIncrement: Int? = null
+    val orderSizeIncrement: Int? = null,
+    val minPriceTick: Double? = null
 )
 
 internal object InstrumentIdentityPersistence {
@@ -35,7 +36,8 @@ internal object InstrumentIdentityPersistence {
                 localSymbol = it.localSymbol,
                 tradingClass = it.tradingClass,
                 minOrderSize = orderSizeRules.minOrderSize,
-                orderSizeIncrement = orderSizeRules.orderSizeIncrement
+                orderSizeIncrement = orderSizeRules.orderSizeIncrement,
+                minPriceTick = it.minPriceTick?.takeIf { tick -> tick > 0.0 }
             )
         }
 
@@ -51,7 +53,8 @@ internal object InstrumentIdentityPersistence {
                 localSymbol = it.localSymbol,
                 tradingClass = it.tradingClass,
                 minOrderSize = it.minOrderSize,
-                orderSizeIncrement = it.orderSizeIncrement
+                orderSizeIncrement = it.orderSizeIncrement,
+                minPriceTick = it.minPriceTick
             )
         }
 }

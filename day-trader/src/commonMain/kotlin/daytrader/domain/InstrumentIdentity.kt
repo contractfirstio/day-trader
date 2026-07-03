@@ -17,7 +17,9 @@ data class InstrumentIdentity(
     /** IB [ContractDetails.minSize] when resolved via reqContractDetails; 1 for US unit lots. */
     val minOrderSize: Int = 1,
     /** IB [ContractDetails.sizeIncrement] (or suggested increment); 1 for US unit lots. */
-    val orderSizeIncrement: Int = 1
+    val orderSizeIncrement: Int = 1,
+    /** IB [ContractDetails.minTick] when resolved via reqContractDetails. */
+    val minPriceTick: Double? = null
 ) {
     /** Stable key for deduplicating contract-detail rows. */
     fun dedupeKey(): String =
@@ -48,7 +50,8 @@ data class InstrumentIdentity(
                 currency = currency,
                 conId = conId?.takeIf { it > 0 },
                 minOrderSize = orderSizeRules.minOrderSize,
-                orderSizeIncrement = orderSizeRules.orderSizeIncrement
+                orderSizeIncrement = orderSizeRules.orderSizeIncrement,
+                minPriceTick = snapshot.minPriceTick?.takeIf { it > 0.0 }
             )
         }
 

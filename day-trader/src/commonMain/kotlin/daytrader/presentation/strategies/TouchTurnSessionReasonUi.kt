@@ -146,11 +146,25 @@ object TouchTurnSessionReasonUi {
                 ?: "Max at risk cannot cover one minimum board lot at the planned entry price. Increase max at risk or choose a symbol with a smaller lot size.",
             severity = TouchTurnReasonSeverity.Warning
         )
-        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> TouchTurnSessionStatusUi(
-            headline = "No trade — orders not sent",
-            detail = "Liquidity and confirmation passed but the bracket was not submitted (broker unavailable, plan rejected, or gateway error). Check logs for bracket_submit / ordersSkipped.",
-            severity = TouchTurnReasonSeverity.Error
-        )
+        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
+            val brokerMessage = session?.decisionDetailMessage
+            val brokerRejected = brokerMessage?.startsWith("ib_order_error:") == true
+            TouchTurnSessionStatusUi(
+                headline = if (brokerRejected) {
+                    "No trade — broker rejected orders"
+                } else {
+                    "No trade — orders not sent"
+                },
+                detail = when {
+                    brokerRejected -> brokerMessage.removePrefix("ib_order_error:")
+                        .ifBlank { "Interactive Brokers rejected the bracket after submission." }
+                    brokerMessage != null -> brokerMessage
+                    else -> "Liquidity and confirmation passed but the bracket was not submitted " +
+                        "(broker unavailable, plan rejected, or gateway error). Check logs for bracket_submit / ordersSkipped."
+                },
+                severity = TouchTurnReasonSeverity.Error
+            )
+        }
         TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED -> TouchTurnSessionStatusUi(
             headline = "Bracket orders submitted",
             detail = "Entry, stop, and take-profit were sent to the broker. Session continues until filled, flat, or auto-stop.",

@@ -25,6 +25,21 @@ class InstrumentIdentityOrderSizeTest {
     }
 
     @Test
+    fun fromContractSnapshot_carriesMinPriceTick() {
+        val snapshot = InstrumentMarketResolver.ContractSnapshot(
+            symbol = "SPY",
+            exchange = "SMART",
+            primaryExch = "ARCA",
+            currency = "USD",
+            minPriceTick = 0.01
+        )
+
+        val identity = InstrumentIdentity.fromContractSnapshot(snapshot)
+
+        assertEquals(0.01, identity.minPriceTick)
+    }
+
+    @Test
     fun persistenceRoundTrip_preservesOrderSizeFields() {
         val identity = InstrumentIdentity(
             symbol = "939",

@@ -420,7 +420,10 @@ class TouchTurnEngine(
                 openOrderSummary = openSummary
             )
             repository.update(instanceId) { current ->
-                current.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
+                current.withTouchTurnDecisionOutcome(
+                    TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+                    detailMessage = ack.result.exceptionOrNull()?.message
+                )
             }
             val instance = repository.deployments.value.find { it.id == instanceId } ?: return
             logLiquidityPollOutcome(

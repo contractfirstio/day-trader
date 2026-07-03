@@ -162,6 +162,22 @@ class TouchTurnSessionReasonUiTest {
     }
 
     @Test
+    fun orderRejected_brokerError_usesBrokerRejectedCopy() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-07-02",
+            status = TouchTurnCandleStatus.READY,
+            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+            decisionDetailMessage = "ib_order_error:The price does not conform to the minimum price variation for this contract."
+        )
+        val ui = TouchTurnSessionReasonUi.forDecisionOutcome(
+            TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+            session
+        )
+        assertContains(ui.headline, "broker rejected")
+        assertContains(ui.detail!!, "minimum price variation")
+    }
+
+    @Test
     fun liveStatus_openPositionWithoutOrders_warnsNoProtectiveOrders() {
         val session = TouchTurnSessionContext(
             sessionDate = "2026-06-10",

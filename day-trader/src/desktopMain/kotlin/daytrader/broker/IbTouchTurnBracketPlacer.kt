@@ -10,6 +10,7 @@ import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.domain.InstrumentPriceTick
 
 /**
  * Builds a Touch Turn bracket for IB: parent entry LMT or STP (invert), take-profit LMT child,
@@ -58,6 +59,7 @@ internal object IbTouchTurnBracketPlacer {
 
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
+        val minTick = InstrumentPriceTick.resolveMinTick(plan.instrument, symbol)
 
         val stopTransmit = !hasAdjustableStop
         val adjustableStop = adjustableStopOrderId?.let { adjId ->
@@ -66,7 +68,8 @@ internal object IbTouchTurnBracketPlacer {
                 stopLoss = stopLoss,
                 orderId = adjId,
                 stopLossOrderId = stopLossOrderId,
-                transmit = true
+                transmit = true,
+                minTick = minTick
             )
         }
 
@@ -77,9 +80,9 @@ internal object IbTouchTurnBracketPlacer {
             takeProfitOrderId = takeProfitOrderId,
             stopLossOrderId = stopLossOrderId,
             adjustableStopOrderId = adjustableStopOrderId,
-            parent = buildOrder(config, entry, parentOrderId, parentOrderId = 0, transmit = false),
-            takeProfit = buildOrder(config, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false),
-            stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit),
+            parent = buildOrder(config, entry, parentOrderId, parentOrderId = 0, transmit = false, minTick = minTick),
+            takeProfit = buildOrder(config, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false, minTick = minTick),
+            stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit, minTick = minTick),
             adjustableStop = adjustableStop
         )
     }
@@ -102,6 +105,7 @@ internal object IbTouchTurnBracketPlacer {
         }
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
+        val minTick = InstrumentPriceTick.resolveMinTick(plan.instrument, symbol)
         val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
             stopLoss.trailArmStopPrice != null &&
             orderIds.adjustableStopOrderId != null
@@ -111,7 +115,8 @@ internal object IbTouchTurnBracketPlacer {
                 stopLoss = stopLoss,
                 orderId = adjId,
                 stopLossOrderId = orderIds.stopLossOrderId,
-                transmit = false
+                transmit = false,
+                minTick = minTick
             )
         }
         return IbTouchTurnBracketSubmission(
@@ -121,20 +126,22 @@ internal object IbTouchTurnBracketPlacer {
             takeProfitOrderId = orderIds.takeProfitOrderId,
             stopLossOrderId = orderIds.stopLossOrderId,
             adjustableStopOrderId = orderIds.adjustableStopOrderId,
-            parent = buildOrder(config, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false),
+            parent = buildOrder(config, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false, minTick = minTick),
             takeProfit = buildOrder(
                 config,
                 takeProfit,
                 orderIds.takeProfitOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = false
+                transmit = false,
+                minTick = minTick
             ),
             stopLoss = buildOrder(
                 config,
                 stopLoss,
                 orderIds.stopLossOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = !hasAdjustableStop
+                transmit = !hasAdjustableStop,
+                minTick = minTick
             ),
             adjustableStop = adjustableStop?.let { order ->
                 order.transmit(true)
@@ -157,7 +164,8 @@ internal object IbTouchTurnBracketPlacer {
         planned: TouchTurnPlannedOrder,
         orderId: Int,
         parentOrderId: Int,
-        transmit: Boolean
+        transmit: Boolean,
+        minTick: Double
     ): Order {
         val order = Order()
         order.orderId(orderId)
@@ -176,10 +184,11 @@ internal object IbTouchTurnBracketPlacer {
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }
+        val roundedPrice = InstrumentPriceTick.roundToMinTick(planned.price, minTick)
         when (planned.orderType.uppercase()) {
-            "LMT" -> order.lmtPrice(planned.price)
-            "STP", "STP LMT" -> order.auxPrice(planned.price)
-            else -> order.lmtPrice(planned.price)
+            "LMT" -> order.lmtPrice(roundedPrice)
+            "STP", "STP LMT" -> order.auxPrice(roundedPrice)
+            else -> order.lmtPrice(roundedPrice)
         }
         return order
     }
@@ -189,9 +198,13 @@ internal object IbTouchTurnBracketPlacer {
         stopLoss: TouchTurnPlannedOrder,
         orderId: Int,
         stopLossOrderId: Int,
-        transmit: Boolean
+        transmit: Boolean,
+        minTick: Double
     ): Order {
         val triggerPrice = stopLoss.trailTriggerPrice!!
+        val roundedStop = InstrumentPriceTick.roundToMinTick(stopLoss.price, minTick)
+        val roundedTrigger = InstrumentPriceTick.roundToMinTick(triggerPrice, minTick)
+        val roundedArmStop = InstrumentPriceTick.roundToMinTick(stopLoss.trailArmStopPrice ?: stopLoss.price, minTick)
         val order = Order()
         order.orderId(orderId)
         order.clientId(config.clientId)
@@ -203,10 +216,10 @@ internal object IbTouchTurnBracketPlacer {
         order.outsideRth(false)
         order.transmit(transmit)
         order.parentId(stopLossOrderId)
-        order.auxPrice(stopLoss.price)
-        order.triggerPrice(triggerPrice)
+        order.auxPrice(roundedStop)
+        order.triggerPrice(roundedTrigger)
         order.adjustedOrderType(OrderType.TRAIL)
-        order.adjustedStopPrice(stopLoss.trailArmStopPrice ?: stopLoss.price)
+        order.adjustedStopPrice(roundedArmStop)
         order.adjustableTrailingUnit(TRAIL_UNIT_NOMINAL_AMOUNT)
         order.adjustedTrailingAmount(0.0)
         if (config.accountCode.isNotBlank()) {
