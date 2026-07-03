@@ -19,7 +19,11 @@ data class InstrumentIdentity(
     /** IB [ContractDetails.sizeIncrement] (or suggested increment); 1 for US unit lots. */
     val orderSizeIncrement: Int = 1,
     /** IB [ContractDetails.minTick] when resolved via reqContractDetails. */
-    val minPriceTick: Double? = null
+    val minPriceTick: Double? = null,
+    /** IB market rule id from [ContractDetails.marketRuleIds] for the listing exchange. */
+    val marketRuleId: Int? = null,
+    /** IB [reqMarketRule] ladder — minimum increment per price band for order quantization. */
+    val priceIncrements: List<InstrumentPriceIncrement> = emptyList()
 ) {
     /** Stable key for deduplicating contract-detail rows. */
     fun dedupeKey(): String =
@@ -51,7 +55,9 @@ data class InstrumentIdentity(
                 conId = conId?.takeIf { it > 0 },
                 minOrderSize = orderSizeRules.minOrderSize,
                 orderSizeIncrement = orderSizeRules.orderSizeIncrement,
-                minPriceTick = snapshot.minPriceTick?.takeIf { it > 0.0 }
+                minPriceTick = snapshot.minPriceTick?.takeIf { it > 0.0 },
+                marketRuleId = snapshot.marketRuleId,
+                priceIncrements = snapshot.priceIncrements
             )
         }
 

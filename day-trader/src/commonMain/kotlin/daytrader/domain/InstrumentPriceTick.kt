@@ -12,6 +12,20 @@ object InstrumentPriceTick {
         return round(price / minTick) * minTick
     }
 
+    fun incrementAtPrice(price: Double, increments: List<InstrumentPriceIncrement>): Double? {
+        if (!price.isFinite() || increments.isEmpty()) return null
+        return increments
+            .filter { price >= it.lowEdge && it.increment > 0.0 && it.increment.isFinite() }
+            .maxByOrNull { it.lowEdge }
+            ?.increment
+    }
+
+    fun roundForInstrument(price: Double, instrument: InstrumentIdentity?, symbol: String): Double {
+        val ladder = instrument?.priceIncrements.orEmpty()
+        val increment = incrementAtPrice(price, ladder) ?: resolveMinTick(instrument, symbol)
+        return roundToMinTick(price, increment)
+    }
+
     fun resolveMinTick(instrument: InstrumentIdentity?, symbol: String): Double =
         instrument?.minPriceTick?.takeIf { it > 0.0 } ?: defaultMinTick(symbol, instrument)
 

@@ -453,6 +453,7 @@ internal fun DeploymentMarketSection(
         InstrumentLotSizePanel(
             listingLabel = daytrader.presentation.watchlist.WatchlistUiMapper.listingLabelForIdentity(identity),
             orderSizeRules = identity.orderSizeRules(),
+            tickRuleLabel = InstrumentRelookup.tickRuleLabel(identity),
             canRelookup = canRelookupInstrument,
             relookupInProgress = instrumentRelookupInProgress,
             relookupMessage = instrumentRelookupMessage,

@@ -59,17 +59,16 @@ internal object IbTouchTurnBracketPlacer {
 
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
-        val minTick = InstrumentPriceTick.resolveMinTick(plan.instrument, symbol)
 
         val stopTransmit = !hasAdjustableStop
         val adjustableStop = adjustableStopOrderId?.let { adjId ->
             buildAdjustableStopOrder(
                 config = config,
+                plan = plan,
                 stopLoss = stopLoss,
                 orderId = adjId,
                 stopLossOrderId = stopLossOrderId,
-                transmit = true,
-                minTick = minTick
+                transmit = true
             )
         }
 
@@ -80,9 +79,9 @@ internal object IbTouchTurnBracketPlacer {
             takeProfitOrderId = takeProfitOrderId,
             stopLossOrderId = stopLossOrderId,
             adjustableStopOrderId = adjustableStopOrderId,
-            parent = buildOrder(config, entry, parentOrderId, parentOrderId = 0, transmit = false, minTick = minTick),
-            takeProfit = buildOrder(config, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false, minTick = minTick),
-            stopLoss = buildOrder(config, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit, minTick = minTick),
+            parent = buildOrder(config, plan, entry, parentOrderId, parentOrderId = 0, transmit = false),
+            takeProfit = buildOrder(config, plan, takeProfit, takeProfitOrderId, parentOrderId = parentOrderId, transmit = false),
+            stopLoss = buildOrder(config, plan, stopLoss, stopLossOrderId, parentOrderId = parentOrderId, transmit = stopTransmit),
             adjustableStop = adjustableStop
         )
     }
@@ -105,18 +104,17 @@ internal object IbTouchTurnBracketPlacer {
         }
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
         val contract = contractFor(plan, symbol)
-        val minTick = InstrumentPriceTick.resolveMinTick(plan.instrument, symbol)
         val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
             stopLoss.trailArmStopPrice != null &&
             orderIds.adjustableStopOrderId != null
         val adjustableStop = orderIds.adjustableStopOrderId?.let { adjId ->
             buildAdjustableStopOrder(
                 config = config,
+                plan = plan,
                 stopLoss = stopLoss,
                 orderId = adjId,
                 stopLossOrderId = orderIds.stopLossOrderId,
-                transmit = false,
-                minTick = minTick
+                transmit = false
             )
         }
         return IbTouchTurnBracketSubmission(
@@ -126,22 +124,22 @@ internal object IbTouchTurnBracketPlacer {
             takeProfitOrderId = orderIds.takeProfitOrderId,
             stopLossOrderId = orderIds.stopLossOrderId,
             adjustableStopOrderId = orderIds.adjustableStopOrderId,
-            parent = buildOrder(config, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false, minTick = minTick),
+            parent = buildOrder(config, plan, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false),
             takeProfit = buildOrder(
                 config,
+                plan,
                 takeProfit,
                 orderIds.takeProfitOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = false,
-                minTick = minTick
+                transmit = false
             ),
             stopLoss = buildOrder(
                 config,
+                plan,
                 stopLoss,
                 orderIds.stopLossOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = !hasAdjustableStop,
-                minTick = minTick
+                transmit = !hasAdjustableStop
             ),
             adjustableStop = adjustableStop?.let { order ->
                 order.transmit(true)
@@ -161,11 +159,11 @@ internal object IbTouchTurnBracketPlacer {
 
     private fun buildOrder(
         config: IbGatewayConfig,
+        plan: TouchTurnOrderPlan,
         planned: TouchTurnPlannedOrder,
         orderId: Int,
         parentOrderId: Int,
-        transmit: Boolean,
-        minTick: Double
+        transmit: Boolean
     ): Order {
         val order = Order()
         order.orderId(orderId)
@@ -184,7 +182,7 @@ internal object IbTouchTurnBracketPlacer {
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }
-        val roundedPrice = InstrumentPriceTick.roundToMinTick(planned.price, minTick)
+        val roundedPrice = InstrumentPriceTick.roundForInstrument(planned.price, plan.instrument, plan.symbol)
         when (planned.orderType.uppercase()) {
             "LMT" -> order.lmtPrice(roundedPrice)
             "STP", "STP LMT" -> order.auxPrice(roundedPrice)
@@ -195,16 +193,20 @@ internal object IbTouchTurnBracketPlacer {
 
     private fun buildAdjustableStopOrder(
         config: IbGatewayConfig,
+        plan: TouchTurnOrderPlan,
         stopLoss: TouchTurnPlannedOrder,
         orderId: Int,
         stopLossOrderId: Int,
-        transmit: Boolean,
-        minTick: Double
+        transmit: Boolean
     ): Order {
         val triggerPrice = stopLoss.trailTriggerPrice!!
-        val roundedStop = InstrumentPriceTick.roundToMinTick(stopLoss.price, minTick)
-        val roundedTrigger = InstrumentPriceTick.roundToMinTick(triggerPrice, minTick)
-        val roundedArmStop = InstrumentPriceTick.roundToMinTick(stopLoss.trailArmStopPrice ?: stopLoss.price, minTick)
+        val roundedStop = InstrumentPriceTick.roundForInstrument(stopLoss.price, plan.instrument, plan.symbol)
+        val roundedTrigger = InstrumentPriceTick.roundForInstrument(triggerPrice, plan.instrument, plan.symbol)
+        val roundedArmStop = InstrumentPriceTick.roundForInstrument(
+            stopLoss.trailArmStopPrice ?: stopLoss.price,
+            plan.instrument,
+            plan.symbol
+        )
         val order = Order()
         order.orderId(orderId)
         order.clientId(config.clientId)

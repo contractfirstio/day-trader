@@ -88,7 +88,10 @@ object InstrumentRelookup {
             localSymbol = ibIdentity.localSymbol ?: base.localSymbol,
             tradingClass = ibIdentity.tradingClass ?: base.tradingClass,
             minOrderSize = ibIdentity.minOrderSize,
-            orderSizeIncrement = ibIdentity.orderSizeIncrement
+            orderSizeIncrement = ibIdentity.orderSizeIncrement,
+            minPriceTick = ibIdentity.minPriceTick ?: base.minPriceTick,
+            marketRuleId = ibIdentity.marketRuleId ?: base.marketRuleId,
+            priceIncrements = ibIdentity.priceIncrements.ifEmpty { base.priceIncrements }
         )
     }
 
@@ -98,4 +101,14 @@ object InstrumentRelookup {
         } else {
             "Min ${rules.minOrderSize}, step ${rules.orderSizeIncrement}"
         }
+
+    fun tickRuleLabel(identity: InstrumentIdentity): String {
+        val bands = identity.priceIncrements
+        if (bands.isNotEmpty()) {
+            val active = bands.lastOrNull()?.let { "≥${it.lowEdge} → ${it.increment}" }
+            return "${bands.size} price band(s)${active?.let { " ($it)" }.orEmpty()}"
+        }
+        identity.minPriceTick?.let { return "Min tick $it" }
+        return "Tick rules not loaded"
+    }
 }

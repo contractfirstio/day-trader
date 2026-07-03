@@ -105,6 +105,16 @@ fun StrategiesScreen(viewModel: StrategiesViewModel) {
         }
     }
 
+    chromeState.instrumentBulkRefresh?.let { refreshState ->
+        if (chromeState.showInstrumentBulkRefreshDialog) {
+            InstrumentBulkRefreshDialog(
+                state = refreshState,
+                onDismiss = viewModel::onDismissInstrumentBulkRefreshDialog,
+                onStart = viewModel::onStartInstrumentBulkRefresh
+            )
+        }
+    }
+
     chromeState.startBlockedAlert?.let { alert ->
         StartBlockedByPositionDialog(
             alert = alert,
@@ -136,9 +146,12 @@ private fun StrategiesScreenContent(viewModel: StrategiesViewModel) {
             deploymentFilter = listState.deploymentFilter,
             strategyTypeFilter = listState.strategyTypeFilter,
             hasActiveFilters = listState.hasActiveFilters,
+            filteredCount = listState.filteredCount,
+            canRefreshFilteredInstruments = listState.canRelookupInstrument,
             onDeploymentFilterChange = viewModel::onDeploymentFilterChange,
             onStrategyTypeFilterChange = viewModel::onStrategyTypeFilterChange,
-            onClearFilters = viewModel::onClearFilters
+            onClearFilters = viewModel::onClearFilters,
+            onRefreshFilteredInstruments = viewModel::onShowInstrumentBulkRefreshDialog
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -372,9 +385,12 @@ private fun StrategiesFilterPanel(
     deploymentFilter: DeploymentFilter,
     strategyTypeFilter: StrategyType?,
     hasActiveFilters: Boolean,
+    filteredCount: Int,
+    canRefreshFilteredInstruments: Boolean,
     onDeploymentFilterChange: (DeploymentFilter) -> Unit,
     onStrategyTypeFilterChange: (StrategyType?) -> Unit,
-    onClearFilters: () -> Unit
+    onClearFilters: () -> Unit,
+    onRefreshFilteredInstruments: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -442,6 +458,23 @@ private fun StrategiesFilterPanel(
                 ) {
                     Text("Clear", color = GainGreen, fontSize = 10.sp)
                 }
+            }
+            OutlinedButton(
+                onClick = onRefreshFilteredInstruments,
+                enabled = canRefreshFilteredInstruments && filteredCount > 0,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(24.dp)
+                    .testTag("RefreshFilteredInstrumentsButton"),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Refresh filtered instruments",
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Refresh IB ($filteredCount)", fontSize = 10.sp, maxLines = 1)
             }
         }
     }

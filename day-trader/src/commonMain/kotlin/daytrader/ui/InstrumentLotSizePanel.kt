@@ -24,6 +24,7 @@ import daytrader.ui.theme.TextSecondary
 internal fun InstrumentLotSizePanel(
     listingLabel: String?,
     orderSizeRules: InstrumentOrderSizeRules,
+    tickRuleLabel: String? = null,
     canRelookup: Boolean,
     relookupInProgress: Boolean,
     relookupMessage: String?,
@@ -51,6 +52,15 @@ internal fun InstrumentLotSizePanel(
             lineHeight = 15.sp,
             modifier = Modifier.testTag("${testTagPrefix}LotSizeLabel")
         )
+        tickRuleLabel?.let { label ->
+            Text(
+                label,
+                fontSize = 12.sp,
+                color = TextSecondary,
+                lineHeight = 15.sp,
+                modifier = Modifier.testTag("${testTagPrefix}TickRuleLabel")
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)

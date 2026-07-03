@@ -77,6 +77,7 @@ data class StrategiesListUiState(
     val globalHasInProgressSessions: Boolean = false,
     val sortColumn: DeploymentListSortColumn? = null,
     val sortDirection: SortDirection = SortDirection.DESCENDING,
+    val canRelookupInstrument: Boolean = false,
 )
 
 /** Selected deployment detail (non-streaming fields). */
@@ -116,6 +117,8 @@ data class StrategiesChromeUiState(
     val addDialogPrefill: StrategyDeploymentAddPrefill? = null,
     val showImportDialog: Boolean = false,
     val symbolImport: DeploymentSymbolImportUiState? = null,
+    val showInstrumentBulkRefreshDialog: Boolean = false,
+    val instrumentBulkRefresh: InstrumentBulkRefreshUiState? = null,
     val startBlockedAlert: StartBlockedByPositionAlert? = null,
 )
 

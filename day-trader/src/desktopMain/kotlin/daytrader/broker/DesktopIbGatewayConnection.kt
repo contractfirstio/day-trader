@@ -14,12 +14,14 @@ import com.ib.client.EReader
 import com.ib.client.Order
 import com.ib.client.OrderCancel
 import com.ib.client.OrderState
+import com.ib.client.PriceIncrement
 import com.ib.client.Types
 import com.ib.client.TickAttrib
 import com.ib.client.TickType
 import com.ib.client.protobuf.AccountDataEndProto
 import com.ib.client.protobuf.HistoricalDataEndProto
 import com.ib.client.protobuf.HistoricalDataProto
+import com.ib.client.protobuf.MarketRuleProto
 import com.ib.client.protobuf.PortfolioValueProto
 import com.ib.client.protobuf.PositionEndProto
 import com.ib.client.protobuf.PositionProto
@@ -36,6 +38,7 @@ import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.requiresDailyHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.InstrumentPriceIncrement
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BlockingGatewayQueues
@@ -49,12 +52,12 @@ import daytrader.gateway.LiveQuote
 import daytrader.gateway.QueuedBrokerGateway
 import daytrader.gateway.WorkingOrder
 import daytrader.gateway.TouchTurnBracketAck
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.TimeoutCancellationException
@@ -152,6 +155,8 @@ class DesktopIbGatewayConnection(
     private val instrumentResolveBatches = ConcurrentHashMap<Long, InstrumentResolveBatch>()
     private val instrumentResolveCompleted = ConcurrentHashMap.newKeySet<Long>()
     private val nextInstrumentResolveReqId = AtomicInteger(INSTRUMENT_RESOLVE_REQ_ID_START)
+    private val marketRuleCache = ConcurrentHashMap<Int, List<InstrumentPriceIncrement>>()
+    private val pendingMarketRules = ConcurrentHashMap<Int, CompletableDeferred<List<InstrumentPriceIncrement>>>()
     private val historicalPrices = ConcurrentHashMap<String, Double>()
     private val historicalReqIdToKey = ConcurrentHashMap<Int, String>()
     private val historicalPendingKeys = ConcurrentHashMap.newKeySet<String>()
@@ -548,6 +553,7 @@ class DesktopIbGatewayConnection(
         }
         val orderSizeRules = IbOrderSizeRules.fromContractDetails(contractDetails)
         val minPriceTick = IbPriceTickRules.fromContractDetails(contractDetails)
+        val marketRuleId = IbMarketRuleRules.marketRuleIdForContract(contractDetails)
         val snapshot = InstrumentMarketResolver.ContractSnapshot(
             symbol = contract.symbol().orEmpty(),
             exchange = contract.exchange(),
@@ -556,7 +562,8 @@ class DesktopIbGatewayConnection(
             companyName = batch.companyName,
             minOrderSize = orderSizeRules.minOrderSize,
             orderSizeIncrement = orderSizeRules.orderSizeIncrement,
-            minPriceTick = minPriceTick
+            minPriceTick = minPriceTick,
+            marketRuleId = marketRuleId
         )
         val conId = contract.conid().takeIf { it > 0 }?.toLong()
         val resolved = InstrumentMarketResolver.fromIbContract(snapshot).copy(
@@ -568,7 +575,7 @@ class DesktopIbGatewayConnection(
                 "symbol=${snapshot.symbol} exchange=${snapshot.exchange} " +
                 "primary=${snapshot.primaryExch} currency=${snapshot.currency} conId=$conId " +
                 "minOrderSize=${orderSizeRules.minOrderSize} orderSizeIncrement=${orderSizeRules.orderSizeIncrement} " +
-                "minPriceTick=$minPriceTick " +
+                "minPriceTick=$minPriceTick marketRuleId=$marketRuleId " +
                 "venue=${resolved.venueLabel} batchSize=${batch.candidates.size}"
         )
         return true
@@ -603,7 +610,84 @@ class DesktopIbGatewayConnection(
         batch.finishJob?.cancel()
         batch.finishJob = scope.launch {
             delay(INSTRUMENT_RESOLVE_DEBOUNCE_MS)
+            enrichInstrumentResolveBatchWithMarketRules(gatewayRequestId)
             emitInstrumentResolveBatch(gatewayRequestId)
+        }
+    }
+
+    private suspend fun enrichInstrumentResolveBatchWithMarketRules(gatewayRequestId: Long) {
+        val batch = instrumentResolveBatches[gatewayRequestId] ?: return
+        for ((key, resolved) in batch.candidates.toList()) {
+            val identity = resolved.identity ?: continue
+            val ruleId = identity.marketRuleId ?: continue
+            if (identity.priceIncrements.isNotEmpty()) continue
+            val increments = fetchMarketRuleIncrements(ruleId)
+            if (increments.isNotEmpty()) {
+                batch.candidates[key] = resolved.copy(
+                    identity = identity.copy(priceIncrements = increments)
+                )
+            }
+        }
+    }
+
+    private suspend fun fetchMarketRuleIncrements(marketRuleId: Int): List<InstrumentPriceIncrement> {
+        marketRuleCache[marketRuleId]?.let { return it }
+        pendingMarketRules[marketRuleId]?.let { existing ->
+            return runCatching {
+                withTimeout(MARKET_RULE_TIMEOUT_MS) { existing.await() }
+            }.getOrDefault(emptyList())
+        }
+        val deferred = CompletableDeferred<List<InstrumentPriceIncrement>>()
+        pendingMarketRules[marketRuleId] = deferred
+        requestPacer.enqueue {
+            if (!client.isConnected) {
+                completeMarketRule(marketRuleId, emptyList())
+                return@enqueue
+            }
+            client.reqMarketRule(marketRuleId)
+        }
+        return runCatching {
+            withTimeout(MARKET_RULE_TIMEOUT_MS) { deferred.await() }
+        }.getOrElse {
+            pendingMarketRules.remove(marketRuleId)
+            emptyList()
+        }
+    }
+
+    private fun completeMarketRule(marketRuleId: Int, increments: List<InstrumentPriceIncrement>) {
+        if (increments.isNotEmpty()) {
+            marketRuleCache[marketRuleId] = increments
+        }
+        pendingMarketRules.remove(marketRuleId)?.complete(increments)
+    }
+
+    override fun marketRule(marketRuleId: Int, priceIncrements: Array<PriceIncrement>) {
+        try {
+            completeMarketRule(marketRuleId, IbMarketRuleRules.toDomainIncrements(priceIncrements))
+        } catch (e: Exception) {
+            logCallbackFailure("marketRule", e)
+            completeMarketRule(marketRuleId, emptyList())
+        }
+    }
+
+    override fun marketRuleProtoBuf(marketRule: MarketRuleProto.MarketRule) {
+        try {
+            if (!marketRule.hasMarketRuleId()) return
+            val increments = marketRule.priceIncrementsList.mapNotNull { band ->
+                val increment = band.increment
+                val lowEdge = band.lowEdge
+                if (increment > 0.0 && increment.isFinite() && lowEdge.isFinite()) {
+                    InstrumentPriceIncrement(lowEdge = lowEdge, increment = increment)
+                } else {
+                    null
+                }
+            }.sortedBy { it.lowEdge }
+            completeMarketRule(marketRule.marketRuleId, increments)
+        } catch (e: Exception) {
+            logCallbackFailure("marketRuleProtoBuf", e)
+            if (marketRule.hasMarketRuleId()) {
+                completeMarketRule(marketRule.marketRuleId, emptyList())
+            }
         }
     }
 
@@ -2088,6 +2172,8 @@ class DesktopIbGatewayConnection(
         instrumentResolveBatches.values.forEach { it.finishJob?.cancel() }
         instrumentResolveBatches.clear()
         instrumentResolveCompleted.clear()
+        pendingMarketRules.values.forEach { it.complete(emptyList()) }
+        pendingMarketRules.clear()
         historicalReqIdToKey.clear()
         historicalPendingKeys.clear()
         historicalLastBarClose.clear()
@@ -3148,6 +3234,7 @@ class DesktopIbGatewayConnection(
         const val INSTRUMENT_RESOLVE_REQ_ID_START = 25_000
         const val INSTRUMENT_RESOLVE_DEBOUNCE_MS = 400L
         const val INSTRUMENT_RESOLVE_TIMEOUT_MS = 12_000L
+        const val MARKET_RULE_TIMEOUT_MS = 5_000L
         const val HISTORICAL_REQ_ID_START = 30_000
         const val TOUCH_TURN_HISTORICAL_REQ_ID_START = 50_000
         /** See [TouchTurnDefaults.TOUCH_TURN_15M_HISTORY_DURATION]. */

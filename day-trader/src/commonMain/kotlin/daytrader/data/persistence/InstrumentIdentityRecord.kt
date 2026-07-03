@@ -2,7 +2,14 @@ package daytrader.data.persistence
 
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentOrderSizeRules
+import daytrader.domain.InstrumentPriceIncrement
 import kotlinx.serialization.Serializable
+
+@Serializable
+data class InstrumentPriceIncrementRecord(
+    val lowEdge: Double,
+    val increment: Double
+)
 
 @Serializable
 data class InstrumentIdentityRecord(
@@ -16,7 +23,9 @@ data class InstrumentIdentityRecord(
     val tradingClass: String? = null,
     val minOrderSize: Int? = null,
     val orderSizeIncrement: Int? = null,
-    val minPriceTick: Double? = null
+    val minPriceTick: Double? = null,
+    val marketRuleId: Int? = null,
+    val priceIncrements: List<InstrumentPriceIncrementRecord> = emptyList()
 )
 
 internal object InstrumentIdentityPersistence {
@@ -37,7 +46,11 @@ internal object InstrumentIdentityPersistence {
                 tradingClass = it.tradingClass,
                 minOrderSize = orderSizeRules.minOrderSize,
                 orderSizeIncrement = orderSizeRules.orderSizeIncrement,
-                minPriceTick = it.minPriceTick?.takeIf { tick -> tick > 0.0 }
+                minPriceTick = it.minPriceTick?.takeIf { tick -> tick > 0.0 },
+                marketRuleId = it.marketRuleId,
+                priceIncrements = it.priceIncrements.map { band ->
+                    InstrumentPriceIncrement(lowEdge = band.lowEdge, increment = band.increment)
+                }
             )
         }
 
@@ -54,7 +67,11 @@ internal object InstrumentIdentityPersistence {
                 tradingClass = it.tradingClass,
                 minOrderSize = it.minOrderSize,
                 orderSizeIncrement = it.orderSizeIncrement,
-                minPriceTick = it.minPriceTick
+                minPriceTick = it.minPriceTick,
+                marketRuleId = it.marketRuleId,
+                priceIncrements = it.priceIncrements.map { band ->
+                    InstrumentPriceIncrementRecord(lowEdge = band.lowEdge, increment = band.increment)
+                }
             )
         }
 }

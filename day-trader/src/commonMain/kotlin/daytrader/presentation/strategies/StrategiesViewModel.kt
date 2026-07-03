@@ -179,9 +179,147 @@ class StrategiesViewModel(
             }
             instrumentRelookupInProgress = false
             instrumentRelookupMessage =
-                "Updated board lot: ${InstrumentRelookup.lotSizeLabel(outcome.orderSizeRules)}"
+                "Updated board lot: ${InstrumentRelookup.lotSizeLabel(outcome.orderSizeRules)} · " +
+                    InstrumentRelookup.tickRuleLabel(outcome.identity)
             emitUiState()
         }
+    }
+
+    fun onShowInstrumentBulkRefreshDialog() {
+        if (instrumentBulkRefreshJobActive) return
+        val filtered = filteredDeployments()
+        showInstrumentBulkRefreshDialog = true
+        instrumentBulkRefresh = InstrumentBulkRefreshUiState(
+            scopeLabel = instrumentRefreshScopeLabel(filtered.size),
+            brokerConnected = isBrokerConnectedForResolve(),
+            rows = filtered.map { deployment ->
+                InstrumentBulkRefreshRowUi(
+                    deploymentId = deployment.id,
+                    symbol = deployment.symbol,
+                    status = if (deployment.status == DeploymentStatus.RUNNING) {
+                        DeploymentImportRowStatus.SKIPPED
+                    } else {
+                        DeploymentImportRowStatus.PENDING
+                    },
+                    detail = if (deployment.status == DeploymentStatus.RUNNING) {
+                        "Skipped — deployment running"
+                    } else {
+                        null
+                    }
+                )
+            }
+        )
+        emitUiState()
+    }
+
+    fun onDismissInstrumentBulkRefreshDialog() {
+        if (instrumentBulkRefreshJobActive) return
+        showInstrumentBulkRefreshDialog = false
+        instrumentBulkRefresh = null
+        emitUiState()
+    }
+
+    fun onStartInstrumentBulkRefresh() {
+        val refresh = instrumentBulkRefresh ?: return
+        if (!refresh.canStart || instrumentBulkRefreshJobActive) return
+        val gateway = instrumentResolveGateway()
+        if (gateway == null || !canRelookupInstrument()) {
+            instrumentBulkRefresh = refresh.copy(brokerConnected = false)
+            emitUiState()
+            return
+        }
+        scope.launchUiAction(AppScreen.STRATEGIES, "onStartInstrumentBulkRefresh") {
+            instrumentBulkRefreshJobActive = true
+            val rows = refresh.rows
+            val pendingIndexes = rows.indices.filter { rows[it].status == DeploymentImportRowStatus.PENDING }
+            instrumentBulkRefresh = refresh.copy(
+                phase = InstrumentBulkRefreshPhase.REFRESHING,
+                total = pendingIndexes.size,
+                completed = 0,
+                succeeded = 0,
+                failed = 0,
+                skipped = rows.count { it.status == DeploymentImportRowStatus.SKIPPED }
+            )
+            emitUiState()
+            try {
+                var succeeded = 0
+                var failed = 0
+                var completed = 0
+                val skipped = rows.count { it.status == DeploymentImportRowStatus.SKIPPED }
+                for ((progressIndex, rowIndex) in pendingIndexes.withIndex()) {
+                    val deployment = repository.deployments.value.find { it.id == rows[rowIndex].deploymentId }
+                    if (deployment == null) {
+                        failed++
+                        updateInstrumentBulkRefreshRow(rowIndex) {
+                            it.copy(
+                                status = DeploymentImportRowStatus.FAILED,
+                                detail = "Deployment not found"
+                            )
+                        }
+                    } else {
+                        updateInstrumentBulkRefreshRow(rowIndex) {
+                            it.copy(status = DeploymentImportRowStatus.RESOLVING, detail = "Resolving via IB…")
+                        }
+                        emitUiState()
+                        val result = InstrumentRelookup.relookup(
+                            gateway = gateway,
+                            symbol = deployment.symbol,
+                            existingInstrument = deployment.instrument,
+                            marketZoneId = DeploymentMarket.effectiveZoneId(deployment)
+                        )
+                        if (result.isSuccess) {
+                            val outcome = result.getOrThrow()
+                            repository.update(deployment.id) { current ->
+                                current.copy(
+                                    instrument = outcome.identity,
+                                    companyName = outcome.companyName?.takeIf { it.isNotBlank() }
+                                        ?: current.companyName,
+                                    marketSource = MarketSource.IB
+                                )
+                            }
+                            succeeded++
+                            updateInstrumentBulkRefreshRow(rowIndex) {
+                                it.copy(
+                                    status = DeploymentImportRowStatus.SUCCESS,
+                                    detail = InstrumentRelookup.tickRuleLabel(outcome.identity)
+                                )
+                            }
+                        } else {
+                            failed++
+                            updateInstrumentBulkRefreshRow(rowIndex) {
+                                it.copy(
+                                    status = DeploymentImportRowStatus.FAILED,
+                                    detail = result.exceptionOrNull()?.message ?: "Lookup failed"
+                                )
+                            }
+                        }
+                    }
+                    completed = progressIndex + 1
+                    instrumentBulkRefresh = instrumentBulkRefresh?.copy(
+                        completed = completed,
+                        succeeded = succeeded,
+                        failed = failed,
+                        skipped = skipped
+                    )
+                    emitUiState()
+                }
+                instrumentBulkRefresh = instrumentBulkRefresh?.copy(phase = InstrumentBulkRefreshPhase.COMPLETE)
+            } finally {
+                instrumentBulkRefreshJobActive = false
+                emitUiState()
+            }
+        }
+    }
+
+    private fun updateInstrumentBulkRefreshRow(
+        index: Int,
+        transform: (InstrumentBulkRefreshRowUi) -> InstrumentBulkRefreshRowUi
+    ) {
+        val refresh = instrumentBulkRefresh ?: return
+        val rows = refresh.rows.toMutableList()
+        if (index !in rows.indices) return
+        rows[index] = transform(rows[index])
+        instrumentBulkRefresh = refresh.copy(rows = rows)
     }
 
     private var showAddDialog = false
@@ -189,6 +327,9 @@ class StrategiesViewModel(
     private var showImportDialog = false
     private var symbolImport: DeploymentSymbolImportUiState? = null
     private var importJobActive = false
+    private var showInstrumentBulkRefreshDialog = false
+    private var instrumentBulkRefresh: InstrumentBulkRefreshUiState? = null
+    private var instrumentBulkRefreshJobActive = false
     private var deployments: List<StrategyDeployment> = emptyList()
     private var runSortColumn = SessionHistorySortColumn.TIME
     private var runSortDirection = SortDirection.DESCENDING
@@ -1550,9 +1691,10 @@ class StrategiesViewModel(
         val showsLiveMarketQuotes: Boolean,
     )
 
-    private fun buildEmitContext(): EmitContext {
-        val state = appState
-        val filtered = deployments.filter { instance ->
+    private fun filteredDeployments(
+        state: StrategiesAppState = appState
+    ): List<StrategyDeployment> =
+        deployments.filter { instance ->
             val displayName = instanceDisplayName(instance.strategyType, instance.symbol)
             val matchesSearch = state.searchQuery.isBlank() ||
                 displayName.contains(state.searchQuery, ignoreCase = true) ||
@@ -1568,6 +1710,26 @@ class StrategiesViewModel(
                 DeploymentMarket.effectiveZoneId(instance) == selectedMarketZoneId
             matchesSearch && matchesFilter && matchesStrategyType && matchesMarket
         }
+
+    private fun instrumentRefreshScopeLabel(filteredCount: Int): String {
+        val parts = mutableListOf<String>()
+        if (appState.searchQuery.isNotBlank()) {
+            parts += "search \"${appState.searchQuery}\""
+        }
+        when (appState.deploymentFilter) {
+            DeploymentFilter.RUNNING -> parts += "active"
+            DeploymentFilter.STOPPED -> parts += "stopped"
+            DeploymentFilter.ALL -> Unit
+        }
+        appState.strategyTypeFilter?.let { parts += StrategyCatalog.displayName(it) }
+        selectedMarketZoneId?.let { parts += marketLabelForZone(it) }
+        val filterSummary = parts.joinToString(" · ").ifBlank { "current filter" }
+        return "$filteredCount in $filterSummary"
+    }
+
+    private fun buildEmitContext(): EmitContext {
+        val state = appState
+        val filtered = filteredDeployments(state)
 
         var effectiveSelectedId = state.selectedDeploymentId
         if (effectiveSelectedId != null && filtered.none { it.id == effectiveSelectedId }) {
@@ -1654,6 +1816,7 @@ class StrategiesViewModel(
             globalHasInProgressSessions = globalHasInProgressSessions,
             sortColumn = deploymentListSortColumn,
             sortDirection = deploymentListSortDirection,
+            canRelookupInstrument = canRelookupInstrument(),
         )
         _detailState.value = StrategiesDetailUiState(
             selectedDeploymentId = selected?.id,
@@ -1679,6 +1842,8 @@ class StrategiesViewModel(
             addDialogPrefill = addDialogPrefill,
             showImportDialog = showImportDialog,
             symbolImport = symbolImport,
+            showInstrumentBulkRefreshDialog = showInstrumentBulkRefreshDialog,
+            instrumentBulkRefresh = instrumentBulkRefresh,
             startBlockedAlert = startBlockedAlert,
         )
     }
@@ -1704,6 +1869,7 @@ class StrategiesViewModel(
             current.copy(
                 filteredRows = patchListRows(current.filteredRows, ctx),
                 filteredSummary = buildFilteredSummary(ctx),
+                canRelookupInstrument = canRelookupInstrument(),
             )
         }
         _detailState.update { current ->
