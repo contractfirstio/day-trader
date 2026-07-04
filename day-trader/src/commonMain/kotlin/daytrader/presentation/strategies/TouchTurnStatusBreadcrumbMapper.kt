@@ -599,7 +599,8 @@ object TouchTurnStatusBreadcrumbMapper {
     ): TouchTurnPipelineGraph {
         val activePath = activePathFor(steps, session, nowEpochMillis)
         val nodes = pipelineNodes(steps)
-        val edges = pipelineEdges(activePath, nodes)
+        val includeFiveMin = fiveMinStepVisible(steps)
+        val edges = pipelineEdges(activePath, nodes, includeFiveMin)
         val caption = pipelineCaption(
             steps = steps,
             nodes = nodes,
@@ -712,11 +713,17 @@ object TouchTurnStatusBreadcrumbMapper {
         val isDecision: Boolean
     )
 
+    private fun fiveMinStepVisible(steps: List<TouchTurnBreadcrumbStep>): Boolean =
+        steps[IDX_FIVE_MIN].state != TouchTurnBreadcrumbStepState.SKIPPED
+
     private fun pipelineNodes(steps: List<TouchTurnBreadcrumbStep>): List<TouchTurnPipelineNode> {
         fun stepState(index: Int): TouchTurnBreadcrumbStepState = steps[index].state
         fun stepTime(index: Int): String? = steps[index].timestamp
+        val includeFiveMin = fiveMinStepVisible(steps)
 
-        return TouchTurnPipelineNodeId.entries.map { id ->
+        return TouchTurnPipelineNodeId.entries
+            .filter { includeFiveMin || it != TouchTurnPipelineNodeId.FiveMinConfirmation }
+            .map { id ->
             val meta = when (id) {
                 TouchTurnPipelineNodeId.Readiness -> PipelineNodeMeta(
                     IDX_READINESS, pipelineLabels[IDX_READINESS], "Start", false
@@ -741,7 +748,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 )
             }
             val index = meta.stepIndex
-            val (x, y) = TouchTurnPipelineLayout.position(id)
+            val (x, y) = TouchTurnPipelineLayout.position(id, includeFiveMin)
             TouchTurnPipelineNode(
                 id = id,
                 label = meta.label,
@@ -757,10 +764,11 @@ object TouchTurnStatusBreadcrumbMapper {
 
     private fun pipelineEdges(
         activePath: List<TouchTurnPipelineNodeId>,
-        nodes: List<TouchTurnPipelineNode>
+        nodes: List<TouchTurnPipelineNode>,
+        includeFiveMin: Boolean
     ): List<TouchTurnPipelineEdge> {
         val nodeById = nodes.associateBy { it.id }
-        return TouchTurnPipelineLayout.edgeDefinitions.map { (from, to, label) ->
+        return TouchTurnPipelineLayout.edgeDefinitions(includeFiveMin).map { (from, to, label) ->
             TouchTurnPipelineEdge(
                 from = from,
                 to = to,

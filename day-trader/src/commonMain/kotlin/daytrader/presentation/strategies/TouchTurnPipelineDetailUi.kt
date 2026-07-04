@@ -8,8 +8,10 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnTradeSide
 import daytrader.presentation.Formatters
 
 /** Values loaded from IB at the Data pipeline step (ATR + first 15m RTH bar). */
@@ -28,6 +30,21 @@ data class SessionDataCaptureUi(
     val hasOpeningBar: Boolean get() = candle != null
     val isReady: Boolean get() = status == TouchTurnCandleStatus.READY && (hasAtr || hasOpeningBar)
 }
+
+data class FiveMinHammerBarDetailUi(
+    val barTime: String?,
+    val currency: String,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val range: Double,
+    val bodyChange: Double,
+    val sweepPrice: Double,
+    val tradeSide: TouchTurnTradeSide?,
+    val candleColor: FirstCandleColor,
+    val hammerConfirmed: Boolean
+)
 
 data class OpeningBarDetailUi(
     val barTime: String?,
@@ -100,6 +117,27 @@ object TouchTurnPipelineDetailUiMapper {
             atrRatioPercent = (TouchTurnDefaults.ATR_LIQUIDITY_RATIO * 100).toInt(),
             candle = session.candle
         )
+
+    fun fiveMinHammerBarDetail(session: TouchTurnSessionContext): FiveMinHammerBarDetailUi? {
+        val confirmation = session.fiveMinuteConfirmation ?: return null
+        val hammer = confirmation.confirmedHammerBar ?: return null
+        val side = session.setup?.side
+        val color = TouchTurnLogic.firstCandleColor(hammer)
+        return FiveMinHammerBarDetailUi(
+            barTime = hammer.time,
+            currency = session.currencyCode,
+            open = hammer.open,
+            high = hammer.high,
+            low = hammer.low,
+            close = hammer.close,
+            range = hammer.range,
+            bodyChange = hammer.close - hammer.open,
+            sweepPrice = confirmation.sweepPrice,
+            tradeSide = side,
+            candleColor = color,
+            hammerConfirmed = confirmation.status == FiveMinuteConfirmationStatus.CONFIRMED
+        )
+    }
 
     fun openingBarDetail(
         session: TouchTurnSessionContext,
@@ -242,6 +280,9 @@ fun LiquidityCalculationUi.fmt(amount: Double): String =
     Formatters.moneyPlain(amount, currency)
 
 fun OpeningBarDetailUi.fmt(amount: Double): String =
+    Formatters.moneyPlain(amount, currency)
+
+fun FiveMinHammerBarDetailUi.fmt(amount: Double): String =
     Formatters.moneyPlain(amount, currency)
 
 fun SessionDataCaptureUi.fmt(amount: Double): String =

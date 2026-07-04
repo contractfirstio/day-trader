@@ -13,6 +13,8 @@ import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnTradeSide
+import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -129,6 +131,58 @@ class TouchTurnPipelineDetailUiMapperTest {
         assertEquals(true, liquidity.passed)
         assertEquals("OK", liquidity.detail)
         assertEquals(true, liquidity.enabled)
+    }
+
+    @Test
+    fun fiveMinHammerBarDetail_includesHammerOhlcAndSweep() {
+        val hammer = OhlcBar(open = 381.0, high = 382.5, low = 380.2, close = 382.43, time = "20260522  09:35:00")
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = OhlcBar(open = 385.0, high = 386.0, low = 380.0, close = 381.0, time = "20260522  09:30:00"),
+            setup = TouchTurnBracketSetup(
+                range = 6.0,
+                rangeThreshold = 2.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.SHORT,
+                entry = 382.43,
+                stopLoss = 382.5,
+                takeProfit = 381.0
+            ),
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5,
+            fiveMinuteConfirmation = FiveMinuteConfirmationLogic.initialState(
+                candle = OhlcBar(open = 385.0, high = 386.0, low = 380.0, close = 381.0, time = "20260522  09:30:00"),
+                side = TouchTurnTradeSide.SHORT,
+                nowEpochMillis = 1L
+            ).copy(
+                status = FiveMinuteConfirmationStatus.CONFIRMED,
+                confirmedHammerBar = hammer
+            )
+        )
+        val detail = TouchTurnPipelineDetailUiMapper.fiveMinHammerBarDetail(session)
+        assertNotNull(detail)
+        assertEquals(382.43, detail.close)
+        assertEquals(386.0, detail.sweepPrice)
+        assertEquals(TouchTurnTradeSide.SHORT, detail.tradeSide)
+        assertTrue(detail.hammerConfirmed)
+    }
+
+    @Test
+    fun fiveMinHammerBarDetail_nullUntilHammerConfirmed() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5,
+            fiveMinuteConfirmation = FiveMinuteConfirmationLogic.initialState(
+                candle = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 108.0, time = "20260522  09:30:00"),
+                side = TouchTurnTradeSide.LONG,
+                nowEpochMillis = 1L
+            )
+        )
+        assertEquals(null, TouchTurnPipelineDetailUiMapper.fiveMinHammerBarDetail(session))
     }
 
     @Test

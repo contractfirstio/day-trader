@@ -27,8 +27,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.LiquidityCandleEvaluation
+import daytrader.domain.OhlcBar
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnCandleStatus
@@ -42,6 +44,7 @@ import daytrader.domain.applyToChartSetup
 import daytrader.presentation.strategies.TouchTurnExecutedBracketLegs
 import daytrader.presentation.strategies.toLevelKinds
 import daytrader.presentation.Formatters
+import daytrader.presentation.strategies.FiveMinHammerBarDetailUi
 import daytrader.presentation.strategies.LiquidityCalculationUi
 import daytrader.presentation.strategies.CloseConfirmationUi
 import daytrader.presentation.strategies.OpeningBarDetailUi
@@ -865,7 +868,22 @@ fun TouchTurnPipelineSectionFiveMin(
                 testTag = "TouchTurnFiveMinBarsEvaluated"
             )
             state.confirmedHammerBar?.let { hammer ->
-                DataCaptureRow(
+                val hammerDetail = remember(session) {
+                    TouchTurnPipelineDetailUiMapper.fiveMinHammerBarDetail(session)
+                }
+                hammerDetail?.let { detail ->
+                    TouchTurnFiveMinHammerDetailCard(
+                        detail = detail,
+                        hammer = hammer,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    TouchTurnFiveMinHammerChart(
+                        hammer = hammer,
+                        detail = detail,
+                        fifteenMinuteBar = session.candle,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } ?: DataCaptureRow(
                     label = "Hammer close",
                     value = Formatters.price(hammer.close),
                     valueColor = GainGreen,
@@ -1196,6 +1214,89 @@ private fun TouchTurnOpeningBarStatusRow(
             )
             detail.timeUntilCloseLabel?.let { countdown ->
                 Text(countdown, fontSize = 9.sp, color = Color(0xFFFFB74D))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnFiveMinHammerDetailCard(
+    detail: FiveMinHammerBarDetailUi,
+    hammer: OhlcBar,
+    modifier: Modifier = Modifier
+) {
+    val bodyColor = when {
+        detail.bodyChange > 0 -> GainGreen
+        detail.bodyChange < 0 -> LossRed
+        else -> TextSecondary
+    }
+
+    Column(
+        modifier = modifier.testTag("TouchTurnFiveMinHammerDetailCard"),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(DarkBackground, RoundedCornerShape(8.dp))
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FirstCandleStick(
+                    candle = hammer,
+                    color = detail.candleColor,
+                    modifier = Modifier
+                        .testTag("TouchTurnFiveMinHammerStick")
+                        .size(width = 44.dp, height = 80.dp)
+                )
+                Text(
+                    TouchTurnLogic.candleColorLabel(detail.candleColor),
+                    fontSize = 9.sp,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    modifier = Modifier.width(72.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "5-minute hammer bar (OHLC)",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary
+                )
+                OpeningBarPriceRow(label = "Open", value = detail.fmt(detail.open))
+                OpeningBarPriceRow(label = "High", value = detail.fmt(detail.high), valueColor = GainGreen)
+                OpeningBarPriceRow(label = "Low", value = detail.fmt(detail.low), valueColor = LossRed)
+                OpeningBarPriceRow(
+                    label = "Close (entry)",
+                    value = detail.fmt(detail.close),
+                    emphasize = true,
+                    valueColor = GainGreen
+                )
+                HorizontalDivider(color = TableHeaderBg)
+                OpeningBarPriceRow(
+                    label = "Range (H − L)",
+                    value = detail.fmt(detail.range),
+                    emphasize = true
+                )
+                OpeningBarPriceRow(
+                    label = "Body (C − O)",
+                    value = Formatters.money(detail.bodyChange, detail.currency, showSign = true),
+                    valueColor = bodyColor
+                )
+                OpeningBarPriceRow(
+                    label = "15m sweep",
+                    value = detail.fmt(detail.sweepPrice),
+                    valueColor = BrandRed
+                )
             }
         }
     }

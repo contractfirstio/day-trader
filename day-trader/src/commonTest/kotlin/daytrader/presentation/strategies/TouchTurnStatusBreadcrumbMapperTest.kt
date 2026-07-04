@@ -284,6 +284,8 @@ class TouchTurnStatusBreadcrumbMapperTest {
         )
         assertTrue(TouchTurnPipelineNodeId.FiveMinConfirmation in graph.activePath)
         assertTrue(graph.caption.contains("Awaiting 5m hammer"))
+        assertEquals(7, graph.nodes.size)
+        assertTrue(graph.nodes.any { it.id == TouchTurnPipelineNodeId.FiveMinConfirmation })
     }
 
     @Test
@@ -343,6 +345,19 @@ class TouchTurnStatusBreadcrumbMapperTest {
         assertEquals(TouchTurnBreadcrumbStepState.CURRENT, steps[2].state)
         assertEquals(TouchTurnBreadcrumbStepState.SKIPPED, steps[3].state)
         assertEquals(TouchTurnBreadcrumbStepState.UPCOMING, steps[4].state)
+
+        val graph = TouchTurnStatusBreadcrumbMapper.graph(
+            instance = instance,
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            nowEpochMillis = now
+        )
+        assertEquals(6, graph.nodes.size)
+        assertTrue(graph.nodes.none { it.id == TouchTurnPipelineNodeId.FiveMinConfirmation })
+        assertTrue(graph.edges.none {
+            it.from == TouchTurnPipelineNodeId.FiveMinConfirmation ||
+                it.to == TouchTurnPipelineNodeId.FiveMinConfirmation
+        })
     }
 
     @Test

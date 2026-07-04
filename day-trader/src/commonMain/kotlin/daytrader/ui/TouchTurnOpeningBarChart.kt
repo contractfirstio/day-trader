@@ -170,7 +170,7 @@ fun TouchTurnOpeningBarChart(
                 )
             )
 
-            drawOpeningBarCandle(
+            drawTouchTurnCandle(
                 bar = candle,
                 centerX = candleCenterX,
                 bodyWidth = bodyWidth,
@@ -288,11 +288,22 @@ private fun buildLivePriceSeries(history: List<Double>, currentPrice: Double?): 
     }
 }
 
-private data class OpeningBarPriceRange(val min: Double, val max: Double) {
+internal data class TouchTurnCandlePriceRange(val min: Double, val max: Double) {
     val span: Double get() = (max - min).coerceAtLeast(0.0001)
 }
 
-private fun openingBarChartPriceRange(candle: OhlcBar, livePrices: List<Double>): OpeningBarPriceRange {
+internal fun touchTurnCandlePriceRange(
+    prices: List<Double>,
+    fallbackMin: Double,
+    fallbackMax: Double
+): TouchTurnCandlePriceRange {
+    val rawMin = prices.minOrNull() ?: fallbackMin
+    val rawMax = prices.maxOrNull() ?: fallbackMax
+    val pad = max((rawMax - rawMin) * 0.12, rawMax * 0.0005)
+    return TouchTurnCandlePriceRange(min = rawMin - pad, max = rawMax + pad)
+}
+
+private fun openingBarChartPriceRange(candle: OhlcBar, livePrices: List<Double>): TouchTurnCandlePriceRange {
     val prices = buildList {
         add(candle.high)
         add(candle.low)
@@ -300,13 +311,10 @@ private fun openingBarChartPriceRange(candle: OhlcBar, livePrices: List<Double>)
         add(candle.close)
         addAll(LiveChartPrices.sanitize(livePrices))
     }
-    val rawMin = prices.minOrNull() ?: candle.low
-    val rawMax = prices.maxOrNull() ?: candle.high
-    val pad = max((rawMax - rawMin) * 0.12, rawMax * 0.0005)
-    return OpeningBarPriceRange(min = rawMin - pad, max = rawMax + pad)
+    return touchTurnCandlePriceRange(prices, candle.low, candle.high)
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawOpeningBarCandle(
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTouchTurnCandle(
     bar: OhlcBar,
     centerX: Float,
     bodyWidth: Float,

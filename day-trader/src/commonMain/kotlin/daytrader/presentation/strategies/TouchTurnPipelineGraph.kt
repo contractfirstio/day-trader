@@ -85,17 +85,33 @@ fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
 }
 
 object TouchTurnPipelineLayout {
-    fun position(id: TouchTurnPipelineNodeId): Pair<Float, Float> = when (id) {
-        TouchTurnPipelineNodeId.Readiness -> 0.05f to 0.45f
-        TouchTurnPipelineNodeId.Data -> 0.19f to 0.45f
-        TouchTurnPipelineNodeId.Rules -> 0.33f to 0.45f
-        TouchTurnPipelineNodeId.FiveMinConfirmation -> 0.47f to 0.45f
-        TouchTurnPipelineNodeId.Orders -> 0.61f to 0.45f
-        TouchTurnPipelineNodeId.Position -> 0.75f to 0.45f
-        TouchTurnPipelineNodeId.Close -> 0.89f to 0.45f
+    private const val Y = 0.45f
+
+    private val xWithFiveMin = mapOf(
+        TouchTurnPipelineNodeId.Readiness to 0.05f,
+        TouchTurnPipelineNodeId.Data to 0.19f,
+        TouchTurnPipelineNodeId.Rules to 0.33f,
+        TouchTurnPipelineNodeId.FiveMinConfirmation to 0.47f,
+        TouchTurnPipelineNodeId.Orders to 0.61f,
+        TouchTurnPipelineNodeId.Position to 0.75f,
+        TouchTurnPipelineNodeId.Close to 0.89f
+    )
+
+    private val xWithoutFiveMin = mapOf(
+        TouchTurnPipelineNodeId.Readiness to 0.05f,
+        TouchTurnPipelineNodeId.Data to 0.22f,
+        TouchTurnPipelineNodeId.Rules to 0.39f,
+        TouchTurnPipelineNodeId.Orders to 0.56f,
+        TouchTurnPipelineNodeId.Position to 0.73f,
+        TouchTurnPipelineNodeId.Close to 0.89f
+    )
+
+    fun position(id: TouchTurnPipelineNodeId, includeFiveMin: Boolean = true): Pair<Float, Float> {
+        val xMap = if (includeFiveMin) xWithFiveMin else xWithoutFiveMin
+        return (xMap[id] ?: error("No layout for $id when includeFiveMin=$includeFiveMin")) to Y
     }
 
-    val edgeDefinitions: List<Triple<TouchTurnPipelineNodeId, TouchTurnPipelineNodeId, String?>> = listOf(
+    private val allEdgeDefinitions: List<Triple<TouchTurnPipelineNodeId, TouchTurnPipelineNodeId, String?>> = listOf(
         Triple(TouchTurnPipelineNodeId.Readiness, TouchTurnPipelineNodeId.Data, null),
         Triple(TouchTurnPipelineNodeId.Data, TouchTurnPipelineNodeId.Rules, null),
         Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.FiveMinConfirmation, "sweep"),
@@ -107,4 +123,14 @@ object TouchTurnPipelineLayout {
         Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Close, "skip"),
         Triple(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close, null)
     )
+
+    fun edgeDefinitions(includeFiveMin: Boolean): List<Triple<TouchTurnPipelineNodeId, TouchTurnPipelineNodeId, String?>> =
+        if (includeFiveMin) {
+            allEdgeDefinitions
+        } else {
+            allEdgeDefinitions.filter { (from, to, _) ->
+                from != TouchTurnPipelineNodeId.FiveMinConfirmation &&
+                    to != TouchTurnPipelineNodeId.FiveMinConfirmation
+            }
+        }
 }
