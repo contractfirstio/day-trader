@@ -71,6 +71,7 @@ class BrokerEmulatorBracketTest {
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
                 touchTurnEntryFillImmediately = true,
+                bracketExitMinWalkTicks = 0,
                 bracketWalkStepPctOfRange = 0.2,
                 bracketWalkDirectionFlipChance = 0.0
             ),
@@ -127,6 +128,7 @@ class BrokerEmulatorBracketTest {
                     connectDelayMs = 1,
                     simulateOrderProgress = false,
                     touchTurnEntryFillImmediately = true,
+                    bracketExitMinWalkTicks = 0,
                     bracketWalkStepPctOfRange = 0.18,
                     bracketWalkDirectionFlipChance = 0.2,
                     bracketExitSpreadWidenFactor = 1.35,
@@ -171,5 +173,52 @@ class BrokerEmulatorBracketTest {
             stopLossExits in 12..28,
             "expected ~50% SL exits over 40 runs, got TP=$takeProfitExits SL=$stopLossExits"
         )
+    }
+
+    @Test
+    fun bracketWalk_minWalkTicks_delaysInstantlyMarketableInvertTpExit() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
+                bracketExitMinWalkTicks = 3,
+                bracketWalkStepPctOfRange = 0.15,
+                bracketWalkDirectionFlipChance = 0.0,
+                bracketWalkSteerTowardTargetProbability = 1.0,
+                bracketExitTakeProfitProbability = 1.0,
+                bracketExitSpreadWidenFactor = 1.35
+            ),
+            emit = { events.add(it) },
+            random = Random(3)
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+        engine.ensureStreamingMarketData("700")
+
+        // Invert long fade: TP below entry — sell limit would fill immediately without min ticks.
+        val setup = TouchTurnBracketSetup(
+            range = 3.85,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 384.08,
+            stopLoss = 385.24,
+            takeProfit = 381.76
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("700", setup, maxDollars = 5000, currencyCode = "HKD")!!
+        engine.placeTouchTurnBracket(plan)
+
+        repeat(2) { engine.runMarketTick() }
+        val stillOpenAfterTwoTicks = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().lastOrNull()?.positions
+            ?.any { it.symbol == "700" && it.quantity != 0 } == true
+        assertTrue(stillOpenAfterTwoTicks, "invert TP should stay open for first 2 walk ticks")
+
+        repeat(4) { engine.runMarketTick() }
+        val closed = events.filterIsInstance<GatewayEvent.PositionsSnapshot>().lastOrNull()?.positions
+            ?.none { it.symbol == "700" && it.quantity != 0 } != false
+        assertTrue(closed, "position should close after min walk ticks elapse")
     }
 }

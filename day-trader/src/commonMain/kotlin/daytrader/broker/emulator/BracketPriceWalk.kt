@@ -17,8 +17,14 @@ internal class BracketPriceWalk(
     val targetExit: BracketExitTarget,
     /** Long exits fill on bid; short exits fill on ask. */
     val isLongPosition: Boolean,
-    var direction: Int
+    var direction: Int,
+    /** Bracket walk ticks since entry fill; used with [BrokerEmulatorConfig.bracketExitMinWalkTicks]. */
+    var ticksElapsed: Int = 0
 )
+
+/** Bracket walk begins at entry; [BrokerEmulatorConfig.bracketExitMinWalkTicks] blocks early fills. */
+internal fun bracketWalkStartPrice(walk: BracketPriceWalk, entryPrice: Double): Double =
+    entryPrice.coerceIn(walk.floor, walk.ceiling)
 
 internal enum class BracketExitTarget {
     TAKE_PROFIT,

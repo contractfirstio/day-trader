@@ -326,6 +326,7 @@ class EmulatorBrokerAdapter(
                     withEngine { engine.placeTouchTurnBracket(message.plan) }
                 }.fold(
                     onSuccess = {
+                        pendingMarketTick.set(true)
                         EmulatorLog.bracketPlaceFinished(
                             symbol = symbol,
                             durationMs = durationMs(),

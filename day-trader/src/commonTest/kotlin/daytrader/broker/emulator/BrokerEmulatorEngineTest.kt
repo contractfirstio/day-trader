@@ -332,6 +332,33 @@ class BrokerEmulatorEngineTest {
     }
 
     @Test
+    fun resetSessionState_preservesFirstCandleColorAlternation() = runBlocking {
+        val config = BrokerEmulatorConfig(
+            historicalDelayMs = 1,
+            firstCandleSecondsUntilClose = 10,
+            firstCandleColorMode = EmulatorFirstCandleColorMode.AUTO,
+            alternateFirstCandleColor = true
+        )
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(config = config, emit = { events.add(it) })
+        engine.handleConnect()
+        engine.finishConnect()
+
+        suspend fun bootstrapColor(requestId: Long): FirstCandleColor {
+            engine.fetchTouchTurnSignalContext(requestId, "0700", isClosedBarRefetch = false)
+            val bar = events.filterIsInstance<GatewayEvent.TouchTurnSignalContextReady>().last()
+                .result.getOrThrow().firstCandle
+            return TouchTurnLogic.firstCandleColor(bar)
+        }
+
+        assertEquals(FirstCandleColor.GREEN, bootstrapColor(1L))
+        engine.resetSessionState()
+        assertEquals(FirstCandleColor.RED, bootstrapColor(2L))
+        engine.resetSessionState()
+        assertEquals(FirstCandleColor.GREEN, bootstrapColor(3L))
+    }
+
+    @Test
     fun touchTurnSignalContext_refetchRetries_reuseBootstrapColor() = runBlocking {
         val config = BrokerEmulatorConfig(
             historicalDelayMs = 1,

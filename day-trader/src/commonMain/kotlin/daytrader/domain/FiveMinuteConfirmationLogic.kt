@@ -140,13 +140,28 @@ object FiveMinuteConfirmationLogic {
         marketEntry: Double,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnBracketSetup {
-        val takeProfit = fifteenMinuteSetup.takeProfit
-        val tpDistance = when (fifteenMinuteSetup.side) {
+        val side = fifteenMinuteSetup.side
+        val fifteenTp = fifteenMinuteSetup.takeProfit
+        val rawTpDistance = when (side) {
+            TouchTurnTradeSide.LONG -> fifteenTp - marketEntry
+            TouchTurnTradeSide.SHORT -> marketEntry - fifteenTp
+        }
+        // Hammer MKT entry can cross the fixed 15m fib TP; re-anchor on the profitable side
+        // while preserving distance magnitude to the 15m level.
+        val takeProfit = if (rawTpDistance > 0.0) {
+            fifteenTp
+        } else {
+            when (side) {
+                TouchTurnTradeSide.LONG -> marketEntry + abs(fifteenTp - marketEntry)
+                TouchTurnTradeSide.SHORT -> marketEntry - abs(marketEntry - fifteenTp)
+            }
+        }
+        val tpDistance = when (side) {
             TouchTurnTradeSide.LONG -> takeProfit - marketEntry
             TouchTurnTradeSide.SHORT -> marketEntry - takeProfit
         }
         val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
-        val stopLoss = when (fifteenMinuteSetup.side) {
+        val stopLoss = when (side) {
             TouchTurnTradeSide.LONG -> marketEntry - stopDistance
             TouchTurnTradeSide.SHORT -> marketEntry + stopDistance
         }
@@ -169,12 +184,15 @@ object FiveMinuteConfirmationLogic {
         hammerBar: OhlcBar,
         quantity: Int,
         minGrossProfit: Double
-    ): Boolean = TouchTurnGrossProfitGate.passes(
-        setup = fifteenMinuteSetup,
-        entryPrice = hammerBar.close,
-        quantity = quantity,
-        minGrossProfit = minGrossProfit
-    )
+    ): Boolean {
+        val confirmationSetup = buildConfirmationSetup(fifteenMinuteSetup, hammerBar.close)
+        return TouchTurnGrossProfitGate.passes(
+            setup = confirmationSetup,
+            entryPrice = confirmationSetup.entry,
+            quantity = quantity,
+            minGrossProfit = minGrossProfit
+        )
+    }
 
     /** @deprecated Use [TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE] */
     const val INSUFFICIENT_GROSS_PROFIT_MESSAGE = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE

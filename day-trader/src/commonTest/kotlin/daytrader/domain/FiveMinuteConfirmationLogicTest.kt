@@ -85,6 +85,36 @@ class FiveMinuteConfirmationLogicTest {
     }
 
     @Test
+    fun buildConfirmationSetup_reAnchorsTakeProfitWhenHammerCrossesFifteenMinuteTp_greenShort() {
+        val openingBar = OhlcBar(
+            open = 380.33504,
+            high = 383.77664,
+            low = 379.922048,
+            close = 380.74803199999997
+        )
+        val fifteenMinuteSetup = TouchTurnLogic.computeBracketSetup(
+            bar = openingBar,
+            liquidityThresholds = TouchTurnLiquidityThresholds(thresholdDailyAtr = 0.0)
+        )
+        assertEquals(TouchTurnTradeSide.SHORT, fifteenMinuteSetup.side)
+        assertTrue(fifteenMinuteSetup.takeProfit > fifteenMinuteSetup.entry - openingBar.range)
+
+        val hammerEntry = 380.83822945279996
+        assertTrue(hammerEntry < fifteenMinuteSetup.takeProfit)
+
+        val setup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
+            fifteenMinuteSetup,
+            marketEntry = hammerEntry
+        )
+        assertEquals(hammerEntry, setup.entry)
+        assertTrue(setup.takeProfit < setup.entry, "SHORT TP must be below MKT entry")
+        assertTrue(setup.stopLoss > setup.entry, "SHORT SL must be above MKT entry")
+        val reward = setup.entry - setup.takeProfit
+        val risk = setup.stopLoss - setup.entry
+        assertEquals(reward / risk, 2.0, absoluteTolerance = 1e-9)
+    }
+
+    @Test
     fun applyMarketEntryToFifteenMinuteSetup_delegatesToBuildConfirmationSetup() {
         val hammer = OhlcBar(open = 101.0, high = 101.3, low = 100.0, close = 101.2)
         val setup = FiveMinuteConfirmationLogic.applyMarketEntryToFifteenMinuteSetup(
@@ -98,11 +128,12 @@ class FiveMinuteConfirmationLogicTest {
     }
 
     @Test
-    fun projectedGrossProfit_usesAbsoluteDistanceToFifteenMinuteTakeProfit() {
+    fun projectedGrossProfit_usesSignedDistanceToFifteenMinuteTakeProfit() {
         val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
             takeProfitPrice = 103.0,
             entryPrice = 101.0,
-            quantity = 10
+            quantity = 10,
+            side = TouchTurnTradeSide.LONG
         )
         assertEquals(20.0, projected)
     }

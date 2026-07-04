@@ -41,6 +41,12 @@ data class BrokerEmulatorConfig(
     val bracketExitTakeProfitProbability: Double = 0.67,
     /** How often each tick steps toward the pre-selected [BracketExitTarget] (vs oscillating away). */
     val bracketWalkSteerTowardTargetProbability: Double = 0.88,
+    /**
+     * Minimum synthetic market ticks after entry before bracket TP/SL orders may fill.
+     * Prevents instant exits when invert-bracket geometry already satisfies the exit limit.
+     * `-1` = auto (20 ticks synthetic emulator, 25 with [EmulatorTouchTurnScenario]); `0` = off.
+     */
+    val bracketExitMinWalkTicks: Int = -1,
     val historicalDelayMs: Long = 120L,
     val simulateOrderProgress: Boolean = true,
     val orderProgressIntervalMs: Long = 8_000L,
@@ -94,7 +100,12 @@ data class BrokerEmulatorConfig(
      */
     val fiveMinuteBarSecondsUntilClose: Long? = 3L,
     /** Zero-based index (0..2) of the 5m bar slot that prints a valid hammer. */
-    val fiveMinuteHammerBarIndex: Int = 1
+    val fiveMinuteHammerBarIndex: Int = 1,
+    /**
+     * When set, uses fixed 15m/5m bars and fast pipeline timing for manual E2E testing.
+     * See [EmulatorTouchTurnScenario]. Env: `DAY_TRADER_EMULATOR_TOUCH_TURN_SCENARIO`.
+     */
+    val touchTurnScenario: EmulatorTouchTurnScenario? = null
 ) {
     /** @see pricingSource */
     val useLiveIbMarketData: Boolean
@@ -104,13 +115,16 @@ data class BrokerEmulatorConfig(
 
         fun fromEnvironment(): BrokerEmulatorConfig {
             val seconds = parseFirstCandleSecondsUntilClose(emulatorFirstCandleCloseSecEnv())
-            return Default.copy(
+            val scenario = EmulatorTouchTurnScenario.parse(emulatorTouchTurnScenarioEnv())
+            val base = Default.copy(
                 firstCandleSecondsUntilClose = seconds,
                 firstCandleColorMode = EmulatorFirstCandleColorMode.parse(emulatorFirstCandleColorEnv()),
                 alternateFirstCandleColor = parseFirstCandleAlternate(emulatorFirstCandleAlternateEnv()),
                 touchTurnEntryFillImmediately = parseEntryFillImmediately(emulatorEntryFillImmediatelyEnv()),
-                touchTurnEntryNeverFillProbability = parseEntryNeverFillProbability(emulatorEntryNeverFillProbEnv())
+                touchTurnEntryNeverFillProbability = parseEntryNeverFillProbability(emulatorEntryNeverFillProbEnv()),
+                touchTurnScenario = scenario
             )
+            return base.withTouchTurnScenarioDefaults()
         }
 
         fun forLiveIbMarketData(): BrokerEmulatorConfig =
@@ -180,3 +194,9 @@ expect fun emulatorEntryFillImmediatelyEnv(): String?
 
 /** `0`–`1` chance entry is never touched (default 0.25). */
 expect fun emulatorEntryNeverFillProbEnv(): String?
+
+/**
+ * Static Touch Turn scenario: `green_short_tp`, `green_short_sl`, `red_long_tp`, `red_long_sl`,
+ * `green_short`, `red_long`, or `off` / unset for dynamic bars.
+ */
+expect fun emulatorTouchTurnScenarioEnv(): String?

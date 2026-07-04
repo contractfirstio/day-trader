@@ -165,7 +165,10 @@ class BrokerEmulatorEngine(
         externalFeedReadyLogged.clear()
         pendingBracketWalks.clear()
         bracketEntryPending.clear()
+        firstCandleFetchCount = 0
         lockedCandleFetchIndexBySymbol.clear()
+        openingFifteenMinuteBarBySymbol.clear()
+        touchTurnTradeSideBySymbol.clear()
         touchTurnSymbolByZone.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
@@ -210,8 +213,8 @@ class BrokerEmulatorEngine(
         sessionFills.clear()
         quoteBook.clear()
         streamSubscriptionRefCount.clear()
-        firstCandleFetchCount = 0
-        lockedCandleFetchIndexBySymbol.clear()
+        // Preserve [firstCandleFetchCount] / [lockedCandleFetchIndexBySymbol] so green/red alternates
+        // across Touch Turn sessions ([TouchTurnEngine.clearBrokerSnapshotsIfIdle] calls this).
         openingFifteenMinuteBarBySymbol.clear()
         touchTurnTradeSideBySymbol.clear()
         touchTurnSymbolByZone.clear()
@@ -244,6 +247,7 @@ class BrokerEmulatorEngine(
         bracketPriceWalks.remove(norm)
         pendingBracketWalks.remove(norm)
         bracketEntryPending.remove(norm)
+        // Drop per-session lock so the next bootstrap increments the shared alternation counter.
         lockedCandleFetchIndexBySymbol.remove(norm)
         touchTurnSymbolByZone.entries.removeIf { (_, sym) -> SymbolMarkets.symbolsMatch(norm, sym) }
         dynamicInstruments.remove(norm)
@@ -463,7 +467,8 @@ class BrokerEmulatorEngine(
                         isGreen = TouchTurnLogic.firstCandleColor(context.firstCandle) == FirstCandleColor.GREEN,
                         fetchIndex = fetchIndex,
                         colorMode = config.firstCandleColorMode,
-                        isClosedBarRefetch = isClosedBarRefetch
+                        isClosedBarRefetch = isClosedBarRefetch,
+                        touchTurnScenario = config.touchTurnScenario
                     )
                 }
             }
@@ -529,6 +534,7 @@ class BrokerEmulatorEngine(
         }
 
     private fun resolveFirstCandleIsGreenForSymbol(symbol: String): Boolean? {
+        config.touchTurnScenario?.let { return it.isGreenOpeningBar }
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val instrument = resolveInstrument(norm) ?: return null
         val sessionDay = TouchTurnLogic.sessionDayYyyyMmDd(instrument.marketZoneId, System.currentTimeMillis())
@@ -696,8 +702,15 @@ class BrokerEmulatorEngine(
 
         if (config.pricingSource.isSynthetic) {
             val legPrices = adjustedPlan.orders.map { it.price }
-            val floor = legPrices.min()
-            val ceiling = legPrices.max()
+            var floor = legPrices.min()
+            var ceiling = legPrices.max()
+            val (expandedFloor, expandedCeiling) = expandWalkBoundsForObservation(
+                entryPrice = entryPrice,
+                floor = floor,
+                ceiling = ceiling
+            )
+            floor = expandedFloor
+            ceiling = expandedCeiling
             val range = (ceiling - floor).coerceAtLeast(0.01)
             val takeProfit = EmulatorBracketPlanAdjuster.takeProfitPrice(adjustedPlan) ?: ceiling
             val stopLoss = EmulatorBracketPlanAdjuster.stopLossPrice(adjustedPlan) ?: floor
@@ -971,7 +984,10 @@ class BrokerEmulatorEngine(
 
     suspend fun runMarketTick() {
         if (!shouldRunMarketTicks()) return
-        evaluateOrderFillsOnTick()
+        val observationWalk = effectiveBracketExitMinWalkTicks() > 0
+        if (!observationWalk) {
+            evaluateOrderFillsOnTick()
+        }
         if (config.pricingSource.isSynthetic) {
             tickSymbolsForMarketData().forEach { symbol ->
                 val pending = bracketEntryPending[symbol]
@@ -987,6 +1003,7 @@ class BrokerEmulatorEngine(
                             walk,
                             advanceBracketPriceWalk(symbol, walk)
                         )
+                        walk.ticksElapsed++
                     }
                     else -> {
                         bracketPriceWalks.remove(symbol)
@@ -996,9 +1013,9 @@ class BrokerEmulatorEngine(
                     }
                 }
             }
-            evaluateOrderFillsOnTick()
             clearFilledEntryPending()
         }
+        evaluateOrderFillsOnTick()
         refreshPositionMarks()
         publishPositions()
         publishOrders()
@@ -1132,7 +1149,9 @@ class BrokerEmulatorEngine(
     }
 
     private fun pickBracketExitTarget(): BracketExitTarget =
-        if (random.nextDouble() < config.bracketExitTakeProfitProbability) {
+        config.touchTurnScenario?.forcedTakeProfitExit?.let { takeProfit ->
+            if (takeProfit) BracketExitTarget.TAKE_PROFIT else BracketExitTarget.STOP_LOSS
+        } ?: if (random.nextDouble() < config.bracketExitTakeProfitProbability) {
             BracketExitTarget.TAKE_PROFIT
         } else {
             BracketExitTarget.STOP_LOSS
@@ -1270,8 +1289,44 @@ class BrokerEmulatorEngine(
         return parent.status == "Filled"
     }
 
+    private fun bracketExitFillsAllowed(symbol: String): Boolean {
+        val minTicks = effectiveBracketExitMinWalkTicks()
+        if (minTicks <= 0) return true
+        val walk = bracketPriceWalks[SymbolMarkets.normalizeSymbol(symbol)] ?: return false
+        return walk.ticksElapsed >= minTicks
+    }
+
+    /** Synthetic Touch Turn brackets always wait for observable walk ticks unless explicitly overridden. */
+    private fun effectiveBracketExitMinWalkTicks(): Int =
+        when {
+            config.bracketExitMinWalkTicks > 0 -> config.bracketExitMinWalkTicks
+            config.bracketExitMinWalkTicks == 0 -> 0
+            config.touchTurnScenario != null -> 25
+            config.pricingSource.isSynthetic -> 20
+            else -> 0
+        }
+
+    /**
+     * Widens bracket walk bounds so price can traverse a visible band on the chart.
+     * Order fill levels stay at strategy prices; only the synthetic quote path expands.
+     */
+    private fun expandWalkBoundsForObservation(
+        entryPrice: Double,
+        floor: Double,
+        ceiling: Double
+    ): Pair<Double, Double> {
+        if (config.touchTurnScenario == null) return floor to ceiling
+        val legSpan = ceiling - floor
+        val minSpan = entryPrice * EmulatorStaticTouchTurnBars.SCENARIO_OPENING_RANGE_PCT * 0.45
+        if (legSpan >= minSpan) return floor to ceiling
+        val mid = entryPrice.coerceIn(floor, ceiling)
+        val half = minSpan / 2.0
+        return (mid - half) to (mid + half)
+    }
+
     private fun maybeFillLimitOrder(order: EmulatorOrder) {
         if (!quoteBook.canTriggerFills(order.symbol)) return
+        if (order.parentId != 0 && !bracketExitFillsAllowed(order.symbol)) return
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return
         val limit = order.limitPrice ?: return
         val shouldFill = when (order.action.uppercase()) {
@@ -1286,6 +1341,7 @@ class BrokerEmulatorEngine(
 
     private fun maybeFillStopOrder(order: EmulatorOrder) {
         if (!quoteBook.canTriggerFills(order.symbol)) return
+        if (order.parentId != 0 && !bracketExitFillsAllowed(order.symbol)) return
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return
         val stopPx = order.stopPrice ?: return
         val triggered = when (order.action.uppercase()) {
@@ -1429,7 +1485,10 @@ class BrokerEmulatorEngine(
             val norm = SymbolMarkets.normalizeSymbol(current.symbol)
             activateChildOrders(current.orderId)
             pendingBracketWalks.remove(norm)?.let { walk ->
+                walk.ticksElapsed = 0
                 bracketPriceWalks[norm] = walk
+                val startPrice = bracketWalkStartPrice(walk, fillPrice)
+                quoteFor(current.symbol).setAggressivePrice(startPrice, walk.isLongPosition)
                 EmulatorLog.bracketExitWalkStarted(current.symbol, walk.floor, walk.ceiling)
             }
         }

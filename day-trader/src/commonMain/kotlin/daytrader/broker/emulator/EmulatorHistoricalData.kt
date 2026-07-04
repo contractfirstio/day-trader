@@ -31,6 +31,16 @@ internal object EmulatorHistoricalData {
         sessionCandleFetchIndex: Int = 0
     ): Result<OhlcBar> {
         val marketZoneId = instrument.marketZoneId
+        config.touchTurnScenario?.let { scenario ->
+            return Result.success(
+                EmulatorStaticTouchTurnBars.openingFifteenMinuteBar(
+                    instrument = instrument,
+                    scenario = scenario,
+                    marketZoneId = marketZoneId,
+                    nowEpochMillis = nowEpochMillis
+                )
+            )
+        }
         val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
         val profile = symbolProfile(
             symbol = symbol,
@@ -405,9 +415,26 @@ internal object EmulatorHistoricalData {
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis()
     ): List<OhlcBar> {
+        config.touchTurnScenario?.let { scenario ->
+            val scenarioSide = when {
+                scenario.isGreenOpeningBar -> TouchTurnTradeSide.SHORT
+                else -> TouchTurnTradeSide.LONG
+            }
+            return listOf(
+                syntheticHammerBar(
+                    openingFifteenMinuteBar = openingFifteenMinuteBar,
+                    side = scenarioSide,
+                    barOpenEpoch = afterBarOpenEpochMs,
+                    marketZoneId = marketZoneId,
+                    openPrice = openingFifteenMinuteBar.close,
+                    barRangeFractionOfSpan = 0.05
+                )
+            )
+        }
         val barDurationMs = fiveMinuteBarDurationMs(config)
         val bars = mutableListOf<OhlcBar>()
         val slots = (FiveMinuteConfirmationLogic.TTL_MS / barDurationMs).toInt().coerceAtMost(3)
+        var priorClose = openingFifteenMinuteBar.close
         for (index in 0 until slots) {
             val barOpenEpoch = afterBarOpenEpochMs + index * barDurationMs
             val barEndEpoch = barOpenEpoch + barDurationMs
@@ -417,7 +444,8 @@ internal object EmulatorHistoricalData {
                     openingFifteenMinuteBar = openingFifteenMinuteBar,
                     side = side,
                     barOpenEpoch = barOpenEpoch,
-                    marketZoneId = marketZoneId
+                    marketZoneId = marketZoneId,
+                    openPrice = priorClose
                 )
             } else {
                 syntheticNonHammerBar(
@@ -425,9 +453,11 @@ internal object EmulatorHistoricalData {
                     side = side,
                     barOpenEpoch = barOpenEpoch,
                     marketZoneId = marketZoneId,
-                    slotIndex = index
+                    slotIndex = index,
+                    openPrice = priorClose
                 )
             }
+            priorClose = bar.close
             bars += bar
         }
         return bars
@@ -437,21 +467,26 @@ internal object EmulatorHistoricalData {
         config.fiveMinuteBarSecondsUntilClose?.times(1_000L)
             ?: FiveMinuteConfirmationLogic.BAR_DURATION_MS
 
-    private fun syntheticHammerBar(
+    internal fun syntheticHammerBar(
         openingFifteenMinuteBar: OhlcBar,
         side: TouchTurnTradeSide,
         barOpenEpoch: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        openPrice: Double = openingFifteenMinuteBar.close,
+        barRangeFractionOfSpan: Double = 0.08
     ): OhlcBar {
         val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
         val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
-        val range = span * 0.08
+        val barRange = span * barRangeFractionOfSpan
+        val body = barRange * 0.12
+        val rejection = body * 2.5
+        val opposite = body * 0.08
+        val open = openPrice
         return when (side) {
             TouchTurnTradeSide.LONG -> {
-                val close = (openingFifteenMinuteBar.low + span * 0.35).coerceAtMost(openingFifteenMinuteBar.high)
-                val open = close + range * 0.15
-                val low = close - range * 0.85
-                val high = open + range * 0.05
+                val close = (open + body).coerceAtMost(openingFifteenMinuteBar.high)
+                val low = (open - rejection).coerceAtLeast(openingFifteenMinuteBar.low)
+                val high = (close + opposite).coerceAtMost(openingFifteenMinuteBar.high)
                 OhlcBar(
                     open = open,
                     high = high,
@@ -462,10 +497,9 @@ internal object EmulatorHistoricalData {
                 )
             }
             TouchTurnTradeSide.SHORT -> {
-                val close = (openingFifteenMinuteBar.high - span * 0.35).coerceAtLeast(openingFifteenMinuteBar.low)
-                val open = close - range * 0.15
-                val high = close + range * 0.85
-                val low = open - range * 0.05
+                val close = (open - body).coerceAtLeast(openingFifteenMinuteBar.low)
+                val high = (open + rejection).coerceAtMost(openingFifteenMinuteBar.high)
+                val low = (close - opposite).coerceAtLeast(openingFifteenMinuteBar.low)
                 OhlcBar(
                     open = open,
                     high = high,
@@ -483,20 +517,21 @@ internal object EmulatorHistoricalData {
         side: TouchTurnTradeSide,
         barOpenEpoch: Long,
         marketZoneId: String,
-        slotIndex: Int
+        slotIndex: Int,
+        openPrice: Double = openingFifteenMinuteBar.close
     ): OhlcBar {
         val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
         val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
-        val range = span * 0.06
-        val drift = range * 0.2 * (slotIndex + 1)
-        val open = mid - drift
-        val close = mid + drift
-        val high = maxOf(open, close) + range * 0.35
-        val low = minOf(open, close) - range * 0.35
+        val barRange = span * 0.06
+        val open = openPrice
+        val drift = barRange * 0.55 * if (slotIndex % 2 == 0) 1.0 else -1.0
+        val close = (open + drift).coerceIn(openingFifteenMinuteBar.low, openingFifteenMinuteBar.high)
+        val high = maxOf(open, close) + barRange * 0.2
+        val low = minOf(open, close) - barRange * 0.2
         return OhlcBar(
             open = open,
-            high = high,
-            low = low,
+            high = high.coerceAtMost(openingFifteenMinuteBar.high),
+            low = low.coerceAtLeast(openingFifteenMinuteBar.low),
             close = close,
             time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
             volume = mid * 1_500.0

@@ -14,3 +14,6 @@ actual fun emulatorEntryFillImmediatelyEnv(): String? =
 
 actual fun emulatorEntryNeverFillProbEnv(): String? =
     System.getenv("DAY_TRADER_EMULATOR_ENTRY_NEVER_FILL_PROB")
+
+actual fun emulatorTouchTurnScenarioEnv(): String? =
+    System.getenv("DAY_TRADER_EMULATOR_TOUCH_TURN_SCENARIO")

@@ -1565,7 +1565,8 @@ class TouchTurnEngine(
                     val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
                         takeProfitPrice = setup.takeProfit,
                         entryPrice = setup.entry,
-                        quantity = sizing.quantity
+                        quantity = sizing.quantity,
+                        side = setup.side
                     )
                     SessionTrace.grossProfitRejected(
                         deploymentId = instanceId,

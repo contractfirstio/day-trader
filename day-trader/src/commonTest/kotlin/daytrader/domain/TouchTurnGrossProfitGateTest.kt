@@ -18,13 +18,23 @@ class TouchTurnGrossProfitGateTest {
     )
 
     @Test
-    fun projectedGrossProfit_usesAbsoluteDistanceToTakeProfit() {
+    fun projectedGrossProfit_usesSignedDistanceToTakeProfit() {
         assertEquals(
             20.0,
             TouchTurnGrossProfitGate.projectedGrossProfit(
                 takeProfitPrice = 103.0,
                 entryPrice = 101.0,
-                quantity = 10
+                quantity = 10,
+                side = TouchTurnTradeSide.LONG
+            )
+        )
+        assertEquals(
+            0.0,
+            TouchTurnGrossProfitGate.projectedGrossProfit(
+                takeProfitPrice = 103.0,
+                entryPrice = 105.0,
+                quantity = 10,
+                side = TouchTurnTradeSide.LONG
             )
         )
     }

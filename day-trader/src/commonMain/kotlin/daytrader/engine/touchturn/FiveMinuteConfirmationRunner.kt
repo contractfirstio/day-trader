@@ -202,17 +202,23 @@ internal class FiveMinuteConfirmationRunner(
                         minGrossProfit = rules.minGrossProfit
                     )
                 ) {
+                    val confirmationSetup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
+                        fifteenMinuteSetup,
+                        marketEntry,
+                        rules
+                    )
                     val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
-                        takeProfitPrice = fifteenMinuteSetup.takeProfit,
+                        takeProfitPrice = confirmationSetup.takeProfit,
                         entryPrice = marketEntry,
-                        quantity = sizing.quantity
+                        quantity = sizing.quantity,
+                        side = confirmationSetup.side
                     )
                     SessionTrace.grossProfitRejected(
                         deploymentId = instanceId,
                         sessionId = instance.inProgressSession()?.id,
                         symbol = instance.symbol,
                         entryPrice = marketEntry,
-                        takeProfit = fifteenMinuteSetup.takeProfit,
+                        takeProfit = confirmationSetup.takeProfit,
                         quantity = sizing.quantity,
                         projectedGrossProfit = projected,
                         minGrossProfit = rules.minGrossProfit,

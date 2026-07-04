@@ -1,17 +1,24 @@
 package daytrader.domain
 
-import kotlin.math.abs
+import kotlin.math.max
 
 /** Pre-execution check that projected gross profit to take-profit meets [TouchTurnRuleConfig.minGrossProfit]. */
 object TouchTurnGrossProfitGate {
     const val INSUFFICIENT_GROSS_PROFIT_MESSAGE = "Rejected: Insufficient Gross Profit Potential"
 
-    /** Gross profit if take-profit fills at [takeProfitPrice] after entry at [entryPrice]. */
+    /** Gross profit if take-profit fills at [takeProfitPrice] after entry at [entryPrice] for [side]. */
     fun projectedGrossProfit(
         takeProfitPrice: Double,
         entryPrice: Double,
-        quantity: Int
-    ): Double = abs(takeProfitPrice - entryPrice) * quantity
+        quantity: Int,
+        side: TouchTurnTradeSide
+    ): Double {
+        val perShare = when (side) {
+            TouchTurnTradeSide.LONG -> takeProfitPrice - entryPrice
+            TouchTurnTradeSide.SHORT -> entryPrice - takeProfitPrice
+        }
+        return max(0.0, perShare) * quantity
+    }
 
     fun passes(
         setup: TouchTurnBracketSetup,
@@ -23,7 +30,8 @@ object TouchTurnGrossProfitGate {
         return projectedGrossProfit(
             takeProfitPrice = setup.takeProfit,
             entryPrice = entryPrice,
-            quantity = quantity
+            quantity = quantity,
+            side = setup.side
         ) >= minGrossProfit
     }
 }

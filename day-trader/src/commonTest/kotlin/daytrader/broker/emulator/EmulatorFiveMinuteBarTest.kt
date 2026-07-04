@@ -33,6 +33,8 @@ class EmulatorFiveMinuteBarTest {
             nowEpochMillis = System.currentTimeMillis()
         )
         assertTrue(bars.size >= 2, "expected at least two closed 5m bars, got ${bars.size}")
+        assertEquals(opening.close, bars[0].open, "first 5m open should match 15m close")
+        assertEquals(bars[0].close, bars[1].open, "second 5m open should match prior 5m close")
         val hammer = bars[1]
         assertTrue(
             FiveMinuteConfirmationLogic.isHammerPattern(hammer, TouchTurnTradeSide.LONG)

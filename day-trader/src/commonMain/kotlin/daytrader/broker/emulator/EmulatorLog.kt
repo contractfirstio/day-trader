@@ -46,15 +46,17 @@ internal object EmulatorLog {
         isGreen: Boolean,
         fetchIndex: Int,
         colorMode: EmulatorFirstCandleColorMode,
-        isClosedBarRefetch: Boolean = false
+        isClosedBarRefetch: Boolean = false,
+        touchTurnScenario: EmulatorTouchTurnScenario? = null
     ) {
         val side = if (isGreen) "SHORT (green bar)" else "LONG (red bar)"
-        val mode = when (colorMode) {
-            EmulatorFirstCandleColorMode.AUTO ->
-                if (fetchIndex > 0) "auto-alternate#$fetchIndex" else "auto"
-            EmulatorFirstCandleColorMode.GREEN -> "forced-green"
-            EmulatorFirstCandleColorMode.RED -> "forced-red"
-        }
+        val mode = touchTurnScenario?.name?.lowercase()
+            ?: when (colorMode) {
+                EmulatorFirstCandleColorMode.AUTO ->
+                    if (fetchIndex > 0) "auto-alternate#$fetchIndex" else "auto"
+                EmulatorFirstCandleColorMode.GREEN -> "forced-green"
+                EmulatorFirstCandleColorMode.RED -> "forced-red"
+            }
         event(
             type = "first_candle_color",
             symbol = symbol,
@@ -63,6 +65,7 @@ internal object EmulatorLog {
                 put("colorMode", mode)
                 put("fetchIndex", fetchIndex.toString())
                 if (isClosedBarRefetch) put("closedBarRefetch", "true")
+                touchTurnScenario?.forcedTakeProfitExit?.let { put("forcedTakeProfit", it.toString()) }
             }
         )
     }
