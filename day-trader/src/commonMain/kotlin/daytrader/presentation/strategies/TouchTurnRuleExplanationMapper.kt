@@ -36,7 +36,11 @@ object TouchTurnRuleExplanationMapper {
         val setup = session.setup ?: return emptyList()
         val rules = session.rules
         val currency = session.currencyCode
-        return TouchTurnRuleConfig.toggleDefinitions.map { definition ->
+        return TouchTurnRuleConfig.toggleDefinitions
+            .filter { definition ->
+                definition.key != "fiveMinuteConfirmation" || !rules.invertTradeSide
+            }
+            .map { definition ->
             val enabled = TouchTurnRuleConfig.isToggleEnabled(rules, definition.key)
             val check = when (definition.key) {
                 "liquidityRangeDailyAtr" -> liquidityRangeDailyAtrCheck(

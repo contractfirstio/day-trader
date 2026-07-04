@@ -46,6 +46,11 @@ sealed interface GatewayEvent {
         val result: Result<TouchTurnSignalContext>
     ) : GatewayEvent
 
+    data class FiveMinuteBarsReady(
+        val requestId: Long,
+        val result: Result<List<OhlcBar>>
+    ) : GatewayEvent
+
     data class InstrumentResolved(
         val requestId: Long,
         val result: Result<InstrumentResolution>

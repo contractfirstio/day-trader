@@ -88,6 +88,15 @@ interface BrokerGateway {
         )
     }
 
+    /** Closed 5m bars with open at or after [afterBarOpenEpochMs] in [marketZoneId]. */
+    suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity? = null,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> =
+        Result.failure(UnsupportedOperationException("five_minute_bars_not_supported"))
+
     suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution>
 
     fun placeTouchTurnBracket(plan: TouchTurnOrderPlan)

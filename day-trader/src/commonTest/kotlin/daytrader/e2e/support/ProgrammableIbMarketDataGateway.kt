@@ -123,6 +123,13 @@ class ProgrammableIbMarketDataGateway(
     override suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution> =
         Result.success(InstrumentResolution(emptyList()))
 
+    override suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> = Result.success(emptyList())
+
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) =
         error("ProgrammableIbMarketDataGateway is market-data-only")
 

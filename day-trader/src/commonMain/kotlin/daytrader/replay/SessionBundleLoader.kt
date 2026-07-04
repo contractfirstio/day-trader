@@ -43,8 +43,10 @@ object SessionBundleLoader {
         val sessionDate = manifest?.sessionDate ?: started?.details?.get("sessionDate")
         val brokerKind = manifest?.brokerKind ?: started?.brokerKind ?: closed?.brokerKind
 
+        val historicalParsed = parseHistorical(contents.historicalJsonl)
         val timeline = buildTimeline(manifest, applicationLines, started, closed)
-        val historicalEvents = parseHistorical(contents.historicalJsonl)
+        val historicalEvents = historicalParsed.first
+        val fiveMinuteBarEvents = historicalParsed.second
         val quoteEvents = buildQuoteTimeline(
             pricesJsonl = contents.pricesJsonl,
             ibPriceTicksJsonl = contents.ibPriceTicksJsonl,
@@ -61,6 +63,7 @@ object SessionBundleLoader {
             manifest = manifest,
             timeline = timeline,
             historicalEvents = historicalEvents,
+            fiveMinuteBarEvents = fiveMinuteBarEvents,
             quoteEvents = quoteEvents,
             groundTruth = groundTruth
         )
@@ -94,17 +97,35 @@ object SessionBundleLoader {
         )
     }
 
-    private fun parseHistorical(jsonl: String): List<HistoricalEvent> =
-        parseJsonl(jsonl, HistoricalCaptureLine.serializer()).map { line ->
-            HistoricalEvent(
-                epochMs = line.epochMs,
-                symbol = SymbolMarkets.normalizeSymbol(line.symbol),
-                isClosedBarRefetch = line.isClosedBarRefetch,
-                attempt = line.attempt,
-                validation = line.validation,
-                context = line.context
-            )
+    private fun parseHistorical(jsonl: String): Pair<List<HistoricalEvent>, List<FiveMinuteBarEvent>> {
+        val signalEvents = mutableListOf<HistoricalEvent>()
+        val fiveMinEvents = mutableListOf<FiveMinuteBarEvent>()
+        parseJsonl(jsonl, HistoricalCaptureLine.serializer()).forEach { line ->
+            when (line.kind) {
+                "five_minute_bar" -> {
+                    val bar = line.bar ?: return@forEach
+                    fiveMinEvents += FiveMinuteBarEvent(
+                        epochMs = line.epochMs,
+                        symbol = SymbolMarkets.normalizeSymbol(line.symbol),
+                        bar = bar,
+                        sweepPrice = line.sweepPrice
+                    )
+                }
+                else -> {
+                    val context = line.context ?: return@forEach
+                    signalEvents += HistoricalEvent(
+                        epochMs = line.epochMs,
+                        symbol = SymbolMarkets.normalizeSymbol(line.symbol),
+                        isClosedBarRefetch = line.isClosedBarRefetch,
+                        attempt = line.attempt,
+                        validation = line.validation,
+                        context = context
+                    )
+                }
+            }
         }
+        return signalEvents to fiveMinEvents
+    }
 
     private fun buildQuoteTimeline(
         pricesJsonl: String,
@@ -213,7 +234,9 @@ private data class HistoricalCaptureLine(
     val isClosedBarRefetch: Boolean,
     val attempt: Int? = null,
     val validation: String? = null,
-    val context: TouchTurnSignalContext
+    val context: TouchTurnSignalContext? = null,
+    val bar: daytrader.domain.OhlcBar? = null,
+    val sweepPrice: Double? = null
 )
 
 @Serializable

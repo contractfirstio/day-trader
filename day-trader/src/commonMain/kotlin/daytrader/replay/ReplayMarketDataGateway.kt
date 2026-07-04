@@ -142,6 +142,26 @@ class ReplayMarketDataGateway(
     override suspend fun resolveInstrument(symbol: String): Result<InstrumentResolution> =
         Result.success(InstrumentResolution(emptyList()))
 
+    override suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> {
+        val bundle = registry.bundleFor(symbol)
+            ?: return Result.failure(IllegalStateException("No replay capture registered for $symbol"))
+        val bars = bundle.fiveMinuteBarEvents
+            .filter { it.symbol == SymbolMarkets.normalizeSymbol(symbol) }
+            .map { it.bar }
+            .filter { bar ->
+                val time = bar.time ?: return@filter false
+                val open = daytrader.domain.TouchTurnLogic.barStartEpochMillis(time, marketZoneId)
+                    ?: return@filter false
+                open >= afterBarOpenEpochMs
+            }
+        return Result.success(bars)
+    }
+
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) =
         error("ReplayMarketDataGateway is market-data-only")
 

@@ -87,7 +87,14 @@ data class BrokerEmulatorConfig(
      * When true, each captured replay quote is ingested synchronously for fill evaluation instead
      * of coalescing to the latest tick every 50ms (see [EmulatorBrokerAdapter]).
      */
-    val flushEachExternalQuote: Boolean = false
+    val flushEachExternalQuote: Boolean = false,
+    /**
+     * Wall-clock seconds per synthetic 5m bar after a liquidity sweep (emulator testing).
+     * Null uses real 5-minute domain duration.
+     */
+    val fiveMinuteBarSecondsUntilClose: Long? = 3L,
+    /** Zero-based index (0..2) of the 5m bar slot that prints a valid hammer. */
+    val fiveMinuteHammerBarIndex: Int = 1
 ) {
     /** @see pricingSource */
     val useLiveIbMarketData: Boolean

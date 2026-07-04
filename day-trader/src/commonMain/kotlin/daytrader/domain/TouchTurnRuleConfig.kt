@@ -11,7 +11,9 @@ data class TouchTurnRuleEnables(
     /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
     val openDeadline: Boolean = false,
     /** After a favorable move, convert the bracket stop to an IB adjustable trailing stop. */
-    val adjustableTrailingStop: Boolean = true
+    val adjustableTrailingStop: Boolean = true,
+    /** Wait for a 5m hammer after the 15m liquidity sweep before market entry (Touch Turn only). */
+    val fiveMinuteConfirmation: Boolean = false
 ) {
     companion object {
         val DEFAULT: TouchTurnRuleEnables = TouchTurnRuleEnables()
@@ -35,6 +37,7 @@ enum class TouchTurnRuleCategory(
     BRACKET("Bracket sizing", null, fieldsAlwaysVisible = true),
     SESSION_DEADLINE("Session deadline", "openDeadline"),
     TRAILING_STOP("Trailing stop", "adjustableTrailingStop"),
+    CONFIRMATION("5-minute confirmation", "fiveMinuteConfirmation"),
     TRADE_MODE("Trade mode", "invertTradeSide"),
 }
 
@@ -106,6 +109,14 @@ data class TouchTurnRuleConfig(
                     "(by the configured entry-to-stop fraction) and ratchet it up (long) or down (short) as price " +
                     "continues in your favor.",
                 category = TouchTurnRuleCategory.TRAILING_STOP
+            ),
+            TouchTurnRuleToggleDefinition(
+                key = "fiveMinuteConfirmation",
+                label = "5-minute hammer confirmation",
+                description = "After a 15m liquidity sweep, wait up to three 5m bars for a hammer that closes " +
+                    "inside the sweep range, then enter at market with stop at the hammer extreme and 2:1 take-profit. " +
+                    "Available only in Touch Turn (reversal) mode — hidden when invert trade side is on.",
+                category = TouchTurnRuleCategory.CONFIRMATION
             ),
             TouchTurnRuleToggleDefinition(
                 key = "invertTradeSide",
@@ -280,9 +291,17 @@ data class TouchTurnRuleConfig(
             "liquidityRangeDailyAtr" -> config.enables.liquidityRangeDailyAtr
             "openDeadline" -> config.enables.openDeadline
             "adjustableTrailingStop" -> config.enables.adjustableTrailingStop
+            "fiveMinuteConfirmation" -> config.enables.fiveMinuteConfirmation
             "invertTradeSide" -> config.invertTradeSide
             else -> true
         }
+
+        /** 5m confirmation is a reversal-mode feature; not shown or applied when invert is on. */
+        fun isFiveMinuteConfirmationVisible(config: TouchTurnRuleConfig): Boolean = !config.invertTradeSide
+
+        /** Stored preference AND applicable for the current trade mode. */
+        fun isFiveMinuteConfirmationEffective(config: TouchTurnRuleConfig): Boolean =
+            isFiveMinuteConfirmationVisible(config) && config.enables.fiveMinuteConfirmation
 
         fun withToggleEnabled(config: TouchTurnRuleConfig, key: String, enabled: Boolean): TouchTurnRuleConfig =
             when (key) {
@@ -292,6 +311,7 @@ data class TouchTurnRuleConfig(
                         "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
                         "openDeadline" -> config.enables.copy(openDeadline = enabled)
                         "adjustableTrailingStop" -> config.enables.copy(adjustableTrailingStop = enabled)
+                        "fiveMinuteConfirmation" -> config.enables.copy(fiveMinuteConfirmation = enabled)
                         else -> config.enables
                     }
                     config.copy(enables = enables)

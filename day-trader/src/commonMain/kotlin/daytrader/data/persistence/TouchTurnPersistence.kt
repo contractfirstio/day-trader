@@ -91,6 +91,7 @@ internal object TouchTurnPersistence {
             barClosedAt = barClosedAt,
             liquidityEvaluatedAt = liquidityEvaluatedAt,
             closeConfirmedAt = closeConfirmedAt,
+            fiveMinConfirmedAt = fiveMinConfirmedAt,
             ordersPlacedAt = ordersPlacedAt,
             positionOpenedAt = positionOpenedAt,
             closingSessionAt = closingSessionAt
@@ -104,6 +105,7 @@ internal object TouchTurnPersistence {
             barClosedAt = barClosedAt,
             liquidityEvaluatedAt = liquidityEvaluatedAt,
             closeConfirmedAt = closeConfirmedAt,
+            fiveMinConfirmedAt = fiveMinConfirmedAt,
             ordersPlacedAt = ordersPlacedAt,
             positionOpenedAt = positionOpenedAt,
             closingSessionAt = closingSessionAt

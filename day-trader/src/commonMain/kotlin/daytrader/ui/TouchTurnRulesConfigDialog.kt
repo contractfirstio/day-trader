@@ -98,7 +98,9 @@ fun TouchTurnRulesConfigDialog(
                     lineHeight = 16.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
+                val invertSelected = toggleValues["invertTradeSide"] == true
                 val allRulesEnabled = TouchTurnRuleConfig.toggleDefinitions.all { toggle ->
+                    if (toggle.key == "fiveMinuteConfirmation" && invertSelected) return@all true
                     toggleValues[toggle.key] ?: true
                 }
                 Row(
@@ -109,6 +111,9 @@ fun TouchTurnRulesConfigDialog(
                         onClick = {
                             val enableAll = !allRulesEnabled
                             TouchTurnRuleConfig.toggleDefinitions.forEach { toggle ->
+                                if (toggle.key == "fiveMinuteConfirmation" && toggleValues["invertTradeSide"] == true) {
+                                    return@forEach
+                                }
                                 toggleValues[toggle.key] = enableAll
                             }
                         },
@@ -122,8 +127,10 @@ fun TouchTurnRulesConfigDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                val categories = TouchTurnRuleCategory.entries
-                val columnSplit = (categories.size + 1) / 2
+                val visibleCategories = TouchTurnRuleCategory.entries.filter { category ->
+                    category != TouchTurnRuleCategory.CONFIRMATION || !invertSelected
+                }
+                val columnSplit = (visibleCategories.size + 1) / 2
                 Column(
                     modifier = Modifier
                         .heightIn(max = 480.dp)
@@ -139,7 +146,7 @@ fun TouchTurnRulesConfigDialog(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            categories.take(columnSplit).forEach { category ->
+                            visibleCategories.take(columnSplit).forEach { category ->
                                 TouchTurnRuleCategorySection(
                                     category = category,
                                     toggleValues = toggleValues,
@@ -154,7 +161,7 @@ fun TouchTurnRulesConfigDialog(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            categories.drop(columnSplit).forEach { category ->
+                            visibleCategories.drop(columnSplit).forEach { category ->
                                 TouchTurnRuleCategorySection(
                                     category = category,
                                     toggleValues = toggleValues,
@@ -209,6 +216,11 @@ fun TouchTurnRulesConfigDialog(
                                 saveError = null
                                 var updated = initialRules
                                 for (toggle in TouchTurnRuleConfig.toggleDefinitions) {
+                                    if (toggle.key == "fiveMinuteConfirmation" &&
+                                        (toggleValues["invertTradeSide"] == true)
+                                    ) {
+                                        continue
+                                    }
                                     val checked = toggleValues[toggle.key] ?: true
                                     updated = TouchTurnRuleConfig.withToggleEnabled(updated, toggle.key, checked)
                                 }

@@ -190,6 +190,83 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     return copy(touchTurnSession = updatedSession)
 }
 
+/** Arms sweep-active state and starts the 5m confirmation window after a qualifying 15m sweep. */
+fun StrategyDeployment.withFiveMinuteConfirmationStarted(
+    nowEpochMillis: Long = System.currentTimeMillis()
+): StrategyDeployment {
+    if (!isTouchTurn) return this
+    val session = touchTurnSession ?: return this
+    val candle = session.candle ?: return this
+    val setup = session.setup ?: return this
+    if (session.entryOrdersPermitted != true) return this
+    val state = FiveMinuteConfirmationLogic.initialState(candle, setup.side, nowEpochMillis)
+    return copy(
+        touchTurnSession = session.copy(
+            sweepActive = true,
+            fiveMinuteConfirmation = state
+        )
+    )
+}
+
+fun StrategyDeployment.withFiveMinuteConfirmationUpdated(
+    state: FiveMinuteConfirmationState
+): StrategyDeployment {
+    if (!isTouchTurn) return this
+    val session = touchTurnSession ?: return this
+    return copy(
+        touchTurnSession = session.copy(
+            sweepActive = state.status == FiveMinuteConfirmationStatus.AWAITING,
+            fiveMinuteConfirmation = state
+        )
+    )
+}
+
+fun StrategyDeployment.withFiveMinuteConfirmationConfirmed(
+    hammerBar: OhlcBar,
+    nowEpochMillis: Long = System.currentTimeMillis()
+): StrategyDeployment {
+    if (!isTouchTurn) return this
+    val session = touchTurnSession ?: return this
+    val prior = session.fiveMinuteConfirmation ?: return this
+    val at = currentSessionTimestampIso()
+    val setup = session.setup ?: return this
+    val hammerSetup = FiveMinuteConfirmationLogic.computeHammerBracketSetup(hammerBar, setup.side)
+    return copy(
+        touchTurnSession = session.copy(
+            sweepActive = false,
+            setup = hammerSetup,
+            fiveMinuteConfirmation = prior.copy(
+                status = FiveMinuteConfirmationStatus.CONFIRMED,
+                confirmedHammerBar = hammerBar
+            ),
+            milestones = session.milestones.copy(fiveMinConfirmedAt = at)
+        )
+    )
+}
+
+fun StrategyDeployment.withFiveMinuteConfirmationReset(
+    outcome: TouchTurnSessionOutcome,
+    detailMessage: String? = null
+): StrategyDeployment {
+    if (!isTouchTurn) return this
+    val session = touchTurnSession ?: return this
+    val status = when (outcome) {
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED ->
+            FiveMinuteConfirmationStatus.EXPIRED
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED ->
+            FiveMinuteConfirmationStatus.INVALIDATED
+        else -> session.fiveMinuteConfirmation?.status ?: FiveMinuteConfirmationStatus.EXPIRED
+    }
+    return copy(
+        touchTurnSession = session.copy(
+            sweepActive = false,
+            decisionOutcome = outcome,
+            decisionDetailMessage = detailMessage,
+            fiveMinuteConfirmation = session.fiveMinuteConfirmation?.copy(status = status)
+        )
+    )
+}
+
 fun StrategyDeployment.withTouchTurnDecisionOutcome(
     outcome: TouchTurnSessionOutcome,
     detailMessage: String? = null,
@@ -426,7 +503,9 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
-            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT -> false
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED -> false
             else -> hadLiquidityCandle == true &&
                 setup?.let { TouchTurnLogic.setupActionableForEntry(it, effectiveRules) } == true
         },

@@ -186,6 +186,7 @@ internal object IbTouchTurnBracketPlacer {
         when (planned.orderType.uppercase()) {
             "LMT" -> order.lmtPrice(roundedPrice)
             "STP", "STP LMT" -> order.auxPrice(roundedPrice)
+            "MKT" -> Unit
             else -> order.lmtPrice(roundedPrice)
         }
         return order

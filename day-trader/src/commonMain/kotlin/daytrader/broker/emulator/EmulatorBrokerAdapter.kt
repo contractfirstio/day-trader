@@ -170,6 +170,17 @@ class EmulatorBrokerAdapter(
                                 )
                             }
                         }
+                    is GatewayCommand.FetchFiveMinuteBars ->
+                        launch {
+                            withEngine {
+                                engine.fetchFiveMinuteBars(
+                                    requestId = command.requestId,
+                                    symbol = command.symbol,
+                                    afterBarOpenEpochMs = command.afterBarOpenEpochMs,
+                                    marketZoneId = command.marketZoneId
+                                )
+                            }
+                        }
                     is GatewayCommand.CancelOrder ->
                         withEngine { engine.cancelOrder(command.orderId) }
                     is GatewayCommand.ResolveInstrument ->

@@ -8,6 +8,8 @@ enum class TouchTurnPipelineNodeId {
     Readiness,
     Data,
     Rules,
+    /** Post-sweep 5-minute hammer confirmation (when enabled). */
+    FiveMinConfirmation,
     Orders,
     Position,
     Close
@@ -76,6 +78,7 @@ fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
     TouchTurnPipelineNodeId.Readiness -> "Session start"
     TouchTurnPipelineNodeId.Data -> "Market data"
     TouchTurnPipelineNodeId.Rules -> "Entry rules"
+    TouchTurnPipelineNodeId.FiveMinConfirmation -> "5m confirmation"
     TouchTurnPipelineNodeId.Orders -> "Orders"
     TouchTurnPipelineNodeId.Position -> "Position"
     TouchTurnPipelineNodeId.Close -> "Closing session"
@@ -83,19 +86,23 @@ fun TouchTurnPipelineNodeId.detailTitle(): String = when (this) {
 
 object TouchTurnPipelineLayout {
     fun position(id: TouchTurnPipelineNodeId): Pair<Float, Float> = when (id) {
-        TouchTurnPipelineNodeId.Readiness -> 0.06f to 0.45f
-        TouchTurnPipelineNodeId.Data -> 0.22f to 0.45f
-        TouchTurnPipelineNodeId.Rules -> 0.38f to 0.45f
-        TouchTurnPipelineNodeId.Orders -> 0.54f to 0.45f
-        TouchTurnPipelineNodeId.Position -> 0.70f to 0.45f
-        TouchTurnPipelineNodeId.Close -> 0.88f to 0.45f
+        TouchTurnPipelineNodeId.Readiness -> 0.05f to 0.45f
+        TouchTurnPipelineNodeId.Data -> 0.19f to 0.45f
+        TouchTurnPipelineNodeId.Rules -> 0.33f to 0.45f
+        TouchTurnPipelineNodeId.FiveMinConfirmation -> 0.47f to 0.45f
+        TouchTurnPipelineNodeId.Orders -> 0.61f to 0.45f
+        TouchTurnPipelineNodeId.Position -> 0.75f to 0.45f
+        TouchTurnPipelineNodeId.Close -> 0.89f to 0.45f
     }
 
     val edgeDefinitions: List<Triple<TouchTurnPipelineNodeId, TouchTurnPipelineNodeId, String?>> = listOf(
         Triple(TouchTurnPipelineNodeId.Readiness, TouchTurnPipelineNodeId.Data, null),
         Triple(TouchTurnPipelineNodeId.Data, TouchTurnPipelineNodeId.Rules, null),
+        Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.FiveMinConfirmation, "sweep"),
         Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Orders, "pass"),
         Triple(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Close, "no"),
+        Triple(TouchTurnPipelineNodeId.FiveMinConfirmation, TouchTurnPipelineNodeId.Orders, "hammer"),
+        Triple(TouchTurnPipelineNodeId.FiveMinConfirmation, TouchTurnPipelineNodeId.Close, "fail"),
         Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position, "fill"),
         Triple(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Close, "skip"),
         Triple(TouchTurnPipelineNodeId.Position, TouchTurnPipelineNodeId.Close, null)

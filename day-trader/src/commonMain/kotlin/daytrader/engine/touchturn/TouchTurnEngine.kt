@@ -47,6 +47,9 @@ import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.requiresLiquidityRange
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
+import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.withFiveMinuteConfirmationStarted
+import daytrader.engine.touchturn.FiveMinuteConfirmationRunner
 import daytrader.domain.withTouchTurnCandleFailed
 import daytrader.domain.withTouchTurnClosingMilestoneIfNeeded
 import daytrader.domain.withTouchTurnDecisionOutcome
@@ -132,6 +135,7 @@ class TouchTurnEngine(
     private val stuckFormingLogged = mutableSetOf<String>()
     private val liquidityJobs = ConcurrentHashMap<String, Job>()
     private val liquidityEvalJobs = mutableMapOf<String, Job>()
+    private val fiveMinuteConfirmationJobs = ConcurrentHashMap<String, Job>()
     private val closedBarRefetchJobs = ConcurrentHashMap<String, Job>()
     private val loadJobs = ConcurrentHashMap<String, Job>()
     private val prepareJobs = ConcurrentHashMap<String, Job>()
@@ -1366,6 +1370,32 @@ class TouchTurnEngine(
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return
         }
+        if (FiveMinuteConfirmationLogic.shouldUseModule(rules)) {
+            repository.update(instanceId) { current ->
+                current.withFiveMinuteConfirmationStarted(evaluatedAt)
+            }
+            val afterStart = repository.deployments.value.find { it.id == instanceId }
+            val startSession = afterStart?.touchTurnSession
+            val confirmation = startSession?.fiveMinuteConfirmation
+            val setup = startSession?.setup
+            if (afterStart != null && confirmation != null && setup != null) {
+                SessionTrace.fiveMinuteConfirmationStarted(
+                    deploymentId = instanceId,
+                    sessionId = afterStart.inProgressSession()?.id,
+                    symbol = afterStart.symbol,
+                    sweepPrice = confirmation.sweepPrice,
+                    side = setup.side.name,
+                    expiresAtEpochMs = confirmation.expiresAtEpochMs
+                )
+            }
+            startFiveMinuteConfirmationWatch(
+                instanceId = instanceId,
+                executionGw = executionGw,
+                evaluatedAt = evaluatedAt,
+                enforceCloseConfirmation = enforceCloseConfirmation
+            )
+            return
+        }
         scope.launch {
             yield()
             val bracketSubmitRequested = requestBracketAfterLiquidityEvaluation(
@@ -1399,7 +1429,9 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
-        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+        TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
     )
 
     private fun finishLiquidityPoll(
@@ -1413,6 +1445,42 @@ class TouchTurnEngine(
         liquidityJobs.remove(instanceId)?.cancel()
         liquidityEvalJobs.remove(instanceId)?.cancel()
         closedBarRefetchJobs.remove(instanceId)?.cancel()
+    }
+
+    private fun startFiveMinuteConfirmationWatch(
+        instanceId: String,
+        executionGw: BrokerGateway?,
+        evaluatedAt: Long,
+        enforceCloseConfirmation: Boolean
+    ) {
+        fiveMinuteConfirmationJobs[instanceId]?.cancel()
+        fiveMinuteConfirmationJobs[instanceId] = scope.launch {
+            val runner = FiveMinuteConfirmationRunner(
+                marketData = marketData,
+                repository = repository,
+                nowEpochMillis = { nowEpochMillis() },
+                delayMillis = { delayMillis(it) },
+                pollIntervalMs = { liquidityPollIntervalMs() },
+                replayOpeningBarQuotesReady = { symbol -> this@TouchTurnEngine.replayOpeningBarQuotesReady(symbol) },
+                bracketSubmitSkipReason = ::bracketSubmitSkipReason,
+                ensureEmulatorQuotesBeforeBracketSubmit = ::ensureEmulatorQuotesBeforeBracketSubmit,
+                registerPendingBracket = { id, plan, sessionId, at ->
+                    pendingBracketPlacements[id] = PendingBracketPlacement(
+                        plan = plan,
+                        sessionId = sessionId,
+                        evaluatedAt = at,
+                        enforceCloseConfirmation = enforceCloseConfirmation
+                    )
+                },
+                quoteForSymbol = ::quoteForSymbol,
+                onFinished = { id ->
+                    fiveMinuteConfirmationJobs.remove(id)
+                    val after = repository.deployments.value.find { it.id == id } ?: return@FiveMinuteConfirmationRunner
+                    finishLiquidityPoll(id, after, evaluatedAt, enforceCloseConfirmation)
+                }
+            )
+            runner.runUntilResolved(instanceId, executionGw)
+        }
     }
 
     private fun bracketSubmitSkipReason(instance: StrategyDeployment): String? {

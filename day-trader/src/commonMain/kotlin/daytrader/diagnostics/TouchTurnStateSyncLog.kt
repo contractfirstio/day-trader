@@ -2,6 +2,7 @@ package daytrader.diagnostics
 
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.SessionTrade
 import daytrader.domain.StrategyDeployment
@@ -39,7 +40,11 @@ object TouchTurnStateSyncLog {
         val hasOpenPosition: Boolean,
         val hasOpenOrders: Boolean,
         val closingPhase: Boolean,
-        val tradeCycleComplete: Boolean
+        val tradeCycleComplete: Boolean,
+        val sweepActive: Boolean,
+        val fiveMinConfirmationStatus: FiveMinuteConfirmationStatus?,
+        val fiveMinBarsEvaluated: Int,
+        val fiveMinSweepPrice: Double?
     )
 
     data class UiSnapshot(
@@ -74,6 +79,7 @@ object TouchTurnStateSyncLog {
         if (instance.status != DeploymentStatus.RUNNING) return
         val sessionId = instance.inProgressSession()?.id ?: return
 
+        val confirmation = session?.fiveMinuteConfirmation
         val engine = EngineSnapshot(
             sessionStatus = session?.status,
             decisionOutcome = session?.decisionOutcome,
@@ -85,7 +91,11 @@ object TouchTurnStateSyncLog {
             hasOpenPosition = hasOpenPosition,
             hasOpenOrders = hasOpenOrders,
             closingPhase = closingPhase,
-            tradeCycleComplete = closingPhase && !hasOpenPosition && !hasOpenOrders
+            tradeCycleComplete = closingPhase && !hasOpenPosition && !hasOpenOrders,
+            sweepActive = session?.sweepActive == true,
+            fiveMinConfirmationStatus = confirmation?.status,
+            fiveMinBarsEvaluated = confirmation?.processedBarTimes?.size ?: 0,
+            fiveMinSweepPrice = confirmation?.sweepPrice
         )
         val ui = UiSnapshot(
             activePath = graph.activePath,
@@ -179,7 +189,7 @@ object TouchTurnStateSyncLog {
         }
 
         if (engine.ordersPlacedForSession) {
-            val ordersState = ui.stepStates.getOrNull(3)
+            val ordersState = ui.stepStates.getOrNull(4)
             if (ordersState != TouchTurnBreadcrumbStepState.COMPLETED &&
                 ordersState != TouchTurnBreadcrumbStepState.CURRENT
             ) {
@@ -192,8 +202,8 @@ object TouchTurnStateSyncLog {
         }
 
         if (engine.ordersPlacedForSession && !engine.hasOpenPosition && !engine.closingPhase) {
-            val ordersState = ui.stepStates.getOrNull(3)
-            val positionState = ui.stepStates.getOrNull(4)
+            val ordersState = ui.stepStates.getOrNull(4)
+            val positionState = ui.stepStates.getOrNull(5)
             if (ordersState != TouchTurnBreadcrumbStepState.CURRENT) {
                 mismatches += "engine waiting for entry but ui Orders step=${ordersState?.name}"
             }
@@ -203,7 +213,7 @@ object TouchTurnStateSyncLog {
         }
 
         if (engine.hasOpenPosition) {
-            val positionState = ui.stepStates.getOrNull(4)
+            val positionState = ui.stepStates.getOrNull(5)
             if (positionState != TouchTurnBreadcrumbStepState.COMPLETED &&
                 positionState != TouchTurnBreadcrumbStepState.CURRENT
             ) {
@@ -236,13 +246,14 @@ object TouchTurnStateSyncLog {
         if (milestones.liquidityEvaluatedAt == null && ui.phaseIndex > 2) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine liquidityEvaluatedAt=null"
         }
-        if (!engine.ordersPlacedForSession && ui.phaseIndex in 3..4 &&
-            engine.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED
+        if (!engine.ordersPlacedForSession && ui.phaseIndex in 4..5 &&
+            engine.decisionOutcome != TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED &&
+            !(engine.hasOpenPosition && engine.fiveMinConfirmationStatus == FiveMinuteConfirmationStatus.CONFIRMED)
         ) {
             mismatches += "ui phaseIndex=${ui.phaseIndex} but engine ordersPlacedForSession=false"
         }
-        if (engine.closingPhase && ui.phaseTerminal && ui.phaseIndex != 5) {
-            mismatches += "engine closingPhase=true but ui phaseIndex=${ui.phaseIndex} (expected Close=5)"
+        if (engine.closingPhase && ui.phaseTerminal && ui.phaseIndex != 6) {
+            mismatches += "engine closingPhase=true but ui phaseIndex=${ui.phaseIndex} (expected Close=6)"
         }
         if (!engine.closingPhase && milestones.liquidityEvaluatedAt == null &&
             ui.phaseIndex > 2 &&
@@ -262,12 +273,25 @@ object TouchTurnStateSyncLog {
             mismatches += "engine liquidity refetch failed but engine barClosedAt was cleared"
         }
 
+        if (engine.sweepActive &&
+            engine.fiveMinConfirmationStatus == FiveMinuteConfirmationStatus.AWAITING &&
+            TouchTurnPipelineNodeId.FiveMinConfirmation !in ui.activePath
+        ) {
+            mismatches += "engine sweepActive=true but FiveMinConfirmation missing from ui activePath"
+        }
+        if (engine.sweepActive &&
+            ui.phaseIndex != 3 &&
+            engine.fiveMinConfirmationStatus == FiveMinuteConfirmationStatus.AWAITING
+        ) {
+            mismatches += "engine awaiting 5m hammer but ui phaseIndex=${ui.phaseIndex} (expected 5m=3)"
+        }
+
         if (engine.closingPhase &&
             engine.ordersPlacedForSession &&
             !engine.hasOpenPosition &&
             session?.milestones?.positionOpenedAt == null
         ) {
-            val positionState = ui.stepStates.getOrNull(4)
+            val positionState = ui.stepStates.getOrNull(5)
             if (positionState != TouchTurnBreadcrumbStepState.SKIPPED) {
                 mismatches += "engine closed without entry fill but ui Position step=${positionState?.name}"
             }
@@ -294,6 +318,10 @@ object TouchTurnStateSyncLog {
             engine.hasOpenPosition.toString(),
             engine.hasOpenOrders.toString(),
             engine.closingPhase.toString(),
+            engine.sweepActive.toString(),
+            engine.fiveMinConfirmationStatus?.name,
+            engine.fiveMinBarsEvaluated.toString(),
+            engine.fiveMinSweepPrice?.toString(),
             ui.activePath.joinToString(">") { it.name },
             ui.stepStates.joinToString(",") { it.name },
             ui.phaseIndex.toString(),
@@ -308,6 +336,7 @@ object TouchTurnStateSyncLog {
         return mapOf(
             "engine.milestones.barClosed" to (m.barClosedAt != null).toString(),
             "engine.milestones.liquidityEvaluated" to (m.liquidityEvaluatedAt != null).toString(),
+            "engine.milestones.fiveMinConfirmed" to (m.fiveMinConfirmedAt != null).toString(),
             "engine.milestones.ordersPlaced" to (m.ordersPlacedAt != null).toString()
         )
     }
@@ -331,7 +360,11 @@ object TouchTurnStateSyncLog {
         "engine.hasOpenPosition" to engine.hasOpenPosition.toString(),
         "engine.hasOpenOrders" to engine.hasOpenOrders.toString(),
         "engine.closingPhase" to engine.closingPhase.toString(),
-        "engine.tradeCycleComplete" to engine.tradeCycleComplete.toString()
+        "engine.tradeCycleComplete" to engine.tradeCycleComplete.toString(),
+        "engine.sweepActive" to engine.sweepActive.toString(),
+        "engine.fiveMinConfirmation.status" to (engine.fiveMinConfirmationStatus?.name ?: "null"),
+        "engine.fiveMinConfirmation.barsEvaluated" to engine.fiveMinBarsEvaluated.toString(),
+        "engine.fiveMinConfirmation.sweepPrice" to (engine.fiveMinSweepPrice?.toString() ?: "null")
     )
 
     private fun uiDetails(ui: UiSnapshot): Map<String, String> = mapOf(

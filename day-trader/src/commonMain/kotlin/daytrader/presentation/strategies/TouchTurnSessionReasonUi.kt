@@ -146,6 +146,18 @@ object TouchTurnSessionReasonUi {
                 ?: "Max at risk cannot cover one minimum board lot at the planned entry price. Increase max at risk or choose a symbol with a smaller lot size.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED -> TouchTurnSessionStatusUi(
+            headline = "No trade — 5-minute confirmation expired",
+            detail = session?.decisionDetailMessage
+                ?: "No qualifying 5-minute hammer appeared within 15 minutes of the liquidity sweep.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED -> TouchTurnSessionStatusUi(
+            headline = "No trade — 5-minute confirmation invalidated",
+            detail = session?.decisionDetailMessage
+                ?: "A 5-minute bar closed outside the 15-minute sweep range.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
             val brokerMessage = session?.decisionDetailMessage
             val brokerRejected = brokerMessage?.startsWith("ib_order_error:") == true

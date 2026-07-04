@@ -53,6 +53,10 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
     /** [maxDollars] cannot cover one exchange minimum board lot at the planned entry. */
     NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+    /** 5m hammer confirmation window elapsed without a valid hammer. */
+    NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+    /** 5m hammer closed outside the 15m sweep price range. */
+    NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
     TRADE_BRACKET_SUBMITTED
 }
 

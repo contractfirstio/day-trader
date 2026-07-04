@@ -63,6 +63,14 @@ sealed interface GatewayCommand {
         val rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ) : GatewayCommand
 
+    data class FetchFiveMinuteBars(
+        val requestId: Long,
+        val symbol: String,
+        val instrument: InstrumentIdentity? = null,
+        val afterBarOpenEpochMs: Long,
+        val marketZoneId: String
+    ) : GatewayCommand
+
     data class CancelOrder(val orderId: Int) : GatewayCommand
 
     data class ResolveInstrument(

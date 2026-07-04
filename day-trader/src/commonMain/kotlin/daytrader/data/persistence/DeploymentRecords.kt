@@ -77,6 +77,7 @@ data class TouchTurnMilestoneTimestampsRecord(
     val barClosedAt: String? = null,
     val liquidityEvaluatedAt: String? = null,
     val closeConfirmedAt: String? = null,
+    val fiveMinConfirmedAt: String? = null,
     val ordersPlacedAt: String? = null,
     val positionOpenedAt: String? = null,
     val closingSessionAt: String? = null
@@ -119,6 +120,7 @@ data class TouchTurnRuleConfigRecord(
     val enableLiquidityRangeDailyAtr: Boolean = false,
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,
+    val enableFiveMinuteConfirmation: Boolean = false,
     val invertTradeSide: Boolean = false
 )
 

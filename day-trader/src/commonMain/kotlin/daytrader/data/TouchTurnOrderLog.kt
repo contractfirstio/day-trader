@@ -47,6 +47,53 @@ object TouchTurnOrderLog {
         return true
     }
 
+    /** @return true when a hammer-confirmed market bracket was logged/placed. */
+    fun logHammerConfirmationBracket(
+        instanceId: String,
+        symbol: String,
+        sessionDate: String,
+        maxDollars: Int,
+        currencyCode: String,
+        instrument: InstrumentIdentity? = null,
+        setup: TouchTurnBracketSetup,
+        hammerBar: OhlcBar,
+        plan: TouchTurnOrderPlan,
+        brokerGateway: BrokerGateway?
+    ): Boolean {
+        val side = TouchTurnLogic.tradeSideLabel(setup.side)
+        val submissionLabel = when (brokerGateway?.brokerId) {
+            BrokerId.INTERACTIVE_BROKERS -> "submitted to Interactive Brokers"
+            BrokerId.EMULATOR -> "placed with Broker Emulator (paper)"
+            else -> "planned only (no broker connected)"
+        }
+        line(
+            "instance=$instanceId symbol=$symbol session=$sessionDate — 5M HAMMER CONFIRMED — " +
+                "planned ${side.lowercase()} market bracket (2:1 TP) — $submissionLabel"
+        )
+        line(
+            "  hammer close=${fmt(hammerBar.close, currencyCode)} low=${fmt(hammerBar.low, currencyCode)} " +
+                "high=${fmt(hammerBar.high, currencyCode)}"
+        )
+        line(
+            "  sizing: qty=${plan.quantity} from \$$maxDollars max at risk @ entry ${fmt(setup.entry, currencyCode)}"
+        )
+        plan.orders.forEachIndexed { index, order ->
+            line(formatPlannedOrder(index + 1, order, currencyCode))
+        }
+        when (brokerGateway?.brokerId) {
+            BrokerId.EMULATOR -> {
+                brokerGateway.placeTouchTurnBracket(plan)
+                line("  (paper emulator — market entry fills immediately; bracket legs follow)")
+            }
+            BrokerId.INTERACTIVE_BROKERS -> {
+                brokerGateway.placeTouchTurnBracket(plan)
+                line("  (IB — entry MKT + take-profit LMT + stop STP bracket queued)")
+            }
+            else -> line("  (preview only — connect a broker to submit)")
+        }
+        return brokerGateway != null
+    }
+
     private fun logPlannedBracket(
         instanceId: String,
         sessionDate: String,

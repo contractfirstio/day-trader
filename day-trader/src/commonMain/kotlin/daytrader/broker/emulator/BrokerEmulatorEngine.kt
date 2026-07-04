@@ -4,6 +4,7 @@ import daytrader.broker.FillCommissionReportApplier
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.OhlcBar
 import daytrader.domain.MacroTrendState
 import daytrader.domain.RthMarketSessions
 import daytrader.domain.StockTrendState
@@ -55,6 +56,8 @@ class BrokerEmulatorEngine(
     private var firstCandleFetchCount = 0
     /** Bootstrap fetch index per symbol; refetch reuses without incrementing. */
     private val lockedCandleFetchIndexBySymbol = mutableMapOf<String, Int>()
+    private val openingFifteenMinuteBarBySymbol = mutableMapOf<String, OhlcBar>()
+    private val touchTurnTradeSideBySymbol = mutableMapOf<String, daytrader.domain.TouchTurnTradeSide>()
     /** Touch Turn symbol registered per RTH zone after bootstrap/refetch (drives aligned trend mocks). */
     private val touchTurnSymbolByZone = mutableMapOf<String, String>()
     private val externalFeedReadyLogged = mutableSetOf<String>()
@@ -209,6 +212,8 @@ class BrokerEmulatorEngine(
         streamSubscriptionRefCount.clear()
         firstCandleFetchCount = 0
         lockedCandleFetchIndexBySymbol.clear()
+        openingFifteenMinuteBarBySymbol.clear()
+        touchTurnTradeSideBySymbol.clear()
         touchTurnSymbolByZone.clear()
         dynamicInstruments.clear()
         externalFeedReadyLogged.clear()
@@ -446,6 +451,13 @@ class BrokerEmulatorEngine(
                 rules = rules
             ).also { contextResult ->
                 contextResult.onSuccess { context ->
+                    openingFifteenMinuteBarBySymbol[trimmed] = context.firstCandle
+                    val color = TouchTurnLogic.firstCandleColor(context.firstCandle)
+                    touchTurnTradeSideBySymbol[trimmed] = when (color) {
+                        FirstCandleColor.GREEN -> daytrader.domain.TouchTurnTradeSide.SHORT
+                        FirstCandleColor.RED -> daytrader.domain.TouchTurnTradeSide.LONG
+                        FirstCandleColor.DOJI -> daytrader.domain.TouchTurnTradeSide.LONG
+                    }
                     EmulatorLog.firstCandleColor(
                         symbol = trimmed,
                         isGreen = TouchTurnLogic.firstCandleColor(context.firstCandle) == FirstCandleColor.GREEN,
@@ -457,6 +469,37 @@ class BrokerEmulatorEngine(
             }
         }
         emit(GatewayEvent.TouchTurnSignalContextReady(requestId, result))
+    }
+
+    suspend fun fetchFiveMinuteBars(
+        requestId: Long,
+        symbol: String,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ) {
+        delay(config.historicalDelayMs)
+        val trimmed = symbol.trim().uppercase()
+        val instrument = resolveInstrument(trimmed)
+        val result = if (instrument == null) {
+            Result.failure(IllegalArgumentException("Unknown symbol: $symbol"))
+        } else {
+            val opening = openingFifteenMinuteBarBySymbol[trimmed]
+            val side = touchTurnTradeSideBySymbol[trimmed]
+            if (opening == null || side == null) {
+                Result.failure(IllegalStateException("Missing opening 15m bar for $trimmed"))
+            } else {
+                Result.success(
+                    EmulatorHistoricalData.fiveMinuteBarsSince(
+                        openingFifteenMinuteBar = opening,
+                        side = side,
+                        config = config,
+                        afterBarOpenEpochMs = afterBarOpenEpochMs,
+                        marketZoneId = marketZoneId
+                    )
+                )
+            }
+        }
+        emit(GatewayEvent.FiveMinuteBarsReady(requestId, result))
     }
 
     private fun registerTouchTurnSessionSymbol(symbol: String, instrument: EmulatorInstrument) {
@@ -662,6 +705,7 @@ class BrokerEmulatorEngine(
             val targetExit = pickBracketExitTarget()
             val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
             val isStopEntry = entryLeg.orderType.equals("STP", ignoreCase = true)
+            val isMarketEntry = entryLeg.orderType.equals("MKT", ignoreCase = true)
             pendingBracketWalks[symbol] = BracketPriceWalk(
                 floor = floor,
                 ceiling = ceiling,
@@ -693,15 +737,26 @@ class BrokerEmulatorEngine(
                 referencePrice = initialMark,
                 spreadPctOfRange = config.emulatorQuoteSpreadPctOfRange
             )
-            quoteFor(symbol).setFromBarClose(initialMark, spread)
             val entryScenario = pickTouchTurnEntryScenario()
-            when (entryScenario) {
-                TouchTurnEntryScenario.IMMEDIATE -> {
-                    setQuoteMid(symbol, entryPrice)
+            val loggedEntryScenario = if (isMarketEntry) {
+                TouchTurnEntryScenario.IMMEDIATE
+            } else {
+                entryScenario
+            }
+            if (isMarketEntry && entryPrice > 0.0) {
+                // 5m hammer MKT: fill at hammer close, not the offset mark used for limit approach.
+                setQuoteMid(symbol, entryPrice)
+            } else {
+                quoteFor(symbol).setFromBarClose(initialMark, spread)
+            }
+            when {
+                isMarketEntry || entryScenario == TouchTurnEntryScenario.IMMEDIATE -> {
+                    if (!isMarketEntry && entryPrice > 0.0) {
+                        setQuoteMid(symbol, entryPrice)
+                    }
                     fillEntryImmediately(entryId)
                 }
-                TouchTurnEntryScenario.APPROACH_AND_FILL,
-                TouchTurnEntryScenario.NEVER_FILL -> {
+                else -> {
                     bracketEntryPending[symbol] = BracketEntryPending(
                         entryOrderId = entryId,
                         entryPrice = entryPrice,
@@ -717,21 +772,31 @@ class BrokerEmulatorEngine(
                 symbol = symbol,
                 orderIds = allOrderIds,
                 entryPrice = entryPrice,
-                initialMark = initialMark,
+                initialMark = if (isMarketEntry && entryPrice > 0.0) entryPrice else initialMark,
                 walkFloor = floor,
                 walkCeiling = ceiling,
-                entryScenario = entryScenario
+                entryScenario = loggedEntryScenario
             )
         } else {
             val legPrices = adjustedPlan.orders.map { it.price }
             val range = (legPrices.max() - legPrices.min()).coerceAtLeast(0.01)
             val isBuyEntry = entryLeg.action.equals("BUY", ignoreCase = true)
             val isStopEntry = entryLeg.orderType.equals("STP", ignoreCase = true)
+            val isMarketEntry = entryLeg.orderType.equals("MKT", ignoreCase = true)
             val entryScenario = pickTouchTurnEntryScenario()
-            when (entryScenario) {
-                TouchTurnEntryScenario.IMMEDIATE -> fillEntryImmediately(entryId)
-                TouchTurnEntryScenario.APPROACH_AND_FILL,
-                TouchTurnEntryScenario.NEVER_FILL -> {
+            val loggedEntryScenario = if (isMarketEntry) {
+                TouchTurnEntryScenario.IMMEDIATE
+            } else {
+                entryScenario
+            }
+            when {
+                isMarketEntry || entryScenario == TouchTurnEntryScenario.IMMEDIATE -> {
+                    if (isMarketEntry && entryPrice > 0.0) {
+                        setQuoteMid(symbol, entryPrice)
+                    }
+                    fillEntryImmediately(entryId)
+                }
+                else ->
                     bracketEntryPending[symbol] = BracketEntryPending(
                         entryOrderId = entryId,
                         entryPrice = entryPrice,
@@ -741,7 +806,6 @@ class BrokerEmulatorEngine(
                         scenario = entryScenario,
                         range = range
                     )
-                }
             }
             EmulatorLog.bracketPlaced(
                 symbol = symbol,
@@ -750,7 +814,7 @@ class BrokerEmulatorEngine(
                 initialMark = entryPrice,
                 walkFloor = entryPrice,
                 walkCeiling = entryPrice,
-                entryScenario = entryScenario
+                entryScenario = loggedEntryScenario
             )
             onSymbolNeedsLiveQuotes(symbol)
         }

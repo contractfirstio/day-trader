@@ -21,6 +21,7 @@ data class SessionBundle(
     val manifest: SessionManifest?,
     val timeline: SessionBundleTimeline,
     val historicalEvents: List<HistoricalEvent>,
+    val fiveMinuteBarEvents: List<FiveMinuteBarEvent> = emptyList(),
     val quoteEvents: List<QuoteEvent>,
     val groundTruth: SessionGroundTruth?
 ) {
@@ -57,6 +58,13 @@ data class HistoricalEvent(
     val attempt: Int?,
     val validation: String?,
     val context: TouchTurnSignalContext
+)
+
+data class FiveMinuteBarEvent(
+    val epochMs: Long,
+    val symbol: String,
+    val bar: daytrader.domain.OhlcBar,
+    val sweepPrice: Double?
 )
 
 data class QuoteEvent(

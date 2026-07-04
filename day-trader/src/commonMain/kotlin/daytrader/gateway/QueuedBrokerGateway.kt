@@ -65,6 +65,7 @@ class QueuedBrokerGateway(
     private val pendingCandles = mutableMapOf<Long, CompletableDeferred<Result<OhlcBar>>>()
     private val pendingAdr = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
     private val pendingSignalContext = mutableMapOf<Long, CompletableDeferred<Result<TouchTurnSignalContext>>>()
+    private val pendingFiveMinuteBars = mutableMapOf<Long, CompletableDeferred<Result<List<OhlcBar>>>>()
     private val pendingInstrument = mutableMapOf<Long, CompletableDeferred<Result<InstrumentResolution>>>()
     private val pendingLatestDailyClose = mutableMapOf<Long, CompletableDeferred<Result<Double>>>()
     private val pendingReversalScoreSymbol = mutableMapOf<Long, CompletableDeferred<Result<ReversalScoreSymbolSnapshot>>>()
@@ -259,6 +260,32 @@ class QueuedBrokerGateway(
         }
     }
 
+    override suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> {
+        val requestId = allocateRequestId()
+        val deferred = CompletableDeferred<Result<List<OhlcBar>>>()
+        pendingFiveMinuteBars[requestId] = deferred
+        sendCommand(
+            GatewayCommand.FetchFiveMinuteBars(
+                requestId = requestId,
+                symbol = symbol,
+                instrument = instrument,
+                afterBarOpenEpochMs = afterBarOpenEpochMs,
+                marketZoneId = marketZoneId
+            )
+        )
+        return try {
+            withTimeout(HISTORICAL_REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (e: Exception) {
+            pendingFiveMinuteBars.remove(requestId)
+            Result.failure(e)
+        }
+    }
+
     override fun cancelOpenOrdersForSymbol(symbol: String) {
         sendCommand(GatewayCommand.CancelOpenOrdersForSymbol(symbol))
     }
@@ -410,6 +437,9 @@ class QueuedBrokerGateway(
             }
             is GatewayEvent.TouchTurnSignalContextReady -> {
                 pendingSignalContext.remove(event.requestId)?.complete(event.result)
+            }
+            is GatewayEvent.FiveMinuteBarsReady -> {
+                pendingFiveMinuteBars.remove(event.requestId)?.complete(event.result)
             }
             is GatewayEvent.InstrumentResolved -> {
                 pendingInstrument.remove(event.requestId)?.complete(event.result)

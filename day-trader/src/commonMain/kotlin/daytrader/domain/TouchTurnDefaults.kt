@@ -57,4 +57,12 @@ object TouchTurnDefaults {
     const val TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP = 0.0
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
+    /** 5m hammer: body must be at most this fraction of bar range. */
+    const val FIVE_MIN_HAMMER_MAX_BODY_RATIO = 0.33
+    /** 5m hammer: rejection shadow must be at least this multiple of body size. */
+    const val FIVE_MIN_HAMMER_MIN_REJECTION_BODY_RATIO = 2.0
+    /** 5m hammer: opposite shadow must be at most this fraction of bar range. */
+    const val FIVE_MIN_HAMMER_MAX_OPPOSITE_SHADOW_RATIO = 0.10
+    /** Minimum reward:risk for hammer-confirmed bracket take-profit. */
+    const val FIVE_MIN_CONFIRMATION_MIN_REWARD_RISK = 2.0
 }

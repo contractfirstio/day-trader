@@ -288,6 +288,20 @@ class DesktopIbGatewayConnection(
                                 )
                             )
                         }
+                    is GatewayCommand.FetchFiveMinuteBars ->
+                        scope.launch {
+                            emit(
+                                GatewayEvent.FiveMinuteBarsReady(
+                                    command.requestId,
+                                    fetchFiveMinuteBarsFromIb(
+                                        command.symbol,
+                                        command.instrument,
+                                        command.afterBarOpenEpochMs,
+                                        command.marketZoneId
+                                    )
+                                )
+                            )
+                        }
                     is GatewayCommand.CancelOrder -> {
                         if (!marketDataOnly) {
                             scope.launch { cancelWorkingOrder(command.orderId) }
@@ -1874,6 +1888,19 @@ class DesktopIbGatewayConnection(
         var dailyBars: List<OhlcBar>? = null,
         var dailyFetchFailed: String? = null,
     )
+
+    private suspend fun fetchFiveMinuteBarsFromIb(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> {
+        if (!client.isConnected) {
+            return Result.failure(IllegalStateException("Not connected to IB Gateway"))
+        }
+        // Live IB 5m historical fetch is not wired yet; poll until TTL or emulator/replay supplies bars.
+        return Result.success(emptyList())
+    }
 
     private suspend fun fetchTouchTurnSignalContextComposite(
         symbol: String,

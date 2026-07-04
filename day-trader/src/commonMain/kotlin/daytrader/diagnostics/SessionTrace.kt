@@ -354,7 +354,8 @@ object SessionTrace {
         orderCount: Int,
         entryPrice: Double?,
         currencyCode: String,
-        pendingBracketCount: Int
+        pendingBracketCount: Int,
+        extraDetails: Map<String, String> = emptyMap()
     ) {
         log(
             type = "bracket_submit_requested",
@@ -366,7 +367,91 @@ object SessionTrace {
                 entryPrice?.let { put("entryPrice", it.toString()) }
                 put("currencyCode", currencyCode)
                 put("pendingBracketCount", pendingBracketCount.toString())
+                putAll(extraDetails)
             }
+        )
+    }
+
+    /** Sweep armed after liquidity pass; 5m hammer watch started. */
+    fun fiveMinuteConfirmationStarted(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        sweepPrice: Double,
+        side: String,
+        expiresAtEpochMs: Long
+    ) {
+        log(
+            type = "five_minute_confirmation_started",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = mapOf(
+                "sweepPrice" to sweepPrice.toString(),
+                "side" to side,
+                "expiresAtEpochMs" to expiresAtEpochMs.toString()
+            )
+        )
+    }
+
+    /** A synthetic or live 5m bar was evaluated against hammer rules. */
+    fun fiveMinuteBarEvaluated(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        barTime: String,
+        isHammer: Boolean,
+        invalidatesSetup: Boolean,
+        processedBarCount: Int,
+        open: Double,
+        high: Double,
+        low: Double,
+        close: Double
+    ) {
+        log(
+            type = "five_minute_bar_evaluated",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = mapOf(
+                "barTime" to barTime,
+                "isHammer" to isHammer.toString(),
+                "invalidatesSetup" to invalidatesSetup.toString(),
+                "processedBarCount" to processedBarCount.toString(),
+                "open" to open.toString(),
+                "high" to high.toString(),
+                "low" to low.toString(),
+                "close" to close.toString()
+            )
+        )
+    }
+
+    /** Valid hammer closed; bracket submission follows. */
+    fun fiveMinuteConfirmationConfirmed(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        barTime: String,
+        entryPrice: Double,
+        confirmedAt: String
+    ) {
+        log(
+            type = "five_minute_confirmation_confirmed",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = mapOf(
+                "barTime" to barTime,
+                "entryPrice" to entryPrice.toString(),
+                "confirmedAt" to confirmedAt
+            )
+        )
+        milestone(
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            name = "five_min_confirmed",
+            at = confirmedAt
         )
     }
 

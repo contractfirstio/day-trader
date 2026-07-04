@@ -13,6 +13,8 @@ import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
+import daytrader.domain.FiveMinuteConfirmationStatus
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.diagnostics.TouchTurnStateSyncLog
@@ -40,20 +42,22 @@ data class TouchTurnBreadcrumbStep(
 
 /**
  * Touch Turn run pipeline above live position P&L:
- * Start → Data → Rules → Orders → Position → Close.
+ * Start → Data → Rules → 5m confirm → Orders → Position → Close.
  */
 object TouchTurnStatusBreadcrumbMapper {
     private const val IDX_READINESS = 0
     private const val IDX_DATA = 1
     private const val IDX_RULES = 2
-    private const val IDX_ORDERS = 3
-    private const val IDX_POSITION = 4
-    private const val IDX_CLOSE = 5
+    private const val IDX_FIVE_MIN = 3
+    private const val IDX_ORDERS = 4
+    private const val IDX_POSITION = 5
+    private const val IDX_CLOSE = 6
 
     private val pipelineLabels = listOf(
         "Start",
         "Data",
         "Rules",
+        "5m",
         "Orders",
         "Position",
         "Close"
@@ -93,15 +97,20 @@ object TouchTurnStatusBreadcrumbMapper {
         val rulesFailed = rulesStepFailed(session, nowEpochMillis)
         val liquidityRefetchFailed = session?.failedDuringLiquidityRefetch() == true &&
             session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
+        val fiveMinFailed = session?.decisionOutcome in fiveMinNoTradeOutcomes
         return pipelineLabels.mapIndexed { index, label ->
             val state = when {
+                index == IDX_FIVE_MIN && fiveMinFailed ->
+                    TouchTurnBreadcrumbStepState.FAILED
                 index == IDX_RULES && liquidityRefetchFailed ->
                     TouchTurnBreadcrumbStepState.FAILED
                 index == IDX_CLOSE && phase.index == IDX_CLOSE && phase.terminal ->
                     TouchTurnBreadcrumbStepState.COMPLETED
                 index == IDX_RULES && rulesFailed ->
                     TouchTurnBreadcrumbStepState.FAILED
-                rulesFailed && (index == IDX_ORDERS || index == IDX_POSITION) ->
+                rulesFailed && (index == IDX_FIVE_MIN || index == IDX_ORDERS || index == IDX_POSITION) ->
+                    TouchTurnBreadcrumbStepState.SKIPPED
+                index == IDX_FIVE_MIN && !fiveMinStepApplies(session) ->
                     TouchTurnBreadcrumbStepState.SKIPPED
                 phase.skippedFromIndex != null && index >= phase.skippedFromIndex &&
                     index < IDX_CLOSE ->
@@ -139,6 +148,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 phase.failed && phase.index == IDX_RULES -> milestones.dataFailedAt
                 else -> milestones.liquidityEvaluatedAt ?: milestones.closeConfirmedAt
             }
+            IDX_FIVE_MIN -> milestones.fiveMinConfirmedAt
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt
@@ -251,8 +261,10 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_INVERT_STOP_WOULD_TRIGGER,
             TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
-            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT ->
-                return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_ORDERS, terminal = true)
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED ->
+                return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_FIVE_MIN, terminal = true)
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_POSITION, terminal = true)
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
@@ -266,7 +278,7 @@ object TouchTurnStatusBreadcrumbMapper {
         }
 
         when (session.entryOrdersPermitted) {
-            false -> return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_ORDERS, terminal = true)
+            false -> return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_FIVE_MIN, terminal = true)
             true, null -> Unit
         }
 
@@ -274,7 +286,51 @@ object TouchTurnStatusBreadcrumbMapper {
             return Phase(index = IDX_ORDERS)
         }
 
+        if (isAwaitingFiveMinConfirmation(session)) {
+            return Phase(index = IDX_FIVE_MIN)
+        }
+
+        if (session.fiveMinuteConfirmation?.status == FiveMinuteConfirmationStatus.CONFIRMED &&
+            !tradeOrdersCommitted(session)
+        ) {
+            return Phase(index = IDX_ORDERS)
+        }
+
         return Phase(index = IDX_RULES)
+    }
+
+    private fun fiveMinStepApplies(session: TouchTurnSessionContext?): Boolean {
+        session ?: return false
+        if (!TouchTurnRuleConfig.isFiveMinuteConfirmationEffective(session.rules)) return false
+        if (session.entryOrdersPermitted != true) return false
+        if (session.fiveMinuteConfirmation != null) return true
+        if (session.milestones.fiveMinConfirmedAt != null) return true
+        return false
+    }
+
+    private val fiveMinNoTradeOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
+    )
+
+    private fun isAwaitingFiveMinConfirmation(session: TouchTurnSessionContext?): Boolean {
+        session ?: return false
+        return session.sweepActive &&
+            session.fiveMinuteConfirmation?.status == FiveMinuteConfirmationStatus.AWAITING
+    }
+
+    fun fiveMinConfirmationCaption(session: TouchTurnSessionContext): String {
+        val confirmation = session.fiveMinuteConfirmation
+        val evaluated = confirmation?.processedBarTimes?.size ?: 0
+        val maxBars = 3
+        val sweep = confirmation?.sweepPrice?.let { "%.2f".format(it) } ?: "n/a"
+        return when (confirmation?.status) {
+            FiveMinuteConfirmationStatus.CONFIRMED ->
+                "5m hammer confirmed — submitting order"
+            FiveMinuteConfirmationStatus.AWAITING ->
+                "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
+            else -> "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
+        }
     }
 
     /** Most recent closed session with a persisted pipeline log (Live tab after stop). */
@@ -315,6 +371,12 @@ object TouchTurnStatusBreadcrumbMapper {
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         val noTradeAfterRules = decisionOutcome in noTradeAfterRulesOutcomes
         val ordersSkipped = notLiquidity || noTradeAfterRules
+        val fiveMinNoTrade = decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED ||
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
+        val fiveMinApplies = !ordersSkipped &&
+            (milestones.fiveMinConfirmedAt != null || fiveMinNoTrade)
+        val fiveMinSkipped = ordersSkipped || (!fiveMinApplies && milestones.ordersPlacedAt != null) ||
+            (!fiveMinApplies && !fiveMinNoTrade && milestones.liquidityEvaluatedAt != null)
         val positionSkipped = ordersSkipped ||
             positionOpened != true && (ordersPlacedForCandle != true || milestones.positionOpenedAt == null)
         val dataFailed = milestones.dataFailedAt != null
@@ -329,6 +391,12 @@ object TouchTurnStatusBreadcrumbMapper {
                 IDX_RULES -> when {
                     noTradeAfterRules -> TouchTurnBreadcrumbStepState.FAILED
                     milestones.liquidityEvaluatedAt != null -> TouchTurnBreadcrumbStepState.COMPLETED
+                    else -> TouchTurnBreadcrumbStepState.UPCOMING
+                }
+                IDX_FIVE_MIN -> when {
+                    fiveMinSkipped -> TouchTurnBreadcrumbStepState.SKIPPED
+                    fiveMinNoTrade -> TouchTurnBreadcrumbStepState.FAILED
+                    milestones.fiveMinConfirmedAt != null -> TouchTurnBreadcrumbStepState.COMPLETED
                     else -> TouchTurnBreadcrumbStepState.UPCOMING
                 }
                 IDX_ORDERS -> when {
@@ -379,6 +447,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 else -> milestones.dataReadyAt
             }
             IDX_RULES -> milestones.liquidityEvaluatedAt ?: milestones.closeConfirmedAt
+            IDX_FIVE_MIN -> milestones.fiveMinConfirmedAt
             IDX_ORDERS -> milestones.ordersPlacedAt
             IDX_POSITION -> milestones.positionOpenedAt
             IDX_CLOSE -> milestones.closingSessionAt ?: stoppedAt.takeIf { it.isNotBlank() }
@@ -590,6 +659,21 @@ object TouchTurnStatusBreadcrumbMapper {
             return path
         }
 
+        when (steps[IDX_FIVE_MIN].state) {
+            TouchTurnBreadcrumbStepState.SKIPPED -> Unit
+            TouchTurnBreadcrumbStepState.COMPLETED,
+            TouchTurnBreadcrumbStepState.CURRENT,
+            TouchTurnBreadcrumbStepState.FAILED -> {
+                path.add(TouchTurnPipelineNodeId.FiveMinConfirmation)
+                if (steps[IDX_FIVE_MIN].state == TouchTurnBreadcrumbStepState.CURRENT ||
+                    steps[IDX_FIVE_MIN].state == TouchTurnBreadcrumbStepState.FAILED
+                ) {
+                    return path
+                }
+            }
+            else -> return path
+        }
+
         when (steps[IDX_ORDERS].state) {
             TouchTurnBreadcrumbStepState.COMPLETED,
             TouchTurnBreadcrumbStepState.CURRENT -> {
@@ -642,6 +726,9 @@ object TouchTurnStatusBreadcrumbMapper {
                 )
                 TouchTurnPipelineNodeId.Rules -> PipelineNodeMeta(
                     IDX_RULES, pipelineLabels[IDX_RULES], "Rules", true
+                )
+                TouchTurnPipelineNodeId.FiveMinConfirmation -> PipelineNodeMeta(
+                    IDX_FIVE_MIN, pipelineLabels[IDX_FIVE_MIN], "5m", false
                 )
                 TouchTurnPipelineNodeId.Orders -> PipelineNodeMeta(
                     IDX_ORDERS, pipelineLabels[IDX_ORDERS], "Orders", true
@@ -706,6 +793,19 @@ object TouchTurnStatusBreadcrumbMapper {
         ) {
             return TouchTurnPipelineEdgeState.Unreachable
         }
+        if (from == TouchTurnPipelineNodeId.Rules &&
+            fromNode.state == TouchTurnBreadcrumbStepState.COMPLETED &&
+            to == TouchTurnPipelineNodeId.Orders &&
+            TouchTurnPipelineNodeId.FiveMinConfirmation in activePath
+        ) {
+            return TouchTurnPipelineEdgeState.Dimmed
+        }
+        if (from == TouchTurnPipelineNodeId.FiveMinConfirmation &&
+            fromNode.state == TouchTurnBreadcrumbStepState.FAILED &&
+            to == TouchTurnPipelineNodeId.Orders
+        ) {
+            return TouchTurnPipelineEdgeState.Unreachable
+        }
         if (from in activePath && to !in activePath && fromNode.state == TouchTurnBreadcrumbStepState.COMPLETED) {
             return TouchTurnPipelineEdgeState.Dimmed
         }
@@ -744,6 +844,12 @@ object TouchTurnStatusBreadcrumbMapper {
                     } else {
                         appendTimestamp("Session started — loading market data", nodes, current.timestamp)
                     }
+                TouchTurnPipelineNodeId.Rules ->
+                    return appendTimestamp("Entry rules passed", nodes, current.timestamp)
+                TouchTurnPipelineNodeId.FiveMinConfirmation ->
+                    return session?.let {
+                        appendTimestamp(fiveMinConfirmationCaption(it), nodes, current.timestamp)
+                    } ?: appendTimestamp("Awaiting 5m hammer", nodes, current.timestamp)
                 TouchTurnPipelineNodeId.Orders -> if (
                     nodes.firstOrNull { it.id == TouchTurnPipelineNodeId.Position }
                         ?.state == TouchTurnBreadcrumbStepState.UPCOMING
@@ -781,6 +887,10 @@ object TouchTurnStatusBreadcrumbMapper {
                         session?.decisionOutcome ?: TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
                         session
                     ).headline.removePrefix("No trade — ")
+                TouchTurnPipelineNodeId.FiveMinConfirmation ->
+                    session?.decisionOutcome?.let {
+                        TouchTurnSessionReasonUi.forDecisionOutcome(it, session).headline.removePrefix("No trade — ")
+                    } ?: "5m confirmation failed"
                 else -> null
             }
             return buildString {
@@ -861,6 +971,8 @@ object TouchTurnStatusBreadcrumbMapper {
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
     )
 
@@ -915,6 +1027,7 @@ object TouchTurnStatusBreadcrumbMapper {
         nowEpochMillis: Long
     ): Boolean {
         if (rulesStepFailed(session, nowEpochMillis)) return true
+        if (steps[IDX_FIVE_MIN].state == TouchTurnBreadcrumbStepState.FAILED) return true
         if (steps[IDX_RULES].state == TouchTurnBreadcrumbStepState.FAILED) return true
         if (steps[IDX_ORDERS].state == TouchTurnBreadcrumbStepState.SKIPPED &&
             steps[IDX_POSITION].state == TouchTurnBreadcrumbStepState.SKIPPED &&
@@ -1000,6 +1113,7 @@ object TouchTurnStatusBreadcrumbMapper {
         IDX_READINESS -> TouchTurnPipelineNodeId.Readiness
         IDX_DATA -> TouchTurnPipelineNodeId.Data
         IDX_RULES -> TouchTurnPipelineNodeId.Rules
+        IDX_FIVE_MIN -> TouchTurnPipelineNodeId.FiveMinConfirmation
         IDX_ORDERS -> TouchTurnPipelineNodeId.Orders
         IDX_POSITION -> TouchTurnPipelineNodeId.Position
         IDX_CLOSE -> TouchTurnPipelineNodeId.Close

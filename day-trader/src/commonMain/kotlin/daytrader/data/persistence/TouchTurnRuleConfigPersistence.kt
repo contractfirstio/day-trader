@@ -20,7 +20,8 @@ object TouchTurnRuleConfigPersistence {
                 enables = TouchTurnRuleEnables(
                     liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
                     openDeadline = it.enableOpenDeadline,
-                    adjustableTrailingStop = it.enableAdjustableTrailingStop
+                    adjustableTrailingStop = it.enableAdjustableTrailingStop,
+                    fiveMinuteConfirmation = it.enableFiveMinuteConfirmation
                 ),
                 invertTradeSide = it.invertTradeSide
             )
@@ -41,6 +42,7 @@ object TouchTurnRuleConfigPersistence {
             enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
             enableOpenDeadline = config.enables.openDeadline,
             enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,
+            enableFiveMinuteConfirmation = config.enables.fiveMinuteConfirmation,
             invertTradeSide = config.invertTradeSide
         )
 }

@@ -126,9 +126,9 @@ class TouchTurnStateSyncLogTest {
             status = TouchTurnCandleStatus.READY,
             ordersPlacedForSession = true
         )
-        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[3] = TouchTurnBreadcrumbStepState.CURRENT
+        val stepStates = List(7) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
         stepStates[4] = TouchTurnBreadcrumbStepState.CURRENT
+        stepStates[5] = TouchTurnBreadcrumbStepState.CURRENT
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -153,8 +153,8 @@ class TouchTurnStateSyncLogTest {
             sessionDate = "2026-05-22",
             status = TouchTurnCandleStatus.READY
         )
-        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[4] = TouchTurnBreadcrumbStepState.UPCOMING
+        val stepStates = List(7) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[5] = TouchTurnBreadcrumbStepState.UPCOMING
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -176,9 +176,9 @@ class TouchTurnStateSyncLogTest {
             status = TouchTurnCandleStatus.READY,
             ordersPlacedForSession = true
         )
-        val stepStates = List(6) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
-        stepStates[3] = TouchTurnBreadcrumbStepState.COMPLETED
-        stepStates[4] = TouchTurnBreadcrumbStepState.SKIPPED
+        val stepStates = List(7) { TouchTurnBreadcrumbStepState.UPCOMING }.toMutableList()
+        stepStates[4] = TouchTurnBreadcrumbStepState.COMPLETED
+        stepStates[5] = TouchTurnBreadcrumbStepState.SKIPPED
         val mismatches = TouchTurnStateSyncLog.findMismatches(
             engine = engineSnapshot(
                 sessionStatus = TouchTurnCandleStatus.READY,
@@ -219,12 +219,16 @@ class TouchTurnStateSyncLogTest {
         hasOpenPosition = hasOpenPosition,
         hasOpenOrders = hasOpenOrders,
         closingPhase = closingPhase,
-        tradeCycleComplete = closingPhase && !hasOpenPosition && !hasOpenOrders
+        tradeCycleComplete = closingPhase && !hasOpenPosition && !hasOpenOrders,
+        sweepActive = false,
+        fiveMinConfirmationStatus = null,
+        fiveMinBarsEvaluated = 0,
+        fiveMinSweepPrice = null
     )
 
     private fun uiSnapshot(
         activePath: List<TouchTurnPipelineNodeId> = listOf(TouchTurnPipelineNodeId.Readiness),
-        stepStates: List<TouchTurnBreadcrumbStepState> = List(6) { TouchTurnBreadcrumbStepState.UPCOMING },
+        stepStates: List<TouchTurnBreadcrumbStepState> = List(7) { TouchTurnBreadcrumbStepState.UPCOMING },
         phaseIndex: Int = 1,
         phaseTerminal: Boolean = false,
         usesNoTradePipeline: Boolean = false

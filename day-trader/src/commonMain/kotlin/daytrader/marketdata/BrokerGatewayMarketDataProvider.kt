@@ -1,6 +1,7 @@
 package daytrader.marketdata
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.OhlcBar
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
@@ -39,6 +40,14 @@ class BrokerGatewayMarketDataProvider(
             allowMissingTodayOpeningBar,
             rules
         )
+
+    override suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> =
+        gateway.fetchFiveMinuteBars(symbol, instrument, afterBarOpenEpochMs, marketZoneId)
 
     override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> {
         val normalized = SymbolMarkets.normalizeSymbol(symbol)

@@ -1394,7 +1394,8 @@ class StrategiesViewModel(
                         "openDeadline" to after.touchTurnRules.enables.openDeadline.toString(),
                         "liquidityRangeDailyAtr" to after.touchTurnRules.enables.liquidityRangeDailyAtr.toString(),
                         "adjustableTrailingStop" to after.touchTurnRules.enables.adjustableTrailingStop.toString(),
-                        "invertTradeSide" to after.touchTurnRules.invertTradeSide.toString()
+                        "invertTradeSide" to after.touchTurnRules.invertTradeSide.toString(),
+                        "fiveMinuteConfirmation" to after.touchTurnRules.enables.fiveMinuteConfirmation.toString()
                     )
                 )
             }

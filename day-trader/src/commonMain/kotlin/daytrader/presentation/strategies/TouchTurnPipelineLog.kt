@@ -33,7 +33,7 @@ object TouchTurnPipelineLog {
         source: String
     ) {
         if (!enabled) return
-        val confirmFailed = steps.getOrNull(4)?.state == TouchTurnBreadcrumbStepState.FAILED
+        val confirmFailed = steps.getOrNull(5)?.state == TouchTurnBreadcrumbStepState.FAILED
         val interesting = usesNoTradePipeline || closingPhase ||
             session?.decisionOutcome != null || confirmFailed
         if (!interesting && source == "live") return
@@ -51,8 +51,9 @@ object TouchTurnPipelineLog {
         )
         detail(
             "  phase index=$phaseIndex terminal=$phaseTerminal skippedFrom=$phaseSkippedFrom " +
-                "confirmFailedOnSteps=${steps.getOrNull(4)?.state?.name} " +
-                "orders=${steps.getOrNull(3)?.state?.name} position=${steps.getOrNull(4)?.state?.name}"
+                "confirmFailedOnSteps=${steps.getOrNull(5)?.state?.name} " +
+                "fiveMin=${steps.getOrNull(3)?.state?.name} " +
+                "orders=${steps.getOrNull(4)?.state?.name} position=${steps.getOrNull(5)?.state?.name}"
         )
         detail(
             "  stepStates=${steps.map { it.state.name }.joinToString(",")} " +
@@ -79,7 +80,8 @@ object TouchTurnPipelineLog {
         val m = milestones ?: return
         detail(
             "  milestones barClosed=${m.barClosedAt != null} liquidity=${m.liquidityEvaluatedAt != null} " +
-                "closeConfirmed=${m.closeConfirmedAt != null} orders=${m.ordersPlacedAt != null} " +
+                "fiveMinConfirmed=${m.fiveMinConfirmedAt != null} closeConfirmed=${m.closeConfirmedAt != null} " +
+                "orders=${m.ordersPlacedAt != null} " +
                 "position=${m.positionOpenedAt != null} closing=${m.closingSessionAt != null}"
         )
     }
@@ -93,7 +95,9 @@ object TouchTurnPipelineLog {
             graph.edges.firstOrNull { it.from == from && it.to == to }?.state?.name ?: "missing"
 
         detail(
-            "  edges Rules→Orders=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Orders)} " +
+            "  edges Rules→5m=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.FiveMinConfirmation)} " +
+                "5m→Orders=${edge(TouchTurnPipelineNodeId.FiveMinConfirmation, TouchTurnPipelineNodeId.Orders)} " +
+                "Rules→Orders=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Orders)} " +
                 "Rules→Close=${edge(TouchTurnPipelineNodeId.Rules, TouchTurnPipelineNodeId.Close)} " +
                 "Orders→Position=${edge(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Position)} " +
                 "Orders→Close=${edge(TouchTurnPipelineNodeId.Orders, TouchTurnPipelineNodeId.Close)} " +

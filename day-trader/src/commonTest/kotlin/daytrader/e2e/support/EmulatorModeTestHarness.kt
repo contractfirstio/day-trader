@@ -105,6 +105,17 @@ class EmulatorModeTestHarness(
             config = tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0)
         )
 
+        /** 5m hammer confirmation: fast synthetic 5m bars with hammer on bar index 1. */
+        fun fiveMinuteConfirmation(scope: CoroutineScope) = EmulatorModeTestHarness(
+            scope = scope,
+            config = tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0).copy(
+                fiveMinuteBarSecondsUntilClose = 1L,
+                fiveMinuteHammerBarIndex = 1,
+                touchTurnEntryFillImmediately = true,
+                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE
+            )
+        )
+
         /** Same as [fullTradeLifecycle] but steers bracket walk toward stop loss. */
         fun stopLossLifecycle(scope: CoroutineScope) = EmulatorModeTestHarness(
             scope = scope,

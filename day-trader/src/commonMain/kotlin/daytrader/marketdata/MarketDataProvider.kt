@@ -1,6 +1,7 @@
 package daytrader.marketdata
 
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.gateway.LiveQuote
@@ -22,6 +23,14 @@ interface MarketDataProvider {
         allowMissingTodayOpeningBar: Boolean = false,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext>
+
+    /** Closed 5m bars with open time at or after [afterBarOpenEpochMs] (for hammer confirmation). */
+    suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity? = null,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>>
 
     /** Live incremental volume for post-entry buffer monitoring. */
     fun observeVolumeTicks(symbol: String): Flow<VolumeTick>

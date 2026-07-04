@@ -63,6 +63,7 @@ class FakeBrokerGateway(
                 volumeSma20 = 30_000.0
             )
         )
+    var fiveMinuteBarsFetchResult: Result<List<OhlcBar>> = Result.success(emptyList())
     var refetchSignalContexts: List<TouchTurnSignalContext> = emptyList()
     private val refetchIndex = java.util.concurrent.atomic.AtomicInteger(0)
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
@@ -175,6 +176,13 @@ class FakeBrokerGateway(
         }
         return signalContextFetchResult
     }
+
+    override suspend fun fetchFiveMinuteBars(
+        symbol: String,
+        instrument: InstrumentIdentity?,
+        afterBarOpenEpochMs: Long,
+        marketZoneId: String
+    ): Result<List<OhlcBar>> = fiveMinuteBarsFetchResult
 
     fun resetRefetchIndex() {
         refetchIndex.set(0)

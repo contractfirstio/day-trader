@@ -55,6 +55,7 @@ import daytrader.presentation.strategies.TouchTurnSessionStartUi
 import daytrader.presentation.strategies.TouchTurnSessionStartUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineDetailUiMapper
 import daytrader.presentation.strategies.TouchTurnPipelineGraph
+import daytrader.presentation.strategies.TouchTurnStatusBreadcrumbMapper
 import daytrader.presentation.strategies.TouchTurnPipelineNodeId
 import daytrader.presentation.strategies.TouchTurnReasonSeverity
 import daytrader.presentation.strategies.TouchTurnSessionReasonUi
@@ -822,6 +823,59 @@ fun TouchTurnPipelineSectionRules(
         evaluation?.let { RulesEvaluationCard(evaluation = it, verboseExplanations = sessionEnded) }
         graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
             Text("Rules evaluated $time", fontSize = 10.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+fun TouchTurnPipelineSectionFiveMin(
+    session: TouchTurnSessionContext?,
+    graph: TouchTurnPipelineGraph?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionFiveMin"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (session == null) {
+            Text("5m confirmation unavailable.", fontSize = 11.sp, color = TextSecondary)
+            return@Column
+        }
+        val confirmation = session.fiveMinuteConfirmation
+        Text(
+            TouchTurnStatusBreadcrumbMapper.fiveMinConfirmationCaption(session),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = GainGreen
+        )
+        confirmation?.let { state ->
+            DataCaptureRow(
+                label = "Status",
+                value = state.status.name,
+                testTag = "TouchTurnFiveMinStatus"
+            )
+            DataCaptureRow(
+                label = "Sweep price",
+                value = Formatters.price(state.sweepPrice),
+                testTag = "TouchTurnFiveMinSweepPrice"
+            )
+            DataCaptureRow(
+                label = "Bars evaluated",
+                value = "${state.processedBarTimes.size}/3",
+                testTag = "TouchTurnFiveMinBarsEvaluated"
+            )
+            state.confirmedHammerBar?.let { hammer ->
+                DataCaptureRow(
+                    label = "Hammer close",
+                    value = Formatters.price(hammer.close),
+                    valueColor = GainGreen,
+                    emphasize = true,
+                    testTag = "TouchTurnFiveMinHammerClose"
+                )
+            }
+        }
+        graph?.node(TouchTurnPipelineNodeId.FiveMinConfirmation)?.timestamp?.let { time ->
+            Text("Confirmed $time", fontSize = 10.sp, color = TextSecondary)
         }
     }
 }

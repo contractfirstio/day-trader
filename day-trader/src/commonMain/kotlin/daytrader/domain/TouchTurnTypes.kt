@@ -131,6 +131,7 @@ data class TouchTurnMilestoneTimestamps(
     val dataFailedAt: String? = null,
     val barClosedAt: String? = null,
     val liquidityEvaluatedAt: String? = null,
+    val fiveMinConfirmedAt: String? = null,
     val closeConfirmedAt: String? = null,
     val ordersPlacedAt: String? = null,
     val positionOpenedAt: String? = null,
@@ -190,7 +191,11 @@ data class TouchTurnSessionContext(
     val macroBenchmarkSymbol: String? = null,
     val macroBenchmarkLabel: String? = null,
     /** Symbol daily trend at liquidity evaluation (when stock trend alignment rule is enabled). */
-    val stockTrendAtEntry: StockTrendState? = null
+    val stockTrendAtEntry: StockTrendState? = null,
+    /** True while waiting for a 5m hammer after a qualifying 15m liquidity sweep. */
+    val sweepActive: Boolean = false,
+    /** Post-sweep 5m confirmation state; null when module bypassed or not yet started. */
+    val fiveMinuteConfirmation: FiveMinuteConfirmationState? = null
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 

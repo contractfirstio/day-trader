@@ -1886,6 +1886,11 @@ private fun TouchTurnLivePipelineDetailHost(
                     requireLivePriceChecks = recapRun?.touchTurnRunRecord?.runContext?.brokerKind
                         ?.usesLiveIbMarketData == true
                 )
+            TouchTurnPipelineNodeId.FiveMinConfirmation ->
+                TouchTurnPipelineSectionFiveMin(
+                    session = analysisSession,
+                    graph = pipelineGraph
+                )
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
                 if (!sessionEnded && touchTurnLiveOrderChart != null) {

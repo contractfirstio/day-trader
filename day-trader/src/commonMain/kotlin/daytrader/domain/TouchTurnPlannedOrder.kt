@@ -170,4 +170,69 @@ object TouchTurnOrderPlanner {
             )
         )
     }
+
+    /**
+     * Bracket for the 5-minute hammer confirmation path: parent MKT entry, stop at hammer extreme,
+     * take-profit at minimum 2:1 reward:risk from entry close to stop.
+     */
+    fun buildHammerConfirmationOrderPlan(
+        symbol: String,
+        hammerBar: OhlcBar,
+        side: TouchTurnTradeSide,
+        maxDollars: Int,
+        currencyCode: String = "USD",
+        instrument: InstrumentIdentity? = null,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnOrderPlan? {
+        val setup = FiveMinuteConfirmationLogic.computeHammerBracketSetup(hammerBar, side)
+        if (!TouchTurnLogic.setupActionableForEntry(setup, rules)) return null
+        val orderSizeRules = instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val quantity = suggestedQuantity(maxDollars, setup.entry, orderSizeRules) ?: return null
+        val exitAction = when (setup.side) {
+            TouchTurnTradeSide.SHORT -> "BUY"
+            TouchTurnTradeSide.LONG -> "SELL"
+        }
+        val entryAction = when (setup.side) {
+            TouchTurnTradeSide.SHORT -> "SELL"
+            TouchTurnTradeSide.LONG -> "BUY"
+        }
+        val adjustableStop = rules.computeAdjustableStop(
+            entry = setup.entry,
+            stopLoss = setup.stopLoss,
+            takeProfit = setup.takeProfit
+        )
+        return TouchTurnOrderPlan(
+            symbol = symbol,
+            currencyCode = currencyCode,
+            instrument = instrument,
+            side = setup.side,
+            quantity = quantity,
+            openingBarClose = hammerBar.close,
+            orders = listOf(
+                TouchTurnPlannedOrder(
+                    role = TouchTurnOrderRole.ENTRY,
+                    action = entryAction,
+                    orderType = "MKT",
+                    quantity = quantity,
+                    price = setup.entry
+                ),
+                TouchTurnPlannedOrder(
+                    role = TouchTurnOrderRole.TAKE_PROFIT,
+                    action = exitAction,
+                    orderType = "LMT",
+                    quantity = quantity,
+                    price = setup.takeProfit
+                ),
+                TouchTurnPlannedOrder(
+                    role = TouchTurnOrderRole.STOP_LOSS,
+                    action = exitAction,
+                    orderType = "STP",
+                    quantity = quantity,
+                    price = setup.stopLoss,
+                    trailTriggerPrice = adjustableStop?.triggerPrice,
+                    trailArmStopPrice = adjustableStop?.armStopPrice
+                )
+            )
+        )
+    }
 }
