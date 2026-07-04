@@ -3,6 +3,7 @@ package daytrader.engine.touchturn
 import daytrader.data.TouchTurnOrderLog
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.FiveMinuteConfirmationState
 import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.OhlcBar
@@ -98,7 +99,7 @@ internal class FiveMinuteConfirmationRunner(
                     sweepPrice = confirmation.sweepPrice
                 )
                 val evaluation = FiveMinuteConfirmationLogic.evaluateHammer(bar, setup.side, candle)
-                val updatedProcessed = confirmation.processedBarTimes + barTime
+                val updated = FiveMinuteConfirmationLogic.stateAfterBarEvaluated(confirmation, bar)
                 SessionTrace.fiveMinuteBarEvaluated(
                     deploymentId = instanceId,
                     sessionId = instance.inProgressSession()?.id,
@@ -106,7 +107,7 @@ internal class FiveMinuteConfirmationRunner(
                     barTime = barTime,
                     isHammer = evaluation.isHammer,
                     invalidatesSetup = evaluation.invalidatesSetup,
-                    processedBarCount = updatedProcessed.size,
+                    processedBarCount = updated.processedBarTimes.size,
                     open = bar.open,
                     high = bar.high,
                     low = bar.low,
@@ -114,9 +115,8 @@ internal class FiveMinuteConfirmationRunner(
                 )
                 if (evaluation.invalidatesSetup) {
                     repository.update(instanceId) { current ->
-                        current.withFiveMinuteConfirmationUpdated(
-                            confirmation.copy(processedBarTimes = updatedProcessed)
-                        ).withFiveMinuteConfirmationReset(
+                        current.withFiveMinuteConfirmationUpdated(updated)
+                            .withFiveMinuteConfirmationReset(
                             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
                             detailMessage = "5-minute bar closed outside the 15-minute sweep range."
                         )
@@ -126,9 +126,7 @@ internal class FiveMinuteConfirmationRunner(
                 }
                 if (!evaluation.isHammer) {
                     repository.update(instanceId) { current ->
-                        current.withFiveMinuteConfirmationUpdated(
-                            confirmation.copy(processedBarTimes = updatedProcessed)
-                        )
+                        current.withFiveMinuteConfirmationUpdated(updated)
                     }
                     continue
                 }
@@ -136,7 +134,7 @@ internal class FiveMinuteConfirmationRunner(
                     instanceId = instanceId,
                     hammerBar = bar,
                     executionGw = executionGw,
-                    processedBarTimes = updatedProcessed
+                    confirmationAfterBar = updated
                 )
                 return
             }
@@ -148,18 +146,15 @@ internal class FiveMinuteConfirmationRunner(
         instanceId: String,
         hammerBar: OhlcBar,
         executionGw: BrokerGateway?,
-        processedBarTimes: List<String>
+        confirmationAfterBar: FiveMinuteConfirmationState
     ) {
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         val session = instance.touchTurnSession ?: return
         val fifteenMinuteSetup = session.setup ?: return
         val rules = session.rules
-        val confirmation = session.fiveMinuteConfirmation ?: return
         val evaluatedAt = nowEpochMillis()
         repository.update(instanceId) { current ->
-            current.withFiveMinuteConfirmationUpdated(
-                confirmation.copy(processedBarTimes = processedBarTimes)
-            )
+            current.withFiveMinuteConfirmationUpdated(confirmationAfterBar)
         }
 
         bracketSubmitSkipReason(instance)?.let {
@@ -168,7 +163,7 @@ internal class FiveMinuteConfirmationRunner(
         }
         if (!replayOpeningBarQuotesReady(instance.symbol)) {
             delayMillis(pollIntervalMs(instance.symbol))
-            submitHammerBracket(instanceId, hammerBar, executionGw, processedBarTimes)
+            submitHammerBracket(instanceId, hammerBar, executionGw, confirmationAfterBar)
             return
         }
         val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)

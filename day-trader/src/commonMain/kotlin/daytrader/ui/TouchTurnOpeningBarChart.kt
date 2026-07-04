@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.OhlcBar
@@ -30,6 +32,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.LiveChartPrices
 import daytrader.presentation.strategies.TouchTurnQuoteStripUi
+import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.CandleGreen
 import daytrader.ui.theme.CandleRed
 import daytrader.ui.theme.DarkBackground
@@ -49,6 +52,9 @@ fun TouchTurnOpeningBarChart(
     currentPrice: Double? = null,
     quoteStrip: TouchTurnQuoteStripUi? = null,
     listingExch: String? = quoteStrip?.listingExch,
+    fiveMinuteBars: List<OhlcBar> = emptyList(),
+    confirmedHammerBarTime: String? = null,
+    sweepPrice: Double? = null,
     modifier: Modifier = Modifier
 ) {
     val bodyColor = when (candleColor) {
@@ -59,8 +65,8 @@ fun TouchTurnOpeningBarChart(
     val priceSeries = remember(livePriceHistory, currentPrice) {
         buildLivePriceSeries(livePriceHistory, currentPrice)
     }
-    val priceRange = remember(candle, priceSeries) {
-        openingBarChartPriceRange(candle, priceSeries)
+    val priceRange = remember(candle, priceSeries, fiveMinuteBars, sweepPrice) {
+        openingBarChartPriceRange(candle, priceSeries, fiveMinuteBars, sweepPrice)
     }
     val chartHeight = if (closeStatus == FirstCandleCloseStatus.CLOSED) {
         TouchTurnChartDimensions.openingBarClosedHeight
@@ -182,6 +188,11 @@ fun TouchTurnOpeningBarChart(
 
             if (priceSeries.isNotEmpty()) {
                 val pathStartX = candleCenterX + bodyWidth * 0.65f
+                val pathEndX = if (fiveMinuteBars.isEmpty()) {
+                    plotRight
+                } else {
+                    plotLeft + plotWidth * 0.58f
+                }
                 val path = Path()
                 priceSeries.forEachIndexed { index, price ->
                     val fraction = if (priceSeries.size <= 1) {
@@ -189,7 +200,7 @@ fun TouchTurnOpeningBarChart(
                     } else {
                         index.toFloat() / (priceSeries.size - 1).coerceAtLeast(1)
                     }
-                    val x = pathStartX + fraction * (plotRight - pathStartX)
+                    val x = pathStartX + fraction * (pathEndX - pathStartX)
                     val point = Offset(x, yFor(price))
                     if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
                 }
@@ -197,6 +208,38 @@ fun TouchTurnOpeningBarChart(
                     path = path,
                     color = Color.White.copy(alpha = if (closeStatus == FirstCandleCloseStatus.CLOSED) 0.45f else 0.9f),
                     style = Stroke(width = priceStrokePx, cap = StrokeCap.Round)
+                )
+            }
+
+            if (fiveMinuteBars.isNotEmpty()) {
+                val fiveMinAreaLeft = plotLeft + plotWidth * 0.58f
+                val fiveMinAreaWidth = plotRight - fiveMinAreaLeft
+                val slotWidth = fiveMinAreaWidth / FiveMinuteConfirmationLogic.MAX_BARS.coerceAtLeast(1)
+                val miniBodyWidth = (slotWidth * 0.42f).coerceIn(8f, 22f)
+                fiveMinuteBars.forEachIndexed { index, bar ->
+                    val centerX = fiveMinAreaLeft + slotWidth * (index + 0.5f)
+                    val isHammer = bar.time == confirmedHammerBarTime
+                    val barColor = if (isHammer) GainGreen else TextSecondary.copy(alpha = 0.8f)
+                    drawTouchTurnCandle(
+                        bar = bar,
+                        centerX = centerX,
+                        bodyWidth = miniBodyWidth,
+                        bodyColor = barColor,
+                        yFor = ::yFor,
+                        minBodyPx = minBodyPx,
+                        wickWidthPx = wickWidthPx
+                    )
+                }
+            }
+
+            sweepPrice?.let { sweep ->
+                val sweepY = yFor(sweep)
+                drawLine(
+                    color = BrandRed.copy(alpha = 0.75f),
+                    start = Offset(plotLeft, sweepY),
+                    end = Offset(plotRight, sweepY),
+                    strokeWidth = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
                 )
             }
 
@@ -268,6 +311,14 @@ fun TouchTurnOpeningBarChart(
                 color = TextSecondary.copy(alpha = 0.85f)
             )
         }
+        if (fiveMinuteBars.isNotEmpty()) {
+            Text(
+                "Right: evaluated 5m bars overlaid on the 15m opening bar price scale.",
+                fontSize = 9.sp,
+                color = TextSecondary.copy(alpha = 0.85f),
+                modifier = Modifier.testTag("TouchTurnOpeningBarChartFiveMinOverlayCaption")
+            )
+        }
     }
 }
 
@@ -303,13 +354,25 @@ internal fun touchTurnCandlePriceRange(
     return TouchTurnCandlePriceRange(min = rawMin - pad, max = rawMax + pad)
 }
 
-private fun openingBarChartPriceRange(candle: OhlcBar, livePrices: List<Double>): TouchTurnCandlePriceRange {
+private fun openingBarChartPriceRange(
+    candle: OhlcBar,
+    livePrices: List<Double>,
+    fiveMinuteBars: List<OhlcBar> = emptyList(),
+    sweepPrice: Double? = null
+): TouchTurnCandlePriceRange {
     val prices = buildList {
         add(candle.high)
         add(candle.low)
         add(candle.open)
         add(candle.close)
         addAll(LiveChartPrices.sanitize(livePrices))
+        sweepPrice?.let { add(it) }
+        fiveMinuteBars.forEach { bar ->
+            add(bar.high)
+            add(bar.low)
+            add(bar.open)
+            add(bar.close)
+        }
     }
     return touchTurnCandlePriceRange(prices, candle.low, candle.high)
 }

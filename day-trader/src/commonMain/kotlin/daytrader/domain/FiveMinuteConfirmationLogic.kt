@@ -28,6 +28,8 @@ data class FiveMinuteConfirmationState(
     val expiresAtEpochMs: Long,
     /** IB bar times for 5m bars already evaluated (dedupe on poll). */
     val processedBarTimes: List<String> = emptyList(),
+    /** Closed 5m bars evaluated during the confirmation window (for post-session recap). */
+    val evaluatedBars: List<OhlcBar> = emptyList(),
     /** Last validated hammer bar, set when [status] becomes [FiveMinuteConfirmationStatus.CONFIRMED]. */
     val confirmedHammerBar: OhlcBar? = null
 )
@@ -35,6 +37,22 @@ data class FiveMinuteConfirmationState(
 object FiveMinuteConfirmationLogic {
     const val BAR_DURATION_MS = 5 * 60 * 1000L
     const val TTL_MS = 3 * BAR_DURATION_MS
+    const val MAX_BARS = 3
+
+    fun stateAfterBarEvaluated(state: FiveMinuteConfirmationState, bar: OhlcBar): FiveMinuteConfirmationState {
+        val barTime = bar.time ?: return state
+        if (barTime in state.processedBarTimes) return state
+        return state.copy(
+            processedBarTimes = state.processedBarTimes + barTime,
+            evaluatedBars = state.evaluatedBars + bar
+        )
+    }
+
+    /** Bars to display in recap UI — prefers full [evaluatedBars], falls back to confirmed hammer only. */
+    fun displayEvaluatedBars(state: FiveMinuteConfirmationState): List<OhlcBar> =
+        state.evaluatedBars.ifEmpty {
+            state.confirmedHammerBar?.let(::listOf).orEmpty()
+        }
 
     /** Module runs only when enabled for reversal mode; ignored when invert/continuation is on. */
     fun shouldUseModule(rules: TouchTurnRuleConfig): Boolean =

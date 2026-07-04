@@ -1,5 +1,7 @@
 package daytrader.data.persistence
 
+import daytrader.domain.FiveMinuteConfirmationState
+import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnMilestoneTimestamps
 import daytrader.domain.TouchTurnPlannedBracket
@@ -56,7 +58,8 @@ internal object TouchTurnRunPersistence {
                 brokerUnrealizedPnLAtStop = record.stopEvent.brokerUnrealizedPnLAtStop
             ),
             milestones = TouchTurnPersistence.milestonesToDomain(record.milestones),
-            rules = TouchTurnRuleConfigPersistence.toDomain(record.rules)
+            rules = TouchTurnRuleConfigPersistence.toDomain(record.rules),
+            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toDomain()
         )
     }
 
@@ -93,7 +96,8 @@ internal object TouchTurnRunPersistence {
                 brokerUnrealizedPnLAtStop = null
             ),
             milestones = TouchTurnPersistence.milestonesToRecord(record.milestones),
-            rules = record.rules?.let(TouchTurnRuleConfigPersistence::toRecord)
+            rules = record.rules?.let(TouchTurnRuleConfigPersistence::toRecord),
+            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toRecord()
         )
     }
 
@@ -114,6 +118,32 @@ internal object TouchTurnRunPersistence {
         time = time,
         volume = volume
     )
+
+    private fun FiveMinuteConfirmationStateRecord.toDomain(): FiveMinuteConfirmationState =
+        FiveMinuteConfirmationState(
+            status = parseFiveMinuteConfirmationStatus(status),
+            sweepPrice = sweepPrice,
+            sweepActiveStartedAtEpochMs = sweepActiveStartedAtEpochMs,
+            expiresAtEpochMs = expiresAtEpochMs,
+            processedBarTimes = processedBarTimes,
+            evaluatedBars = evaluatedBars.map { it.toDomain() },
+            confirmedHammerBar = confirmedHammerBar?.toDomain()
+        )
+
+    private fun FiveMinuteConfirmationState.toRecord(): FiveMinuteConfirmationStateRecord =
+        FiveMinuteConfirmationStateRecord(
+            status = status.name.lowercase(),
+            sweepPrice = sweepPrice,
+            sweepActiveStartedAtEpochMs = sweepActiveStartedAtEpochMs,
+            expiresAtEpochMs = expiresAtEpochMs,
+            processedBarTimes = processedBarTimes,
+            evaluatedBars = evaluatedBars.map { it.toRecord() },
+            confirmedHammerBar = confirmedHammerBar?.toRecord()
+        )
+
+    private fun parseFiveMinuteConfirmationStatus(value: String): FiveMinuteConfirmationStatus =
+        runCatching { FiveMinuteConfirmationStatus.valueOf(value.uppercase()) }
+            .getOrDefault(FiveMinuteConfirmationStatus.EXPIRED)
 
     private fun TouchTurnPlannedBracketRecord.toDomain(): TouchTurnPlannedBracket =
         TouchTurnPlannedBracket(

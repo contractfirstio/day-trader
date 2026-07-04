@@ -523,6 +523,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
         decisionDetailMessage = record?.decision?.detailMessage,
         plannedQuantity = record?.decision?.plannedQuantity,
         plannedBracket = plannedBracket,
-        executedBracketLegs = executedBracketLegs
+        executedBracketLegs = executedBracketLegs,
+        fiveMinuteConfirmation = record?.fiveMinuteConfirmation
     )
 }

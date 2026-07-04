@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
 import daytrader.domain.StrategyDeployment
@@ -403,6 +404,10 @@ fun TouchTurnPipelineSectionData(
                 )
                 session.candle?.let { candle ->
                     if (candleColor != null) {
+                        val fiveMinOverlay = session.fiveMinuteConfirmation
+                        val evaluatedFiveMinBars = fiveMinOverlay?.let {
+                            FiveMinuteConfirmationLogic.displayEvaluatedBars(it)
+                        }.orEmpty()
                         TouchTurnOpeningBarChart(
                             candle = candle,
                             candleColor = candleColor,
@@ -412,6 +417,9 @@ fun TouchTurnPipelineSectionData(
                             livePriceHistory = formingBarPriceChart?.priceHistory.orEmpty(),
                             currentPrice = formingBarPriceChart?.currentPrice,
                             quoteStrip = formingBarPriceChart?.quoteStrip,
+                            fiveMinuteBars = evaluatedFiveMinBars,
+                            confirmedHammerBarTime = fiveMinOverlay?.confirmedHammerBar?.time,
+                            sweepPrice = fiveMinOverlay?.sweepPrice,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -822,6 +830,32 @@ fun TouchTurnPipelineSectionRules(
         }
         formingBarPriceChart?.let { chart ->
             TouchTurnPipelineLiveOrderChart(chart = chart)
+        } ?: if (sessionEnded) {
+            session.candle?.let { candle ->
+                val candleColor = session.firstCandleColor()
+                    ?: TouchTurnLogic.firstCandleColor(candle)
+                val fiveMinOverlay = session.fiveMinuteConfirmation
+                val evaluatedFiveMinBars = fiveMinOverlay?.let {
+                    FiveMinuteConfirmationLogic.displayEvaluatedBars(it)
+                }.orEmpty()
+                if (evaluatedFiveMinBars.isNotEmpty() && candleColor != null) {
+                    TouchTurnOpeningBarChart(
+                        candle = candle,
+                        candleColor = candleColor,
+                        currencyCode = session.currencyCode,
+                        closeStatus = FirstCandleCloseStatus.CLOSED,
+                        rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
+                        fiveMinuteBars = evaluatedFiveMinBars,
+                        confirmedHammerBarTime = fiveMinOverlay?.confirmedHammerBar?.time,
+                        sweepPrice = fiveMinOverlay?.sweepPrice,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("TouchTurnRulesRecapPriceChart")
+                    )
+                }
+            }
+        } else {
+            Unit
         }
         evaluation?.let { RulesEvaluationCard(evaluation = it, verboseExplanations = sessionEnded) }
         graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
@@ -867,6 +901,50 @@ fun TouchTurnPipelineSectionFiveMin(
                 value = "${state.processedBarTimes.size}/3",
                 testTag = "TouchTurnFiveMinBarsEvaluated"
             )
+            val evaluatedBars = remember(state) {
+                FiveMinuteConfirmationLogic.displayEvaluatedBars(state)
+            }
+            session.candle?.let { fifteenMinuteBar ->
+                if (evaluatedBars.isNotEmpty()) {
+                    TouchTurnFiveMinConfirmationTimelineChart(
+                        fifteenMinuteBar = fifteenMinuteBar,
+                        fiveMinuteBars = evaluatedBars,
+                        sweepPrice = state.sweepPrice,
+                        currencyCode = session.currencyCode,
+                        tradeSide = session.setup?.side,
+                        confirmedHammerBarTime = state.confirmedHammerBar?.time,
+                        confirmationStatus = state.status,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+            evaluatedBars.forEachIndexed { index, bar ->
+                val side = session.setup?.side
+                val isHammer = side != null && FiveMinuteConfirmationLogic.isHammerPattern(bar, side)
+                val isConfirmed = bar.time == state.confirmedHammerBar?.time &&
+                    state.status == daytrader.domain.FiveMinuteConfirmationStatus.CONFIRMED
+                DataCaptureRow(
+                    label = "5m bar ${index + 1}",
+                    value = buildString {
+                        bar.time?.let { append("$it · ") }
+                        append(
+                            when {
+                                isConfirmed -> "hammer confirmed"
+                                isHammer -> "hammer pattern"
+                                else -> "no hammer"
+                            }
+                        )
+                        append(" · C ")
+                        append(Formatters.price(bar.close))
+                    },
+                    valueColor = when {
+                        isConfirmed -> GainGreen
+                        isHammer -> GainGreen.copy(alpha = 0.75f)
+                        else -> TextSecondary
+                    },
+                    testTag = "TouchTurnFiveMinBar${index + 1}"
+                )
+            }
             state.confirmedHammerBar?.let { hammer ->
                 val hammerDetail = remember(session) {
                     TouchTurnPipelineDetailUiMapper.fiveMinHammerBarDetail(session)
@@ -891,6 +969,13 @@ fun TouchTurnPipelineSectionFiveMin(
                     testTag = "TouchTurnFiveMinHammerClose"
                 )
             }
+        } ?: session.milestones.fiveMinConfirmedAt?.let {
+            Text(
+                "5m confirmation ran for this session but bar detail was not captured in the run record.",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("TouchTurnFiveMinLegacyMissing")
+            )
         }
         graph?.node(TouchTurnPipelineNodeId.FiveMinConfirmation)?.timestamp?.let { time ->
             Text("Confirmed $time", fontSize = 10.sp, color = TextSecondary)

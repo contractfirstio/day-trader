@@ -212,4 +212,18 @@ class FiveMinuteConfirmationLogicTest {
         assertEquals(expectedTrail.triggerPrice, stop.trailTriggerPrice)
         assertEquals(expectedTrail.armStopPrice, stop.trailArmStopPrice)
     }
+
+    @Test
+    fun stateAfterBarEvaluated_tracksProcessedTimesAndBarBodies() {
+        val initial = FiveMinuteConfirmationLogic.initialState(
+            candle = fifteenMinBar,
+            side = TouchTurnTradeSide.LONG,
+            nowEpochMillis = 1L
+        )
+        val bar = OhlcBar(open = 105.0, high = 106.0, low = 104.0, close = 105.5, time = "20260522  09:35:00")
+        val updated = FiveMinuteConfirmationLogic.stateAfterBarEvaluated(initial, bar)
+        assertEquals(listOf("20260522  09:35:00"), updated.processedBarTimes)
+        assertEquals(listOf(bar), updated.evaluatedBars)
+        assertEquals(updated, FiveMinuteConfirmationLogic.stateAfterBarEvaluated(updated, bar))
+    }
 }

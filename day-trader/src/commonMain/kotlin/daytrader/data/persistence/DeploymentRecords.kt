@@ -181,7 +181,19 @@ data class TouchTurnRunRecordRecord(
     val decision: TouchTurnSessionDecisionRecord,
     val stopEvent: TouchTurnStopEventRecord,
     val milestones: TouchTurnMilestoneTimestampsRecord,
-    val rules: TouchTurnRuleConfigRecord? = null
+    val rules: TouchTurnRuleConfigRecord? = null,
+    val fiveMinuteConfirmation: FiveMinuteConfirmationStateRecord? = null
+)
+
+@Serializable
+data class FiveMinuteConfirmationStateRecord(
+    val status: String,
+    val sweepPrice: Double,
+    val sweepActiveStartedAtEpochMs: Long,
+    val expiresAtEpochMs: Long,
+    val processedBarTimes: List<String> = emptyList(),
+    val evaluatedBars: List<OhlcBarRecord> = emptyList(),
+    val confirmedHammerBar: OhlcBarRecord? = null
 )
 
 @Serializable
