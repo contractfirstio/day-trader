@@ -42,7 +42,8 @@ object DeploymentSessionStopLogic {
             TouchTurnSessionOutcome.NO_TRADE_STOCK_TREND_DATA_UNAVAILABLE,
             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED -> true
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> true
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             null -> false
         }

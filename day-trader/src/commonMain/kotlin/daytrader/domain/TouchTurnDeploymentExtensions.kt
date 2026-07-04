@@ -230,11 +230,16 @@ fun StrategyDeployment.withFiveMinuteConfirmationConfirmed(
     val prior = session.fiveMinuteConfirmation ?: return this
     val at = currentSessionTimestampIso()
     val setup = session.setup ?: return this
-    val hammerSetup = FiveMinuteConfirmationLogic.computeHammerBracketSetup(hammerBar, setup.side)
+    val rules = effectiveTouchTurnRules()
+    val marketEntrySetup = FiveMinuteConfirmationLogic.applyMarketEntryToFifteenMinuteSetup(
+        setup,
+        hammerBar,
+        rules
+    )
     return copy(
         touchTurnSession = session.copy(
             sweepActive = false,
-            setup = hammerSetup,
+            setup = marketEntrySetup,
             fiveMinuteConfirmation = prior.copy(
                 status = FiveMinuteConfirmationStatus.CONFIRMED,
                 confirmedHammerBar = hammerBar
@@ -255,6 +260,8 @@ fun StrategyDeployment.withFiveMinuteConfirmationReset(
             FiveMinuteConfirmationStatus.EXPIRED
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED ->
             FiveMinuteConfirmationStatus.INVALIDATED
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT ->
+            FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT
         else -> session.fiveMinuteConfirmation?.status ?: FiveMinuteConfirmationStatus.EXPIRED
     }
     return copy(
@@ -505,7 +512,8 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED -> false
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> false
             else -> hadLiquidityCandle == true &&
                 setup?.let { TouchTurnLogic.setupActionableForEntry(it, effectiveRules) } == true
         },

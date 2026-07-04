@@ -14,7 +14,9 @@ enum class FiveMinuteConfirmationStatus {
     /** Hammer close outside the 15m sweep range. */
     INVALIDATED,
     /** No qualifying hammer within three 5m bars (15 minutes). */
-    EXPIRED
+    EXPIRED,
+    /** Valid hammer but projected gross profit to 15m TP below minimum. */
+    REJECTED_INSUFFICIENT_GROSS_PROFIT
 }
 
 @Serializable
@@ -111,36 +113,53 @@ object FiveMinuteConfirmationLogic {
         return true
     }
 
-    /** Bracket geometry from a validated 5m hammer (market entry at hammer close). */
-    fun computeHammerBracketSetup(
-        hammerBar: OhlcBar,
-        side: TouchTurnTradeSide
+    /**
+     * Bracket for the 5m confirmation path: MKT entry at [marketEntry], fixed 15m take-profit,
+     * stop recomputed from market entry using [TouchTurnRuleConfig.takeProfitToStopLossRatio].
+     */
+    fun buildConfirmationSetup(
+        fifteenMinuteSetup: TouchTurnBracketSetup,
+        marketEntry: Double,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnBracketSetup {
-        val entry = hammerBar.close
-        val stopLoss = when (side) {
-            TouchTurnTradeSide.LONG -> hammerBar.low
-            TouchTurnTradeSide.SHORT -> hammerBar.high
+        val takeProfit = fifteenMinuteSetup.takeProfit
+        val tpDistance = when (fifteenMinuteSetup.side) {
+            TouchTurnTradeSide.LONG -> takeProfit - marketEntry
+            TouchTurnTradeSide.SHORT -> marketEntry - takeProfit
         }
-        val risk = abs(entry - stopLoss)
-        val reward = risk * TouchTurnDefaults.FIVE_MIN_CONFIRMATION_MIN_REWARD_RISK
-        val takeProfit = when (side) {
-            TouchTurnTradeSide.LONG -> entry + reward
-            TouchTurnTradeSide.SHORT -> entry - reward
+        val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
+        val stopLoss = when (fifteenMinuteSetup.side) {
+            TouchTurnTradeSide.LONG -> marketEntry - stopDistance
+            TouchTurnTradeSide.SHORT -> marketEntry + stopDistance
         }
-        return TouchTurnBracketSetup(
-            range = hammerBar.range,
-            rangeThreshold = 0.0,
-            isLiquidityCandle = true,
-            candleColor = when (side) {
-                TouchTurnTradeSide.LONG -> FirstCandleColor.RED
-                TouchTurnTradeSide.SHORT -> FirstCandleColor.GREEN
-            },
-            side = side,
-            entry = entry,
+        return fifteenMinuteSetup.copy(
+            entry = marketEntry,
             stopLoss = stopLoss,
             takeProfit = takeProfit
         )
     }
+
+    fun applyMarketEntryToFifteenMinuteSetup(
+        fifteenMinuteSetup: TouchTurnBracketSetup,
+        hammerBar: OhlcBar,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnBracketSetup =
+        buildConfirmationSetup(fifteenMinuteSetup, hammerBar.close, rules)
+
+    fun passesGrossProfitGate(
+        fifteenMinuteSetup: TouchTurnBracketSetup,
+        hammerBar: OhlcBar,
+        quantity: Int,
+        minGrossProfit: Double
+    ): Boolean = TouchTurnGrossProfitGate.passes(
+        setup = fifteenMinuteSetup,
+        entryPrice = hammerBar.close,
+        quantity = quantity,
+        minGrossProfit = minGrossProfit
+    )
+
+    /** @deprecated Use [TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE] */
+    const val INSUFFICIENT_GROSS_PROFIT_MESSAGE = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
 
     /** True when the bar's open time is at or after [afterBarOpenEpochMs] and the bar has closed. */
     fun isClosedBarAfter(

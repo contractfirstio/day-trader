@@ -121,6 +121,7 @@ data class TouchTurnRuleConfigRecord(
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,
     val enableFiveMinuteConfirmation: Boolean = false,
+    val minGrossProfit: Double = 0.0,
     val invertTradeSide: Boolean = false
 )
 

@@ -48,6 +48,7 @@ import daytrader.domain.requiresLiquidityRange
 import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.withFiveMinuteConfirmationStarted
 import daytrader.engine.touchturn.FiveMinuteConfirmationRunner
 import daytrader.domain.withTouchTurnCandleFailed
@@ -1431,7 +1432,8 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
     )
 
     private fun finishLiquidityPoll(
@@ -1552,7 +1554,59 @@ class TouchTurnEngine(
                 return false
             }
             TouchTurnOrderSizingResult.InvalidInputs -> return false
-            is TouchTurnOrderSizingResult.Ok -> Unit
+            is TouchTurnOrderSizingResult.Ok -> {
+                if (!TouchTurnGrossProfitGate.passes(
+                        setup = setup,
+                        entryPrice = setup.entry,
+                        quantity = sizing.quantity,
+                        minGrossProfit = rules.minGrossProfit
+                    )
+                ) {
+                    val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
+                        takeProfitPrice = setup.takeProfit,
+                        entryPrice = setup.entry,
+                        quantity = sizing.quantity
+                    )
+                    SessionTrace.grossProfitRejected(
+                        deploymentId = instanceId,
+                        sessionId = instance.inProgressSession()?.id,
+                        symbol = instance.symbol,
+                        entryPrice = setup.entry,
+                        takeProfit = setup.takeProfit,
+                        quantity = sizing.quantity,
+                        projectedGrossProfit = projected,
+                        minGrossProfit = rules.minGrossProfit,
+                        currencyCode = session.currencyCode,
+                        path = "liquidity_evaluation"
+                    )
+                    repository.update(instanceId) {
+                        it.withTouchTurnDecisionOutcome(
+                            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+                        )
+                    }
+                    TouchTurnDecisionLog.ordersSkipped(
+                        instanceId = instance.id,
+                        symbol = instance.symbol,
+                        reason = "insufficient_gross_profit",
+                        session = session.copy(
+                            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
+                        ),
+                        nowEpochMillis = evaluatedAt
+                    )
+                    SessionTrace.bracketSubmitSkipped(
+                        deploymentId = instanceId,
+                        sessionId = instance.inProgressSession()?.id,
+                        symbol = instance.symbol,
+                        reason = "insufficient_gross_profit",
+                        extraDetails = mapOf(
+                            "projectedGrossProfit" to projected.toString(),
+                            "minGrossProfit" to rules.minGrossProfit.toString(),
+                        )
+                    )
+                    return false
+                }
+            }
         }
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
             symbol = instance.symbol,

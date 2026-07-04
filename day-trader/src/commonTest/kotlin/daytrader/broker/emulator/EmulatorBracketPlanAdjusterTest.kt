@@ -1,6 +1,7 @@
 package daytrader.broker.emulator
 
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderRole
@@ -10,6 +11,7 @@ import daytrader.domain.TouchTurnTradeSide
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class EmulatorBracketPlanAdjusterTest {
 
@@ -100,5 +102,43 @@ class EmulatorBracketPlanAdjusterTest {
         val widened = EmulatorBracketPlanAdjuster.widenExits(plan, spreadWidenFactor = 1.35)
         val widenedStop = widened.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
         assertEquals(99.6625, widenedStop.trailArmStopPrice!!, 0.001)
+    }
+
+    @Test
+    fun widenExits_preservesConfiguredRatio_forHammerConfirmationPlan() {
+        val hammer = OhlcBar(
+            open = 382.381277696,
+            high = 382.689645056,
+            low = 382.365859328,
+            close = 382.4275328
+        )
+        val fifteenMinuteSetup = TouchTurnBracketSetup(
+            range = 4.0,
+            rangeThreshold = 0.0,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.GREEN,
+            side = TouchTurnTradeSide.SHORT,
+            entry = 384.0,
+            stopLoss = 385.0,
+            takeProfit = 382.0
+        )
+        val plan = TouchTurnOrderPlanner.buildHammerConfirmationOrderPlan(
+            symbol = "0700",
+            fifteenMinuteSetup = fifteenMinuteSetup,
+            hammerBar = hammer,
+            maxDollars = 500
+        )!!
+        val widened = EmulatorBracketPlanAdjuster.widenExits(plan, spreadWidenFactor = 1.35)
+        val entry = widened.orders.first { it.role == TouchTurnOrderRole.ENTRY }.price
+        val tp = widened.orders.first { it.role == TouchTurnOrderRole.TAKE_PROFIT }.price
+        val stop = widened.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }.price
+        val reward = entry - tp
+        val risk = stop - entry
+        assertTrue(reward > 0.0 && risk > 0.0)
+        assertEquals(
+            TouchTurnRuleConfig.DEFAULT.takeProfitToStopLossRatio,
+            reward / risk,
+            absoluteTolerance = 1e-9
+        )
     }
 }

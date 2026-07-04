@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCloseConfirmation
@@ -156,6 +157,12 @@ object TouchTurnSessionReasonUi {
             headline = "No trade — 5-minute confirmation invalidated",
             detail = session?.decisionDetailMessage
                 ?: "A 5-minute bar closed outside the 15-minute sweep range.",
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> TouchTurnSessionStatusUi(
+            headline = "No trade — insufficient gross profit",
+            detail = session?.decisionDetailMessage
+                ?: TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE,
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {

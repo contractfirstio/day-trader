@@ -455,6 +455,64 @@ object SessionTrace {
         )
     }
 
+    /** Bracket blocked because projected gross profit to take-profit is below minimum. */
+    fun grossProfitRejected(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        entryPrice: Double,
+        takeProfit: Double,
+        quantity: Int,
+        projectedGrossProfit: Double,
+        minGrossProfit: Double,
+        currencyCode: String,
+        path: String
+    ) {
+        log(
+            type = "gross_profit_rejected",
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            details = mapOf(
+                "entryPrice" to entryPrice.toString(),
+                "takeProfit" to takeProfit.toString(),
+                "quantity" to quantity.toString(),
+                "projectedGrossProfit" to projectedGrossProfit.toString(),
+                "minGrossProfit" to minGrossProfit.toString(),
+                "currencyCode" to currencyCode,
+                "path" to path,
+                "message" to daytrader.domain.TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+            )
+        )
+    }
+
+    /** @deprecated Use [grossProfitRejected] */
+    fun fiveMinuteGrossProfitRejected(
+        deploymentId: String,
+        sessionId: String?,
+        symbol: String,
+        barTime: String,
+        marketEntry: Double,
+        takeProfit: Double,
+        quantity: Int,
+        projectedGrossProfit: Double,
+        minGrossProfit: Double,
+        currencyCode: String
+    ) {
+        grossProfitRejected(
+            deploymentId = deploymentId,
+            sessionId = sessionId,
+            symbol = symbol,
+            entryPrice = marketEntry,
+            takeProfit = takeProfit,
+            quantity = quantity,
+            projectedGrossProfit = projectedGrossProfit,
+            minGrossProfit = minGrossProfit,
+            currencyCode = currencyCode,
+            path = "five_minute_hammer"
+        )
+    }
+
     fun bracketAcknowledged(
         deploymentId: String,
         sessionId: String?,

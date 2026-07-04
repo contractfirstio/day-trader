@@ -74,6 +74,11 @@ data class TouchTurnRuleConfig(
     /** When trailing arms, stop is placed this fraction of the way from entry toward the initial stop. */
     val trailingStopArmFractionOfEntryToStop: Double =
         TouchTurnDefaults.TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP,
+    /**
+     * Minimum projected gross profit (|take-profit − entry| × quantity) before any bracket is
+     * submitted. In the symbol's trading currency; 0 disables the gate.
+     */
+    val minGrossProfit: Double = TouchTurnDefaults.MIN_GROSS_PROFIT,
     /** Which entry-gate rules are enforced for this deployment. */
     val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT,
     /**
@@ -114,7 +119,8 @@ data class TouchTurnRuleConfig(
                 key = "fiveMinuteConfirmation",
                 label = "5-minute hammer confirmation",
                 description = "After a 15m liquidity sweep, wait up to three 5m bars for a hammer that closes " +
-                    "inside the sweep range, then enter at market with stop at the hammer extreme and 2:1 take-profit. " +
+                    "inside the sweep range, then enter at market using the original 15m stop and take-profit. " +
+                    "Rejected when projected gross profit to the 15m target is below the configured minimum. " +
                     "Available only in Touch Turn (reversal) mode — hidden when invert trade side is on.",
                 category = TouchTurnRuleCategory.CONFIRMATION
             ),
@@ -208,6 +214,17 @@ data class TouchTurnRuleConfig(
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRAILING_STOP,
                 defaultable = true
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "minGrossProfit",
+                label = "Min gross profit",
+                description = "Before submitting a bracket, require projected gross profit to the " +
+                    "take-profit (|TP − entry| × quantity) to be at least this amount in the symbol's " +
+                    "currency. Applies to the default 15m entry and to 5m hammer-confirmed market entry. " +
+                    "0 disables the gate.",
+                kind = TouchTurnRuleFieldKind.PRICE,
+                category = TouchTurnRuleCategory.BRACKET,
+                defaultable = true
             )
         )
 
@@ -235,6 +252,7 @@ data class TouchTurnRuleConfig(
                 config.trailingStopTriggerFractionOfEntryToTp.toString()
             "trailingStopArmFractionOfEntryToStop" ->
                 config.trailingStopArmFractionOfEntryToStop.toString()
+            "minGrossProfit" -> config.minGrossProfit.toString()
             else -> ""
         }
 
@@ -255,6 +273,10 @@ data class TouchTurnRuleConfig(
                         "entryInwardOffsetRatioOfRange" -> {
                             if (doubleValue < 0.0) return null
                             config.copy(entryInwardOffsetRatioOfRange = doubleValue)
+                        }
+                        "minGrossProfit" -> {
+                            if (doubleValue < 0.0) return null
+                            config.copy(minGrossProfit = doubleValue)
                         }
                         "trailingStopArmFractionOfEntryToStop" -> {
                             if (doubleValue < 0.0 || doubleValue > 1.0) return null

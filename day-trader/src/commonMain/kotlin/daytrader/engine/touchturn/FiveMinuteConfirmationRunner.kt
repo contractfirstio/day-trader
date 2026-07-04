@@ -3,6 +3,7 @@ package daytrader.engine.touchturn
 import daytrader.data.TouchTurnOrderLog
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.OhlcBar
 import daytrader.domain.StrategyDeployment
@@ -151,43 +152,32 @@ internal class FiveMinuteConfirmationRunner(
     ) {
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
         val session = instance.touchTurnSession ?: return
-        val setup = session.setup ?: return
+        val fifteenMinuteSetup = session.setup ?: return
         val rules = session.rules
+        val confirmation = session.fiveMinuteConfirmation ?: return
         val evaluatedAt = nowEpochMillis()
         repository.update(instanceId) { current ->
             current.withFiveMinuteConfirmationUpdated(
-                session.fiveMinuteConfirmation!!.copy(processedBarTimes = processedBarTimes)
-            ).withFiveMinuteConfirmationConfirmed(hammerBar, evaluatedAt)
-        }
-        val afterConfirm = repository.deployments.value.find { it.id == instanceId } ?: return
-        val confirmedAt = afterConfirm.touchTurnSession?.milestones?.fiveMinConfirmedAt
-        if (confirmedAt != null) {
-            SessionTrace.fiveMinuteConfirmationConfirmed(
-                deploymentId = instanceId,
-                sessionId = afterConfirm.inProgressSession()?.id,
-                symbol = afterConfirm.symbol,
-                barTime = hammerBar.time ?: "",
-                entryPrice = hammerBar.close,
-                confirmedAt = confirmedAt
+                confirmation.copy(processedBarTimes = processedBarTimes)
             )
         }
-        val afterSession = afterConfirm.touchTurnSession ?: return
-        val hammerSetup = afterSession.setup ?: return
-        bracketSubmitSkipReason(afterConfirm)?.let {
+
+        bracketSubmitSkipReason(instance)?.let {
             onFinished(instanceId)
             return
         }
-        if (!replayOpeningBarQuotesReady(afterConfirm.symbol)) {
-            delayMillis(pollIntervalMs(afterConfirm.symbol))
+        if (!replayOpeningBarQuotesReady(instance.symbol)) {
+            delayMillis(pollIntervalMs(instance.symbol))
             submitHammerBracket(instanceId, hammerBar, executionGw, processedBarTimes)
             return
         }
-        val deploymentInstrument = DeploymentMarket.effectiveInstrument(afterConfirm)
+        val deploymentInstrument = DeploymentMarket.effectiveInstrument(instance)
         val orderSizeRules = deploymentInstrument?.orderSizeRules()
             ?: daytrader.domain.InstrumentOrderSizeRules.DEFAULT
+        val marketEntry = hammerBar.close
         when (val sizing = TouchTurnOrderPlanner.sizeQuantity(
-            afterConfirm.maxDollars,
-            hammerSetup.entry,
+            instance.maxDollars,
+            marketEntry,
             orderSizeRules
         )) {
             is TouchTurnOrderSizingResult.BelowMinimum -> {
@@ -195,9 +185,9 @@ internal class FiveMinuteConfirmationRunner(
                     it.withTouchTurnDecisionOutcome(
                         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
                         detailMessage = TouchTurnOrderPlanner.insufficientFundsDetailMessage(
-                            maxDollars = afterConfirm.maxDollars,
-                            currencyCode = afterSession.currencyCode,
-                            entryPrice = hammerSetup.entry,
+                            maxDollars = instance.maxDollars,
+                            currencyCode = session.currencyCode,
+                            entryPrice = marketEntry,
                             sizing = sizing
                         )
                     )
@@ -209,12 +199,64 @@ internal class FiveMinuteConfirmationRunner(
                 onFinished(instanceId)
                 return
             }
-            is TouchTurnOrderSizingResult.Ok -> Unit
+            is TouchTurnOrderSizingResult.Ok -> {
+                if (!FiveMinuteConfirmationLogic.passesGrossProfitGate(
+                        fifteenMinuteSetup = fifteenMinuteSetup,
+                        hammerBar = hammerBar,
+                        quantity = sizing.quantity,
+                        minGrossProfit = rules.minGrossProfit
+                    )
+                ) {
+                    val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
+                        takeProfitPrice = fifteenMinuteSetup.takeProfit,
+                        entryPrice = marketEntry,
+                        quantity = sizing.quantity
+                    )
+                    SessionTrace.grossProfitRejected(
+                        deploymentId = instanceId,
+                        sessionId = instance.inProgressSession()?.id,
+                        symbol = instance.symbol,
+                        entryPrice = marketEntry,
+                        takeProfit = fifteenMinuteSetup.takeProfit,
+                        quantity = sizing.quantity,
+                        projectedGrossProfit = projected,
+                        minGrossProfit = rules.minGrossProfit,
+                        currencyCode = session.currencyCode,
+                        path = "five_minute_hammer"
+                    )
+                    repository.update(instanceId) { current ->
+                        current.withFiveMinuteConfirmationReset(
+                            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+                        )
+                    }
+                    onFinished(instanceId)
+                    return
+                }
+            }
         }
+
+        repository.update(instanceId) { current ->
+            current.withFiveMinuteConfirmationConfirmed(hammerBar, evaluatedAt)
+        }
+        val afterConfirm = repository.deployments.value.find { it.id == instanceId } ?: return
+        val confirmedAt = afterConfirm.touchTurnSession?.milestones?.fiveMinConfirmedAt
+        if (confirmedAt != null) {
+            SessionTrace.fiveMinuteConfirmationConfirmed(
+                deploymentId = instanceId,
+                sessionId = afterConfirm.inProgressSession()?.id,
+                symbol = afterConfirm.symbol,
+                barTime = hammerBar.time ?: "",
+                entryPrice = marketEntry,
+                confirmedAt = confirmedAt
+            )
+        }
+        val afterSession = afterConfirm.touchTurnSession ?: return
+        val marketEntrySetup = afterSession.setup ?: return
         val plan = TouchTurnOrderPlanner.buildHammerConfirmationOrderPlan(
             symbol = afterConfirm.symbol,
+            fifteenMinuteSetup = fifteenMinuteSetup,
             hammerBar = hammerBar,
-            side = setup.side,
             maxDollars = afterConfirm.maxDollars,
             currencyCode = afterSession.currencyCode,
             instrument = deploymentInstrument,
@@ -223,7 +265,7 @@ internal class FiveMinuteConfirmationRunner(
             onFinished(instanceId)
             return
         }
-        ensureEmulatorQuotesBeforeBracketSubmit(afterConfirm, hammerSetup, rules, plan)
+        ensureEmulatorQuotesBeforeBracketSubmit(afterConfirm, marketEntrySetup, rules, plan)
         if (executionGw == null) {
             repository.update(instanceId) {
                 it.withTouchTurnDecisionOutcome(TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED)
@@ -244,7 +286,7 @@ internal class FiveMinuteConfirmationRunner(
             maxDollars = afterConfirm.maxDollars,
             currencyCode = afterSession.currencyCode,
             instrument = deploymentInstrument,
-            setup = hammerSetup,
+            setup = marketEntrySetup,
             hammerBar = hammerBar,
             plan = plan,
             brokerGateway = executionGw
@@ -255,7 +297,7 @@ internal class FiveMinuteConfirmationRunner(
                 sessionId = afterConfirm.inProgressSession()?.id,
                 symbol = afterConfirm.symbol,
                 orderCount = plan.orders.size,
-                entryPrice = hammerSetup.entry,
+                entryPrice = marketEntrySetup.entry,
                 currencyCode = afterSession.currencyCode,
                 pendingBracketCount = 1,
                 extraDetails = mapOf("confirmation" to "five_minute_hammer")

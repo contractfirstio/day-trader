@@ -97,9 +97,15 @@ object TouchTurnStatusBreadcrumbMapper {
         val rulesFailed = rulesStepFailed(session, nowEpochMillis)
         val liquidityRefetchFailed = session?.failedDuringLiquidityRefetch() == true &&
             session.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED
-        val fiveMinFailed = session?.decisionOutcome in fiveMinNoTradeOutcomes
+        val fiveMinFailed = session?.decisionOutcome in fiveMinNoTradeOutcomes ||
+            (session?.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT &&
+                session.fiveMinuteConfirmation != null)
         return pipelineLabels.mapIndexed { index, label ->
             val state = when {
+                index == IDX_ORDERS &&
+                    session?.decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT &&
+                    session.fiveMinuteConfirmation == null ->
+                    TouchTurnBreadcrumbStepState.FAILED
                 index == IDX_FIVE_MIN && fiveMinFailed ->
                     TouchTurnBreadcrumbStepState.FAILED
                 index == IDX_RULES && liquidityRefetchFailed ->
@@ -265,6 +271,10 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_FIVE_MIN, terminal = true)
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> {
+                val skippedFrom = if (session.fiveMinuteConfirmation != null) IDX_FIVE_MIN else IDX_ORDERS
+                return Phase(index = IDX_CLOSE, skippedFromIndex = skippedFrom, terminal = true)
+            }
             TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_POSITION, terminal = true)
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
@@ -327,6 +337,8 @@ object TouchTurnStatusBreadcrumbMapper {
         return when (confirmation?.status) {
             FiveMinuteConfirmationStatus.CONFIRMED ->
                 "5m hammer confirmed — submitting order"
+            FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT ->
+                "5m hammer rejected — insufficient gross profit"
             FiveMinuteConfirmationStatus.AWAITING ->
                 "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
             else -> "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
@@ -371,8 +383,9 @@ object TouchTurnStatusBreadcrumbMapper {
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         val noTradeAfterRules = decisionOutcome in noTradeAfterRulesOutcomes
         val ordersSkipped = notLiquidity || noTradeAfterRules
-        val fiveMinNoTrade = decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED ||
-            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
+        val fiveMinNoTrade = decisionOutcome in fiveMinNoTradeOutcomes
+        val ordersGrossProfitRejected =
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
         val fiveMinApplies = !ordersSkipped &&
             (milestones.fiveMinConfirmedAt != null || fiveMinNoTrade)
         val fiveMinSkipped = ordersSkipped || (!fiveMinApplies && milestones.ordersPlacedAt != null) ||
@@ -401,6 +414,7 @@ object TouchTurnStatusBreadcrumbMapper {
                 }
                 IDX_ORDERS -> when {
                     ordersSkipped -> TouchTurnBreadcrumbStepState.SKIPPED
+                    ordersGrossProfitRejected -> TouchTurnBreadcrumbStepState.FAILED
                     milestones.ordersPlacedAt != null || ordersPlacedForCandle == true ->
                         TouchTurnBreadcrumbStepState.COMPLETED
                     else -> TouchTurnBreadcrumbStepState.UPCOMING

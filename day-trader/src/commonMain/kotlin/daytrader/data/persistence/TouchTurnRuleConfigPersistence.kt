@@ -23,7 +23,8 @@ object TouchTurnRuleConfigPersistence {
                     adjustableTrailingStop = it.enableAdjustableTrailingStop,
                     fiveMinuteConfirmation = it.enableFiveMinuteConfirmation
                 ),
-                invertTradeSide = it.invertTradeSide
+                invertTradeSide = it.invertTradeSide,
+                minGrossProfit = it.minGrossProfit
             )
         } ?: TouchTurnRuleConfig.DEFAULT
 
@@ -43,6 +44,7 @@ object TouchTurnRuleConfigPersistence {
             enableOpenDeadline = config.enables.openDeadline,
             enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,
             enableFiveMinuteConfirmation = config.enables.fiveMinuteConfirmation,
+            minGrossProfit = config.minGrossProfit,
             invertTradeSide = config.invertTradeSide
         )
 }

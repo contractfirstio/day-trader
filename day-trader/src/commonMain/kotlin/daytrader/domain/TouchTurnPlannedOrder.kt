@@ -172,63 +172,69 @@ object TouchTurnOrderPlanner {
     }
 
     /**
-     * Bracket for the 5-minute hammer confirmation path: parent MKT entry, stop at hammer extreme,
-     * take-profit at minimum 2:1 reward:risk from entry close to stop.
+     * Bracket for the 5-minute hammer confirmation path: parent MKT entry at hammer close,
+     * take-profit fixed at the 15m fib target, stop recomputed for [takeProfitToStopLossRatio]
+     * from the market entry; trailing math uses the same market entry.
      */
     fun buildHammerConfirmationOrderPlan(
         symbol: String,
+        fifteenMinuteSetup: TouchTurnBracketSetup,
         hammerBar: OhlcBar,
-        side: TouchTurnTradeSide,
         maxDollars: Int,
         currencyCode: String = "USD",
         instrument: InstrumentIdentity? = null,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnOrderPlan? {
-        val setup = FiveMinuteConfirmationLogic.computeHammerBracketSetup(hammerBar, side)
-        if (!TouchTurnLogic.setupActionableForEntry(setup, rules)) return null
+        if (!TouchTurnLogic.setupActionableForEntry(fifteenMinuteSetup, rules)) return null
+        val confirmationSetup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
+            fifteenMinuteSetup = fifteenMinuteSetup,
+            marketEntry = hammerBar.close,
+            rules = rules
+        )
+        val marketEntry = confirmationSetup.entry
         val orderSizeRules = instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
-        val quantity = suggestedQuantity(maxDollars, setup.entry, orderSizeRules) ?: return null
-        val exitAction = when (setup.side) {
+        val quantity = suggestedQuantity(maxDollars, marketEntry, orderSizeRules) ?: return null
+        val exitAction = when (confirmationSetup.side) {
             TouchTurnTradeSide.SHORT -> "BUY"
             TouchTurnTradeSide.LONG -> "SELL"
         }
-        val entryAction = when (setup.side) {
+        val entryAction = when (confirmationSetup.side) {
             TouchTurnTradeSide.SHORT -> "SELL"
             TouchTurnTradeSide.LONG -> "BUY"
         }
         val adjustableStop = rules.computeAdjustableStop(
-            entry = setup.entry,
-            stopLoss = setup.stopLoss,
-            takeProfit = setup.takeProfit
+            entry = confirmationSetup.entry,
+            stopLoss = confirmationSetup.stopLoss,
+            takeProfit = confirmationSetup.takeProfit
         )
         return TouchTurnOrderPlan(
             symbol = symbol,
             currencyCode = currencyCode,
             instrument = instrument,
-            side = setup.side,
+            side = confirmationSetup.side,
             quantity = quantity,
-            openingBarClose = hammerBar.close,
+            openingBarClose = marketEntry,
             orders = listOf(
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.ENTRY,
                     action = entryAction,
                     orderType = "MKT",
                     quantity = quantity,
-                    price = setup.entry
+                    price = marketEntry
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.TAKE_PROFIT,
                     action = exitAction,
                     orderType = "LMT",
                     quantity = quantity,
-                    price = setup.takeProfit
+                    price = confirmationSetup.takeProfit
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.STOP_LOSS,
                     action = exitAction,
                     orderType = "STP",
                     quantity = quantity,
-                    price = setup.stopLoss,
+                    price = confirmationSetup.stopLoss,
                     trailTriggerPrice = adjustableStop?.triggerPrice,
                     trailArmStopPrice = adjustableStop?.armStopPrice
                 )

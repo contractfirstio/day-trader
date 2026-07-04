@@ -57,6 +57,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
     /** 5m hammer closed outside the 15m sweep price range. */
     NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+    /** Valid hammer but projected gross profit to 15m TP below per-symbol minimum. */
+    NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
     TRADE_BRACKET_SUBMITTED
 }
 
