@@ -51,7 +51,7 @@ Every change starts with a **failing test** that describes the desired behavior.
 ./gradlew e2ePaper          # paper E2E group
 ./gradlew e2eIb             # IB E2E group
 ./gradlew e2eReplay         # replay E2E group
-./gradlew allTests          # unit + all E2E groups (desktopTest is the same suite, for IDE/KMP)
+./gradlew allTests          # unit + all E2E groups (desktopTest / unitTest = unit only)
 ```
 
 While iterating: `./gradlew bddIbWip` (WIP BDD), `./gradlew e2eIbTests` (programmatic only). Add `--rerun-tasks` to force a fresh run.

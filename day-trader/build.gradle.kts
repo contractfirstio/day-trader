@@ -1,3 +1,11 @@
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.testing.internal.KotlinTestReport
 
@@ -6,6 +14,130 @@ plugins {
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlinxSerialization)
+    alias(libs.plugins.kover)
+}
+
+private val bddCoverageTaskNames = listOf(
+    "bddTest",
+    "bddEmulator",
+    "bddPaper",
+    "bddIb",
+    "bddIbWip",
+    "bddReplay",
+)
+
+private val programmaticE2eTestTaskNames = listOf(
+    "e2eEmulatorTests",
+    "e2ePaperTests",
+    "e2eIbTests",
+    "e2eReplayTests",
+)
+
+/** Default coverage scope is BDD; pass -Pcoverage.scope=unit for unit-only reports. */
+fun Project.requestedCoverageScope(): String {
+    (findProperty("coverage.scope") as String?)?.let { return it }
+    val requestedTasks = gradle.startParameter.taskNames.joinToString(" ")
+    return if (requestedTasks.contains("coverageUnit")) "unit" else "bdd"
+}
+
+fun Project.koverExcludedTestTaskNames(): List<String> = buildList {
+    addAll(programmaticE2eTestTaskNames)
+    when (requestedCoverageScope()) {
+        "bdd" -> add("desktopTest")
+        "unit" -> addAll(bddCoverageTaskNames)
+        "all" -> Unit
+        else -> error("Unknown coverage.scope (use bdd, unit, or all)")
+    }
+    (findProperty("coverage.bdd.only") as String?)?.let { onlyBddTask ->
+        addAll(bddCoverageTaskNames.filter { it != onlyBddTask })
+    }
+}
+
+fun Project.koverBddTasksForCoverage(): List<String> {
+    val only = findProperty("coverage.bdd.only") as String?
+    return if (only != null) listOf(only) else bddCoverageTaskNames
+}
+
+fun Project.shouldInstrumentBddTask(taskName: String): Boolean {
+    if (requestedCoverageScope() == "unit") return false
+    return taskName in koverBddTasksForCoverage()
+}
+
+/**
+ * Kover auto-instruments only Kotlin JVM platform test tasks (desktopTest).
+ * Custom bdd* Test tasks need the same on-the-fly agent so their binary reports merge into koverHtmlReport.
+ */
+fun Test.configureManualKoverInstrumentation(project: Project, enabled: Provider<Boolean>) {
+    val findAgentJar = project.tasks.named("koverFindJar")
+    dependsOn(findAgentJar)
+    val agentJar = project.layout.buildDirectory.file("kover/kover-jvm-agent-0.9.8.jar")
+    val binReport = project.layout.buildDirectory.map { dir ->
+        dir.file("kover/binreports/${name}.ic")
+    }
+    doFirst {
+        val reportFile = binReport.get().asFile
+        reportFile.parentFile.mkdirs()
+        reportFile.delete()
+    }
+    jvmArgumentProviders.add(
+        object : CommandLineArgumentProvider {
+            @get:InputFile
+            @get:PathSensitive(PathSensitivity.RELATIVE)
+            val agentJarPath = agentJar
+
+            @get:OutputFile
+            val binReportPath = binReport
+
+            @get:Input
+            val instrumentationEnabled = enabled
+
+            @get:Internal
+            val tempDir = temporaryDir
+
+            override fun asArguments(): Iterable<String> {
+                if (!instrumentationEnabled.get()) {
+                    return emptyList()
+                }
+                val reportFile = binReportPath.get().asFile
+                val argsFile = tempDir.resolve("kover-${name}.args")
+                argsFile.writeText("report.file=${reportFile.canonicalPath}\n")
+                val jar = agentJarPath.get().asFile
+                return listOf("-javaagent:${jar.canonicalPath}=file:${argsFile.canonicalPath}")
+            }
+        },
+    )
+}
+
+kover {
+    currentProject {
+        instrumentation {
+            disabledForTestTasks.addAll(koverExcludedTestTaskNames())
+        }
+    }
+    reports {
+        filters {
+            excludes {
+                // Third-party IB API — not our code.
+                classes("com.ib.*")
+            }
+        }
+        total {
+            html {
+                title.set("Day Trader — BDD coverage")
+            }
+            additionalBinaryReports.set(
+                provider {
+                    if (requestedCoverageScope() == "unit") {
+                        emptySet()
+                    } else {
+                        koverBddTasksForCoverage().map { taskName ->
+                            layout.buildDirectory.file("kover/binreports/$taskName.ic").get().asFile
+                        }.toSet()
+                    }
+                },
+            )
+        }
+    }
 }
 
 kotlin {
@@ -135,26 +267,9 @@ fun Test.configureE2eModeReports(taskName: String) {
     }
 }
 
-tasks.named<Test>("desktopTest") {
-    configureTestDefaults()
-    description =
-        "Full verification suite (same as allTests / fullTestSuite). " +
-            "Runs unitTest then all broker-mode E2E groups sequentially; this KMP task runs no tests itself."
-    dependsOn(tasks.named("fullTestSuite"))
-    useJUnitPlatform {
-        includeTags("daytrader.fullTestSuite.delegate")
-    }
-    filter {
-        isFailOnNoMatchingTests = false
-    }
-}
-
-tasks.register<Test>("unitTest") {
+fun Test.configureUnitTestTask() {
     group = "verification"
-    description =
-        "Unit tests and domain smoke tests (excludes all E2E and Cucumber BDD)."
     configureTestDefaults(excludeModeTag = "e2e")
-    useDesktopTestClasspath()
     filter {
         excludeTestsMatching("daytrader.e2e.Cucumber*")
     }
@@ -162,6 +277,19 @@ tasks.register<Test>("unitTest") {
         html.outputLocation.set(layout.buildDirectory.dir("reports/tests/unitTest"))
         junitXml.outputLocation.set(layout.buildDirectory.dir("test-results/unitTest"))
     }
+}
+
+tasks.named<Test>("desktopTest") {
+    configureUnitTestTask()
+    description =
+        "Unit tests and domain smoke tests (excludes all E2E and Cucumber BDD). " +
+            "KMP default test task — instrumented by Kover; same as unitTest."
+}
+
+tasks.register("unitTest") {
+    group = "verification"
+    description = "Alias for desktopTest (unit and domain tests only)."
+    dependsOn(tasks.named("desktopTest"))
 }
 
 tasks.register<Test>("bddTest") {
@@ -404,11 +532,78 @@ registerE2eStressTask(
     ":day-trader:fullTestSuite",
 )
 
-/** Convenience alias — same as [fullTestSuite] / [desktopTest] / [allTests]. */
+/** Convenience alias — same as [fullTestSuite] / [allTests]. */
 tasks.register("test") {
     group = "verification"
-    description = "Runs the full test suite (alias for fullTestSuite / allTests / desktopTest)."
+    description = "Runs the full test suite (alias for fullTestSuite / allTests)."
     dependsOn(tasks.named("fullTestSuite"))
+}
+
+tasks.register("coverageBdd") {
+    group = "verification"
+    description =
+        "Run all Cucumber BDD suites and generate a merged HTML coverage report " +
+            "(build/reports/kover/html/index.html). Unit and programmatic E2E are excluded."
+    dependsOn(tasks.named("bddAll"))
+}
+
+tasks.named("coverageBdd") {
+    finalizedBy(tasks.named("koverHtmlReport"))
+}
+
+listOf(
+    "bddEmulator" to "Emulator",
+    "bddPaper" to "Paper",
+    "bddIb" to "Ib",
+    "bddIbWip" to "IbWip",
+    "bddReplay" to "Replay",
+).forEach { (bddTask, suffix) ->
+    tasks.register("coverageBdd$suffix") {
+        group = "verification"
+        description =
+            "BDD coverage for $bddTask only. Runs :day-trader:koverHtmlReport with " +
+                "-Pcoverage.bdd.only=$bddTask."
+        notCompatibleWithConfigurationCache("Spawns nested Gradle with mode property")
+        doLast {
+            val repoRoot = rootProject.layout.projectDirectory.asFile
+            val gradlew = repoRoot.resolve("gradlew").absolutePath
+            val exitCode = ProcessBuilder(
+                listOf(
+                    gradlew,
+                    ":day-trader:koverHtmlReport",
+                    "-Pcoverage.bdd.only=$bddTask",
+                    "--no-configuration-cache",
+                ),
+            )
+                .directory(repoRoot)
+                .inheritIO()
+                .start()
+                .waitFor()
+            if (exitCode != 0) {
+                throw GradleException("coverageBdd$suffix failed (exit code $exitCode)")
+            }
+        }
+    }
+}
+
+tasks.register("coverageUnit") {
+    group = "verification"
+    description =
+        "Unit-test coverage only (desktopTest). Use -Pcoverage.scope=unit implicitly via this task name."
+    dependsOn(tasks.named("desktopTest"))
+}
+
+tasks.named("coverageUnit") {
+    finalizedBy(tasks.named("koverHtmlReport"))
+}
+
+afterEvaluate {
+    bddCoverageTaskNames.forEach { bddTaskName ->
+        tasks.named<Test>(bddTaskName).configure {
+            val enabled = project.provider { shouldInstrumentBddTask(bddTaskName) }
+            configureManualKoverInstrumentation(project, enabled)
+        }
+    }
 }
 
 // KMP registers `allTests` (KotlinTestReport) → desktopTest by default. Rewire to fullTestSuite.

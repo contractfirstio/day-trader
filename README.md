@@ -284,6 +284,29 @@ Add `--rerun-tasks` to force a fresh run. When multiple E2E/BDD tasks are schedu
 
 **Reports:** `day-trader/build/reports/tests/<taskName>/index.html`
 
+#### Coverage (Kover)
+
+Primary coverage is **Cucumber BDD** (engine, broker adapters, session lifecycle, UI paths exercised by scenarios). Unit and programmatic E2E are excluded by default.
+
+```bash
+./gradlew coverageBdd              # all BDD modes → merged HTML report
+./gradlew coverageBddEmulator      # emulator BDD only (fastest single mode)
+./gradlew coverageBddPaper
+./gradlew coverageBddIb
+./gradlew coverageBddReplay
+./gradlew koverXmlReport             # JaCoCo-compatible XML (e.g. Codecov upload)
+./gradlew koverLog                   # summary to the console
+
+# Optional: unit-test coverage only
+./gradlew coverageUnit
+```
+
+**Report:** `day-trader/build/reports/kover/html/index.html`
+
+Fine-grained control: `-Pcoverage.bdd.only=bddEmulator` limits which BDD task runs; `-Pcoverage.scope=unit|bdd|all` overrides the default scope.
+
+There is no failing coverage gate yet — use the report to find integration paths your BDD scenarios never reach.
+
 #### Additional test tasks
 
 ```bash
@@ -312,7 +335,7 @@ Add `--rerun-tasks` to force a fresh run. When multiple E2E/BDD tasks are schedu
 # Full suite (unitTest + all E2E groups, nothing excluded)
 ./gradlew allTests
 
-# Same as allTests — KMP/IDE often invoke this name
+# Unit tests only (KMP task name; same as unitTest)
 ./gradlew desktopTest
 ```
 

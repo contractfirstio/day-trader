@@ -1,5 +1,6 @@
 [versions]
 kotlin = "2.0.21"
+kover = "0.9.8"
 agp = "8.6.0"
 compose = "1.8.1"
 junit = "4.13.2"
@@ -29,4 +30,5 @@ androidLibrary = { id = "com.android.library", version.ref = "agp" }
 kotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ktor = { id = "io.ktor.plugin", version = "2.3.0" }
 kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
 

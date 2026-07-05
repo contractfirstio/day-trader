@@ -33,10 +33,23 @@ listOf(
     "e2eIbModeStress10",
     "e2eReplayStress10",
     "allTestsStress10",
+    "coverageBdd",
+    "coverageBddEmulator",
+    "coverageBddPaper",
+    "coverageBddIb",
+    "coverageBddIbWip",
+    "coverageBddReplay",
+    "coverageUnit",
+    "koverHtmlReport",
+    "koverXmlReport",
+    "koverVerify",
 ).forEach { taskName ->
     tasks.register(taskName) {
         group = "verification"
-        val dayTraderTask = if (taskName == "allTests") "allTests" else taskName
+        val dayTraderTask = when (taskName) {
+            "allTests" -> "allTests"
+            else -> taskName
+        }
         dependsOn(project(":day-trader").tasks.named(dayTraderTask))
     }
 }
