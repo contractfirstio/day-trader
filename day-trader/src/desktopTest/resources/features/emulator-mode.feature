@@ -47,3 +47,58 @@ Feature: Broker Emulator mode end-to-end
     When an external quote is published for "AAPL"
     And a liquidity bracket is placed on the emulator for "AAPL"
     Then the emulator should have no open position for "AAPL"
+
+  Scenario: Engine five minute hammer confirmation submits bracket on emulator
+    Given the emulator is configured for red liquidity with five minute hammer confirmation
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "CONFIRMED"
+    And the session should have orders placed for the session
+    And the emulator should have received a bracket for "AAPL"
+
+  Scenario: Engine five minute confirmation expires without a qualifying hammer
+    Given the emulator is configured for five minute confirmation expiry without a hammer
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity awaiting five minute confirmation expiry
+    Then the session five minute confirmation status should be "EXPIRED"
+    And the session decision outcome should be "NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED"
+
+  Scenario: Engine five minute confirmation invalidates when bar closes outside sweep range
+    Given the emulator is configured for five minute confirmation invalidation
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "INVALIDATED"
+    And the session decision outcome should be "NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED"
+
+  Scenario: Engine five minute hammer rejects bracket below minimum gross profit
+    Given the emulator is configured for red liquidity with five minute hammer confirmation
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    And the deployment minimum gross profit is 100000.0
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "REJECTED_INSUFFICIENT_GROSS_PROFIT"
+    And the session decision outcome should be "NO_TRADE_INSUFFICIENT_GROSS_PROFIT"
+
+  Scenario: Session prepare completes on emulator with expected checks
+    Given a stopped Touch Turn deployment for "AAPL"
+    And the emulator uses canonical scenario "RED_LIQUIDITY_LONG"
+    When session prepare runs on emulator
+    Then the prepare check "FLAT_POSITION" should pass
+    And the prepare check "HISTORICAL_BOOTSTRAP" should pass
+    And the prepare overall status should be "WARN"
+
+  Scenario: Emulator gateway reconnects after brief disconnect with bracket session intact
+    Given the emulator entry scenario is immediate fill
+    When the Touch Turn engine starts
+    And a liquidity bracket is placed on the emulator for "AAPL"
+    And orders placed for the session is recorded on the deployment
+    And the emulator gateway disconnects and reconnects
+    Then the deployment status should be "RUNNING"
+    And the session should have orders placed for the session

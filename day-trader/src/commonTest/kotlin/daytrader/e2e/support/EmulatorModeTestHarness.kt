@@ -106,14 +106,54 @@ class EmulatorModeTestHarness(
         )
 
         /** 5m hammer confirmation: fast synthetic 5m bars with hammer on bar index 1. */
-        fun fiveMinuteConfirmation(scope: CoroutineScope) = EmulatorModeTestHarness(
+        fun fiveMinuteConfirmation(scope: CoroutineScope) = fiveMinuteConfirmationForScenario(scope)
+
+        /**
+         * Canonical red-liquidity long scenario with fast synthetic 5m bars; hammer closes on bar index 1.
+         */
+        fun fiveMinuteConfirmationForScenario(
+            scope: CoroutineScope,
+            scenario: TouchTurnMarketScenario =
+                TouchTurnMarketFixtures.scenario(TouchTurnMarketScenarioId.RED_LIQUIDITY_LONG),
+        ) = EmulatorModeTestHarness(
             scope = scope,
-            config = tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0).copy(
-                fiveMinuteBarSecondsUntilClose = 1L,
-                fiveMinuteHammerBarIndex = 1,
-                touchTurnEntryFillImmediately = true,
-                touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE
+            config = fiveMinuteScenarioConfig(scenario, hammerBarIndex = 1)
+        )
+
+        /** No hammer slot; pair with [E2EWorld.advanceTestClockBy] after liquidity evaluation. */
+        fun fiveMinuteConfirmationExpired(
+            scope: CoroutineScope,
+            scenario: TouchTurnMarketScenario =
+                TouchTurnMarketFixtures.scenario(TouchTurnMarketScenarioId.RED_LIQUIDITY_LONG),
+        ) = EmulatorModeTestHarness(
+            scope = scope,
+            config = fiveMinuteScenarioConfig(scenario, hammerBarIndex = -1)
+        )
+
+        /** First synthetic 5m bar closes outside the 15m sweep range. */
+        fun fiveMinuteConfirmationInvalidated(
+            scope: CoroutineScope,
+            scenario: TouchTurnMarketScenario =
+                TouchTurnMarketFixtures.scenario(TouchTurnMarketScenarioId.RED_LIQUIDITY_LONG),
+        ) = EmulatorModeTestHarness(
+            scope = scope,
+            config = fiveMinuteScenarioConfig(
+                scenario,
+                hammerBarIndex = -1,
+                invalidatingBarIndex = 0,
             )
+        )
+
+        private fun fiveMinuteScenarioConfig(
+            scenario: TouchTurnMarketScenario,
+            hammerBarIndex: Int,
+            invalidatingBarIndex: Int? = null,
+        ) = scenario.emulatorConfig(tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0)).copy(
+            fiveMinuteBarSecondsUntilClose = 1L,
+            fiveMinuteHammerBarIndex = hammerBarIndex,
+            fiveMinuteInvalidatingBarIndex = invalidatingBarIndex,
+            touchTurnEntryFillImmediately = true,
+            touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
         )
 
         /** Same as [fullTradeLifecycle] but steers bracket walk toward stop loss. */

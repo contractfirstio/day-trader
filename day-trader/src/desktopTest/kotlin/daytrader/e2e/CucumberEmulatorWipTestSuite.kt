@@ -9,6 +9,6 @@ import org.junit.runner.RunWith
     features = ["classpath:features"],
     glue = ["daytrader.e2e.steps"],
     plugin = ["pretty", "summary"],
-    tags = "@emulator and not @ignored and not @wip",
+    tags = "@emulator and @wip and not @ignored",
 )
-class CucumberEmulatorTestSuite
+class CucumberEmulatorWipTestSuite

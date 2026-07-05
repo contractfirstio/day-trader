@@ -4,7 +4,12 @@ import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorPricingSource
 import daytrader.data.SessionMarketDataCapture
 import daytrader.e2e.support.E2EProcessCleanup
+import daytrader.domain.DeploymentStatus
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.FiveMinuteConfirmationLogic
+import daytrader.domain.FiveMinuteConfirmationStatus
+import daytrader.domain.FiveMinuteConfirmationState
+import daytrader.domain.SessionStatus
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPrepareStatus
@@ -19,6 +24,7 @@ import daytrader.domain.withFirstFifteenMinuteCandle
 import daytrader.domain.withOpeningBarClosedMilestone
 import daytrader.domain.inProgressSession
 import daytrader.e2e.E2EWorld
+import daytrader.e2e.support.BrokerFaultInjector
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2EEngineLiquidityHelper
 import daytrader.e2e.support.E2ESessionDriver
@@ -27,6 +33,7 @@ import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
 import daytrader.e2e.support.TouchTurnMarketFixtures
 import daytrader.e2e.support.TouchTurnMarketScenarioId
+import daytrader.e2e.support.forScenario
 import daytrader.engine.TouchTurnCommand
 import daytrader.gateway.BrokerId
 import daytrader.gateway.GatewayConnectionState
@@ -99,6 +106,94 @@ class BrokerModeSteps {
                 )
             )
         }
+    }
+
+    @Given("the deployment has five minute confirmation enabled")
+    fun deploymentFiveMinuteConfirmationEnabled() {
+        world.repository.update(activeDeploymentId()) { current ->
+            current.copy(
+                touchTurnRules = (current.touchTurnRules ?: TouchTurnRuleConfig.DEFAULT).copy(
+                    enables = (current.touchTurnRules?.enables ?: TouchTurnRuleEnables.DEFAULT)
+                        .copy(fiveMinuteConfirmation = true)
+                )
+            )
+        }
+    }
+
+    @Given("the deployment minimum gross profit is {double}")
+    fun deploymentMinimumGrossProfit(minGrossProfit: Double) {
+        world.repository.update(activeDeploymentId()) { current ->
+            current.copy(
+                touchTurnRules = (current.touchTurnRules ?: TouchTurnRuleConfig.DEFAULT).copy(
+                    minGrossProfit = minGrossProfit
+                )
+            )
+        }
+    }
+
+    @Given("the emulator is configured for red liquidity with five minute hammer confirmation")
+    fun emulatorRedLiquidityFiveMinuteHammer() {
+        world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteConfirmationForScenario(it) }
+    }
+
+    @Given("the emulator is configured for five minute confirmation expiry without a hammer")
+    fun emulatorFiveMinuteConfirmationExpiry() {
+        world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteConfirmationExpired(it) }
+    }
+
+    @Given("the emulator is configured for five minute confirmation invalidation")
+    fun emulatorFiveMinuteConfirmationInvalidation() {
+        world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteConfirmationInvalidated(it) }
+    }
+
+    @Given("the IB gateway returns five minute hammer bars for canonical scenario {string}")
+    fun ibGatewayFiveMinuteHammerBars(scenarioId: String) {
+        val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
+        world.activeIbHarness().gateway.fiveMinuteBarsFetchResult =
+            Result.success(TouchTurnMarketFixtures.syntheticFiveMinuteHammerBars(scenario))
+    }
+
+    @Given("the IB gateway returns five minute invalidating bars for canonical scenario {string}")
+    fun ibGatewayFiveMinuteInvalidatingBars(scenarioId: String) {
+        val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
+        world.activeIbHarness().gateway.fiveMinuteBarsFetchResult =
+            Result.success(TouchTurnMarketFixtures.syntheticFiveMinuteInvalidatingBars(scenario))
+    }
+
+    @Given("the IB gateway returns five minute bars without a hammer for canonical scenario {string}")
+    fun ibGatewayFiveMinuteBarsWithoutHammer(scenarioId: String) {
+        val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
+        world.activeIbHarness().gateway.fiveMinuteBarsFetchResult =
+            Result.success(TouchTurnMarketFixtures.syntheticFiveMinuteBars(scenario, hammerBarIndex = -1))
+    }
+
+    @Given("the IB gateway has live bid ask for {string}")
+    fun ibGatewayLiveBidAsk(symbol: String) {
+        val quote = TouchTurnMarketFixtures.liveQuote(
+            symbol = symbol,
+            bid = 100.75,
+            ask = 100.85,
+        )
+        world.activeIbHarness().gateway.setQuotes(mapOf(symbol.uppercase() to quote))
+    }
+
+    @Given("the IB gateway historical bootstrap fails")
+    fun ibGatewayHistoricalBootstrapFails() {
+        world.activeIbHarness().gateway.signalContextFetchResult =
+            Result.failure(IllegalStateException("IB history unavailable"))
+    }
+
+    @Given("the IB gateway has orphan working orders for {string}")
+    fun ibGatewayOrphanWorkingOrders(symbol: String) {
+        world.activeIbHarness().gateway.setOpenOrders(
+            listOf(BrokerFaultInjector.orphanLimitOrder(symbol))
+        )
+    }
+
+    @Given("the emulator uses canonical scenario {string}")
+    fun emulatorCanonicalScenario(scenarioId: String) {
+        val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
+        world.configureEmulatorHarness { EmulatorModeTestHarness.forScenario(it, scenario) }
     }
 
     @Given("the IB gateway returns canonical scenario {string}")
@@ -307,7 +402,7 @@ class BrokerModeSteps {
         val engine = when (world.brokerMode) {
             "emulator" -> {
                 val harness = world.activeEmulatorHarness()
-                harness.createEngine(world.repository).also { world.engine = it }
+                harness.createEngine(world.repository, world.testNowEpochMillis()).also { world.engine = it }
             }
             "hybrid" -> {
                 val harness = world.activeHybridHarness()
@@ -315,7 +410,8 @@ class BrokerModeSteps {
             }
             "ib" -> {
                 val harness = world.activeIbHarness()
-                harness.createEngine(world.repository, world.scope).also { world.engine = it }
+                harness.createEngine(world.repository, world.scope, world.testNowEpochMillis())
+                    .also { world.engine = it }
             }
             else -> error("Unknown broker mode: ${world.brokerMode}")
         }
@@ -336,6 +432,15 @@ class BrokerModeSteps {
     private fun activeDeploymentId(): String =
         world.repository.deployments.value.firstOrNull()?.id ?: E2ETestFixtures.DEPLOYMENT_ID
 
+    private fun fiveMinuteConfirmationState(deployment: daytrader.domain.StrategyDeployment): FiveMinuteConfirmationState? {
+        deployment.touchTurnSession?.fiveMinuteConfirmation?.let { return it }
+        return deployment.sessionHistory
+            .filter { it.status == SessionStatus.CLOSED }
+            .lastOrNull()
+            ?.touchTurnRunRecord
+            ?.fiveMinuteConfirmation
+    }
+
     @When("the engine evaluates liquidity for the session")
     fun engineEvaluatesLiquidityForSession() = runBlocking {
         val engine = world.engine ?: error("Touch Turn engine not started")
@@ -350,16 +455,60 @@ class BrokerModeSteps {
         )
     }
 
+    @When("the engine evaluates liquidity awaiting five minute confirmation expiry")
+    fun engineEvaluatesLiquidityAwaitingFiveMinuteExpiry() = runBlocking {
+        val engine = when (world.brokerMode) {
+            "ib" -> {
+                val harness = world.activeIbHarness()
+                harness.start()
+                harness.createEngine(world.repository, world.scope, world.testNowEpochMillis())
+            }
+            else -> world.engine ?: error("Touch Turn engine not started")
+        }.also { world.engine = it }
+        E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(
+            engine = engine,
+            repository = world.repository,
+            deploymentId = activeDeploymentId(),
+            startEngine = world.brokerMode == "ib",
+            timeoutMs = 120_000,
+            advanceTestClockWhenFiveMinuteAwaiting = { expiresAtEpochMs ->
+                world.advanceTestClockTo(expiresAtEpochMs + 1)
+            },
+        )
+    }
+
     @When("session prepare runs on IB")
     fun sessionPrepareRunsOnIb() = runBlocking {
         val harness = world.activeIbHarness()
         if (harness.gateway.connectionState.value == GatewayConnectionState.Connected) {
             harness.start()
         }
-        val engine = harness.createEngine(world.repository, world.scope).also { world.engine = it }
+        val engine = harness.createEngine(world.repository, world.scope, world.testNowEpochMillis())
+            .also { world.engine = it }
         engine.start()
         engine.dispatch(TouchTurnCommand.PrepareSession(activeDeploymentId()))
         delay(500)
+    }
+
+    @When("session prepare runs on emulator")
+    fun sessionPrepareRunsOnEmulator() = runBlocking {
+        val harness = world.activeEmulatorHarness()
+        harness.start()
+        val engine = harness.createEngine(world.repository, world.testNowEpochMillis()).also { world.engine = it }
+        engine.start()
+        engine.dispatch(TouchTurnCommand.PrepareSession(activeDeploymentId()))
+        delay(500)
+    }
+
+    @When("orders placed for the session is recorded on the deployment")
+    fun recordOrdersPlacedForSession() {
+        world.repository.update(activeDeploymentId()) { it.withOrdersPlacedForSession() }
+    }
+
+    @When("the emulator gateway disconnects and reconnects")
+    fun emulatorGatewayDisconnectReconnect() = runBlocking {
+        BrokerFaultInjector.disconnectReconnect(world.activeEmulatorHarness().gateway)
+        delay(100)
     }
 
     @When("the Touch Turn IB session starts")
@@ -635,7 +784,11 @@ class BrokerModeSteps {
 
     @Then("the emulator should have received a bracket for {string}")
     fun emulatorReceivedBracket(symbol: String) = runBlocking {
-        val gateway = world.activeHybridHarness().executionGateway
+        val gateway = when (world.brokerMode) {
+            "emulator" -> world.activeEmulatorHarness().gateway
+            "hybrid" -> world.activeHybridHarness().executionGateway
+            else -> error("Emulator bracket assertion requires emulator or hybrid mode")
+        }
         val deadline = System.currentTimeMillis() + 5_000
         while (System.currentTimeMillis() < deadline) {
             val hasBracket = gateway.openOrders.value.any { it.symbol == symbol.uppercase() } ||
@@ -747,6 +900,19 @@ class BrokerModeSteps {
         )
     }
 
+    @Then("the session five minute confirmation status should be {string}")
+    fun sessionFiveMinuteConfirmationStatus(expected: String) = runBlocking {
+        val deadline = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < deadline) {
+            val status = fiveMinuteConfirmationState(world.repository.deployments.value.first())?.status?.name
+            if (status == expected) return@runBlocking
+            delay(50)
+        }
+        val confirmation = fiveMinuteConfirmationState(world.repository.deployments.value.first())
+        assertNotNull(confirmation, "fiveMinuteConfirmation missing on active or closed session")
+        assertEquals(expected, confirmation.status.name)
+    }
+
     @Then("the IB bracket entry should match canonical scenario {string}")
     fun ibBracketEntryMatchesCanonicalScenario(scenarioId: String) {
         val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
@@ -768,6 +934,49 @@ class BrokerModeSteps {
         val check = prepare.checks.firstOrNull { it.id == checkId }
         assertNotNull(check, "prepare check $checkId missing; had ${prepare.checks.map { it.id }}")
         assertEquals(TouchTurnPrepareStatus.FAIL.name, check.status)
+    }
+
+    @Then("the prepare check {string} should pass")
+    fun prepareCheckShouldPass(checkId: String) {
+        val prepare = world.repository.deployments.value.first().touchTurnPrepare
+        assertNotNull(prepare, "touchTurnPrepare missing")
+        val check = prepare.checks.firstOrNull { it.id == checkId }
+        assertNotNull(check, "prepare check $checkId missing; had ${prepare.checks.map { it.id }}")
+        assertEquals(TouchTurnPrepareStatus.PASS.name, check.status)
+    }
+
+    @Then("the prepare overall status should be {string}")
+    fun prepareOverallStatus(expected: String) = runBlocking {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            val status = world.repository.deployments.value.first().touchTurnPrepare?.overallStatus
+            if (status == expected) return@runBlocking
+            delay(50)
+        }
+        val prepare = world.repository.deployments.value.first().touchTurnPrepare
+        assertNotNull(prepare, "touchTurnPrepare missing")
+        assertEquals(expected, prepare.overallStatus)
+    }
+
+    @Then("the deployment status should be {string}")
+    fun deploymentStatus(expected: String) {
+        assertEquals(
+            DeploymentStatus.valueOf(expected),
+            world.repository.deployments.value.first().status
+        )
+    }
+
+    @Then("the IB gateway should not have placed a bracket for {string}")
+    fun ibGatewayShouldNotHavePlacedBracket(symbol: String) = runBlocking {
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline) {
+            world.engine?.drainUntilIdle()
+            delay(50)
+        }
+        assertTrue(
+            world.activeIbHarness().gateway.placedBrackets.none { it.symbol == symbol.uppercase() },
+            "expected no IB bracket for $symbol but had ${world.activeIbHarness().gateway.placedBrackets.size}"
+        )
     }
 
     @Then("session market data capture should be active")

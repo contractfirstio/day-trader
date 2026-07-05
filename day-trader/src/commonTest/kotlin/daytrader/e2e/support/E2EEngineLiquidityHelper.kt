@@ -1,6 +1,7 @@
 package daytrader.e2e.support
 
 import daytrader.domain.DeploymentStatus
+import daytrader.domain.FiveMinuteConfirmationStatus
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.TouchTurnRuleConfig
@@ -13,6 +14,11 @@ import kotlinx.coroutines.delay
 
 /** Shared helpers for engine [TouchTurnCommand.PollLiquidity] E2E tests. */
 object E2EEngineLiquidityHelper {
+    private val fiveMinuteTerminalOutcomes = setOf(
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+    )
     fun liquidityEnabledDeployment(
         symbol: String = E2ETestFixtures.SYMBOL,
         sessionDate: String = E2ETestFixtures.SESSION_DATE
@@ -30,16 +36,37 @@ object E2EEngineLiquidityHelper {
         sessionDate: String = E2ETestFixtures.SESSION_DATE,
         timeoutMs: Long = 30_000,
         startEngine: Boolean = true,
+        advanceTestClockWhenFiveMinuteAwaiting: ((expiresAtEpochMs: Long) -> Unit)? = null,
     ) {
         if (startEngine) {
             engine.start()
         }
         engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
+        var testClockAdvanced = false
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val deployment = repository.deployments.value.find { it.id == deploymentId } ?: continue
             val session = deployment.touchTurnSession
             val outcome = decisionOutcome(deployment) ?: session?.decisionOutcome
+
+            if (advanceTestClockWhenFiveMinuteAwaiting != null && !testClockAdvanced) {
+                val confirmation = session?.fiveMinuteConfirmation
+                if (confirmation?.status == FiveMinuteConfirmationStatus.AWAITING) {
+                    advanceTestClockWhenFiveMinuteAwaiting(confirmation.expiresAtEpochMs)
+                    testClockAdvanced = true
+                    engine.drainUntilIdle(512)
+                }
+            }
+
+            when (session?.fiveMinuteConfirmation?.status) {
+                FiveMinuteConfirmationStatus.EXPIRED,
+                FiveMinuteConfirmationStatus.INVALIDATED,
+                FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT -> {
+                    engine.drainUntilIdle()
+                    return
+                }
+                else -> Unit
+            }
 
             when {
                 session?.ordersPlacedForSession == true -> {
@@ -47,6 +74,16 @@ object E2EEngineLiquidityHelper {
                     return
                 }
                 outcome == TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
+                    engine.drainUntilIdle()
+                    return
+                }
+                outcome in fiveMinuteTerminalOutcomes -> {
+                    engine.drainUntilIdle()
+                    return
+                }
+                liquidityEvaluatedAt(deployment) != null &&
+                    session?.ordersPlacedForSession != true &&
+                    session?.fiveMinuteConfirmation == null -> {
                     engine.drainUntilIdle()
                     return
                 }

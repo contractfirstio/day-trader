@@ -99,3 +99,58 @@ Feature: Interactive Brokers mode end-to-end
     And the Touch Turn engine starts
     When the session is stopped manually
     Then session market data capture should be inactive
+
+  Scenario: Engine five minute hammer confirmation submits bracket on IB
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway returns five minute hammer bars for canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "CONFIRMED"
+    And the session should have orders placed for the session
+    And the IB gateway should have placed a bracket for "AAPL"
+
+  Scenario: Engine five minute confirmation invalidates on IB when bar closes outside sweep range
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway returns five minute invalidating bars for canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "INVALIDATED"
+    And the session decision outcome should be "NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED"
+
+  Scenario: Engine five minute confirmation expires on IB without a qualifying hammer
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway returns five minute bars without a hammer for canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the engine evaluates liquidity awaiting five minute confirmation expiry
+    Then the session five minute confirmation status should be "EXPIRED"
+    And the session decision outcome should be "NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED"
+
+  Scenario: Session prepare passes when IB gateway is healthy
+    Given a stopped Touch Turn deployment for "AAPL"
+    And the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway has live bid ask for "AAPL"
+    When session prepare runs on IB
+    Then the prepare check "IB_CONNECTED" should pass
+    And the prepare check "HISTORICAL_BOOTSTRAP" should pass
+    And the prepare check "OPENING_BAR_TIME" should pass
+    And the prepare overall status should be "PASS"
+
+  Scenario: Session prepare fails when IB historical bootstrap is unavailable
+    Given a stopped Touch Turn deployment for "AAPL"
+    And the IB gateway historical bootstrap fails
+    When session prepare runs on IB
+    Then the prepare check "HISTORICAL_BOOTSTRAP" should fail
+    And the prepare overall status should be "FAIL"
+
+  Scenario: Orphan working orders block engine liquidity bracket submit on IB
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway has orphan working orders for "AAPL"
+    And the deployment has liquidity evaluation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the IB gateway should not have placed a bracket for "AAPL"

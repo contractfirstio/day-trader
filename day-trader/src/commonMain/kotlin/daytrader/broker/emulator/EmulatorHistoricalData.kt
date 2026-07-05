@@ -445,7 +445,16 @@ internal object EmulatorHistoricalData {
             val barOpenEpoch = afterBarOpenEpochMs + index * barDurationMs
             val barEndEpoch = barOpenEpoch + barDurationMs
             if (nowEpochMillis < barEndEpoch) continue
-            val bar = if (index == config.fiveMinuteHammerBarIndex) {
+            val bar = when {
+                index == config.fiveMinuteInvalidatingBarIndex ->
+                    syntheticInvalidatingBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        openPrice = priorClose
+                    )
+                index == config.fiveMinuteHammerBarIndex ->
                 syntheticHammerBar(
                     openingFifteenMinuteBar = openingFifteenMinuteBar,
                     side = side,
@@ -453,7 +462,7 @@ internal object EmulatorHistoricalData {
                     marketZoneId = marketZoneId,
                     openPrice = priorClose
                 )
-            } else {
+            else ->
                 syntheticNonHammerBar(
                     openingFifteenMinuteBar = openingFifteenMinuteBar,
                     side = side,
@@ -516,6 +525,33 @@ internal object EmulatorHistoricalData {
                 )
             }
         }
+    }
+
+    private fun syntheticInvalidatingBar(
+        openingFifteenMinuteBar: OhlcBar,
+        side: TouchTurnTradeSide,
+        barOpenEpoch: Long,
+        marketZoneId: String,
+        openPrice: Double = openingFifteenMinuteBar.close
+    ): OhlcBar {
+        val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
+        val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
+        val barRange = span * 0.06
+        val open = openPrice
+        val close = when (side) {
+            TouchTurnTradeSide.LONG -> openingFifteenMinuteBar.low - span * 0.05
+            TouchTurnTradeSide.SHORT -> openingFifteenMinuteBar.high + span * 0.05
+        }
+        val high = maxOf(open, close) + barRange * 0.15
+        val low = minOf(open, close) - barRange * 0.15
+        return OhlcBar(
+            open = open,
+            high = high,
+            low = low,
+            close = close,
+            time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
+            volume = mid * 1_500.0
+        )
     }
 
     private fun syntheticNonHammerBar(

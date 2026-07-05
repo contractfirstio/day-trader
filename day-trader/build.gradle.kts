@@ -20,6 +20,7 @@ plugins {
 private val bddCoverageTaskNames = listOf(
     "bddTest",
     "bddEmulator",
+    "bddEmulatorWip",
     "bddPaper",
     "bddIb",
     "bddIbWip",
@@ -304,6 +305,7 @@ tasks.register<Test>("bddTest") {
 /** Per-mode Cucumber suites — [bddAll] runs these one after another (separate JVM per mode). */
 private val bddModeTestTaskNames = listOf(
     "bddEmulator",
+    "bddEmulatorWip",
     "bddPaper",
     "bddIb",
     "bddIbWip",
@@ -313,12 +315,13 @@ private val bddModeTestTaskNames = listOf(
 tasks.register("bddAll") {
     group = "verification"
     description =
-        "All Cucumber BDD scenarios, one broker mode at a time: emulator → paper → IB → IB @wip → replay."
+        "All Cucumber BDD scenarios, one broker mode at a time: emulator → emulator @wip → paper → IB → IB @wip → replay."
     dependsOn(bddModeTestTaskNames.map { tasks.named(it) })
 }
 
 listOf(
     Triple("bddEmulator", "daytrader.e2e.CucumberEmulatorTestSuite", "Cucumber BDD for broker emulator mode."),
+    Triple("bddEmulatorWip", "daytrader.e2e.CucumberEmulatorWipTestSuite", "Cucumber BDD for emulator mode work-in-progress scenarios (@wip)."),
     Triple("bddPaper", "daytrader.e2e.CucumberPaperTestSuite", "Cucumber BDD for paper mode (live IB data + emulator execution)."),
     Triple("bddIb", "daytrader.e2e.CucumberIbTestSuite", "Cucumber BDD for Interactive Brokers mode."),
     Triple("bddIbWip", "daytrader.e2e.CucumberIbWipTestSuite", "Cucumber BDD for IB mode work-in-progress scenarios (@wip)."),
@@ -403,6 +406,7 @@ tasks.register("fullTestSuite") {
 private val isolatedE2eTestTaskNames = listOf(
     "bddTest",
     "bddEmulator",
+    "bddEmulatorWip",
     "e2eEmulatorTests",
     "bddPaper",
     "e2ePaperTests",
@@ -553,6 +557,7 @@ tasks.named("coverageBdd") {
 
 listOf(
     "bddEmulator" to "Emulator",
+    "bddEmulatorWip" to "EmulatorWip",
     "bddPaper" to "Paper",
     "bddIb" to "Ib",
     "bddIbWip" to "IbWip",

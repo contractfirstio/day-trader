@@ -100,8 +100,10 @@ data class BrokerEmulatorConfig(
      * Null uses real 5-minute domain duration.
      */
     val fiveMinuteBarSecondsUntilClose: Long? = 3L,
-    /** Zero-based index (0..2) of the 5m bar slot that prints a valid hammer. */
+    /** Zero-based index (0..2) of the 5m bar slot that prints a valid hammer. `-1` = no hammer slot. */
     val fiveMinuteHammerBarIndex: Int = 1,
+    /** When set, the matching slot prints a 5m bar whose close invalidates the liquidity sweep. */
+    val fiveMinuteInvalidatingBarIndex: Int? = null,
     /**
      * When set, uses fixed 15m/5m bars and fast pipeline timing for manual E2E testing.
      * See [EmulatorTouchTurnScenario]. Env: `DAY_TRADER_EMULATOR_TOUCH_TURN_SCENARIO`.

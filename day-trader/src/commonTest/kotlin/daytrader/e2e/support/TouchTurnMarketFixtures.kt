@@ -2,8 +2,10 @@ package daytrader.e2e.support
 
 import daytrader.broker.emulator.BrokerEmulatorConfig
 import daytrader.broker.emulator.EmulatorFirstCandleColorMode
+import daytrader.broker.emulator.EmulatorHistoricalData
 import daytrader.domain.OhlcBar
 import daytrader.domain.TouchTurnSignalContext
+import daytrader.domain.TouchTurnTradeSide
 import daytrader.engine.support.FakeBrokerGateway
 import daytrader.gateway.LiveQuote
 
@@ -149,6 +151,51 @@ object TouchTurnMarketFixtures {
 
     private fun tradeLifecycle(): TouchTurnMarketScenario = redLiquidityLong().copy(
         id = TouchTurnMarketScenarioId.TRADE_LIFECYCLE
+    )
+
+    private const val SYNTHETIC_FIVE_MIN_BAR_SECONDS = 1L
+    private const val DEFAULT_MARKET_ZONE = "America/New_York"
+
+    /** Trade side implied by a canonical liquidity opening bar. */
+    fun tradeSide(scenario: TouchTurnMarketScenario): TouchTurnTradeSide = when (scenario.id) {
+        TouchTurnMarketScenarioId.GREEN_LIQUIDITY_SHORT -> TouchTurnTradeSide.SHORT
+        TouchTurnMarketScenarioId.RED_LIQUIDITY_LONG,
+        TouchTurnMarketScenarioId.TRADE_LIFECYCLE -> TouchTurnTradeSide.LONG
+        TouchTurnMarketScenarioId.NON_LIQUIDITY -> TouchTurnTradeSide.LONG
+    }
+
+    /** Fast synthetic closed 5m bars for IB gateway mocks and cross-mode parity. */
+    fun syntheticFiveMinuteBars(
+        scenario: TouchTurnMarketScenario,
+        hammerBarIndex: Int = 1,
+        invalidatingBarIndex: Int? = null,
+        afterBarOpenEpochMs: Long = scenario.barCloseEpochMs,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+    ): List<OhlcBar> = EmulatorHistoricalData.fiveMinuteBarsSince(
+        openingFifteenMinuteBar = scenario.openingBar,
+        side = tradeSide(scenario),
+        config = BrokerEmulatorConfig(
+            fiveMinuteBarSecondsUntilClose = SYNTHETIC_FIVE_MIN_BAR_SECONDS,
+            fiveMinuteHammerBarIndex = hammerBarIndex,
+            fiveMinuteInvalidatingBarIndex = invalidatingBarIndex,
+        ),
+        afterBarOpenEpochMs = afterBarOpenEpochMs,
+        marketZoneId = DEFAULT_MARKET_ZONE,
+        nowEpochMillis = nowEpochMillis,
+    )
+
+    fun syntheticFiveMinuteHammerBars(
+        scenario: TouchTurnMarketScenario,
+        hammerBarIndex: Int = 1,
+    ): List<OhlcBar> = syntheticFiveMinuteBars(scenario, hammerBarIndex = hammerBarIndex)
+
+    fun syntheticFiveMinuteInvalidatingBars(
+        scenario: TouchTurnMarketScenario,
+        invalidatingBarIndex: Int = 0,
+    ): List<OhlcBar> = syntheticFiveMinuteBars(
+        scenario,
+        hammerBarIndex = -1,
+        invalidatingBarIndex = invalidatingBarIndex,
     )
 }
 
