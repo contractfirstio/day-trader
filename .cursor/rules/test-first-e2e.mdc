@@ -11,10 +11,12 @@ Every change starts with a **failing test** that describes the desired behavior.
 
 1. **Classify impact** — Does the change touch broker gateways, Touch Turn engine, session lifecycle, orders/brackets, market data, deployments, or cross-mode parity? If yes, E2E coverage is required (not optional).
 2. **Write the failing test first** — Scenario or test that asserts the new behavior end-to-end.
-3. **Run the narrowest Gradle task** — Confirm red before green (see commands below).
+3. **Run the narrowest Gradle task (Tier 1)** — Confirm red before green. See `agent-regression-tests.mdc`.
 4. **Implement the minimal fix** — Only enough to pass the new test; avoid drive-by refactors.
-5. **Re-run** — New test → affected mode suite (`e2eIb`, etc.) → `unitTest` if domain logic changed.
-6. **Promote BDD** — Remove `@wip`, run `bddIbStress10` (or mode equivalent) before merging stable scenarios.
+5. **Regression gates (Tiers 2–3)** — New test green → affected `e2e*` mode(s) → **`allTestsParallel`** before claiming done on E2E-sensitive work. Domain-only: `unitTest` at Tier 2 is enough.
+6. **Promote BDD (Tier 5)** — Remove `@wip`, run `bddIbStress10` (or mode equivalent) before merging stable scenarios.
+
+**Rule split:** this file = *what* to test and *where* to put it. `agent-regression-tests.mdc` = *when* to run which Gradle tasks (tiers, parallel vs sequential).
 
 ## Choose the right test layer
 
@@ -48,19 +50,23 @@ Every change starts with a **failing test** that describes the desired behavior.
 
 ## Gradle commands (repo root)
 
+| Tier | Command | When |
+|------|---------|------|
+| 1 | `--tests "…"` on `unitTest` / `e2e*Tests` / `bdd*` | Red/green loop on the change |
+| 2 | `e2eEmulator` · `e2ePaper` · `e2eIb` · `e2eReplay` | Mode regression before handoff |
+| 3 | **`allTestsParallel`** (alias `fastAllTests`) | Default full suite — agent “done” gate |
+| 4 | `allTestsSequential` (alias `allTests`) | CI, Gradle/isolation changes, parallel-only failures |
+| 5 | `bddIbStress10`, `allTestsParallelStress3` | Promoting `@wip` BDD / flake hunting |
+
 ```bash
-./gradlew unitTest               # unit/domain only
-./gradlew e2eEmulator            # emulator E2E group
-./gradlew e2ePaper               # paper E2E group
-./gradlew e2eIb                  # IB E2E group
-./gradlew e2eReplay              # replay E2E group
-./gradlew allTestsSequential     # full suite, strictly sequential E2E (CI default; alias: allTests)
-./gradlew allTestsParallel       # full suite, parallel BDD shards (alias: fastAllTests)
-./gradlew allTestsParallelModes  # expert: parallel shards + parallel broker modes
-./gradlew printTestSuites        # print full-suite reference
+./gradlew unitTest               # unit/domain only (Tier 1–2 for domain-only changes)
+./gradlew e2eIb                  # example mode aggregator (Tier 2)
+./gradlew allTestsParallel       # Tier 3 — default full suite
+./gradlew allTestsSequential     # Tier 4 — CI-equivalent
+./gradlew printTestSuites        # print full reference
 ```
 
-While iterating: `./gradlew bddIbWip` (WIP BDD), `./gradlew e2eIbTests` (programmatic only). Add `--rerun-tasks` to force a fresh run.
+While iterating: `./gradlew bddIbWip`, `./gradlew e2eIbTests`. Add `--rerun-tasks` for cold runs. Full tier tables: **`agent-regression-tests.mdc`**.
 
 ## Agent behavior
 
@@ -68,3 +74,5 @@ While iterating: `./gradlew bddIbWip` (WIP BDD), `./gradlew e2eIbTests` (program
 - Show the expected failure (assertion or step) in the first response.
 - If the user asks to "just implement", still add the test first unless they explicitly waive test-first for a trivial change (typo, comment only).
 - When unsure which broker mode is affected, default to IB BDD (`@ib @wip`) plus the matching `@E2E*Test` tag.
+- Before claiming done on E2E-sensitive work: run Tier 3 (`allTestsParallel`). Report which tiers ran (see checklist in `agent-regression-tests.mdc`).
+- Do not use `allTestsParallelModes` for routine verification.

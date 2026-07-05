@@ -1,0 +1,103 @@
+---
+description: When the agent must run which Gradle tests — tiered regression gates (parallel default)
+alwaysApply: true
+---
+
+# Agent regression test gates
+
+Run tests yourself at each tier. Do not skip tiers when the change class matches. Prefer **`allTestsParallel`** for full-suite regression (throughput); use **`allTestsSequential`** when parallel would hide the failure class or CI must match.
+
+Reference: `./gradlew printTestSuites`
+
+## Default philosophy
+
+| Goal | Command | Why |
+|------|---------|-----|
+| Fast iteration | Narrowest task for the change | Red/green loop |
+| "Am I done?" full suite | **`allTestsParallel`** | Same coverage as sequential; ~2× faster via IB/emulator BDD shards |
+| CI / merge gate | **`allTestsSequential`** | Strict ordering; catches Gradle/E2E sequencing bugs parallel can mask |
+| Expert stress | `allTestsParallelStress3` | Only after a parallel flake or before promoting flaky areas |
+
+Do **not** use `allTestsParallelModes` for routine agent work — it parallelizes all four broker modes and may flake.
+
+Add `--rerun-tasks` when verifying a cold run or after Gradle/test infra changes.
+
+## Tier 0 — Trivial change (no test gate)
+
+Typo, comment, README-only, formatting with zero behavior change: no tests required unless the user asks.
+
+## Tier 1 — While implementing (red → green)
+
+Always run the **narrowest** task first; confirm **red for the right reason**, then green after the fix.
+
+| Change touches | Run first |
+|------------------|-----------|
+| Pure domain (`domain/*`, no broker) | `./gradlew unitTest --tests "<Class>.<method>"` |
+| Single unit class | `./gradlew unitTest --tests "daytrader.<pkg>.<Class>"` |
+| Programmatic E2E `@E2EEmulatorTest` | `./gradlew e2eEmulatorTests --tests "…"` |
+| Programmatic E2E `@E2EIbTest` | `./gradlew e2eIbTests --tests "…"` |
+| Programmatic E2E `@E2EPaperTest` | `./gradlew e2ePaperTests --tests "…"` |
+| Programmatic E2E `@E2EReplayTest` | `./gradlew e2eReplayTests --tests "…"` |
+| Cucumber scenario (stable) | `./gradlew bddIbShardN` / `bddEmulatorShardN` / `bddPaper` / `bddReplay` as appropriate |
+| Cucumber `@wip` | `./gradlew bddIbWip` / `bddEmulatorWip` |
+| Cross-mode parity | `./gradlew e2eIbTests --tests "E2ECrossModeMarketParityTest"` (and sibling modes if changed) |
+
+If unsure which broker mode: **IB** (`bddIbWip` + `e2eIbTests`) plus emulator when emulator-specific.
+
+## Tier 2 — Before saying a task is done (mode regression)
+
+After the new/changed test passes, run the **affected broker-mode aggregator**:
+
+```bash
+./gradlew e2eEmulator   # emulator BDD shards + e2eEmulatorTests
+./gradlew e2ePaper
+./gradlew e2eIb
+./gradlew e2eReplay
+```
+
+Run **every mode touched** by the change. If the change is engine/session/broker-adapter shared code, run **all four** mode tasks (still faster than full suite if unit tests already ran separately).
+
+If only domain logic changed with no E2E impact: **`./gradlew unitTest`** is enough at this tier.
+
+## Tier 3 — Full-suite regression (default gate)
+
+Before handing off work on any E2E-sensitive area (see test-first-e2e rule), or when multiple modes/files changed:
+
+```bash
+./gradlew allTestsParallel --rerun-tasks
+```
+
+This is the **default agent full-suite command** — maximize throughput without `allTestsParallelModes`.
+
+## Tier 4 — Sequential full suite (required in these cases)
+
+Run **`allTestsSequential`** (not parallel) when any of:
+
+- Changed `build.gradle.kts`, `gradle.properties`, E2E task ordering, `mustRunAfter`, sharding, or isolation (`E2EProcessCleanup`, `TestJvmIsolation`, `forkEvery`)
+- Tier 3 failed with ordering, timeout, or "passes alone, fails in suite" symptoms
+- User explicitly asks for CI-equivalent verification
+- Preparing merge / PR summary and parallel suite was not yet green on a cold run
+
+```bash
+./gradlew allTestsSequential --rerun-tasks
+```
+
+## Tier 5 — Stress (optional)
+
+After stabilizing `@wip` BDD or when hunting flakes:
+
+```bash
+./gradlew bddIbStress10          # IB BDD stability
+./gradlew e2eIbStress10          # IB mode (bddIb + e2eIbTests)
+./gradlew allTestsParallelStress3
+```
+
+## Agent checklist (end of task)
+
+1. New/changed test was **red then green** (Tier 1).
+2. Affected **`e2e*`** mode task(s) green (Tier 2) if E2E-sensitive.
+3. **`allTestsParallel`** green before claiming done (Tier 3), unless change was Tier 0.
+4. **`allTestsSequential`** green if Tier 4 triggers applied.
+5. Report which commands were run and any tasks skipped (with reason).
+
+Never claim "all tests pass" without running at least the tiers required for the change class.
