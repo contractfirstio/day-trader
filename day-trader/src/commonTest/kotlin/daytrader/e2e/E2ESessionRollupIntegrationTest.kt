@@ -41,6 +41,7 @@ import kotlinx.coroutines.runBlocking
  * and session history rollup headers stay consistent (including after broker snapshot refresh).
  */
 class E2ESessionRollupIntegrationTest {
+    @E2EEmulatorTest
     @Test
     fun viewModel_engineSessionClose_rollupsAgreeOnListSummaryAndHistory() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -79,8 +80,7 @@ class E2ESessionRollupIntegrationTest {
             )
 
             val expected = E2ESessionRollupHelper.expectedRollupUi(deployment)
-            harness.awaitListRowTotalPnL(deploymentId, expected.formattedTotalPnL)
-            E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expected)
+            harness.awaitRollupsConsistent(deploymentId, expected)
         } finally {
             harness.closeE2EHarness()
             emulatorHarness.shutdownEmulatorHarness()
@@ -88,9 +88,10 @@ class E2ESessionRollupIntegrationTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun viewModel_historyChangeThenBrokerTick_doesNotStaleRollupMetrics() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var harness: E2EStrategiesViewModelHarness? = null
         var emulatorHarness: EmulatorModeTestHarness? = null
         try {
@@ -108,8 +109,7 @@ class E2ESessionRollupIntegrationTest {
 
             val deploymentBefore = repository.deployments.value.single()
             val expectedBefore = E2ESessionRollupHelper.expectedRollupUi(deploymentBefore)
-            harness.awaitListRowTotalPnL(deploymentId, expectedBefore.formattedTotalPnL)
-            E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expectedBefore)
+            harness.awaitRollupsConsistent(deploymentId, expectedBefore)
 
             val newSession = E2ESessionRollupHelper.closedTradedSession(
                 id = "run-new",
@@ -123,8 +123,7 @@ class E2ESessionRollupIntegrationTest {
             val deploymentAfter = repository.deployments.value.single()
             val expectedAfter = E2ESessionRollupHelper.expectedRollupUi(deploymentAfter)
             assertEquals("+$70.00", expectedAfter.formattedTotalPnL)
-            harness.awaitListRowTotalPnL(deploymentId, expectedAfter.formattedTotalPnL)
-            E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expectedAfter)
+            harness.awaitRollupsConsistent(deploymentId, expectedAfter)
 
             gateway.setPositions(
                 listOf(
@@ -141,9 +140,7 @@ class E2ESessionRollupIntegrationTest {
                     )
                 )
             )
-            delay(100)
-
-            E2ESessionRollupHelper.assertRollupsConsistent(harness.viewModel, deploymentId, expectedAfter)
+            harness.awaitRollupsConsistent(deploymentId, expectedAfter)
         } finally {
             harness.closeE2EHarness()
             emulatorHarness.shutdownEmulatorHarness()
@@ -151,9 +148,10 @@ class E2ESessionRollupIntegrationTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun viewModel_twoDeployments_summaryRollupsInvalidateOnHistoryChange() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var harness: E2EStrategiesViewModelHarness? = null
         var emulatorHarness: EmulatorModeTestHarness? = null
         try {
@@ -200,11 +198,9 @@ class E2ESessionRollupIntegrationTest {
                 deployment = dep1,
                 allDeployments = allDeployments
             )
-            harness.awaitListRowTotalPnL(dep1Id, expectedDep1.formattedTotalPnL)
             assertEquals("+$80.00", expectedDep1.formattedNetPnL)
             assertEquals("100%", expectedDep1.formattedSummaryWinRate)
-            E2ESessionRollupHelper.assertRollupsConsistent(
-                viewModel = harness.viewModel,
+            harness.awaitRollupsConsistent(
                 deploymentId = dep1Id,
                 expected = expectedDep1,
             )

@@ -1,16 +1,21 @@
 package daytrader.e2e
 
 import daytrader.e2e.support.EmulatorModeTestHarness
+import daytrader.e2e.support.E2EProcessCleanup
 import daytrader.e2e.support.E2ESessionDriver
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.HybridModeTestHarness
 import daytrader.e2e.support.IbModeTestHarness
+import daytrader.e2e.support.shutdownEmulatorHarness
+import daytrader.e2e.support.shutdownEngine
+import daytrader.e2e.support.shutdownIbHarness
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
 
 class E2EWorld {
     private var _scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -29,18 +34,31 @@ class E2EWorld {
     var lastInstrumentResolution: Boolean = false
 
     fun reset() {
-        emulatorHarness?.shutdown()
-        hybridHarness?.shutdown()
-        ibHarness?.shutdown()
-
-        emulatorHarness = null
-        hybridHarness = null
-        ibHarness = null
-        engine = null
-        driver = null
+        shutdownResources()
+        E2EProcessCleanup.resetAll()
         repository.deployments.value.toList().forEach { repository.remove(it.id) }
         _scope.cancel()
         _scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        lastInstrumentResolution = false
+    }
+
+    private fun shutdownResources() {
+        runBlocking {
+            val activeEngine = engine
+            if (activeEngine != null) {
+                runCatching { activeEngine.drainUntilIdle(512) }
+                activeEngine.shutdownEngine()
+            }
+        }
+        engine = null
+        driver = null
+        ibHarness?.gateway?.resetTestFixtures()
+        ibHarness.shutdownIbHarness()
+        emulatorHarness.shutdownEmulatorHarness()
+        hybridHarness?.shutdown()
+        emulatorHarness = null
+        hybridHarness = null
+        ibHarness = null
     }
 
     fun configureEmulatorHarness(factory: (CoroutineScope) -> EmulatorModeTestHarness) {

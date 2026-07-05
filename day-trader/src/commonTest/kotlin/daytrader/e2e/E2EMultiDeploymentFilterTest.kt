@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: deployment status filter + search through [StrategiesViewModel] list state.
  */
+@E2EIbTest
 class E2EMultiDeploymentFilterTest {
     @Test
     fun viewModel_deploymentFilter_running_showsOnlyActiveDeployments() = runBlocking {

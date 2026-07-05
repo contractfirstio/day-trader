@@ -74,6 +74,10 @@ class HybridModeTestHarness(
         emulatorAdapter.ingestExternalQuote(symbol, quote, priorClose)
     }
 
+    fun applyMarketScenario(scenario: TouchTurnMarketScenario) {
+        scenario.applyTo(ibGateway)
+    }
+
     fun createEngine(
         repository: StrategyDeploymentRepository,
         nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS }

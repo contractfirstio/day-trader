@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: replacing a closed session row invalidates cached rollups while preserving totals.
  */
+@E2EEmulatorTest
 class E2ESessionRollupFingerprintTest {
     @Test
     fun viewModel_sessionHistoryReplacement_keepsRollupTotalsAndUpdatesRowId() = runBlocking {

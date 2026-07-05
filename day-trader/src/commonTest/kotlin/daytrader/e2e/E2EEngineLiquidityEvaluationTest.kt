@@ -33,6 +33,7 @@ import kotlinx.coroutines.runBlocking
  * liquidity evaluation and bracket submission — no manual repository shortcuts.
  */
 class E2EEngineLiquidityEvaluationTest {
+    @E2EIbTest
     @Test
     fun ib_enginePollLiquidity_nonLiquidityBar_autoStopsWithNoTradeDecision() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -79,6 +80,7 @@ class E2EEngineLiquidityEvaluationTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun ib_enginePollLiquidity_liquidityBar_placesBracketViaEngine() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -123,6 +125,7 @@ class E2EEngineLiquidityEvaluationTest {
         }
     }
 
+    @E2EEmulatorTest
     @Test
     fun emulatorBrokerKind_enginePollLiquidity_liquidityBar_placesBracketViaEngine() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

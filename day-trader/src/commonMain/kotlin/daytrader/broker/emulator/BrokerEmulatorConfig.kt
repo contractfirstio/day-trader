@@ -2,6 +2,7 @@ package daytrader.broker.emulator
 
 import daytrader.domain.MacroTrendState
 import daytrader.domain.StockTrendState
+import daytrader.domain.TouchTurnSignalContext
 
 /**
  * Controls the synthetic first 15m bar for Touch Turn (green → short, red → long).
@@ -105,7 +106,12 @@ data class BrokerEmulatorConfig(
      * When set, uses fixed 15m/5m bars and fast pipeline timing for manual E2E testing.
      * See [EmulatorTouchTurnScenario]. Env: `DAY_TRADER_EMULATOR_TOUCH_TURN_SCENARIO`.
      */
-    val touchTurnScenario: EmulatorTouchTurnScenario? = null
+    val touchTurnScenario: EmulatorTouchTurnScenario? = null,
+    /**
+     * Pins Touch Turn bootstrap/refetch to an exact signal context (E2E cross-mode parity).
+     * Takes precedence over [touchTurnScenario] and dynamic bar synthesis.
+     */
+    val pinnedTouchTurnSignalContext: TouchTurnSignalContext? = null
 ) {
     /** @see pricingSource */
     val useLiveIbMarketData: Boolean

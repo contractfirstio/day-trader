@@ -23,6 +23,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end bracket exit paths through emulator execution: take-profit, stop-loss, and trailing stop.
  */
+@E2EEmulatorTest
 class E2EBracketExitPathsTest {
     @Test
     fun emulator_takeProfitExit_autoStopsWithPositiveSessionPnl() = runBlocking {

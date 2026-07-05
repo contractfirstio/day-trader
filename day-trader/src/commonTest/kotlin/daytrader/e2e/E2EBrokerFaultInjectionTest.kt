@@ -31,6 +31,7 @@ import kotlinx.coroutines.runBlocking
  * Fault-injection E2E: broker disconnect/reconnect and orphan-order drift while sessions run.
  */
 class E2EBrokerFaultInjectionTest {
+    @E2EEmulatorTest
     @Test
     fun emulator_disconnectAfterBracketPlaced_reconnect_sessionStaysRunning() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -69,6 +70,7 @@ class E2EBrokerFaultInjectionTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun ibMode_orphanOrdersBlockLiquidityBracketSubmit() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

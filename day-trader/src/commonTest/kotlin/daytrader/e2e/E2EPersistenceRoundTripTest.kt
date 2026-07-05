@@ -25,6 +25,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: after a live emulator session closes, deployment + session history survive
  * [DeploymentPersistence] record round-trip (disk format fidelity).
  */
+@E2EEmulatorTest
 class E2EPersistenceRoundTripTest {
     @Test
     fun emulator_closedSessionHistory_survivesDeploymentPersistenceRoundTrip() = runBlocking {

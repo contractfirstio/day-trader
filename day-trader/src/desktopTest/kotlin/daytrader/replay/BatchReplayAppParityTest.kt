@@ -5,6 +5,7 @@ import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.e2e.support.AppParityBatchReplayHarness
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
+import daytrader.e2e.E2EReplayTest
 import daytrader.replay.support.ReplaySessionFixtures
 import daytrader.replay.support.SessionBundleTestWriter
 import java.nio.file.Files
@@ -20,6 +21,7 @@ import kotlinx.coroutines.runBlocking
  * Loads captures from disk via [SessionBundleDirectoryReader] with full AppDependencies engine wiring.
  * Closes the test/prod gap left by in-memory [daytrader.e2e.support.BatchReplayTestHarness].
  */
+@E2EReplayTest
 class BatchReplayAppParityTest {
     @Test
     fun appParity_diskLoadedTradeCapture_producesPositivePnlQuickly() = runBlocking {

@@ -67,6 +67,7 @@ class FakeBrokerGateway(
     var refetchSignalContexts: List<TouchTurnSignalContext> = emptyList()
     private val refetchIndex = java.util.concurrent.atomic.AtomicInteger(0)
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
+    var bracketPlacementAckResult: Result<Unit> = Result.success(Unit)
     val flattenedSymbols = mutableListOf<String>()
     val cancelledOrderIds = mutableListOf<Int>()
 
@@ -188,6 +189,21 @@ class FakeBrokerGateway(
         refetchIndex.set(0)
     }
 
+    /** Clears mutable broker-side state between E2E scenarios in a shared JVM. */
+    fun resetTestFixtures() {
+        placedBrackets.clear()
+        flattenedSymbols.clear()
+        cancelledOrderIds.clear()
+        homeMarketRegimeFetchZones.clear()
+        refetchSignalContexts = emptyList()
+        refetchIndex.set(0)
+        bracketPlacementAckResult = Result.success(Unit)
+        setPositions(emptyList())
+        setOpenOrders(emptyList())
+        setQuotes(emptyMap())
+        setFills(emptyList())
+    }
+
     override fun cancelOrder(orderId: Int) {
         cancelledOrderIds.add(orderId)
     }
@@ -201,7 +217,7 @@ class FakeBrokerGateway(
             TouchTurnBracketAck(
                 symbol = plan.symbol,
                 orderIds = listOf(1_000, 1_001, 1_002),
-                result = Result.success(Unit),
+                result = bracketPlacementAckResult,
                 plan = plan
             )
         )

@@ -1,5 +1,6 @@
 package daytrader.replay.support
 
+import daytrader.e2e.support.TouchTurnMarketFixtures
 import daytrader.data.persistence.TouchTurnRunPersistence
 import daytrader.data.persistence.TouchTurnRunRecordRecord
 import daytrader.data.persistence.SessionTradeRecord
@@ -371,14 +372,7 @@ object ReplaySessionFixtures {
         )
     )
 
-    private fun tradeLiquidityBar(): OhlcBar = OhlcBar(
-        open = 101.0,
-        high = 101.0,
-        low = 100.0,
-        close = 100.60,
-        time = "20260604  09:30:00",
-        volume = 800_000.0
-    )
+    private fun tradeLiquidityBar(): OhlcBar = TouchTurnMarketFixtures.redLiquidityOpeningBar()
 
     private fun tradeLifecycleFills(entry: Double, takeProfit: Double): List<SessionTrade> {
         val quantity = 5
@@ -563,12 +557,7 @@ object ReplaySessionFixtures {
         validation: String,
         bar: OhlcBar
     ): String {
-        val context = TouchTurnSignalContext(
-            firstCandle = bar,
-            atr14 = 2.45,
-            dailyAtr14 = 2.45,
-            volumeSma20 = 0.0
-        )
+        val context = TouchTurnMarketFixtures.bootstrapContext(bar)
         return tradeHistoricalLine(
             epochMs = BAR_END_EPOCH_MS + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + attempt * 2_000L,
             isClosedBarRefetch = true,
@@ -631,14 +620,7 @@ object ReplaySessionFixtures {
     )
 
     /** Range 0.30 < ATR threshold 0.6125 → not a liquidity candle. */
-    private fun notLiquidityClosedBar(): OhlcBar = OhlcBar(
-        open = 100.0,
-        high = 100.30,
-        low = 100.0,
-        close = 100.15,
-        time = "20260604  09:30:00",
-        volume = 50_000.0
-    )
+    private fun notLiquidityClosedBar(): OhlcBar = TouchTurnMarketFixtures.nonLiquidityOpeningBar()
 
     private fun manifestJson(): String = """
         {
@@ -702,12 +684,7 @@ object ReplaySessionFixtures {
         validation: String,
         candle: OhlcBar = notLiquidityClosedBar()
     ): String {
-        val context = TouchTurnSignalContext(
-            firstCandle = candle,
-            atr14 = 2.45,
-            dailyAtr14 = 2.45,
-            volumeSma20 = 0.0
-        )
+        val context = TouchTurnMarketFixtures.bootstrapContext(candle)
         return historicalLine(
             epochMs = BAR_END_EPOCH_MS + TouchTurnDefaults.CLOSED_BAR_REFETCH_SETTLE_MS + attempt * 2_000L,
             isClosedBarRefetch = true,

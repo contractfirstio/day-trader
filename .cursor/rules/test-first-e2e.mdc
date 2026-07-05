@@ -1,0 +1,64 @@
+---
+description: Test-first workflow with E2E focus — failing test before implementation
+alwaysApply: true
+---
+
+# Test-first development
+
+Every change starts with a **failing test** that describes the desired behavior. Do not implement production code until that test exists and fails for the right reason.
+
+## Workflow (strict order)
+
+1. **Classify impact** — Does the change touch broker gateways, Touch Turn engine, session lifecycle, orders/brackets, market data, deployments, or cross-mode parity? If yes, E2E coverage is required (not optional).
+2. **Write the failing test first** — Scenario or test that asserts the new behavior end-to-end.
+3. **Run the narrowest Gradle task** — Confirm red before green (see commands below).
+4. **Implement the minimal fix** — Only enough to pass the new test; avoid drive-by refactors.
+5. **Re-run** — New test → affected mode suite (`e2eIb`, etc.) → `unitTest` if domain logic changed.
+6. **Promote BDD** — Remove `@wip`, run `bddIbStress10` (or mode equivalent) before merging stable scenarios.
+
+## Choose the right test layer
+
+| Change type | Where to write the failing test |
+|-------------|----------------------------------|
+| User-visible broker-mode behavior | Cucumber in `desktopTest/resources/features/*-mode.feature` — tag `@wip` while iterating |
+| Engine / integration flow | Kotlin in `commonTest/.../e2e/` with `@E2EEmulatorTest`, `@E2EIbTest`, `@E2EPaperTest`, or `@E2EReplayTest` |
+| Pure domain rule (no broker) | `commonTest/.../domain/*Test.kt` — runs in `unitTest` |
+| Cross-mode market parity | `TouchTurnMarketFixtures` + `E2ECrossModeMarketParityTest` |
+
+**BDD feature files:** `emulator-mode.feature` (`@emulator`), `hybrid-mode.feature` (`@paper`), `ib-mode.feature` (`@ib`). WIP IB scenarios use `@wip` → `bddIbWip`; stable suite excludes `@wip`.
+
+**Market data:** Use `TouchTurnMarketScenarioId` and `TouchTurnMarketFixtures` so emulator, paper, IB, and replay see identical scenarios.
+
+## E2E-sensitive areas (always test first)
+
+- `TouchTurnEngine`, `FiveMinuteConfirmationRunner`, liquidity gates, session stop
+- Broker adapters / emulator (`BrokerEmulatorEngine`, `EmulatorBrokerAdapter`, IB gateway mocks)
+- `E2EWorld`, `BrokerModeSteps`, bracket placement and fills
+- Persistence round-trips that affect live session state
+- Replay catalog and batch replay parity
+
+## Isolation rules
+
+- E2E tests must leave a clean process: `E2EProcessCleanup`, `E2EWorld.reset()`, engine `shutdown()`.
+- Do not weaken `forkEvery=1` or sequential task ordering for E2E/BDD tasks.
+- New Cucumber steps must call existing cleanup hooks in `@Before` / `@After`.
+
+## Gradle commands (repo root)
+
+```bash
+./gradlew unitTest          # unit/domain only
+./gradlew e2eEmulator       # emulator E2E group
+./gradlew e2ePaper          # paper E2E group
+./gradlew e2eIb             # IB E2E group
+./gradlew e2eReplay         # replay E2E group
+./gradlew allTests          # unit + all E2E groups (desktopTest is the same suite, for IDE/KMP)
+```
+
+While iterating: `./gradlew bddIbWip` (WIP BDD), `./gradlew e2eIbTests` (programmatic only). Add `--rerun-tasks` to force a fresh run.
+
+## Agent behavior
+
+- Propose the failing test **before** writing implementation code.
+- Show the expected failure (assertion or step) in the first response.
+- If the user asks to "just implement", still add the test first unless they explicitly waive test-first for a trivial change (typo, comment only).
+- When unsure which broker mode is affected, default to IB BDD (`@ib @wip`) plus the matching `@E2E*Test` tag.

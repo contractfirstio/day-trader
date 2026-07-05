@@ -80,7 +80,12 @@ object ReplayBacktestResultBuilder {
             )
         }
         val closed = deployment.sessionHistory.lastOrNull { it.status == SessionStatus.CLOSED }
-        val trades = closed?.sessionTrades?.dedupeByExecId().orEmpty()
+        val groundTruthTrades = bundle.groundTruth?.dedupedFills?.dedupeByExecId().orEmpty()
+        val trades = if (usedGroundTruthFills && groundTruthTrades.isNotEmpty()) {
+            groundTruthTrades
+        } else {
+            closed?.sessionTrades?.dedupeByExecId().orEmpty()
+        }
         val outcome = resolveOutcome(deployment, closed)
         val pnl = trades.sessionDisplayPnL().takeIf { it != 0.0 || trades.hasCompleteCommissionData() }
             ?: (closed?.effectivePnL() ?: 0.0)

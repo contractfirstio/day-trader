@@ -1,3 +1,4 @@
+@paper
 Feature: Hybrid mode end-to-end
   Hybrid mode uses live IB market data with paper execution on the emulator.
   IB is mocked — no TWS connection is required.

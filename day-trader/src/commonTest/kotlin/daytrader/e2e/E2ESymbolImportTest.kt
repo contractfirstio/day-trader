@@ -23,6 +23,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: CSV parse + IB resolve + deployment creation surfaces in Strategies list.
  */
+@E2EEmulatorTest
 class E2ESymbolImportTest {
     @Test
     fun viewModel_csvParsedSymbol_resolvesAndAppearsInDeploymentList() = runBlocking {

@@ -28,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: market-open auto-start through ViewModel + engine runtime.
  */
+@E2EIbTest
 class E2EAutoStartTest {
     @Test
     fun viewModel_evaluateAutoStart_startsDeploymentAndUpdatesUiWithoutManualToggle() = runBlocking {

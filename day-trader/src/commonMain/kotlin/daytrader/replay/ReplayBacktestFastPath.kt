@@ -8,8 +8,8 @@ object ReplayBacktestFastPath {
     /** Yield-only engine drain per quote (replaces 4× 1ms wall-clock sleeps). */
     const val ENGINE_DRAIN_YIELD_ROUNDS = 32
 
-    const val BOOTSTRAP_MAX_YIELDS = 800
-    const val STOP_MAX_YIELDS = 400
+    const val BOOTSTRAP_MAX_YIELDS = 1_600
+    const val STOP_MAX_YIELDS = 800
 
     /** Spins for [daytrader.engine.TouchTurnEnginePort.drainUntilIdle]. */
     const val ENGINE_IDLE_MAX_SPINS = 512

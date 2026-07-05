@@ -32,6 +32,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: additional no-trade engine paths through ViewModel wiring.
  */
 class E2ENoTradeEdgeCasesTest {
+    @E2EIbTest
     @Test
     fun viewModel_manualStopDuringRunning_clearsTouchTurnSession() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -59,6 +60,7 @@ class E2ENoTradeEdgeCasesTest {
         }
     }
 
+    @E2EEmulatorTest
     @Test
     fun viewModel_neverFillEntry_emulatorStaysRunningUntilManualStop() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -95,6 +97,7 @@ class E2ENoTradeEdgeCasesTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun ib_engineLiquidity_noTradeOutcome_recordsClosedHistory() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

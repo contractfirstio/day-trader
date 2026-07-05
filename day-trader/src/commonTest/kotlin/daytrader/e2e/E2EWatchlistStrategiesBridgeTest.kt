@@ -24,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: deleting a deployment through ViewModel clears watchlist strategy links.
  */
+@E2EIbTest
 class E2EWatchlistStrategiesBridgeTest {
     @Test
     fun viewModel_deleteDeployment_clearsWatchlistStrategyLinks() = runBlocking {

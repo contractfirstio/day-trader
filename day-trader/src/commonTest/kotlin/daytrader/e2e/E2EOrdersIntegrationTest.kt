@@ -28,6 +28,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: gateway open orders → synced repository → [OrdersViewModel] UI groups.
  */
 class E2EOrdersIntegrationTest {
+    @E2EEmulatorTest
     @Test
     fun gatewayOpenOrders_syncsToOrdersViewModelBracketGroups() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -55,6 +56,7 @@ class E2EOrdersIntegrationTest {
         }
     }
 
+    @E2EEmulatorTest
     @Test
     fun viewModel_symbolGroupClick_expandsBracketLegs() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -76,6 +78,7 @@ class E2EOrdersIntegrationTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun viewModel_watchlistLinkedOrders_enrichesPlanLabels() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -127,6 +130,7 @@ class E2EOrdersIntegrationTest {
         }
     }
 
+    @E2EEmulatorTest
     @Test
     fun viewModel_headerClick_togglesSortDirection() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

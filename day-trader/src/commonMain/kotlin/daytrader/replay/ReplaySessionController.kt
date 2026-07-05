@@ -177,6 +177,7 @@ class ReplaySessionController(
 
             if (useGroundTruthFills) {
                 ReplayGroundTruthApplier.apply(repository, deploymentId, bundle)
+                drainEngine()
             }
         } catch (error: Throwable) {
             runError = error

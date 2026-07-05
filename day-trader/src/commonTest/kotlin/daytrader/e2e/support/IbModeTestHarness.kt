@@ -22,6 +22,10 @@ class IbModeTestHarness(
         gateway.connect()
     }
 
+    fun applyMarketScenario(scenario: TouchTurnMarketScenario) {
+        scenario.applyTo(gateway)
+    }
+
     fun shutdown() {
         gateway.disconnect()
     }

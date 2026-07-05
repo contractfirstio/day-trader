@@ -29,6 +29,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: [daytrader.presentation.strategies.StrategiesViewModel] wired through
  * [daytrader.ui.rememberAppDependencies]-style engine + broker integration.
  */
+@E2EIbTest
 class E2EStrategiesViewModelIntegrationTest {
     @Test
     fun viewModel_manualStart_navigatesToLiveTabAndShowsRunningStatus() = runBlocking {

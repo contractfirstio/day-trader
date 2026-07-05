@@ -1307,7 +1307,7 @@ class StrategiesViewModel(
 
     fun onToggleSession(id: String) {
         val existing = repository.deployments.value.find { it.id == id } ?: return
-        val sessionDate = DeploymentMarket.sessionDateIso(existing)
+        val sessionDate = DeploymentMarket.sessionDateIso(existing, tradingClock.nowEpochMillis())
         val wasRunning = existing.status == DeploymentStatus.RUNNING
         UiActionLog.forDeployment(
             deployment = existing,
@@ -1460,7 +1460,7 @@ class StrategiesViewModel(
         UiActionLog.forDeployment(
             deployment = existing,
             action = "prepare_session",
-            details = mapOf("sessionDate" to DeploymentMarket.sessionDateIso(existing))
+            details = mapOf("sessionDate" to DeploymentMarket.sessionDateIso(existing, tradingClock.nowEpochMillis()))
         )
         touchTurnEngine.dispatch(TouchTurnCommand.PrepareSession(instanceId = id))
     }
@@ -1487,7 +1487,7 @@ class StrategiesViewModel(
 
     fun onClosePosition(instanceId: String) {
         val instance = repository.deployments.value.find { it.id == instanceId } ?: return
-        val sessionDate = DeploymentMarket.sessionDateIso(instance)
+        val sessionDate = DeploymentMarket.sessionDateIso(instance, tradingClock.nowEpochMillis())
         UiActionLog.forDeployment(
             deployment = instance,
             action = "close_position",
@@ -1745,10 +1745,11 @@ class StrategiesViewModel(
 
         val selected = effectiveSelectedId?.let { id -> filtered.find { it.id == id } }
         selected?.let { reconcileSessionHistorySelection(it) }
-        val sessionDate = selected?.let { DeploymentMarket.sessionDateIso(it) }
-            ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it) }
-            ?: deployments.firstOrNull()?.let { DeploymentMarket.sessionDateIso(it) }
-            ?: TouchTurnLogic.sessionDateIsoInMarketZone(RthMarketSessions.US.zoneId)
+        val nowEpochMillis = tradingClock.nowEpochMillis()
+        val sessionDate = selected?.let { DeploymentMarket.sessionDateIso(it, nowEpochMillis) }
+            ?: selectedMarketZoneId?.let { TouchTurnLogic.sessionDateIsoInMarketZone(it, nowEpochMillis) }
+            ?: deployments.firstOrNull()?.let { DeploymentMarket.sessionDateIso(it, nowEpochMillis) }
+            ?: TouchTurnLogic.sessionDateIsoInMarketZone(RthMarketSessions.US.zoneId, nowEpochMillis)
         val hasActiveFilters = state.searchQuery.isNotBlank() ||
             state.deploymentFilter != DeploymentFilter.ALL ||
             state.strategyTypeFilter != null ||
@@ -1876,6 +1877,7 @@ class StrategiesViewModel(
         _detailState.update { current ->
             current.copy(
                 selectedCardPresentation = buildSelectedCardPresentation(ctx),
+                sessionHistory = buildSessionHistory(ctx),
             )
         }
         _liveState.update { current ->

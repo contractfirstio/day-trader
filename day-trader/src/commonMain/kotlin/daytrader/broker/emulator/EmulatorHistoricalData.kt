@@ -31,6 +31,9 @@ internal object EmulatorHistoricalData {
         sessionCandleFetchIndex: Int = 0
     ): Result<OhlcBar> {
         val marketZoneId = instrument.marketZoneId
+        config.pinnedTouchTurnSignalContext?.firstCandle?.let { pinned ->
+            return Result.success(pinned)
+        }
         config.touchTurnScenario?.let { scenario ->
             return Result.success(
                 EmulatorStaticTouchTurnBars.openingFifteenMinuteBar(
@@ -89,6 +92,9 @@ internal object EmulatorHistoricalData {
         sessionCandleFetchIndex: Int = 0,
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext> {
+        config.pinnedTouchTurnSignalContext?.let { pinned ->
+            return Result.success(pinned)
+        }
         val marketZoneId = instrument.marketZoneId
         val sessionYmd = sessionDayYyyyMmDd(marketZoneId, nowEpochMillis)
         val opening = firstFifteenMinuteCandle(

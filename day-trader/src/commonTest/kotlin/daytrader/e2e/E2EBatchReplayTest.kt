@@ -26,6 +26,7 @@ import kotlin.test.Ignore
  * End-to-end: headless batch what-if replay must reproduce captured trade P&L from quotes,
  * not stop every session at $0 with [TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED].
  */
+@E2EReplayTest
 class E2EBatchReplayTest {
     @Test
     fun batchReplay_tradeCapture_producesNonZeroReplayPnl() = runBlocking {

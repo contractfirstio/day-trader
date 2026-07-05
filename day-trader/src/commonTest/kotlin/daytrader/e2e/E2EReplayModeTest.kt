@@ -18,6 +18,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: captured session bundle replays through [ReplayHybridRuntime] + Touch Turn engine
  * and matches ground-truth outcome.
  */
+@E2EReplayTest
 class E2EReplayModeTest {
     @Test
     fun replaySession_fixtureBundle_matchesGroundTruthOutcomeAndFills() = runBlocking {

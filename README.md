@@ -228,26 +228,117 @@ Clone the repository, then from the project root:
 
 This opens the Day Trader window (navigation: **Positions** | **Strategies**). Start IB Gateway before or after launch; use **Reconnect** if needed.
 
+### Test-first development
+
+All new work follows **red → green → refactor**: write a failing test that describes the behavior, confirm it fails, then implement the fix.
+
+A Cursor rule enforces this automatically: `.cursor/rules/test-first-e2e.mdc` (`alwaysApply: true`).
+
+**Priority:** changes that touch broker gateways, the Touch Turn engine, session lifecycle, orders/brackets, or market data need **end-to-end** coverage first — not only unit tests.
+
+| Step | Action |
+|------|--------|
+| 1 | Add a failing Cucumber scenario (`@wip`) or `@E2E*Test` / domain test |
+| 2 | Run the narrowest command (`bddIbWip`, `e2eIbTests`, `unitTest`, …) and confirm **red** |
+| 3 | Implement the minimal production change |
+| 4 | Re-run the new test, then the affected `e2e*` group; promote `@wip` → stable after stress pass |
+
+**Copy-paste pre-prompt** (for a new Cursor chat or Custom Instruction):
+
+```
+Test-first only. Before any production code:
+1) Identify E2E impact (broker, engine, session, orders, market data).
+2) Write a failing test or Cucumber scenario (@wip for new BDD) that describes the desired behavior.
+3) Run the narrowest Gradle task and confirm red.
+4) Then implement the minimal fix together with me.
+
+Use TouchTurnMarketFixtures for cross-mode data. Respect E2E isolation (E2EProcessCleanup, E2EWorld.reset).
+Gradle (repo root): unitTest | e2eEmulator | e2ePaper | e2eIb | e2eReplay | allTests
+```
+
+### Test commands
+
+Run from the **repo root** (each task delegates to `:day-trader`).
+
+#### The six commands
+
+| # | Command | What it runs |
+|---|---------|----------------|
+| 1 | `./gradlew unitTest` | Unit and domain tests only (no E2E, no Cucumber) |
+| 2 | `./gradlew e2eEmulator` | Emulator end-to-end (BDD + programmatic) |
+| 3 | `./gradlew e2ePaper` | Paper end-to-end (BDD + programmatic) |
+| 4 | `./gradlew e2eIb` | Interactive Brokers end-to-end (BDD + programmatic) |
+| 5 | `./gradlew e2eReplay` | Replay end-to-end (BDD + programmatic) |
+| 6 | `./gradlew allTests` | Everything: `unitTest`, then all four E2E groups sequentially |
+
+```bash
+./gradlew unitTest
+./gradlew e2eEmulator
+./gradlew e2ePaper
+./gradlew e2eIb
+./gradlew e2eReplay
+./gradlew allTests
+```
+
+Add `--rerun-tasks` to force a fresh run. When multiple E2E/BDD tasks are scheduled together, they run **one task at a time** (`daytrader.e2e.sequentialTasks` in `gradle.properties`).
+
+**Reports:** `day-trader/build/reports/tests/<taskName>/index.html`
+
+#### Additional test tasks
+
+```bash
+# All BDD groups, one broker mode at a time
+./gradlew bddAll
+
+# All programmatic E2E (@E2E*Test), one mode at a time
+./gradlew e2eProgrammaticAll
+
+# All four E2E groups (same as e2eEmulator → e2ePaper → e2eIb → e2eReplay)
+./gradlew e2eTest
+
+# BDD only, per broker mode
+./gradlew bddEmulator
+./gradlew bddPaper
+./gradlew bddIb
+./gradlew bddIbWip              # @wip staging (empty until new scenarios are tagged)
+./gradlew bddReplay
+
+# Programmatic E2E only, per broker mode
+./gradlew e2eEmulatorTests
+./gradlew e2ePaperTests
+./gradlew e2eIbTests
+./gradlew e2eReplayTests
+
+# Full suite (unitTest + all E2E groups, nothing excluded)
+./gradlew allTests
+
+# Same as allTests — KMP/IDE often invoke this name
+./gradlew desktopTest
+```
+
+**Stability:** `./gradlew :day-trader:bddIbStress10` · `./gradlew :day-trader:e2eIbStress10`
+
 ### Other Gradle tasks
 
 ```bash
-# Run all tests (unit + desktop + Cucumber E2E). Force execution if Gradle serves FROM-CACHE:
-./gradlew :day-trader:desktopTest --rerun-tasks
-
-# Shorthand alias (same as desktopTest):
-./gradlew :day-trader:test
-
-# Cucumber E2E only (emulator / hybrid / IB feature files):
-./gradlew :day-trader:desktopTest --tests "daytrader.e2e.CucumberTestSuite" --rerun-tasks
-
-# HTML report:
-# day-trader/build/reports/tests/desktopTest/index.html
+# Legacy: all Cucumber BDD in one JVM
+./gradlew :day-trader:bddTest --rerun-tasks
 
 # Package a native installer for the current OS
 ./gradlew :day-trader:packageDistributionForCurrentOS
 ```
 
-Note: `./gradlew test` at the repo root without `:day-trader:` fails — there is no root `test` task. Tests live in the `:day-trader` module as `desktopTest`.
+### Shared E2E market data
+
+Cross-mode E2E tests (emulator, paper, IB, replay) should use the canonical catalog in
+`daytrader.e2e.support.TouchTurnMarketFixtures`:
+
+- `TouchTurnMarketScenarioId` — `NON_LIQUIDITY`, `RED_LIQUIDITY_LONG`, `GREEN_LIQUIDITY_SHORT`, `TRADE_LIFECYCLE`
+- `TouchTurnMarketFixtures.scenario(id)` — opening bar, signal context, session epochs
+- `scenario.applyTo(ibGateway)` / `scenario.emulatorConfig()` — wire identical data per mode
+- `EmulatorModeTestHarness.forScenario(scope, scenario)` — emulator with pinned historical data
+
+`E2ETestFixtures` and `ReplaySessionFixtures` delegate to this catalog. Parity is guarded by `E2ECrossModeMarketParityTest`.
 
 Native distribution targets (see `day-trader/build.gradle.kts`): DMG (macOS), MSI (Windows), Deb (Linux). Package name: `DayTrader`, version `1.0.0`.
 

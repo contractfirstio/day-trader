@@ -34,6 +34,7 @@ import kotlinx.coroutines.runBlocking
  * releases session market-data capture, and persists deployment state.
  */
 class E2EApplicationShutdownTest {
+    @E2EIbTest
     @Test
     fun viewModel_applicationShutdown_flattensOpenPositionAndRecordsShutdownTrigger() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -83,6 +84,7 @@ class E2EApplicationShutdownTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun ib_applicationShutdown_releasesSessionMarketDataCapture() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -126,6 +128,7 @@ class E2EApplicationShutdownTest {
         }
     }
 
+    @E2EEmulatorTest
     @Test
     fun emulatorBrokerKind_applicationShutdown_flattensBrokerState() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -161,6 +164,7 @@ class E2EApplicationShutdownTest {
         }
     }
 
+    @E2EIbTest
     @Test
     fun applicationQuitSequence_stopsSessionsEngineAndBlocksFurtherEngineCommands() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

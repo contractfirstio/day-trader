@@ -23,6 +23,7 @@ import kotlinx.coroutines.cancel
  * Compose UI smoke: Strategies screen renders deployment list from wired ViewModel.
  */
 @OptIn(ExperimentalTestApi::class)
+@E2EEmulatorTest
 class E2EStrategiesScreenComposeTest {
     @Test
     fun strategiesScreen_rendersDeploymentListAndDetail() = runComposeUiTest {

@@ -35,6 +35,7 @@ import kotlinx.coroutines.runBlocking
  * End-to-end: liquidity-ready session → bracket entry fill → bracket exit → auto-stop with
  * closed session history and recorded PnL/trades.
  */
+@E2EEmulatorTest
 class E2EFullTradeLifecycleTest {
     @Test
     fun emulator_entryFill_exitFill_autoStopsWithClosedSessionHistory() = runBlocking {

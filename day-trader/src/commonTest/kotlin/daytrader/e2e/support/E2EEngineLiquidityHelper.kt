@@ -28,19 +28,36 @@ object E2EEngineLiquidityHelper {
         repository: InMemoryStrategyDeploymentRepository,
         deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
         sessionDate: String = E2ETestFixtures.SESSION_DATE,
-        timeoutMs: Long = 30_000
+        timeoutMs: Long = 30_000,
+        startEngine: Boolean = true,
     ) {
-        engine.start()
+        if (startEngine) {
+            engine.start()
+        }
         engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val deployment = repository.deployments.value.find { it.id == deploymentId } ?: continue
             val session = deployment.touchTurnSession
+            val outcome = decisionOutcome(deployment) ?: session?.decisionOutcome
+
             when {
-                session?.ordersPlacedForSession == true -> return
+                session?.ordersPlacedForSession == true -> {
+                    engine.drainUntilIdle()
+                    return
+                }
+                outcome == TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {
+                    engine.drainUntilIdle()
+                    return
+                }
                 deployment.status == DeploymentStatus.STOPPED &&
-                    deployment.sessionHistory.any { it.status == SessionStatus.CLOSED } -> return
+                    deployment.sessionHistory.any { it.status == SessionStatus.CLOSED } -> {
+                    engine.drainUntilIdle()
+                    return
+                }
             }
+
+            engine.drainUntilIdle()
             delay(25)
         }
         val deployment = repository.deployments.value.find { it.id == deploymentId }
@@ -48,7 +65,7 @@ object E2EEngineLiquidityHelper {
         error(
             "Timed out after ${timeoutMs}ms waiting for engine liquidity evaluation; " +
                 "status=${deployment?.status} " +
-                "decisionOutcome=${session?.decisionOutcome} " +
+                "decisionOutcome=${session?.decisionOutcome ?: deployment?.let(::decisionOutcome)} " +
                 "ordersPlaced=${session?.ordersPlacedForSession} " +
                 "liquidityEvaluatedAt=${session?.milestones?.liquidityEvaluatedAt} " +
                 "closedSessions=${deployment?.sessionHistory?.count { it.status == SessionStatus.CLOSED }}"

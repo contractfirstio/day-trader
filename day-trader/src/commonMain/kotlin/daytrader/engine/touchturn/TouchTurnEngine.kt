@@ -218,6 +218,7 @@ class TouchTurnEngine(
 
     override fun start() {
         if (shutdownRequested.get()) return
+        if (commandLoopJob?.isActive == true) return
         commandLoopJob = scope.launch {
             for (command in commandQueue) {
                 if (TouchTurnEngineConfig.shadowLogEnabled()) {
@@ -594,6 +595,7 @@ class TouchTurnEngine(
     private suspend fun handleStopSession(command: TouchTurnCommand.StopSession) {
         val instance = repository.deployments.value.find { it.id == command.instanceId } ?: return
         if (instance.status != DeploymentStatus.RUNNING) {
+            stopSessionMarketDataCapture(command.instanceId, command.trigger.name.lowercase())
             maybeReleaseLiveMarketData(instance)
             return
         }
@@ -643,6 +645,7 @@ class TouchTurnEngine(
         val stopped = result.stoppedDeployment
         repository.update(command.instanceId) { stopped }
         repository.flushPersistenceBlocking()
+        stopSessionMarketDataCapture(command.instanceId, command.trigger.name.lowercase())
         maybeReleaseLiveMarketData(stopped)
         maybePruneSymbolBrokerState(stopped)
         val sessionId = instance.inProgressSession()?.id
@@ -1054,6 +1057,8 @@ class TouchTurnEngine(
         if (instance.status != DeploymentStatus.RUNNING) return
         val session = instance.touchTurnSession ?: return
         if (session.setup != null) return
+        if (session.ordersPlacedForSession) return
+        if (session.milestones.liquidityEvaluatedAt != null && session.decisionOutcome != null) return
         if (session.candleCloseStatus(nowEpochMillis()) != FirstCandleCloseStatus.CLOSED) {
             TouchTurnDecisionLog.watchPollTick(
                 instanceId = instanceId,
@@ -1086,6 +1091,7 @@ class TouchTurnEngine(
             scheduleClosedBarRefetch(instanceId)
             return
         }
+        if (liquidityEvalJobs[instanceId]?.isActive == true) return
         liquidityEvalJobs[instanceId]?.cancel()
         liquidityEvalJobs[instanceId] = scope.launch {
             if (barClosedJustSet && sessionAfterBarClosed.milestones.liquidityEvaluatedAt == null) {
@@ -1873,6 +1879,18 @@ class TouchTurnEngine(
         if (!brokerKind.usesEmulatorExecution) return
         if (!repository.deployments.value.any { it.status == DeploymentStatus.RUNNING }) return
         (executionGateway as? QueuedBrokerGateway)?.requestSymbolSessionPrune(stopped.symbol)
+    }
+
+    private fun stopSessionMarketDataCapture(deploymentId: String, trigger: String) {
+        if (!brokerKind.capturesSessionMarketData) return
+        val target = SessionMarketDataCapture.stop(deploymentId) ?: return
+        SessionTrace.log(
+            type = "market_data_capture_stopped",
+            deploymentId = deploymentId,
+            sessionId = target.sessionId,
+            symbol = target.symbol,
+            details = mapOf("trigger" to trigger)
+        )
     }
 
     private fun startSessionMarketDataCapture(deployment: StrategyDeployment) {

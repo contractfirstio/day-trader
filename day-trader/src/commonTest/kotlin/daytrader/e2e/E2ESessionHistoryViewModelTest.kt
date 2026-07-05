@@ -27,6 +27,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: session history tab selection and recap panel through [StrategiesViewModel].
  */
+@E2EIbTest
 class E2ESessionHistoryViewModelTest {
     @Test
     fun viewModel_selectSessionHistoryRow_marksSelectedAndShowsRecap() = runBlocking {

@@ -25,8 +25,10 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
                 touchTurnEntryFillImmediately = true,
+                bracketExitMinWalkTicks = 0,
                 bracketWalkStepPctOfRange = 0.5,
                 bracketWalkDirectionFlipChance = 0.0,
+                bracketWalkSteerTowardTargetProbability = 1.0,
                 bracketExitTakeProfitProbability = 0.0
             ),
             emit = { events.add(it) },
@@ -79,8 +81,10 @@ class TouchTurnExecutedBracketLegsEmulatorTest {
                 connectDelayMs = 1,
                 simulateOrderProgress = false,
                 touchTurnEntryFillImmediately = true,
+                bracketExitMinWalkTicks = 0,
                 bracketWalkStepPctOfRange = 0.5,
                 bracketWalkDirectionFlipChance = 0.0,
+                bracketWalkSteerTowardTargetProbability = 1.0,
                 bracketExitTakeProfitProbability = 1.0
             ),
             emit = { events.add(it) },

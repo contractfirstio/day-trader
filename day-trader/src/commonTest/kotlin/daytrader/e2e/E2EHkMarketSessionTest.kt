@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: HK vs US deployments respect market zone filter in Strategies list.
  */
+@E2EIbTest
 class E2EHkMarketSessionTest {
     @Test
     fun viewModel_marketZoneFilter_hidesNonMatchingHongKongDeployment() = runBlocking {

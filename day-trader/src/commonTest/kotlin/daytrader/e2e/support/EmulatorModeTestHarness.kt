@@ -143,6 +143,7 @@ class EmulatorModeTestHarness(
             simulateOrderProgress = false,
             touchTurnEntryFillImmediately = true,
             touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
+            bracketExitMinWalkTicks = 0,
             bracketWalkStepPctOfRange = bracketWalkStepPctOfRange,
             bracketWalkDirectionFlipChance = 0.0,
             bracketExitTakeProfitProbability = bracketExitTakeProfitProbability,

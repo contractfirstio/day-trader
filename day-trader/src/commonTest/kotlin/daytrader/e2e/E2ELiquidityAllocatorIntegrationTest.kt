@@ -25,6 +25,7 @@ import kotlinx.coroutines.runBlocking
 /**
  * End-to-end: Liquidity Allocator ViewModel wired like [daytrader.ui.AppDependencies].
  */
+@E2EEmulatorTest
 class E2ELiquidityAllocatorIntegrationTest {
     @Test
     fun viewModel_runningTouchTurnWithOpenEntry_showsAllocatorRow() = runBlocking {

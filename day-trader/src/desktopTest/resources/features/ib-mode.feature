@@ -1,3 +1,4 @@
+@ib
 Feature: Interactive Brokers mode end-to-end
   Full IB mode uses a single gateway for market data and order execution.
   The IB TWS API is mocked at the gateway boundary.
@@ -45,3 +46,56 @@ Feature: Interactive Brokers mode end-to-end
   Scenario: IB gateway resolves instrument metadata
     When the IB gateway resolves instrument "AAPL"
     Then the instrument resolution should succeed
+
+  Scenario: Canonical non-liquidity yields no-trade through IB
+    Given the IB gateway returns canonical scenario "NON_LIQUIDITY"
+    And the deployment has canonical scenario "NON_LIQUIDITY" loaded
+    When liquidity is evaluated for the session
+    Then the session decision outcome should be "NO_TRADE_NOT_LIQUIDITY"
+
+  Scenario: Canonical red liquidity submits bracket with matching entry on IB
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has canonical scenario "RED_LIQUIDITY_LONG" loaded
+    When the broker runtime starts
+    And liquidity is evaluated for the session
+    Then the IB gateway should have placed a bracket for "AAPL"
+    And the IB bracket entry should match canonical scenario "RED_LIQUIDITY_LONG"
+
+  Scenario: Engine PollLiquidity places bracket and marks ordersPlacedForSession
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has liquidity evaluation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session should have orders placed for the session
+    And the IB gateway should have placed a bracket for "AAPL"
+
+  Scenario: Engine PollLiquidity bracket rejection yields NO_TRADE_ORDER_REJECTED
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway rejects the next bracket placement
+    And the deployment has liquidity evaluation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session decision outcome should be "NO_TRADE_ORDER_REJECTED"
+
+  Scenario: Session prepare fails when IB gateway is disconnected
+    Given a stopped Touch Turn deployment for "AAPL"
+    And the IB gateway is disconnected
+    When session prepare runs on IB
+    Then the prepare check "IB_CONNECTED" should fail
+
+  Scenario: Session prepare fails when broker reports open position
+    Given a stopped Touch Turn deployment for "AAPL"
+    And the IB gateway reports an open position for "AAPL"
+    When session prepare runs on IB
+    Then the prepare check "FLAT_POSITION" should fail
+
+  Scenario: IB session start registers market data capture
+    Given a stopped Touch Turn deployment for "AAPL"
+    When the Touch Turn IB session starts
+    Then session market data capture should be active
+
+  Scenario: Manual session stop releases market data capture
+    Given session market data capture is active for the deployment
+    And the Touch Turn engine starts
+    When the session is stopped manually
+    Then session market data capture should be inactive

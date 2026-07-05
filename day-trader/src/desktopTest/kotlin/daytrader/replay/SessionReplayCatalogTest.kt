@@ -2,6 +2,7 @@ package daytrader.replay
 
 import daytrader.data.persistence.AppDataFiles
 import daytrader.domain.RthMarketSessions
+import daytrader.e2e.E2EReplayTest
 import daytrader.replay.support.ReplaySessionFixtures
 import java.nio.file.Files
 import kotlin.test.Test
@@ -10,6 +11,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@E2EReplayTest
 class SessionReplayCatalogTest {
 
     @Test

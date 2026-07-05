@@ -181,6 +181,40 @@ class E2EStrategiesViewModelHarness(
         )
     }
 
+    suspend fun awaitRollupsConsistent(
+        deploymentId: String,
+        expected: E2ESessionRollupHelper.ExpectedRollupUi,
+        expectSummary: Boolean = true,
+        timeoutMs: Long = 15_000,
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var lastSnapshot = ""
+        while (System.currentTimeMillis() < deadline) {
+            val history = viewModel.detailState.value.sessionHistory
+            val row = viewModel.listState.value.filteredRows.find { it.id == deploymentId }
+            if (history != null && row != null &&
+                row.formattedTotalPnL == expected.formattedTotalPnL &&
+                history.rollup30d == expected.formattedRollup30d
+            ) {
+                E2ESessionRollupHelper.assertRollupsConsistent(
+                    viewModel = viewModel,
+                    deploymentId = deploymentId,
+                    expected = expected,
+                    expectSummary = expectSummary,
+                )
+                return
+            }
+            lastSnapshot = "history=${history?.rollup30d} rowPnl=${row?.formattedTotalPnL} " +
+                "tab=${viewModel.detailState.value.detailTab}"
+            delay(25)
+        }
+        error(
+            "Timed out after ${timeoutMs}ms waiting for rollups " +
+                "(expected total=${expected.formattedTotalPnL} 30d=${expected.formattedRollup30d}); " +
+                lastSnapshot
+        )
+    }
+
     companion object {
         fun create(
             scope: CoroutineScope,

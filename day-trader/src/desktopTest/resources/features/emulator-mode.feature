@@ -1,3 +1,4 @@
+@emulator
 Feature: Broker Emulator mode end-to-end
   The broker emulator provides synthetic market data and paper execution without Interactive Brokers.
 

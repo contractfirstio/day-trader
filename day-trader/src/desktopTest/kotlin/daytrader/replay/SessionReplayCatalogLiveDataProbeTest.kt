@@ -1,5 +1,6 @@
 package daytrader.replay
 
+import daytrader.e2e.E2EReplayTest
 import daytrader.domain.RthMarketSessions
 import java.nio.file.Files
 import java.nio.file.Path
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test
 /**
  * Optional probe against the local Day Trader data directory (ignored when absent).
  */
+@E2EReplayTest
 class SessionReplayCatalogLiveDataProbeTest {
 
     @Test

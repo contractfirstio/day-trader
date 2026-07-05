@@ -30,6 +30,7 @@ import kotlinx.coroutines.runBlocking
  * an open position for that symbol fires [TouchTurnEvent.StartBlocked], surfaces the alert,
  * and does not submit orders.
  */
+@E2EIbTest
 class E2EStartBlockedByPositionTest {
     @Test
     fun viewModel_openPositionBlocksManualStart_emitsEventAndPlacesNoOrders() = runBlocking {

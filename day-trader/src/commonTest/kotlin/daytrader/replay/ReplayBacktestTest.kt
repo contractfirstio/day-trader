@@ -8,6 +8,7 @@ import daytrader.domain.SessionStatus
 import daytrader.domain.StrategySession
 import daytrader.domain.StrategyType
 import daytrader.domain.defaultStrategyDeployment
+import daytrader.domain.sessionDisplayPnL
 import daytrader.domain.sessionRealizedPnL
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import daytrader.replay.support.ReplaySessionFixtures
@@ -197,6 +198,7 @@ class ReplayBacktestSessionTest {
         } finally {
             engine.shutdown()
             runtime.shutdown()
+            scope.cancel()
         }
     }
 
@@ -272,9 +274,9 @@ class ReplayBacktestSessionTest {
                 options = ReplayBacktestOptions(applyGroundTruthFills = true),
             )
             assertTrue(run.result.hasTangibleResult, run.result.errorMessage)
-            val expectedPnl = bundle.groundTruth!!.dedupedFills.sessionRealizedPnL()
+            assertTrue(run.result.usedGroundTruthFills, "expected ground-truth fills to be applied")
+            val expectedPnl = bundle.groundTruth!!.dedupedFills.sessionDisplayPnL()
             assertEquals(expectedPnl, run.result.pnl, 0.01)
-            assertTrue(run.result.usedGroundTruthFills)
         } finally {
             engine.shutdown()
             runtime.shutdown()
