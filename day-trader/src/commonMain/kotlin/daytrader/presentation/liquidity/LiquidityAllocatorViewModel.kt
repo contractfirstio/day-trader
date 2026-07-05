@@ -226,17 +226,21 @@ class LiquidityAllocatorViewModel(
         val resizeResult = execution.resizeTouchTurnBracket(resizeRequest)
         applyingDeploymentIds.remove(deploymentId)
         if (resizeResult.isFailure) {
-            liquidityBucketRepository.creditNoTradeSession(
-                sessionId = "refund-${deploymentId}-${System.currentTimeMillis()}",
-                deploymentId = deploymentId,
-                symbol = deployment.symbol,
+            val refundResult = liquidityBucketRepository.refundAllocation(
                 currencyCode = deployment.currencyCode,
                 sessionDate = sessionDate,
-                maxDollars = allocationDollars,
-                touchTurn = deployment.touchTurnSession?.copy(ordersPlacedForSession = false),
-                creditedAtEpochMs = System.currentTimeMillis()
+                deploymentId = deploymentId,
+                amount = allocationDollars,
             )
-            setApplyError(deploymentId, resizeResult.exceptionOrNull()?.message ?: "Resize failed")
+            val resizeMessage = resizeResult.exceptionOrNull()?.message ?: "Resize failed"
+            setApplyError(
+                deploymentId,
+                if (refundResult.isFailure) {
+                    "$resizeMessage (liquidity refund failed: ${refundResult.exceptionOrNull()?.message ?: "unknown"})"
+                } else {
+                    resizeMessage
+                },
+            )
             return
         }
 

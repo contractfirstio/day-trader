@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.runBlocking
@@ -59,6 +60,7 @@ class E2EEngineLiquidityEvaluationTest {
 
             ibHarness.start()
             E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(engine, repository)
+            awaitDeploymentStopped(engine, repository)
 
             assertTrue(gateway.placedBrackets.isEmpty(), "engine must not place bracket for non-liquidity bar")
 
@@ -174,5 +176,22 @@ class E2EEngineLiquidityEvaluationTest {
             gateway?.runCatching { disconnect() }
             scope.cancel()
         }
+    }
+
+    private suspend fun awaitDeploymentStopped(
+        engine: TouchTurnEngine,
+        repository: InMemoryStrategyDeploymentRepository,
+        deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
+        timeoutMs: Long = 5_000,
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            engine.drainUntilIdle(512)
+            if (repository.deployments.value.find { it.id == deploymentId }?.status == DeploymentStatus.STOPPED) {
+                return
+            }
+            delay(25)
+        }
+        error("Timed out waiting for deployment $deploymentId to reach STOPPED")
     }
 }

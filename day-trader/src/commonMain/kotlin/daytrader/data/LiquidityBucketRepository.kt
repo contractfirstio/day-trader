@@ -42,6 +42,12 @@ interface LiquidityBucketRepository {
         amount: Int,
         debitedAtEpochMs: Long = System.currentTimeMillis()
     ): Result<Unit>
+    fun refundAllocation(
+        currencyCode: String,
+        sessionDate: String,
+        deploymentId: String,
+        amount: Int,
+    ): Result<Unit>
 }
 
 class FileLiquidityBucketRepository(
@@ -122,6 +128,26 @@ class FileLiquidityBucketRepository(
                 symbol = symbol,
                 amount = amount,
                 debitedAtEpochMs = debitedAtEpochMs
+            ).also { result = it.map { } }
+                .getOrElse { return@update state }
+        }
+        return result
+    }
+
+    override fun refundAllocation(
+        currencyCode: String,
+        sessionDate: String,
+        deploymentId: String,
+        amount: Int,
+    ): Result<Unit> {
+        var result: Result<Unit> = Result.failure(IllegalStateException("not_updated"))
+        update { state ->
+            LiquidityBucketLogic.refundAllocation(
+                state = state,
+                currencyCode = currencyCode,
+                sessionDate = sessionDate,
+                deploymentId = deploymentId,
+                amount = amount,
             ).also { result = it.map { } }
                 .getOrElse { return@update state }
         }

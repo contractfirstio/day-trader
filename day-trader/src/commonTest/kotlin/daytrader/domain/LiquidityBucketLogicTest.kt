@@ -71,6 +71,41 @@ class LiquidityBucketLogicTest {
     }
 
     @Test
+    fun refundAllocation_restoresDebitedAmountForMatchingDeployment() {
+        var state = LiquidityBucketLogic.creditSession(
+            state = LiquidityBucketState(),
+            currencyCode = "USD",
+            sessionDate = "2026-06-12",
+            sessionId = "s1",
+            deploymentId = "d1",
+            symbol = "AAPL",
+            amount = 500,
+            outcome = TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            creditedAtEpochMs = 1L,
+        )
+        val debited = LiquidityBucketLogic.debitAllocation(
+            state = state,
+            currencyCode = "USD",
+            sessionDate = "2026-06-12",
+            deploymentId = "dep-e2e-1",
+            symbol = "AAPL",
+            amount = 200,
+            debitedAtEpochMs = 2L,
+        ).getOrThrow()
+        assertEquals(300, LiquidityBucketLogic.bucketForCurrency(debited, "USD").available)
+
+        val refunded = LiquidityBucketLogic.refundAllocation(
+            state = debited,
+            currencyCode = "USD",
+            sessionDate = "2026-06-12",
+            deploymentId = "dep-e2e-1",
+            amount = 200,
+        ).getOrThrow()
+        assertEquals(500, LiquidityBucketLogic.bucketForCurrency(refunded, "USD").available)
+        assertTrue(LiquidityBucketLogic.bucketForCurrency(refunded, "USD").debits.isEmpty())
+    }
+
+    @Test
     fun isNoTradeCreditEligible_falseWhenOrdersPlaced() {
         val touchTurn = TouchTurnSessionContext(
             sessionDate = "2026-06-12",

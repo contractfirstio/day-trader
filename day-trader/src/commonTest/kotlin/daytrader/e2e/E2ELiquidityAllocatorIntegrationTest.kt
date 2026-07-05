@@ -203,4 +203,114 @@ class E2ELiquidityAllocatorIntegrationTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun viewModel_applyAllocation_insufficientBucket_surfacesErrorWithoutDebit() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val sessionDate = currentSessionDateIso()
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+            val bucketRepository = InMemoryLiquidityBucketRepository()
+            val openOrderRepository = E2ESyncedOpenOrderRepository(gateway, scope)
+            E2ELiquidityAllocatorHelper.creditUsdBucket(
+                bucketRepository,
+                amount = 100,
+                sessionDate = sessionDate,
+            )
+
+            gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
+            gateway.setQuotes(mapOf("AAPL" to E2ELiquidityAllocatorHelper.touchableQuote()))
+
+            val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+                val session = dep.touchTurnSession ?: return@let dep
+                dep.copy(touchTurnSession = session.copy(sessionDate = sessionDate))
+            }
+            repository.add(deployment)
+
+            val viewModel = LiquidityAllocatorViewModel(
+                deploymentRepository = repository,
+                openOrderRepository = openOrderRepository,
+                liquidityBucketRepository = bucketRepository,
+                brokerGateway = gateway,
+                executionManager = BrokerGatewayExecutionManager(gateway),
+                scope = scope,
+            )
+            delay(50)
+
+            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 200)
+            viewModel.applyRow(E2ETestFixtures.DEPLOYMENT_ID)
+            delay(100)
+
+            val row = viewModel.uiState.value.rows.single()
+            assertNotNull(row.applyError)
+            assertTrue(row.applyError!!.contains("insufficient", ignoreCase = true))
+
+            val available = LiquidityBucketLogic.rollBucketForDate(
+                LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+                sessionDate,
+            ).available
+            assertEquals(100, available)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun viewModel_applyAllocation_resizeFailure_refundsBucketAndSurfacesError() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val sessionDate = currentSessionDateIso()
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR).apply {
+                bracketResizeResult = Result.failure(IllegalStateException("broker_resize_rejected"))
+            }
+            val bucketRepository = InMemoryLiquidityBucketRepository()
+            val openOrderRepository = E2ESyncedOpenOrderRepository(gateway, scope)
+            E2ELiquidityAllocatorHelper.creditUsdBucket(
+                bucketRepository,
+                amount = 500,
+                sessionDate = sessionDate,
+            )
+
+            gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
+            gateway.setQuotes(mapOf("AAPL" to E2ELiquidityAllocatorHelper.touchableQuote()))
+
+            val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+                val session = dep.touchTurnSession ?: return@let dep
+                dep.copy(touchTurnSession = session.copy(sessionDate = sessionDate))
+            }
+            repository.add(deployment)
+            val originalQty = deployment.touchTurnSession?.plannedQuantity
+
+            val viewModel = LiquidityAllocatorViewModel(
+                deploymentRepository = repository,
+                openOrderRepository = openOrderRepository,
+                liquidityBucketRepository = bucketRepository,
+                brokerGateway = gateway,
+                executionManager = BrokerGatewayExecutionManager(gateway),
+                scope = scope,
+            )
+            delay(50)
+
+            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 200)
+            viewModel.applyRow(E2ETestFixtures.DEPLOYMENT_ID)
+            delay(150)
+
+            val row = viewModel.uiState.value.rows.single()
+            assertNotNull(row.applyError)
+            assertTrue(row.applyError!!.contains("broker_resize_rejected"))
+
+            val available = LiquidityBucketLogic.rollBucketForDate(
+                LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+                sessionDate,
+            ).available
+            assertEquals(500, available, "debit should be refunded after resize failure")
+
+            val updatedQty = repository.deployments.value.single().touchTurnSession?.plannedQuantity
+            assertEquals(originalQty, updatedQty)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

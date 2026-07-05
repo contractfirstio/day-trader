@@ -65,9 +65,15 @@ class FakeBrokerGateway(
         )
     var fiveMinuteBarsFetchResult: Result<List<OhlcBar>> = Result.success(emptyList())
     var refetchSignalContexts: List<TouchTurnSignalContext> = emptyList()
+    /** When set, returned for every closed-bar refetch request (before [refetchSignalContexts]). */
+    var closedBarRefetchResult: Result<TouchTurnSignalContext>? = null
     private val refetchIndex = java.util.concurrent.atomic.AtomicInteger(0)
     val placedBrackets = mutableListOf<TouchTurnOrderPlan>()
     var bracketPlacementAckResult: Result<Unit> = Result.success(Unit)
+    var bracketResizeResult: Result<Unit> = Result.success(Unit)
+    /** When true, [placeTouchTurnBracket] records the plan but does not emit until [flushDeferredBracketAcks]. */
+    var deferBracketPlacementAck: Boolean = false
+    private val deferredBracketAcks = mutableListOf<TouchTurnBracketAck>()
     val flattenedSymbols = mutableListOf<String>()
     val cancelledOrderIds = mutableListOf<Int>()
 
@@ -170,10 +176,13 @@ class FakeBrokerGateway(
         allowMissingTodayOpeningBar: Boolean,
         rules: daytrader.domain.TouchTurnRuleConfig
     ): Result<TouchTurnSignalContext> {
-        if (isClosedBarRefetch && refetchSignalContexts.isNotEmpty()) {
-            val index = refetchIndex.getAndIncrement()
-            val context = refetchSignalContexts.getOrNull(index) ?: refetchSignalContexts.last()
-            return Result.success(context)
+        if (isClosedBarRefetch) {
+            closedBarRefetchResult?.let { return it }
+            if (refetchSignalContexts.isNotEmpty()) {
+                val index = refetchIndex.getAndIncrement()
+                val context = refetchSignalContexts.getOrNull(index) ?: refetchSignalContexts.last()
+                return Result.success(context)
+            }
         }
         return signalContextFetchResult
     }
@@ -196,8 +205,12 @@ class FakeBrokerGateway(
         cancelledOrderIds.clear()
         homeMarketRegimeFetchZones.clear()
         refetchSignalContexts = emptyList()
+        closedBarRefetchResult = null
         refetchIndex.set(0)
         bracketPlacementAckResult = Result.success(Unit)
+        bracketResizeResult = Result.success(Unit)
+        deferBracketPlacementAck = false
+        deferredBracketAcks.clear()
         setPositions(emptyList())
         setOpenOrders(emptyList())
         setQuotes(emptyMap())
@@ -213,18 +226,37 @@ class FakeBrokerGateway(
 
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
         placedBrackets.add(plan)
+        val ack = TouchTurnBracketAck(
+            symbol = plan.symbol,
+            orderIds = listOf(1_000, 1_001, 1_002),
+            result = bracketPlacementAckResult,
+            plan = plan
+        )
+        if (deferBracketPlacementAck) {
+            deferredBracketAcks.add(ack)
+        } else {
+            _touchTurnBracketPlacements.tryEmit(ack)
+        }
+    }
+
+    fun flushDeferredBracketAcks() {
+        deferredBracketAcks.forEach { _touchTurnBracketPlacements.tryEmit(it) }
+        deferredBracketAcks.clear()
+    }
+
+    fun emitBracketAck(plan: TouchTurnOrderPlan, result: Result<Unit>) {
         _touchTurnBracketPlacements.tryEmit(
             TouchTurnBracketAck(
                 symbol = plan.symbol,
                 orderIds = listOf(1_000, 1_001, 1_002),
-                result = bracketPlacementAckResult,
+                result = result,
                 plan = plan
             )
         )
     }
 
     override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
-        Result.success(Unit)
+        bracketResizeResult
 
     override fun cancelOpenOrdersForSymbol(symbol: String) = Unit
 

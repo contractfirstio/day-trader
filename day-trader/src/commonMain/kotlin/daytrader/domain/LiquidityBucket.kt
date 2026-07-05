@@ -128,6 +128,33 @@ object LiquidityBucketLogic {
         return Result.success(state.copy(buckets = state.buckets + (key to updated)))
     }
 
+    /** Restores [amount] debited for an allocator apply when broker resize fails after debit. */
+    fun refundAllocation(
+        state: LiquidityBucketState,
+        currencyCode: String,
+        sessionDate: String,
+        deploymentId: String,
+        amount: Int,
+    ): Result<LiquidityBucketState> {
+        if (amount <= 0) return Result.failure(IllegalArgumentException("allocation_must_be_positive"))
+        val key = normalizeCurrency(currencyCode)
+        val rolled = rollBucketForDate(bucketForCurrency(state, key), sessionDate)
+        val debitIndex = rolled.debits.indexOfLast { debit ->
+            debit.deploymentId == deploymentId &&
+                debit.amount == amount &&
+                debit.sessionDate == sessionDate
+        }
+        if (debitIndex < 0) {
+            return Result.failure(IllegalArgumentException("allocation_debit_not_found"))
+        }
+        val updated = rolled.copy(
+            sessionDate = sessionDate,
+            available = rolled.available + amount,
+            debits = rolled.debits.filterIndexed { index, _ -> index != debitIndex },
+        )
+        return Result.success(state.copy(buckets = state.buckets + (key to updated)))
+    }
+
     fun currenciesWithActivity(state: LiquidityBucketState): List<String> =
         state.buckets.values
             .filter { it.available > 0 || it.credits.isNotEmpty() }

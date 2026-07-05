@@ -36,7 +36,8 @@ class QueuedBrokerGateway(
     private val sendCommand: (GatewayCommand) -> Unit,
     private val receiveEventBlocking: () -> GatewayEvent,
     override val brokerId: BrokerId,
-    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    initialPauseInboundProcessing: Boolean = false,
 ) : BrokerGateway {
 
     private val _connectionState =
@@ -75,7 +76,7 @@ class QueuedBrokerGateway(
     private val pendingBracketResize = mutableMapOf<Long, CompletableDeferred<Result<Unit>>>()
 
     @Volatile
-    private var pauseInboundProcessing = false
+    private var pauseInboundProcessing = initialPauseInboundProcessing
     private var inboundConsumerJob: Job? = null
 
     private fun allocateRequestId(): Long = synchronized(requestIdLock) {

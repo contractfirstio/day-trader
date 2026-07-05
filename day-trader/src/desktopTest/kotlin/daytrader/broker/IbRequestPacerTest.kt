@@ -5,6 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -39,12 +42,21 @@ class IbRequestPacerTest {
     @Test
     fun enqueuePriority_runsBeforeStandardBacklog() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val pacer = IbRequestPacer(scope, maxMessagesPerSecond = 2, minIntervalMs = 200L)
-        val order = mutableListOf<String>()
-        pacer.enqueue { order += "slow-1" }
+        val pacer = IbRequestPacer(scope, maxMessagesPerSecond = 20, minIntervalMs = 1L)
+        val order = Collections.synchronizedList(mutableListOf<String>())
+        val releaseSlowBacklog = CountDownLatch(1)
+        pacer.enqueue {
+            releaseSlowBacklog.await()
+            order += "slow-1"
+        }
         pacer.enqueue { order += "slow-2" }
         pacer.enqueuePriority { order += "priority" }
-        delay(1_500)
+        releaseSlowBacklog.countDown()
+        withTimeout(3_000) {
+            while (!order.contains("priority") || !order.contains("slow-2")) {
+                delay(10)
+            }
+        }
         assertTrue(order.indexOf("priority") < order.indexOf("slow-2"), "priority order: $order")
     }
 }

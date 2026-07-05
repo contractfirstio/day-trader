@@ -11,6 +11,7 @@ import com.ib.client.ExecutionFilter
 import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EReader
+import com.ib.client.EWrapper
 import com.ib.client.Order
 import com.ib.client.OrderCancel
 import com.ib.client.OrderState
@@ -82,7 +83,8 @@ class DesktopIbGatewayConnection(
     private val connectionMode: IbConnectionMode = IbConnectionMode.FULL,
     private val onLiveQuote: ((symbol: String, quote: LiveQuote, priorClose: Double?) -> Unit)? = null,
     private val quoteBus: daytrader.marketdata.MarketQuoteBus? = null,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    clientFactory: ((EWrapper) -> EClientSocket)? = null,
 ) : BrokerAdapter, DefaultEWrapper() {
 
     private val marketDataOnly: Boolean
@@ -99,7 +101,7 @@ class DesktopIbGatewayConnection(
     private var commandLoopJob: Job? = null
 
     private val signal = EJavaSignal()
-    private val client = EClientSocket(this, signal)
+    private val client: EClientSocket = clientFactory?.invoke(this) ?: EClientSocket(this, signal)
     private val connectMutex = Mutex()
     private val requestPacer = IbRequestPacer(scope)
     private val touchTurnBracketCoordinator = IbTouchTurnBracketCoordinator(scope)

@@ -3,6 +3,8 @@ package daytrader.e2e
 import daytrader.data.persistence.DeploymentPersistence
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionStatus
+import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.e2e.support.E2EBracketExitHelper
 import daytrader.e2e.support.E2EBracketHelper
@@ -10,6 +12,13 @@ import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.EmulatorModeTestHarness
 import daytrader.e2e.support.shutdownEmulatorHarness
 import daytrader.e2e.support.shutdownEngine
+import daytrader.engine.TouchTurnCommand
+import daytrader.engine.TouchTurnEngine
+import daytrader.execution.BrokerGatewayExecutionManager
+import daytrader.gateway.BrokerId
+import daytrader.gateway.BrokerKind
+import daytrader.marketdata.BrokerGatewayMarketDataProvider
+import daytrader.engine.support.FakeBrokerGateway
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,6 +28,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -79,4 +89,95 @@ class E2EPersistenceRoundTripTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun emulator_noTradeDataFailedSession_survivesDeploymentPersistenceRoundTrip() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var engine: TouchTurnEngine? = null
+        var gateway: FakeBrokerGateway? = null
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val bar = E2ETestFixtures.redLiquidityOpeningBar()
+            gateway = FakeBrokerGateway(
+                brokerId = BrokerId.EMULATOR,
+                signalContextResult = Result.success(E2ETestFixtures.bootstrapContext(bar)),
+            ).apply {
+                closedBarRefetchResult = Result.failure(IllegalStateException("closed_bar_refetch_unavailable"))
+            }
+            repository.add(deploymentAwaitingClosedBarRefetch())
+
+            engine = TouchTurnEngine(
+                marketData = BrokerGatewayMarketDataProvider(gateway),
+                execution = BrokerGatewayExecutionManager(gateway),
+                repository = repository,
+                scope = scope,
+                brokerKind = BrokerKind.EMULATOR,
+                nowEpochMillis = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS },
+                sessionGateway = gateway,
+                executionGateway = gateway,
+            )
+            gateway.connect()
+            engine.start()
+            engine.dispatch(TouchTurnCommand.PollLiquidity(E2ETestFixtures.DEPLOYMENT_ID))
+            awaitDataFailedStop(engine, repository)
+
+            val live = repository.deployments.value.single()
+            assertEquals(DeploymentStatus.STOPPED, live.status)
+            val closedSession = live.sessionHistory.single { it.status == SessionStatus.CLOSED }
+            assertEquals(
+                TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+                closedSession.touchTurnRunRecord?.decision?.outcome,
+            )
+
+            val record = DeploymentPersistence.toRecord(live)
+            val restored = DeploymentPersistence.toDomain(record)
+
+            assertEquals(live.id, restored.id)
+            assertEquals(DeploymentStatus.STOPPED, restored.status)
+            val restoredSession = restored.sessionHistory.single()
+            assertEquals(closedSession.id, restoredSession.id)
+            assertEquals(
+                TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
+                restoredSession.touchTurnRunRecord?.decision?.outcome,
+            )
+            assertTrue(
+                restoredSession.touchTurnRunRecord?.marketInputs?.dataErrorMessage
+                    ?.contains("closed_bar_refetch_unavailable") == true,
+            )
+        } finally {
+            engine?.shutdown()
+            gateway?.runCatching { disconnect() }
+            scope.cancel()
+        }
+    }
+
+    private suspend fun awaitDataFailedStop(
+        engine: TouchTurnEngine,
+        repository: InMemoryStrategyDeploymentRepository,
+        deploymentId: String = E2ETestFixtures.DEPLOYMENT_ID,
+        timeoutMs: Long = 15_000,
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            engine.drainUntilIdle(512)
+            if (repository.deployments.value.find { it.id == deploymentId }?.status == DeploymentStatus.STOPPED) {
+                return
+            }
+            delay(25)
+        }
+        error("Timed out waiting for data-failed auto-stop on $deploymentId")
+    }
+
+    private fun deploymentAwaitingClosedBarRefetch() =
+        E2ETestFixtures.runningDeployment().copy(
+            touchTurnSession = E2ETestFixtures.runningDeployment().touchTurnSession!!.copy(
+                candle = null,
+                openingBarTime = E2ETestFixtures.redLiquidityOpeningBar().time,
+                atr14 = E2ETestFixtures.ATR14,
+                dailyAtr14 = E2ETestFixtures.ATR14,
+                volumeSma20 = E2ETestFixtures.VOLUME_SMA20,
+                adr14 = E2ETestFixtures.ATR14,
+                status = TouchTurnCandleStatus.READY,
+            ),
+        )
 }

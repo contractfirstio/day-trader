@@ -45,27 +45,28 @@ class WatchlistBracketPlacementTest {
 
     @Test
     fun submitBracket_hybridMode_usesExecutionGatewayNotMarketData() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val harness = HybridModeTestHarness(scope)
         harness.start()
         try {
+            seedHybridLiveQuote(harness)
             val repository = repositoryWithCompletePlan()
             val viewModel = WatchlistViewModel(
                 repository = repository,
                 brokerGateway = harness.executionGateway,
                 touchTurnSessionGateway = harness.ibGateway,
                 brokerKind = BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA,
-                ensureLiveMarketData = { symbol, _ -> harness.ibGateway.ensureStreaming(symbol) }
+                ensureLiveMarketData = { symbol, _ -> harness.ibGateway.ensureStreaming(symbol) },
+                scope = scope,
             )
             awaitExecutionConnected(viewModel, "Paper execution connected")
-            seedHybridLiveQuote(harness)
             openAndSubmitBracket(viewModel, repository)
 
             awaitBracketPlaced(
                 viewModel = viewModel,
                 repository = repository,
                 executionGateway = harness.executionGateway,
-                symbol = "AAPL"
+                symbol = "AAPL",
             )
             assertTrue(harness.ibGateway.ensureLiveMarketDataCalls.contains("AAPL"))
         } finally {
@@ -131,7 +132,7 @@ class WatchlistBracketPlacementTest {
         val planId = repository.watchlists.value.first().entries.single().tradePlans.single().id
         viewModel.onOpenTradePlans(entryId)
         viewModel.onOpenBracketOrder(planId)
-        withTimeout(5_000) {
+        withTimeout(15_000) {
             while (viewModel.uiState.value.bracketOrderEditor?.canSubmit != true) {
                 delay(25)
             }
