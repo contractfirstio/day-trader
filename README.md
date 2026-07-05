@@ -253,23 +253,34 @@ Test-first only. Before any production code:
 4) Then implement the minimal fix together with me.
 
 Use TouchTurnMarketFixtures for cross-mode data. Respect E2E isolation (E2EProcessCleanup, E2EWorld.reset).
-Gradle (repo root): unitTest | e2eEmulator | e2ePaper | e2eIb | e2eReplay | allTests
+Gradle (repo root): unitTest | e2eEmulator | e2ePaper | e2eIb | e2eReplay | allTestsSequential | allTestsParallel | printTestSuites
 ```
 
 ### Test commands
 
 Run from the **repo root** (each task delegates to `:day-trader`).
 
-#### The six commands
+#### Full suite (pick one)
 
-| # | Command | What it runs |
-|---|---------|----------------|
-| 1 | `./gradlew unitTest` | Unit and domain tests only (no E2E, no Cucumber) |
-| 2 | `./gradlew e2eEmulator` | Emulator end-to-end (BDD + programmatic) |
-| 3 | `./gradlew e2ePaper` | Paper end-to-end (BDD + programmatic) |
-| 4 | `./gradlew e2eIb` | Interactive Brokers end-to-end (BDD + programmatic) |
-| 5 | `./gradlew e2eReplay` | Replay end-to-end (BDD + programmatic) |
-| 6 | `./gradlew allTests` | Everything: `unitTest`, then all four E2E groups sequentially |
+| Command | E2E ordering | When to use |
+|---------|----------------|-------------|
+| `./gradlew allTestsSequential` | Every BDD/E2E JVM task sequential; broker modes sequential; BDD shards sequential | **CI default** — most stable |
+| `./gradlew allTestsParallel` | IB + emulator BDD shards in parallel; broker modes still sequential | Faster local pre-push |
+| `./gradlew allTestsParallelModes` | Parallel shards **and** all four broker modes at once | Expert only — may flake |
+
+Aliases: `allTests` and `test` → `allTestsSequential`; `fastAllTests` → `allTestsParallel`.
+
+Run `./gradlew printTestSuites` for a quick reference in the terminal.
+
+#### Per-mode and unit commands
+
+| Command | What it runs |
+|---------|----------------|
+| `./gradlew unitTest` | Unit and domain tests only (no E2E, no Cucumber) |
+| `./gradlew e2eEmulator` | Emulator end-to-end (BDD + programmatic) |
+| `./gradlew e2ePaper` | Paper end-to-end (BDD + programmatic) |
+| `./gradlew e2eIb` | Interactive Brokers end-to-end (BDD + programmatic) |
+| `./gradlew e2eReplay` | Replay end-to-end (BDD + programmatic) |
 
 ```bash
 ./gradlew unitTest
@@ -277,10 +288,16 @@ Run from the **repo root** (each task delegates to `:day-trader`).
 ./gradlew e2ePaper
 ./gradlew e2eIb
 ./gradlew e2eReplay
-./gradlew allTests
+./gradlew allTestsSequential    # CI-safe full suite
+./gradlew allTestsParallel      # faster local full suite
+./gradlew printTestSuites       # print the table above
 ```
 
-Add `--rerun-tasks` to force a fresh run. When multiple E2E/BDD tasks are scheduled together, they run **one task at a time** (`daytrader.e2e.sequentialTasks` in `gradle.properties`).
+Add `--rerun-tasks` to force a fresh run. Unit tests use parallel Gradle forks (`daytrader.unit.maxParallelForks`, default 4). E2E/BDD isolation stays `forkEvery=1` per test class.
+
+**BDD sharding:** IB Cucumber → `bddIbShard1` … `bddIbShard3` (aggregated by `bddIb`); emulator → `bddEmulatorShard1` … `bddEmulatorShard2`. Shards run in parallel only under `allTestsParallel` or `allTestsParallelModes`. Use `bddIbMonolith` for all IB scenarios in one JVM (debugging).
+
+Legacy property `-Pdaytrader.e2e.sequentialTasks=false` still enables parallel shards (same as `allTestsParallel`); use the named tasks instead.
 
 **Reports:** `day-trader/build/reports/tests/<taskName>/index.html`
 
@@ -333,7 +350,8 @@ There is no failing coverage gate yet — use the report to find integration pat
 ./gradlew e2eReplayTests
 
 # Full suite (unitTest + all E2E groups, nothing excluded)
-./gradlew allTests
+./gradlew allTestsSequential   # CI-safe; alias: allTests, test
+./gradlew allTestsParallel     # faster; alias: fastAllTests
 
 # Unit tests only (KMP task name; same as unitTest)
 ./gradlew desktopTest

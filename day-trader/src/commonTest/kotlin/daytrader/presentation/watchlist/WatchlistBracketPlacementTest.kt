@@ -28,12 +28,14 @@ class WatchlistBracketPlacementTest {
 
     @Test
     fun submitBracket_ibMode_routesToExecutionGateway() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val execution = FakeBrokerGateway(brokerId = BrokerId.INTERACTIVE_BROKERS)
         val repository = repositoryWithCompletePlan()
         val viewModel = WatchlistViewModel(
             repository = repository,
             brokerGateway = execution,
-            brokerKind = BrokerKind.INTERACTIVE_BROKERS
+            brokerKind = BrokerKind.INTERACTIVE_BROKERS,
+            scope = scope,
         )
         awaitExecutionConnected(viewModel, "Interactive Brokers connected")
         openAndSubmitBracket(viewModel, repository)

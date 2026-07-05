@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtensionContext
 /** Resets process-wide singletons so desktop tests do not pollute each other in one JVM. */
 class GlobalTestCleanupExtension : Extension, BeforeEachCallback, AfterEachCallback {
     override fun beforeEach(context: ExtensionContext) {
+        TestJvmIsolation.ensureJvmDataDirectory()
         E2EProcessCleanup.resetAll()
     }
 

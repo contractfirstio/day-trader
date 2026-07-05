@@ -40,18 +40,24 @@ Every change starts with a **failing test** that describes the desired behavior.
 ## Isolation rules
 
 - E2E tests must leave a clean process: `E2EProcessCleanup`, `E2EWorld.reset()`, engine `shutdown()`.
-- Do not weaken `forkEvery=1` or sequential task ordering for E2E/BDD tasks.
+- Do not weaken `forkEvery=1` for E2E/BDD tasks.
+- Parallel unit forks: `daytrader.unit.maxParallelForks` (separate JVM per fork; `TestJvmIsolation` + expanded cleanup).
+- `allTestsSequential`: every E2E/BDD task sequential (CI). `allTestsParallel`: parallel IB/emulator BDD shards only. `allTestsParallelModes`: expert — parallel modes too.
+- IB/emulator BDD sharded (`bddIbShard1..3`, `bddEmulatorShard1..2`); `bddIb` / `bddEmulator` aggregate shards.
 - New Cucumber steps must call existing cleanup hooks in `@Before` / `@After`.
 
 ## Gradle commands (repo root)
 
 ```bash
-./gradlew unitTest          # unit/domain only
-./gradlew e2eEmulator       # emulator E2E group
-./gradlew e2ePaper          # paper E2E group
-./gradlew e2eIb             # IB E2E group
-./gradlew e2eReplay         # replay E2E group
-./gradlew allTests          # unit + all E2E groups (desktopTest / unitTest = unit only)
+./gradlew unitTest               # unit/domain only
+./gradlew e2eEmulator            # emulator E2E group
+./gradlew e2ePaper               # paper E2E group
+./gradlew e2eIb                  # IB E2E group
+./gradlew e2eReplay              # replay E2E group
+./gradlew allTestsSequential     # full suite, strictly sequential E2E (CI default; alias: allTests)
+./gradlew allTestsParallel       # full suite, parallel BDD shards (alias: fastAllTests)
+./gradlew allTestsParallelModes  # expert: parallel shards + parallel broker modes
+./gradlew printTestSuites        # print full-suite reference
 ```
 
 While iterating: `./gradlew bddIbWip` (WIP BDD), `./gradlew e2eIbTests` (programmatic only). Add `--rerun-tasks` to force a fresh run.

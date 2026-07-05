@@ -36,6 +36,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * Fault-injection E2E: broker disconnect/reconnect and orphan-order drift while sessions run.
@@ -187,7 +188,12 @@ class E2EBrokerFaultInjectionTest {
             BrokerFaultInjector.disconnectReconnect(gateway)
             gateway.flushDeferredBracketAcks()
             engine.drainUntilIdle(512)
-            delay(100)
+            withTimeout(15_000) {
+                while (repository.deployments.value.single().touchTurnSession?.ordersPlacedForSession != true) {
+                    engine.drainUntilIdle(64)
+                    delay(25)
+                }
+            }
 
             val deployment = repository.deployments.value.single()
             assertTrue(deployment.touchTurnSession?.ordersPlacedForSession == true)

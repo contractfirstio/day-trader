@@ -37,8 +37,11 @@ actual object AppFileSystem {
 
     actual fun applicationDataRoot(): String = stableBaseDataDirectory().toString()
 
-    private fun stableBaseDataDirectory(): Path =
-        if (!envOverride.isNullOrBlank()) Path.of(envOverride) else defaultBaseDataDirectory()
+    private fun stableBaseDataDirectory(): Path {
+        val override = envOverride?.takeIf { it.isNotBlank() }
+            ?: System.getProperty("daytrader.data.dir")?.takeIf { it.isNotBlank() }
+        return if (!override.isNullOrBlank()) Path.of(override) else defaultBaseDataDirectory()
+    }
 
     private fun traceRunBaseDirectory(): Path =
         stableBaseDataDirectory().resolve("runs").resolve(launchId)

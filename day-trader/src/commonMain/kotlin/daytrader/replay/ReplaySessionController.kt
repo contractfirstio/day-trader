@@ -132,6 +132,14 @@ class ReplaySessionController(
         bundle: SessionBundle,
         captureDirectory: String? = null,
         options: ReplayBacktestOptions = ReplayBacktestOptions(),
+    ): ReplayBacktestRun = ReplayHeadlessProcessLock.withExclusiveLock {
+        runBacktestReplayUnlocked(bundle, captureDirectory, options)
+    }
+
+    private suspend fun runBacktestReplayUnlocked(
+        bundle: SessionBundle,
+        captureDirectory: String? = null,
+        options: ReplayBacktestOptions = ReplayBacktestOptions(),
     ): ReplayBacktestRun {
         require(bundle.hasGroundTruth) { "Replay bundle missing ground truth (session_closed)" }
         val sessionDate = bundle.sessionDate ?: error("Replay bundle missing sessionDate")

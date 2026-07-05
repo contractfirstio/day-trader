@@ -130,7 +130,7 @@ class E2EEngineLiquidityEvaluationTest {
     @E2EEmulatorTest
     @Test
     fun emulatorBrokerKind_enginePollLiquidity_liquidityBar_placesBracketViaEngine() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var engine: TouchTurnEngine? = null
         var gateway: FakeBrokerGateway? = null
         try {

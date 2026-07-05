@@ -382,6 +382,7 @@ class TouchTurnEngine(
                 var previous: GatewayConnectionState? = null
                 gateway.connectionState.collect { connection ->
                     if (connection == GatewayConnectionState.Connected &&
+                        previous != null &&
                         previous != GatewayConnectionState.Connected
                     ) {
                         dispatch(TouchTurnCommand.BrokerConnected)
@@ -814,6 +815,7 @@ class TouchTurnEngine(
                 when (session.status) {
                     TouchTurnCandleStatus.LOADING,
                     TouchTurnCandleStatus.FAILED -> {
+                        if (loadJobs[instance.id]?.isActive == true) return@forEach
                         SessionTrace.touchTurnData(
                             deploymentId = instance.id,
                             sessionId = instance.inProgressSession()?.id,
@@ -1374,6 +1376,15 @@ class TouchTurnEngine(
                 symbol = afterEval.symbol,
                 reason = reason
             )
+            val setup = afterSession.setup
+            val rules = afterSession.rules
+            if (setup != null) {
+                val outcome = orderSubmissionBlockOutcome(setup, afterSession, rules)
+                    ?: TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+                repository.update(instanceId) { current ->
+                    current.withTouchTurnDecisionOutcome(outcome)
+                }
+            }
             finishLiquidityPoll(instanceId, afterEval, evaluatedAt, enforceCloseConfirmation)
             return
         }

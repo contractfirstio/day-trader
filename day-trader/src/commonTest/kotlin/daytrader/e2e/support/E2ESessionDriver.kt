@@ -20,9 +20,8 @@ class E2ESessionDriver(
     }
 
     /**
-     * Starts the command loop. E2E steps drive bootstrap explicitly via [loadFirstCandle] so we do
-     * not dispatch [TouchTurnCommand.BrokerConnected] here — that would race a second
-     * [TouchTurnCommand.LoadFirstCandle] and leave the session stuck in LOADING.
+     * Starts the command loop. Bootstrap is driven explicitly via [loadFirstCandle]; the engine no
+     * longer treats an already-connected gateway on subscribe as a reconnect event.
      */
     suspend fun startEngine() {
         engine.start()
@@ -42,8 +41,7 @@ class E2ESessionDriver(
                 }
                 engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
             }
-            session?.status != TouchTurnCandleStatus.READY &&
-                session?.status != TouchTurnCandleStatus.LOADING -> {
+            session?.status != TouchTurnCandleStatus.READY -> {
                 engine.dispatch(TouchTurnCommand.LoadFirstCandle(deploymentId, sessionDate))
             }
         }

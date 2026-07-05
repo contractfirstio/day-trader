@@ -82,8 +82,8 @@ object E2EEngineLiquidityHelper {
                     return
                 }
                 liquidityEvaluatedAt(deployment) != null &&
-                    session?.ordersPlacedForSession != true &&
-                    session?.fiveMinuteConfirmation == null -> {
+                    decisionOutcome(deployment) != null &&
+                    session?.ordersPlacedForSession != true -> {
                     engine.drainUntilIdle()
                     return
                 }

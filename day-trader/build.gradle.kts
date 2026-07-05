@@ -17,15 +17,32 @@ plugins {
     alias(libs.plugins.kover)
 }
 
+private val bddEmulatorShardTaskNames = listOf(
+    "bddEmulatorShard1",
+    "bddEmulatorShard2",
+)
+private val bddIbShardTaskNames = listOf(
+    "bddIbShard1",
+    "bddIbShard2",
+    "bddIbShard3",
+)
+
 private val bddCoverageTaskNames = listOf(
     "bddTest",
-    "bddEmulator",
+    *bddEmulatorShardTaskNames.toTypedArray(),
     "bddEmulatorWip",
     "bddPaper",
-    "bddIb",
+    *bddIbShardTaskNames.toTypedArray(),
     "bddIbWip",
     "bddReplay",
 )
+
+/** Maps coverage.bdd.only aggregator tasks to instrumented shard Test tasks. */
+private fun resolveBddCoverageTasks(only: String): List<String> = when (only) {
+    "bddEmulator" -> bddEmulatorShardTaskNames
+    "bddIb" -> bddIbShardTaskNames
+    else -> listOf(only)
+}
 
 private val programmaticE2eTestTaskNames = listOf(
     "e2eEmulatorTests",
@@ -50,13 +67,14 @@ fun Project.koverExcludedTestTaskNames(): List<String> = buildList {
         else -> error("Unknown coverage.scope (use bdd, unit, or all)")
     }
     (findProperty("coverage.bdd.only") as String?)?.let { onlyBddTask ->
-        addAll(bddCoverageTaskNames.filter { it != onlyBddTask })
+        val included = resolveBddCoverageTasks(onlyBddTask)
+        addAll(bddCoverageTaskNames.filter { it !in included })
     }
 }
 
 fun Project.koverBddTasksForCoverage(): List<String> {
     val only = findProperty("coverage.bdd.only") as String?
-    return if (only != null) listOf(only) else bddCoverageTaskNames
+    return if (only != null) resolveBddCoverageTasks(only) else bddCoverageTaskNames
 }
 
 fun Project.shouldInstrumentBddTask(taskName: String): Boolean {
@@ -221,6 +239,7 @@ fun Test.configureTestDefaults(
     maxParallelForks = 1
     // Recycle JVM every 50 classes so coroutine leaks cannot accumulate across the full suite.
     forkEvery = 50
+    configureTestIsolation()
     systemProperty("junit.jupiter.execution.timeout.default", "30s")
     systemProperty("junit.jupiter.execution.parallel.enabled", "false")
     systemProperty("junit.jupiter.execution.parallel.mode.default", "same_thread")
@@ -233,6 +252,13 @@ fun Test.configureTestDefaults(
         showStackTraces = true
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
     }
+}
+
+/** Per Gradle Test task: isolated app-data root and no session price JSONL during tests. */
+fun Test.configureTestIsolation() {
+    val testHome = layout.buildDirectory.dir("test-home/$name").get().asFile
+    environment("DAY_TRADER_DATA_DIR", testHome.absolutePath)
+    environment("DAY_TRADER_SESSION_PRICE_LOGS", "false")
 }
 
 /**
@@ -271,6 +297,11 @@ fun Test.configureE2eModeReports(taskName: String) {
 fun Test.configureUnitTestTask() {
     group = "verification"
     configureTestDefaults(excludeModeTag = "e2e")
+    maxParallelForks = (project.findProperty("daytrader.unit.maxParallelForks") as String?)
+        ?.toIntOrNull()
+        ?.coerceAtLeast(1)
+        ?: 1
+    forkEvery = (project.findProperty("daytrader.unit.forkEvery") as String?)?.toLongOrNull() ?: 25L
     filter {
         excludeTestsMatching("daytrader.e2e.Cucumber*")
     }
@@ -302,8 +333,8 @@ tasks.register<Test>("bddTest") {
     configureE2eModeReports("bddTest")
 }
 
-/** Per-mode Cucumber suites — [bddAll] runs these one after another (separate JVM per mode). */
-private val bddModeTestTaskNames = listOf(
+/** Per-mode Cucumber suites — [bddAll] runs these one after another (separate JVM per mode/shard). */
+private val bddModeAggregatorTaskNames = listOf(
     "bddEmulator",
     "bddEmulatorWip",
     "bddPaper",
@@ -315,15 +346,37 @@ private val bddModeTestTaskNames = listOf(
 tasks.register("bddAll") {
     group = "verification"
     description =
-        "All Cucumber BDD scenarios, one broker mode at a time: emulator → emulator @wip → paper → IB → IB @wip → replay."
-    dependsOn(bddModeTestTaskNames.map { tasks.named(it) })
+        "All Cucumber BDD scenarios, one broker mode at a time: emulator (2 shards) → emulator @wip → " +
+            "paper → IB (3 shards) → IB @wip → replay."
+    dependsOn(bddModeAggregatorTaskNames.map { tasks.named(it) })
 }
 
 listOf(
-    Triple("bddEmulator", "daytrader.e2e.CucumberEmulatorTestSuite", "Cucumber BDD for broker emulator mode."),
+    Triple("bddEmulatorShard1", "daytrader.e2e.CucumberEmulatorShard1TestSuite", "Emulator BDD shard 1/2."),
+    Triple("bddEmulatorShard2", "daytrader.e2e.CucumberEmulatorShard2TestSuite", "Emulator BDD shard 2/2."),
+    Triple("bddIbShard1", "daytrader.e2e.CucumberIbShard1TestSuite", "IB BDD shard 1/3 (gateway and bootstrap)."),
+    Triple("bddIbShard2", "daytrader.e2e.CucumberIbShard2TestSuite", "IB BDD shard 2/3 (liquidity, prepare, capture)."),
+    Triple("bddIbShard3", "daytrader.e2e.CucumberIbShard3TestSuite", "IB BDD shard 3/3 (five-minute and prepare)."),
+).forEach { (taskName, suiteClass, descriptionText) ->
+    tasks.register<Test>(taskName) {
+        group = "verification"
+        description = descriptionText
+        configureE2eTestDefaults()
+        useDesktopTestClasspath()
+        includeCucumberSuite(suiteClass)
+        configureE2eModeReports(taskName)
+    }
+}
+
+tasks.register("bddEmulator") {
+    group = "verification"
+    description = "All emulator Cucumber BDD (2 parallel shards when sequentialTasks=false)."
+    dependsOn(bddEmulatorShardTaskNames.map { tasks.named(it) })
+}
+
+listOf(
     Triple("bddEmulatorWip", "daytrader.e2e.CucumberEmulatorWipTestSuite", "Cucumber BDD for emulator mode work-in-progress scenarios (@wip)."),
     Triple("bddPaper", "daytrader.e2e.CucumberPaperTestSuite", "Cucumber BDD for paper mode (live IB data + emulator execution)."),
-    Triple("bddIb", "daytrader.e2e.CucumberIbTestSuite", "Cucumber BDD for Interactive Brokers mode."),
     Triple("bddIbWip", "daytrader.e2e.CucumberIbWipTestSuite", "Cucumber BDD for IB mode work-in-progress scenarios (@wip)."),
     Triple("bddReplay", "daytrader.e2e.CucumberReplayTestSuite", "Cucumber BDD for session replay mode."),
 ).forEach { (taskName, suiteClass, descriptionText) ->
@@ -335,6 +388,21 @@ listOf(
         includeCucumberSuite(suiteClass)
         configureE2eModeReports(taskName)
     }
+}
+
+tasks.register("bddIb") {
+    group = "verification"
+    description = "All IB Cucumber BDD (3 parallel shards when sequentialTasks=false)."
+    dependsOn(bddIbShardTaskNames.map { tasks.named(it) })
+}
+
+tasks.register<Test>("bddIbMonolith") {
+    group = "verification"
+    description = "All IB Cucumber BDD in one JVM (CucumberIbTestSuite — debugging only; prefer bddIb shards)."
+    configureE2eTestDefaults()
+    useDesktopTestClasspath()
+    includeCucumberSuite("daytrader.e2e.CucumberIbTestSuite")
+    configureE2eModeReports("bddIbMonolith")
 }
 
 listOf(
@@ -362,6 +430,9 @@ listOf(
         group = "verification"
         description = "Full end-to-end for ${taskName.removePrefix("e2e").lowercase()} mode (BDD + programmatic)."
         dependencies.forEach { dependsOn(tasks.named(it)) }
+    }
+    tasks.named<Test>(dependencies[1]) {
+        mustRunAfter(tasks.named(dependencies[0]))
     }
 }
 
@@ -393,10 +464,48 @@ tasks.register("e2eTest") {
     dependsOn(e2eModeAggregatorTaskNames.map { tasks.named(it) })
 }
 
+/** Internal aggregator: unitTest then e2eTest. Prefer [allTestsSequential] or [allTestsParallel] at the CLI. */
 tasks.register("fullTestSuite") {
     group = "verification"
-    description = "Everything: unit tests, then all broker-mode E2E (BDD + programmatic per mode), sequentially."
+    description =
+        "Low-level aggregator (unitTest + e2eTest). Ordering is chosen by the requested suite task " +
+            "(allTestsSequential, allTestsParallel, or allTestsParallelModes)."
     dependsOn(tasks.named("unitTest"), tasks.named("e2eTest"))
+}
+
+private fun fullSuiteUnitForksNote(): String =
+    "Unit tests use parallel Gradle forks (daytrader.unit.maxParallelForks, default 4)."
+
+tasks.register("allTestsSequential") {
+    group = "verification — full suite"
+    description =
+        "Full suite, CI-safe: unitTest then all E2E/BDD with every isolated E2E task and broker mode " +
+            "running strictly one at a time (IB/emulator BDD shards sequential). ${fullSuiteUnitForksNote()}"
+    dependsOn(tasks.named("fullTestSuite"))
+}
+
+tasks.register("allTestsParallel") {
+    group = "verification — full suite"
+    description =
+        "Full suite, faster local run: same coverage as allTestsSequential but IB Cucumber (3 shards) and " +
+            "emulator Cucumber (2 shards) run in parallel within each mode; broker modes still sequential. " +
+            fullSuiteUnitForksNote()
+    dependsOn(tasks.named("fullTestSuite"))
+}
+
+tasks.register("allTestsParallelModes") {
+    group = "verification — full suite"
+    description =
+        "Full suite, expert / may flake: parallel BDD shards plus all four broker modes " +
+            "(e2eEmulator, e2ePaper, e2eIb, e2eReplay) at once. Prefer allTestsParallel for day-to-day. " +
+            fullSuiteUnitForksNote()
+    dependsOn(tasks.named("fullTestSuite"))
+}
+
+tasks.register("fastAllTests") {
+    group = "verification — full suite"
+    description = "Alias for allTestsParallel."
+    dependsOn(tasks.named("allTestsParallel"))
 }
 
 /**
@@ -405,24 +514,69 @@ tasks.register("fullTestSuite") {
  */
 private val isolatedE2eTestTaskNames = listOf(
     "bddTest",
-    "bddEmulator",
+    "bddEmulatorShard1",
+    "bddEmulatorShard2",
     "bddEmulatorWip",
     "e2eEmulatorTests",
     "bddPaper",
     "e2ePaperTests",
-    "bddIb",
+    "bddIbShard1",
+    "bddIbShard2",
+    "bddIbShard3",
     "bddIbWip",
     "e2eIbTests",
     "bddReplay",
     "e2eReplayTests",
 )
 
-if ((project.findProperty("daytrader.e2e.sequentialTasks") as String?)?.toBoolean() != false) {
-    bddModeTestTaskNames.zipWithNext { first, second ->
+/**
+ * Task-graph flags for E2E ordering (configuration time only).
+ *
+ * - [parallelBddShards]: IB/emulator Cucumber shards in parallel within a mode.
+ * - [parallelE2eModes]: all four broker-mode E2E aggregators in parallel (expert only; can flake).
+ * - [fullSequentialE2e]: chain every isolated E2E/BDD Test task (CI default).
+ */
+private val parallelBddShardSuiteTaskNames = setOf(
+    "allTestsParallel",
+    "fastAllTests",
+    "allTestsParallelStress3",
+    "fastAllTestsStress3",
+)
+
+private val parallelE2eModeSuiteTaskNames = setOf(
+    "allTestsParallelModes",
+)
+
+fun Project.requestedTaskLeafNames(): List<String> =
+    gradle.startParameter.taskNames.map { it.removePrefix(":").substringAfterLast(':') }
+
+fun Project.parallelBddShards(): Boolean {
+    if (requestedTaskLeafNames().any { it in parallelE2eModeSuiteTaskNames }) return true
+    if (requestedTaskLeafNames().any { it in parallelBddShardSuiteTaskNames }) return true
+    return (findProperty("daytrader.e2e.sequentialTasks") as String?)?.toBoolean() == false
+}
+
+fun Project.parallelE2eModes(): Boolean {
+    if (requestedTaskLeafNames().any { it in parallelE2eModeSuiteTaskNames }) return true
+    return (findProperty("daytrader.e2e.sequentialTasks") as String?)?.toBoolean() == false
+}
+
+fun Project.fullSequentialE2e(): Boolean = !parallelBddShards() && !parallelE2eModes()
+
+if (!parallelBddShards()) {
+    bddEmulatorShardTaskNames.zipWithNext { first, second ->
         tasks.named<Test>(second) {
             mustRunAfter(tasks.named<Test>(first))
         }
     }
+    bddIbShardTaskNames.zipWithNext { first, second ->
+        tasks.named<Test>(second) {
+            mustRunAfter(tasks.named<Test>(first))
+        }
+    }
+}
+
+if (fullSequentialE2e()) {
     e2eProgrammaticTestTaskNames.zipWithNext { first, second ->
         tasks.named<Test>(second) {
             mustRunAfter(tasks.named<Test>(first))
@@ -433,16 +587,37 @@ if ((project.findProperty("daytrader.e2e.sequentialTasks") as String?)?.toBoolea
             mustRunAfter(tasks.named<Test>(first))
         }
     }
+}
+
+if (!parallelE2eModes()) {
     e2eModeAggregatorTaskNames.zipWithNext { first, second ->
         tasks.named(second) {
             mustRunAfter(tasks.named(first))
         }
     }
-    tasks.named("e2eTest") {
-        mustRunAfter(tasks.named("unitTest"))
+}
+
+/** Unit tests always finish before any E2E/BDD Test task (use desktopTest, not the unitTest alias). */
+private fun Project.configureE2eRunsAfterUnitTests() {
+    isolatedE2eTestTaskNames.forEach { taskName ->
+        tasks.named<Test>(taskName) {
+            mustRunAfter(tasks.named("desktopTest"))
+        }
     }
-    tasks.named("fullTestSuite") {
-        mustRunAfter(tasks.named("unitTest"))
+}
+
+configureE2eRunsAfterUnitTests()
+
+listOf(
+    "e2eTest",
+    "fullTestSuite",
+    "allTestsSequential",
+    "allTestsParallel",
+    "allTestsParallelModes",
+    "fastAllTests",
+).forEach { suiteTaskName ->
+    tasks.named(suiteTaskName) {
+        mustRunAfter(tasks.named("desktopTest"))
     }
 }
 
@@ -530,17 +705,68 @@ registerE2eStressTask(
     ":day-trader:e2eReplay",
 )
 registerE2eStressTask(
-    taskName = "allTestsStress10",
-    descriptionText = "Runs allTests 10 times sequentially with --rerun-tasks.",
+    taskName = "allTestsSequentialStress10",
+    descriptionText = "Runs allTestsSequential 10 times with --rerun-tasks; fails on first failure.",
     repeats = 10,
-    ":day-trader:fullTestSuite",
+    ":day-trader:allTestsSequential",
+)
+registerE2eStressTask(
+    taskName = "allTestsStress10",
+    descriptionText = "Alias for allTestsSequentialStress10.",
+    repeats = 10,
+    ":day-trader:allTestsSequential",
+)
+registerE2eStressTask(
+    taskName = "allTestsParallelStress3",
+    descriptionText = "Runs allTestsParallel 3 times with --rerun-tasks; fails on first failure.",
+    repeats = 3,
+    ":day-trader:allTestsParallel",
+)
+registerE2eStressTask(
+    taskName = "fastAllTestsStress3",
+    descriptionText = "Alias for allTestsParallelStress3.",
+    repeats = 3,
+    ":day-trader:allTestsParallel",
 )
 
-/** Convenience alias — same as [fullTestSuite] / [allTests]. */
+tasks.register("printTestSuites") {
+    group = "help"
+    description = "Print top-level full-suite Gradle tasks and what each runs."
+    doLast {
+        println(
+            """
+            |
+            |Full-suite commands (repo root; each delegates to :day-trader):
+            |
+            |  ./gradlew allTestsSequential
+            |    unitTest + all E2E/BDD — every isolated task sequential; broker modes sequential;
+            |    IB/emulator BDD shards sequential. CI default.
+            |
+            |  ./gradlew allTestsParallel   (alias: fastAllTests)
+            |    Same coverage — IB Cucumber 3 shards + emulator 2 shards in parallel;
+            |    broker modes still one at a time.
+            |
+            |  ./gradlew allTestsParallelModes
+            |    Expert — parallel shards AND all four broker modes at once (may flake).
+            |
+            |  ./gradlew allTests
+            |    Alias for allTestsSequential (KMP KotlinTestReport wiring).
+            |
+            |Per-mode E2E: e2eEmulator | e2ePaper | e2eIb | e2eReplay
+            |Unit only:     unitTest
+            |
+            |Add --rerun-tasks to force a fresh run.
+            |
+            """.trimMargin()
+        )
+    }
+}
+
+/** Convenience alias — same as [allTestsSequential]. */
 tasks.register("test") {
-    group = "verification"
-    description = "Runs the full test suite (alias for fullTestSuite / allTests)."
-    dependsOn(tasks.named("fullTestSuite"))
+    group = "verification — full suite"
+    description = "Alias for allTestsSequential."
+    dependsOn(tasks.named("allTestsSequential"))
 }
 
 tasks.register("coverageBdd") {
@@ -611,11 +837,13 @@ afterEvaluate {
     }
 }
 
-// KMP registers `allTests` (KotlinTestReport) → desktopTest by default. Rewire to fullTestSuite.
+// KMP registers `allTests` (KotlinTestReport) → desktopTest by default. Rewire to allTestsSequential.
 afterEvaluate {
     tasks.named<KotlinTestReport>("allTests") {
         enabled = true
-        setDependsOn(listOf(tasks.named("fullTestSuite")))
+        group = "verification — full suite"
+        description = "Alias for allTestsSequential (full suite, strictly sequential E2E/BDD)."
+        setDependsOn(listOf(tasks.named("allTestsSequential")))
     }
 }
 
