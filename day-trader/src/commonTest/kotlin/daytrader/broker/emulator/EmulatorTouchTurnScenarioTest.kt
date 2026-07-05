@@ -6,6 +6,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnTradeSide
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -92,7 +93,9 @@ class EmulatorTouchTurnScenarioTest {
             nowEpochMillis = now
         ).single()
         assertTrue(FiveMinuteConfirmationLogic.isHammerPattern(greenHammer, TouchTurnTradeSide.SHORT))
-        assertEquals(greenBar.close, greenHammer.open, "first 5m open should match 15m close")
+        val greenSetup = TouchTurnLogic.computeBracketSetup(greenBar, TouchTurnLogic.liquidityRangeThreshold(10.0))
+        assertFalse(FiveMinuteConfirmationLogic.entryPastTakeProfit(greenSetup, greenHammer.close))
+        assertTrue(greenHammer.open > greenBar.close, "green short hammer should open after sweep toward the bar high")
         val redHammer = EmulatorHistoricalData.fiveMinuteBarsSince(
             openingFifteenMinuteBar = redBar,
             side = TouchTurnTradeSide.LONG,
@@ -103,7 +106,9 @@ class EmulatorTouchTurnScenarioTest {
             nowEpochMillis = now
         ).single()
         assertTrue(FiveMinuteConfirmationLogic.isHammerPattern(redHammer, TouchTurnTradeSide.LONG))
-        assertEquals(redBar.close, redHammer.open, "first 5m open should match 15m close")
+        val redSetup = TouchTurnLogic.computeBracketSetup(redBar, TouchTurnLogic.liquidityRangeThreshold(10.0))
+        assertFalse(FiveMinuteConfirmationLogic.entryPastTakeProfit(redSetup, redHammer.close))
+        assertTrue(redHammer.open < redBar.close, "red long hammer should open after sweep toward the bar low")
         assertNotNull(greenHammer.time)
         assertNotNull(redHammer.time)
     }

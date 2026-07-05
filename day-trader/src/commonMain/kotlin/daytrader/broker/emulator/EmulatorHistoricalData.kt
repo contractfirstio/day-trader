@@ -7,6 +7,7 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.TouchTurnLiquidityThresholds
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.TouchTurnTradeSide
@@ -490,16 +491,38 @@ internal object EmulatorHistoricalData {
         openPrice: Double = openingFifteenMinuteBar.close,
         barRangeFractionOfSpan: Double = 0.08
     ): OhlcBar {
-        val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
+        val setup = TouchTurnLogic.computeBracketSetup(
+            openingFifteenMinuteBar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 0.0),
+            TouchTurnRuleConfig.DEFAULT
+        )
+        val takeProfit = setup.takeProfit
         val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
+        val cushion = span * 0.01
+        val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
         val barRange = span * barRangeFractionOfSpan
         val body = barRange * 0.12
         val rejection = body * 2.5
         val opposite = body * 0.08
-        val open = openPrice
-        return when (side) {
+        val tradeSide = setup.side
+        val open = when (tradeSide) {
+            TouchTurnTradeSide.SHORT ->
+                if (FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, openPrice)) {
+                    openingFifteenMinuteBar.high - span * 0.02
+                } else {
+                    openPrice
+                }
+            TouchTurnTradeSide.LONG ->
+                if (FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, openPrice)) {
+                    openingFifteenMinuteBar.low + span * 0.02
+                } else {
+                    openPrice
+                }
+        }
+        val bar = when (tradeSide) {
             TouchTurnTradeSide.LONG -> {
-                val close = (open + body).coerceAtMost(openingFifteenMinuteBar.high)
+                val maxClose = takeProfit - cushion
+                val close = (open + body).coerceAtMost(maxClose).coerceAtMost(openingFifteenMinuteBar.high)
                 val low = (open - rejection).coerceAtLeast(openingFifteenMinuteBar.low)
                 val high = (close + opposite).coerceAtMost(openingFifteenMinuteBar.high)
                 OhlcBar(
@@ -512,7 +535,8 @@ internal object EmulatorHistoricalData {
                 )
             }
             TouchTurnTradeSide.SHORT -> {
-                val close = (open - body).coerceAtLeast(openingFifteenMinuteBar.low)
+                val minClose = takeProfit + cushion
+                val close = (open - body).coerceAtLeast(minClose).coerceAtLeast(openingFifteenMinuteBar.low)
                 val high = (open + rejection).coerceAtMost(openingFifteenMinuteBar.high)
                 val low = (close - opposite).coerceAtLeast(openingFifteenMinuteBar.low)
                 OhlcBar(
@@ -525,6 +549,10 @@ internal object EmulatorHistoricalData {
                 )
             }
         }
+        check(!FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, bar.close)) {
+            "Emulator hammer close ${bar.close} crossed 15m take-profit $takeProfit for $tradeSide"
+        }
+        return bar
     }
 
     private fun syntheticInvalidatingBar(

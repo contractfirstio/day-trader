@@ -10,9 +10,18 @@ enum class TouchTurnOrderRole {
     STOP_LOSS
 }
 
-/** Touch Turn orders are always session/day orders — never GTC or other multi-day TIF. */
+/** Bracket time-in-force: entry is session/day; protective legs persist until filled or cancelled. */
 object TouchTurnOrderDefaults {
-    const val TIME_IN_FORCE = "DAY"
+    const val ENTRY_TIME_IN_FORCE = "DAY"
+    const val PROTECTIVE_LEG_TIME_IN_FORCE = "GTC"
+
+    /** @deprecated Use [timeInForceFor]; kept for tests referencing legacy single-TIF constant. */
+    const val TIME_IN_FORCE = ENTRY_TIME_IN_FORCE
+
+    fun timeInForceFor(role: TouchTurnOrderRole): String = when (role) {
+        TouchTurnOrderRole.ENTRY -> ENTRY_TIME_IN_FORCE
+        TouchTurnOrderRole.TAKE_PROFIT, TouchTurnOrderRole.STOP_LOSS -> PROTECTIVE_LEG_TIME_IN_FORCE
+    }
 }
 
 /** One leg of the Touch Turn bracket sent to IB or the broker emulator. */
@@ -23,7 +32,7 @@ data class TouchTurnPlannedOrder(
     val orderType: String,
     val quantity: Int,
     val price: Double,
-    val timeInForce: String = TouchTurnOrderDefaults.TIME_IN_FORCE,
+    val timeInForce: String = TouchTurnOrderDefaults.timeInForceFor(role),
     /** Price at which IB converts the stop to TRAIL (adjustable stop, Option A). */
     val trailTriggerPrice: Double? = null,
     /** Stop price when trailing arms; null when trailing disabled. */
@@ -149,14 +158,16 @@ object TouchTurnOrderPlanner {
                     action = entryAction,
                     orderType = entryOrderType(rules),
                     quantity = quantity,
-                    price = setup.entry
+                    price = setup.entry,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.ENTRY)
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.TAKE_PROFIT,
                     action = exitAction,
                     orderType = "LMT",
                     quantity = quantity,
-                    price = setup.takeProfit
+                    price = setup.takeProfit,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.TAKE_PROFIT)
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.STOP_LOSS,
@@ -164,6 +175,7 @@ object TouchTurnOrderPlanner {
                     orderType = "STP",
                     quantity = quantity,
                     price = setup.stopLoss,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.STOP_LOSS),
                     trailTriggerPrice = adjustableStop?.triggerPrice,
                     trailArmStopPrice = adjustableStop?.armStopPrice
                 )
@@ -186,6 +198,7 @@ object TouchTurnOrderPlanner {
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnOrderPlan? {
         if (!TouchTurnLogic.setupActionableForEntry(fifteenMinuteSetup, rules)) return null
+        if (FiveMinuteConfirmationLogic.entryPastTakeProfit(fifteenMinuteSetup, hammerBar.close)) return null
         val confirmationSetup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
             fifteenMinuteSetup = fifteenMinuteSetup,
             marketEntry = hammerBar.close,
@@ -220,14 +233,16 @@ object TouchTurnOrderPlanner {
                     action = entryAction,
                     orderType = "MKT",
                     quantity = quantity,
-                    price = marketEntry
+                    price = marketEntry,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.ENTRY)
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.TAKE_PROFIT,
                     action = exitAction,
                     orderType = "LMT",
                     quantity = quantity,
-                    price = confirmationSetup.takeProfit
+                    price = confirmationSetup.takeProfit,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.TAKE_PROFIT)
                 ),
                 TouchTurnPlannedOrder(
                     role = TouchTurnOrderRole.STOP_LOSS,
@@ -235,6 +250,7 @@ object TouchTurnOrderPlanner {
                     orderType = "STP",
                     quantity = quantity,
                     price = confirmationSetup.stopLoss,
+                    timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.STOP_LOSS),
                     trailTriggerPrice = adjustableStop?.triggerPrice,
                     trailArmStopPrice = adjustableStop?.armStopPrice
                 )

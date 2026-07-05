@@ -161,6 +161,8 @@ fun TouchTurnOpeningBarChart(
                 )
             }
 
+            val fiveMinuteOverlayActive = fiveMinuteBars.isNotEmpty() || sweepPrice != null
+
             drawRect(
                 color = DarkBackground.copy(alpha = 0.35f),
                 topLeft = Offset(plotLeft, plotTop),
@@ -188,7 +190,7 @@ fun TouchTurnOpeningBarChart(
 
             if (priceSeries.isNotEmpty()) {
                 val pathStartX = candleCenterX + bodyWidth * 0.65f
-                val pathEndX = if (fiveMinuteBars.isEmpty()) {
+                val pathEndX = if (!fiveMinuteOverlayActive) {
                     plotRight
                 } else {
                     plotLeft + plotWidth * 0.58f
@@ -211,7 +213,7 @@ fun TouchTurnOpeningBarChart(
                 )
             }
 
-            if (fiveMinuteBars.isNotEmpty()) {
+            if (fiveMinuteOverlayActive) {
                 val fiveMinAreaLeft = plotLeft + plotWidth * 0.58f
                 val fiveMinAreaWidth = plotRight - fiveMinAreaLeft
                 val slotWidth = fiveMinAreaWidth / FiveMinuteConfirmationLogic.MAX_BARS.coerceAtLeast(1)
@@ -228,6 +230,20 @@ fun TouchTurnOpeningBarChart(
                         yFor = ::yFor,
                         minBodyPx = minBodyPx,
                         wickWidthPx = wickWidthPx
+                    )
+                }
+                for (slot in fiveMinuteBars.size until FiveMinuteConfirmationLogic.MAX_BARS) {
+                    val centerX = fiveMinAreaLeft + slotWidth * (slot + 0.5f)
+                    val layout = textMeasurer.measure(
+                        "5m ${slot + 1}",
+                        labelStyle.copy(color = TextSecondary.copy(alpha = 0.4f))
+                    )
+                    drawText(
+                        textLayoutResult = layout,
+                        topLeft = Offset(
+                            centerX - layout.size.width / 2f,
+                            plotBottom + 2f
+                        )
                     )
                 }
             }
@@ -311,9 +327,13 @@ fun TouchTurnOpeningBarChart(
                 color = TextSecondary.copy(alpha = 0.85f)
             )
         }
-        if (fiveMinuteBars.isNotEmpty()) {
+        if (fiveMinuteBars.isNotEmpty() || sweepPrice != null) {
             Text(
-                "Right: evaluated 5m bars overlaid on the 15m opening bar price scale.",
+                if (fiveMinuteBars.isEmpty()) {
+                    "Right: awaiting evaluated 5m bars on the 15m opening bar price scale."
+                } else {
+                    "Right: evaluated 5m bars overlaid on the 15m opening bar price scale."
+                },
                 fontSize = 9.sp,
                 color = TextSecondary.copy(alpha = 0.85f),
                 modifier = Modifier.testTag("TouchTurnOpeningBarChartFiveMinOverlayCaption")

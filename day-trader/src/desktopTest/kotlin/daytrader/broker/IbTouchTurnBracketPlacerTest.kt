@@ -4,8 +4,10 @@ import com.ib.client.EJavaSignal
 import com.ib.client.DefaultEWrapper
 import com.ib.client.EClientSocket
 import com.ib.client.OrderType
+import com.ib.client.Types
 import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlan
+import daytrader.domain.TouchTurnOrderDefaults
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
 import daytrader.domain.TouchTurnTradeSide
@@ -73,6 +75,21 @@ class IbTouchTurnBracketPlacerTest {
             allocateOrderIds = { null },
         )
         assertNull(result)
+    }
+
+    @Test
+    fun build_standardBracket_assignsMixedTimeInForce() {
+        val plan = standardPlan()
+        val submission = IbTouchTurnBracketPlacer.build(
+            client = TestEClientSocket(connected = true),
+            config = config,
+            plan = plan,
+            allocateOrderIds = { 500 },
+        )
+        assertNotNull(submission)
+        assertEquals(Types.TimeInForce.DAY, submission.parent.tif())
+        assertEquals(Types.TimeInForce.GTC, submission.takeProfit.tif())
+        assertEquals(Types.TimeInForce.GTC, submission.stopLoss.tif())
     }
 
     @Test
@@ -169,6 +186,7 @@ class IbTouchTurnBracketPlacerTest {
                 orderType = "STP",
                 price = 100.0,
                 quantity = 100,
+                timeInForce = TouchTurnOrderDefaults.ENTRY_TIME_IN_FORCE,
             ),
             TouchTurnPlannedOrder(
                 role = TouchTurnOrderRole.TAKE_PROFIT,
@@ -176,6 +194,7 @@ class IbTouchTurnBracketPlacerTest {
                 orderType = "LMT",
                 price = 101.0,
                 quantity = 100,
+                timeInForce = TouchTurnOrderDefaults.PROTECTIVE_LEG_TIME_IN_FORCE,
             ),
             TouchTurnPlannedOrder(
                 role = TouchTurnOrderRole.STOP_LOSS,
@@ -183,6 +202,7 @@ class IbTouchTurnBracketPlacerTest {
                 orderType = "STP",
                 price = 99.0,
                 quantity = 100,
+                timeInForce = TouchTurnOrderDefaults.PROTECTIVE_LEG_TIME_IN_FORCE,
             ),
         ),
     )

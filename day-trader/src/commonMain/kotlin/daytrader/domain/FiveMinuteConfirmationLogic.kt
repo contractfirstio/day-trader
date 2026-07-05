@@ -16,7 +16,9 @@ enum class FiveMinuteConfirmationStatus {
     /** No qualifying hammer within three 5m bars (15 minutes). */
     EXPIRED,
     /** Valid hammer but projected gross profit to 15m TP below minimum. */
-    REJECTED_INSUFFICIENT_GROSS_PROFIT
+    REJECTED_INSUFFICIENT_GROSS_PROFIT,
+    /** Valid hammer but entry at hammer close crossed the 15m fib take-profit. */
+    REJECTED_MISSED_TOUCH_TURN
 }
 
 @Serializable
@@ -38,6 +40,9 @@ object FiveMinuteConfirmationLogic {
     const val BAR_DURATION_MS = 5 * 60 * 1000L
     const val TTL_MS = 3 * BAR_DURATION_MS
     const val MAX_BARS = 3
+    const val MISSED_TOUCH_TURN_MESSAGE =
+        "Hammer entry crossed the 15-minute take-profit level — the touch-and-turn opportunity was missed. " +
+            "Bracket orders were not placed."
 
     fun stateAfterBarEvaluated(state: FiveMinuteConfirmationState, bar: OhlcBar): FiveMinuteConfirmationState {
         val barTime = bar.time ?: return state
@@ -131,9 +136,25 @@ object FiveMinuteConfirmationLogic {
         return true
     }
 
+    /** Signed distance from [marketEntry] to the fixed 15m take-profit (positive when still profitable). */
+    fun tpDistanceToTarget(
+        fifteenMinuteSetup: TouchTurnBracketSetup,
+        marketEntry: Double
+    ): Double = when (fifteenMinuteSetup.side) {
+        TouchTurnTradeSide.LONG -> fifteenMinuteSetup.takeProfit - marketEntry
+        TouchTurnTradeSide.SHORT -> marketEntry - fifteenMinuteSetup.takeProfit
+    }
+
+    /** True when [marketEntry] has already reached or crossed the 15m fib take-profit. */
+    fun entryPastTakeProfit(
+        fifteenMinuteSetup: TouchTurnBracketSetup,
+        marketEntry: Double
+    ): Boolean = tpDistanceToTarget(fifteenMinuteSetup, marketEntry) <= 0.0
+
     /**
      * Bracket for the 5m confirmation path: MKT entry at [marketEntry], fixed 15m take-profit,
      * stop recomputed from market entry using [TouchTurnRuleConfig.takeProfitToStopLossRatio].
+     * Callers must reject the trade when [entryPastTakeProfit] is true.
      */
     fun buildConfirmationSetup(
         fifteenMinuteSetup: TouchTurnBracketSetup,
@@ -141,21 +162,7 @@ object FiveMinuteConfirmationLogic {
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnBracketSetup {
         val side = fifteenMinuteSetup.side
-        val fifteenTp = fifteenMinuteSetup.takeProfit
-        val rawTpDistance = when (side) {
-            TouchTurnTradeSide.LONG -> fifteenTp - marketEntry
-            TouchTurnTradeSide.SHORT -> marketEntry - fifteenTp
-        }
-        // Hammer MKT entry can cross the fixed 15m fib TP; re-anchor on the profitable side
-        // while preserving distance magnitude to the 15m level.
-        val takeProfit = if (rawTpDistance > 0.0) {
-            fifteenTp
-        } else {
-            when (side) {
-                TouchTurnTradeSide.LONG -> marketEntry + abs(fifteenTp - marketEntry)
-                TouchTurnTradeSide.SHORT -> marketEntry - abs(marketEntry - fifteenTp)
-            }
-        }
+        val takeProfit = fifteenMinuteSetup.takeProfit
         val tpDistance = when (side) {
             TouchTurnTradeSide.LONG -> takeProfit - marketEntry
             TouchTurnTradeSide.SHORT -> marketEntry - takeProfit
@@ -185,6 +192,7 @@ object FiveMinuteConfirmationLogic {
         quantity: Int,
         minGrossProfit: Double
     ): Boolean {
+        if (entryPastTakeProfit(fifteenMinuteSetup, hammerBar.close)) return false
         val confirmationSetup = buildConfirmationSetup(fifteenMinuteSetup, hammerBar.close)
         return TouchTurnGrossProfitGate.passes(
             setup = confirmationSetup,

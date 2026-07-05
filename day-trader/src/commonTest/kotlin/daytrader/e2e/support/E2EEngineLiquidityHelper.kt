@@ -18,6 +18,7 @@ object E2EEngineLiquidityHelper {
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
     )
     fun liquidityEnabledDeployment(
         symbol: String = E2ETestFixtures.SYMBOL,
@@ -61,7 +62,8 @@ object E2EEngineLiquidityHelper {
             when (session?.fiveMinuteConfirmation?.status) {
                 FiveMinuteConfirmationStatus.EXPIRED,
                 FiveMinuteConfirmationStatus.INVALIDATED,
-                FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT -> {
+                FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT,
+                FiveMinuteConfirmationStatus.REJECTED_MISSED_TOUCH_TURN -> {
                     engine.drainUntilIdle()
                     return
                 }

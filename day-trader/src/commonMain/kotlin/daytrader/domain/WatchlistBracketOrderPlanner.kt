@@ -25,13 +25,12 @@ object WatchlistBracketOrderPlanner {
         )
 
     fun bracketOrderSummary(options: BracketOrderOptions): String {
-        val entryLabel = if (options.stopEntry) "stop entry" else "limit entry"
         val stopLabel = if (options.adjustableTrailingStop) {
             "adjustable trailing stop"
         } else {
             "fixed stop"
         }
-        return "DAY $entryLabel with take-profit limit and $stopLabel."
+        return "DAY entry with GTC take-profit and $stopLabel."
     }
 
     fun buildTouchTurnPlan(
@@ -96,14 +95,16 @@ object WatchlistBracketOrderPlanner {
                         action = entryAction,
                         orderType = options.entryOrderType(),
                         quantity = quantity,
-                        price = entryPrice
+                        price = entryPrice,
+                        timeInForce = TouchTurnOrderDefaults.timeInForceFor(ENTRY)
                     ),
                     TouchTurnPlannedOrder(
                         role = TAKE_PROFIT,
                         action = exitAction,
                         orderType = "LMT",
                         quantity = quantity,
-                        price = targetPrice
+                        price = targetPrice,
+                        timeInForce = TouchTurnOrderDefaults.timeInForceFor(TAKE_PROFIT)
                     ),
                     TouchTurnPlannedOrder(
                         role = STOP_LOSS,
@@ -111,6 +112,7 @@ object WatchlistBracketOrderPlanner {
                         orderType = "STP",
                         quantity = quantity,
                         price = stopPrice,
+                        timeInForce = TouchTurnOrderDefaults.timeInForceFor(STOP_LOSS),
                         trailTriggerPrice = adjustableStop?.triggerPrice,
                         trailArmStopPrice = adjustableStop?.armStopPrice
                     )

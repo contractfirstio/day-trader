@@ -1449,8 +1449,9 @@ class TouchTurnEngine(
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
-        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN
     )
 
     private fun finishLiquidityPoll(

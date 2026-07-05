@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnMilestoneTimestamps
@@ -198,6 +199,22 @@ class TouchTurnSessionReasonUiTest {
         )
         assertNotNull(ui)
         assertContains(ui!!.headline, "no protective orders")
+    }
+
+    @Test
+    fun missedTouchTurn_usesPersistedDetailMessage() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-06-30",
+            status = TouchTurnCandleStatus.READY,
+            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
+            decisionDetailMessage = FiveMinuteConfirmationLogic.MISSED_TOUCH_TURN_MESSAGE,
+        )
+        val ui = TouchTurnSessionReasonUi.forDecisionOutcome(
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
+            session
+        )
+        assertContains(ui.headline, "missed touch-and-turn")
+        assertEquals(FiveMinuteConfirmationLogic.MISSED_TOUCH_TURN_MESSAGE, ui.detail)
     }
 
     @Test

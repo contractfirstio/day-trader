@@ -8,7 +8,9 @@ import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnCandleStatus
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.FiveMinuteConfirmationStatus
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnTradeSide
@@ -104,7 +106,62 @@ data class CloseConfirmationUi(
     val currency: String
 )
 
+/** Opening 15m bar chart props with optional live marks and 5m confirmation overlay. */
+data class TouchTurnSessionCandlePriceChartUi(
+    val candle: OhlcBar,
+    val candleColor: FirstCandleColor,
+    val closeStatus: FirstCandleCloseStatus,
+    val rangeThreshold: Double?,
+    val fiveMinuteBars: List<OhlcBar>,
+    val confirmedHammerBarTime: String?,
+    val sweepPrice: Double?,
+    val currencyCode: String,
+    val livePriceHistory: List<Double> = emptyList(),
+    val currentPrice: Double? = null,
+    val quoteStrip: TouchTurnQuoteStripUi? = null
+) {
+    val showFiveMinuteOverlay: Boolean get() = sweepPrice != null || fiveMinuteBars.isNotEmpty()
+}
+
 object TouchTurnPipelineDetailUiMapper {
+    /**
+     * Builds the session candle price chart when the opening 15m bar is available.
+     * Adds 5m confirmation overlay data only while that module is active for the session rules.
+     */
+    fun sessionCandlePriceChart(
+        session: TouchTurnSessionContext,
+        formingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        includeLiveMarks: Boolean = true
+    ): TouchTurnSessionCandlePriceChartUi? {
+        val candle = session.candle ?: return null
+        val candleColor = session.firstCandleColor() ?: TouchTurnLogic.firstCandleColor(candle)
+        val closeStatus = openingBarDetail(session, nowEpochMillis)?.closeStatus
+            ?: session.candleCloseStatus(nowEpochMillis)
+        val confirmation = session.fiveMinuteConfirmation?.takeIf {
+            TouchTurnRuleConfig.isFiveMinuteConfirmationEffective(session.rules)
+        }
+        val livePriceHistory = if (includeLiveMarks) {
+            formingBarPriceChart?.priceHistory.orEmpty()
+        } else {
+            emptyList()
+        }
+        val currentPrice = if (includeLiveMarks) formingBarPriceChart?.currentPrice else null
+        return TouchTurnSessionCandlePriceChartUi(
+            candle = candle,
+            candleColor = candleColor,
+            closeStatus = closeStatus,
+            rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
+            fiveMinuteBars = confirmation?.let { FiveMinuteConfirmationLogic.displayEvaluatedBars(it) }.orEmpty(),
+            confirmedHammerBarTime = confirmation?.confirmedHammerBar?.time,
+            sweepPrice = confirmation?.sweepPrice,
+            currencyCode = session.currencyCode,
+            livePriceHistory = livePriceHistory,
+            currentPrice = currentPrice,
+            quoteStrip = if (includeLiveMarks) formingBarPriceChart?.quoteStrip else null
+        )
+    }
+
     fun sessionDataCapture(session: TouchTurnSessionContext): SessionDataCaptureUi =
         SessionDataCaptureUi(
             status = session.status,

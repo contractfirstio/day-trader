@@ -53,6 +53,7 @@ import daytrader.presentation.strategies.RuleCheckUi
 import daytrader.presentation.strategies.RulesEvaluationUi
 import daytrader.presentation.strategies.SessionDataCaptureUi
 import daytrader.presentation.strategies.TouchTurnLiveOrderChartUiState
+import daytrader.presentation.strategies.TouchTurnSessionCandlePriceChartUi
 import daytrader.domain.TouchTurnPrepareStatus
 import daytrader.presentation.strategies.TouchTurnPrepareCheckRowUi
 import daytrader.presentation.strategies.TouchTurnSessionStartUi
@@ -392,9 +393,6 @@ fun TouchTurnPipelineSectionData(
                 val barDetail = remember(session, secondTick) {
                     TouchTurnPipelineDetailUiMapper.openingBarDetail(session)
                 }
-                val candleColor = barDetail?.candleColor
-                    ?: session.firstCandleColor()
-                    ?: session.candle?.let { TouchTurnLogic.firstCandleColor(it) }
                 Text(
                     "Session data captured from broker.",
                     fontSize = 12.sp,
@@ -402,27 +400,17 @@ fun TouchTurnPipelineSectionData(
                     color = GainGreen,
                     modifier = Modifier.testTag("TouchTurnDataCaptureReady")
                 )
-                session.candle?.let { candle ->
-                    if (candleColor != null) {
-                        val fiveMinOverlay = session.fiveMinuteConfirmation
-                        val evaluatedFiveMinBars = fiveMinOverlay?.let {
-                            FiveMinuteConfirmationLogic.displayEvaluatedBars(it)
-                        }.orEmpty()
-                        TouchTurnOpeningBarChart(
-                            candle = candle,
-                            candleColor = candleColor,
-                            currencyCode = session.currencyCode,
-                            closeStatus = barDetail?.closeStatus ?: session.candleCloseStatus(),
-                            rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
-                            livePriceHistory = formingBarPriceChart?.priceHistory.orEmpty(),
-                            currentPrice = formingBarPriceChart?.currentPrice,
-                            quoteStrip = formingBarPriceChart?.quoteStrip,
-                            fiveMinuteBars = evaluatedFiveMinBars,
-                            confirmedHammerBarTime = fiveMinOverlay?.confirmedHammerBar?.time,
-                            sweepPrice = fiveMinOverlay?.sweepPrice,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                val candleChart = remember(session, formingBarPriceChart, secondTick) {
+                    TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(
+                        session = session,
+                        formingBarPriceChart = formingBarPriceChart
+                    )
+                }
+                candleChart?.let { chart ->
+                    TouchTurnSessionCandlePriceChart(
+                        chart = chart,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 } ?: formingBarPriceChart?.let { chart ->
                     TouchTurnPipelineLiveOrderChart(
                         chart = chart,
@@ -828,34 +816,19 @@ fun TouchTurnPipelineSectionRules(
                 modifier = Modifier.testTag("TouchTurnTrailingStopWarningBanner")
             )
         }
-        formingBarPriceChart?.let { chart ->
-            TouchTurnPipelineLiveOrderChart(chart = chart)
-        } ?: if (sessionEnded) {
-            session.candle?.let { candle ->
-                val candleColor = session.firstCandleColor()
-                    ?: TouchTurnLogic.firstCandleColor(candle)
-                val fiveMinOverlay = session.fiveMinuteConfirmation
-                val evaluatedFiveMinBars = fiveMinOverlay?.let {
-                    FiveMinuteConfirmationLogic.displayEvaluatedBars(it)
-                }.orEmpty()
-                if (evaluatedFiveMinBars.isNotEmpty() && candleColor != null) {
-                    TouchTurnOpeningBarChart(
-                        candle = candle,
-                        candleColor = candleColor,
-                        currencyCode = session.currencyCode,
-                        closeStatus = FirstCandleCloseStatus.CLOSED,
-                        rangeThreshold = session.rangeThreshold.takeIf { it > 0.0 },
-                        fiveMinuteBars = evaluatedFiveMinBars,
-                        confirmedHammerBarTime = fiveMinOverlay?.confirmedHammerBar?.time,
-                        sweepPrice = fiveMinOverlay?.sweepPrice,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("TouchTurnRulesRecapPriceChart")
-                    )
-                }
-            }
-        } else {
-            Unit
+        val candleChart = remember(session, secondTick, formingBarPriceChart) {
+            TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(
+                session = session,
+                formingBarPriceChart = formingBarPriceChart
+            )
+        }
+        candleChart?.let { chart ->
+            TouchTurnSessionCandlePriceChart(
+                chart = chart,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("TouchTurnRulesSessionCandlePriceChart")
+            )
         }
         evaluation?.let { RulesEvaluationCard(evaluation = it, verboseExplanations = sessionEnded) }
         graph?.node(TouchTurnPipelineNodeId.Rules)?.timestamp?.let { time ->
@@ -878,6 +851,7 @@ fun TouchTurnPipelineSectionFiveMin(
             Text("5m confirmation unavailable.", fontSize = 11.sp, color = TextSecondary)
             return@Column
         }
+        val secondTick = LocalUiSecondTick.current
         val confirmation = session.fiveMinuteConfirmation
         Text(
             TouchTurnStatusBreadcrumbMapper.fiveMinConfirmationCaption(session),
@@ -886,6 +860,17 @@ fun TouchTurnPipelineSectionFiveMin(
             color = GainGreen
         )
         confirmation?.let { state ->
+            val candleChart = remember(session, secondTick) {
+                TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(session)
+            }
+            candleChart?.takeIf { it.showFiveMinuteOverlay }?.let { chart ->
+                TouchTurnSessionCandlePriceChart(
+                    chart = chart,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("TouchTurnFiveMinSessionCandlePriceChart")
+                )
+            }
             DataCaptureRow(
                 label = "Status",
                 value = state.status.name,
@@ -903,20 +888,6 @@ fun TouchTurnPipelineSectionFiveMin(
             )
             val evaluatedBars = remember(state) {
                 FiveMinuteConfirmationLogic.displayEvaluatedBars(state)
-            }
-            session.candle?.let { fifteenMinuteBar ->
-                if (evaluatedBars.isNotEmpty()) {
-                    TouchTurnFiveMinConfirmationTimelineChart(
-                        fifteenMinuteBar = fifteenMinuteBar,
-                        fiveMinuteBars = evaluatedBars,
-                        sweepPrice = state.sweepPrice,
-                        currencyCode = session.currencyCode,
-                        tradeSide = session.setup?.side,
-                        confirmedHammerBarTime = state.confirmedHammerBar?.time,
-                        confirmationStatus = state.status,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             }
             evaluatedBars.forEachIndexed { index, bar ->
                 val side = session.setup?.side
@@ -1639,6 +1610,65 @@ private fun LiquidityCalcStep(
                 )
             }
             Text(detail, fontSize = 9.sp, color = TextSecondary.copy(alpha = 0.85f), lineHeight = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun TouchTurnSessionCandlePriceChart(
+    chart: TouchTurnSessionCandlePriceChartUi,
+    modifier: Modifier = Modifier,
+    testTag: String = "TouchTurnSessionCandlePriceChart"
+) {
+    TouchTurnOpeningBarChart(
+        candle = chart.candle,
+        candleColor = chart.candleColor,
+        currencyCode = chart.currencyCode,
+        closeStatus = chart.closeStatus,
+        rangeThreshold = chart.rangeThreshold,
+        livePriceHistory = chart.livePriceHistory,
+        currentPrice = chart.currentPrice,
+        quoteStrip = chart.quoteStrip,
+        fiveMinuteBars = chart.fiveMinuteBars,
+        confirmedHammerBarTime = chart.confirmedHammerBarTime,
+        sweepPrice = chart.sweepPrice,
+        modifier = modifier.testTag(testTag)
+    )
+}
+
+@Composable
+fun TouchTurnPipelineSectionLiveOrderPricing(
+    session: TouchTurnSessionContext?,
+    liveOrderChart: TouchTurnLiveOrderChartUiState?,
+    modifier: Modifier = Modifier,
+    sessionCandleTestTag: String = "TouchTurnLiveOrderSessionCandlePriceChart",
+) {
+    if (session == null && liveOrderChart == null) return
+    val secondTick = LocalUiSecondTick.current
+    val candleChart = remember(session, liveOrderChart, secondTick) {
+        session?.let {
+            TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(
+                session = it,
+                formingBarPriceChart = liveOrderChart,
+                includeLiveMarks = liveOrderChart == null
+            )
+        }
+    }
+    if (candleChart == null && liveOrderChart == null) return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnPipelineSectionLiveOrderPricing"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        candleChart?.let { chart ->
+            TouchTurnSessionCandlePriceChart(
+                chart = chart,
+                testTag = sessionCandleTestTag
+            )
+        }
+        liveOrderChart?.let { chart ->
+            TouchTurnPipelineLiveOrderChart(chart = chart)
         }
     }
 }

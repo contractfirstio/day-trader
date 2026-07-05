@@ -171,9 +171,7 @@ internal object IbTouchTurnBracketPlacer {
         order.action(planned.action)
         order.orderType(planned.orderType)
         order.totalQuantity(Decimal.get(planned.quantity.toLong()))
-        // Touch Turn: always DAY — never GTC/GTD (goodTillDate must stay empty for DAY).
-        order.tif(Types.TimeInForce.DAY)
-        order.goodTillDate("")
+        applyTimeInForce(order, planned.timeInForce)
         order.outsideRth(false)
         order.transmit(transmit)
         if (parentOrderId > 0) {
@@ -214,8 +212,7 @@ internal object IbTouchTurnBracketPlacer {
         order.action(stopLoss.action)
         order.orderType("STP")
         order.totalQuantity(Decimal.get(stopLoss.quantity.toLong()))
-        order.tif(Types.TimeInForce.DAY)
-        order.goodTillDate("")
+        applyTimeInForce(order, stopLoss.timeInForce)
         order.outsideRth(false)
         order.transmit(transmit)
         order.parentId(stopLossOrderId)
@@ -229,6 +226,19 @@ internal object IbTouchTurnBracketPlacer {
             order.account(config.accountCode)
         }
         return order
+    }
+
+    private fun applyTimeInForce(order: Order, timeInForce: String) {
+        when (timeInForce.uppercase()) {
+            "GTC" -> {
+                order.tif(Types.TimeInForce.GTC)
+                order.goodTillDate("")
+            }
+            else -> {
+                order.tif(Types.TimeInForce.DAY)
+                order.goodTillDate("")
+            }
+        }
     }
 }
 

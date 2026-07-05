@@ -85,7 +85,7 @@ class FiveMinuteConfirmationLogicTest {
     }
 
     @Test
-    fun buildConfirmationSetup_reAnchorsTakeProfitWhenHammerCrossesFifteenMinuteTp_greenShort() {
+    fun entryPastTakeProfit_detectsHammerCrossingFifteenMinuteTp_greenShort() {
         val openingBar = OhlcBar(
             open = 380.33504,
             high = 383.77664,
@@ -97,21 +97,21 @@ class FiveMinuteConfirmationLogicTest {
             liquidityThresholds = TouchTurnLiquidityThresholds(thresholdDailyAtr = 0.0)
         )
         assertEquals(TouchTurnTradeSide.SHORT, fifteenMinuteSetup.side)
-        assertTrue(fifteenMinuteSetup.takeProfit > fifteenMinuteSetup.entry - openingBar.range)
 
         val hammerEntry = 380.83822945279996
-        assertTrue(hammerEntry < fifteenMinuteSetup.takeProfit)
+        assertTrue(FiveMinuteConfirmationLogic.entryPastTakeProfit(fifteenMinuteSetup, hammerEntry))
+        assertEquals(null, TouchTurnOrderPlanner.buildHammerConfirmationOrderPlan(
+            symbol = "SPY",
+            fifteenMinuteSetup = fifteenMinuteSetup,
+            hammerBar = OhlcBar(open = hammerEntry, high = hammerEntry, low = hammerEntry, close = hammerEntry),
+            maxDollars = 10_000
+        ))
+    }
 
-        val setup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
-            fifteenMinuteSetup,
-            marketEntry = hammerEntry
-        )
-        assertEquals(hammerEntry, setup.entry)
-        assertTrue(setup.takeProfit < setup.entry, "SHORT TP must be below MKT entry")
-        assertTrue(setup.stopLoss > setup.entry, "SHORT SL must be above MKT entry")
-        val reward = setup.entry - setup.takeProfit
-        val risk = setup.stopLoss - setup.entry
-        assertEquals(reward / risk, 2.0, absoluteTolerance = 1e-9)
+    @Test
+    fun entryPastTakeProfit_falseWhenHammerStillInsideProfitableZone() {
+        val hammer = OhlcBar(open = 101.0, high = 101.3, low = 100.0, close = 101.2)
+        assertFalse(FiveMinuteConfirmationLogic.entryPastTakeProfit(fifteenMinuteSetup, hammer.close))
     }
 
     @Test

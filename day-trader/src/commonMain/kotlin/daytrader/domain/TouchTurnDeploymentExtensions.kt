@@ -262,6 +262,8 @@ fun StrategyDeployment.withFiveMinuteConfirmationReset(
             FiveMinuteConfirmationStatus.INVALIDATED
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT ->
             FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN ->
+            FiveMinuteConfirmationStatus.REJECTED_MISSED_TOUCH_TURN
         else -> session.fiveMinuteConfirmation?.status ?: FiveMinuteConfirmationStatus.EXPIRED
     }
     return copy(
@@ -513,7 +515,8 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
-            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> false
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> false
             else -> hadLiquidityCandle == true &&
                 setup?.let { TouchTurnLogic.setupActionableForEntry(it, effectiveRules) } == true
         },

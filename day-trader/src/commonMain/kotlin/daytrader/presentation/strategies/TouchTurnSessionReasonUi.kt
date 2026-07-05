@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.TouchTurnCandleStatus
@@ -163,6 +164,12 @@ object TouchTurnSessionReasonUi {
             headline = "No trade — insufficient gross profit",
             detail = session?.decisionDetailMessage
                 ?: TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE,
+            severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> TouchTurnSessionStatusUi(
+            headline = "No trade — missed touch-and-turn",
+            detail = session?.decisionDetailMessage
+                ?: FiveMinuteConfirmationLogic.MISSED_TOUCH_TURN_MESSAGE,
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> {

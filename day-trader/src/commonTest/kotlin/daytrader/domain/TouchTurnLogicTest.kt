@@ -599,7 +599,8 @@ class TouchTurnLogicTest {
         assertEquals(TouchTurnOrderRole.STOP_LOSS, plan.orders[2].role)
         assertEquals("STP", plan.orders[2].orderType)
         plan.orders.forEach { leg ->
-            assertEquals(TouchTurnOrderDefaults.TIME_IN_FORCE, leg.timeInForce)
+            val expected = TouchTurnOrderDefaults.timeInForceFor(leg.role)
+            assertEquals(expected, leg.timeInForce, "TIF for ${leg.role}")
         }
     }
 

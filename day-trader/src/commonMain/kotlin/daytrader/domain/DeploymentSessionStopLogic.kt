@@ -43,7 +43,8 @@ object DeploymentSessionStopLogic {
             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
-            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> true
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> true
             TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
             null -> false
         }

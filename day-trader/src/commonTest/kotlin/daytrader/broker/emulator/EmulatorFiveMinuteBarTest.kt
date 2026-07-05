@@ -13,10 +13,10 @@ class EmulatorFiveMinuteBarTest {
     @Test
     fun fiveMinuteBarsSince_emitsHammerOnConfiguredIndex() {
         val opening = OhlcBar(
-            open = 100.0,
+            open = 110.0,
             high = 110.0,
-            low = 99.0,
-            close = 108.0,
+            low = 100.0,
+            close = 100.2,
             time = "20260522  09:30:00"
         )
         val config = BrokerEmulatorConfig(

@@ -1893,8 +1893,12 @@ private fun TouchTurnLivePipelineDetailHost(
                 )
             TouchTurnPipelineNodeId.Orders -> {
                 val lifecycle = orderLifecycle
-                if (!sessionEnded && touchTurnLiveOrderChart != null) {
-                    TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
+                if (!sessionEnded) {
+                    TouchTurnPipelineSectionLiveOrderPricing(
+                        session = analysisSession,
+                        liveOrderChart = touchTurnLiveOrderChart,
+                        sessionCandleTestTag = "TouchTurnOrdersSessionCandlePriceChart"
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 if (!sessionEnded && lifecycle?.showLiveOrdersPanel == true) {
@@ -1929,8 +1933,12 @@ private fun TouchTurnLivePipelineDetailHost(
                 }
             }
             TouchTurnPipelineNodeId.Position -> {
-                if (!sessionEnded && touchTurnLiveOrderChart != null) {
-                    TouchTurnPipelineLiveOrderChart(chart = touchTurnLiveOrderChart)
+                if (!sessionEnded) {
+                    TouchTurnPipelineSectionLiveOrderPricing(
+                        session = analysisSession,
+                        liveOrderChart = touchTurnLiveOrderChart,
+                        sessionCandleTestTag = "TouchTurnPositionSessionCandlePriceChart"
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 val live = liveExecution

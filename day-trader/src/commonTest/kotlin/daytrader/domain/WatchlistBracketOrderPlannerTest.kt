@@ -7,6 +7,25 @@ import kotlin.test.assertTrue
 
 class WatchlistBracketOrderPlannerTest {
     @Test
+    fun buildTouchTurnPlan_entryDayProtectiveLegsGtc() {
+        val result = WatchlistBracketOrderPlanner.buildTouchTurnPlan(
+            symbol = "AAPL",
+            currencyCode = "USD",
+            instrument = null,
+            side = TradeSide.LONG,
+            entryPrice = 100.0,
+            stopPrice = 95.0,
+            targetPrice = 110.0,
+            quantity = 10
+        )
+        assertTrue(result.isSuccess)
+        val plan = result.getOrThrow()
+        assertEquals(TouchTurnOrderDefaults.ENTRY_TIME_IN_FORCE, plan.orders[0].timeInForce)
+        assertEquals(TouchTurnOrderDefaults.PROTECTIVE_LEG_TIME_IN_FORCE, plan.orders[1].timeInForce)
+        assertEquals(TouchTurnOrderDefaults.PROTECTIVE_LEG_TIME_IN_FORCE, plan.orders[2].timeInForce)
+    }
+
+    @Test
     fun buildTouchTurnPlan_longBracketHasThreeLegs() {
         val result = WatchlistBracketOrderPlanner.buildTouchTurnPlan(
             symbol = "AAPL",

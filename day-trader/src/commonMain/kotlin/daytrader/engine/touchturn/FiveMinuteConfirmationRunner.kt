@@ -130,6 +130,17 @@ internal class FiveMinuteConfirmationRunner(
                     }
                     continue
                 }
+                if (FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, bar.close)) {
+                    repository.update(instanceId) { current ->
+                        current.withFiveMinuteConfirmationUpdated(updated)
+                            .withFiveMinuteConfirmationReset(
+                                TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
+                                detailMessage = FiveMinuteConfirmationLogic.MISSED_TOUCH_TURN_MESSAGE
+                            )
+                    }
+                    onFinished(instanceId)
+                    return
+                }
                 submitHammerBracket(
                     instanceId = instanceId,
                     hammerBar = bar,
@@ -170,6 +181,16 @@ internal class FiveMinuteConfirmationRunner(
         val orderSizeRules = deploymentInstrument?.orderSizeRules()
             ?: daytrader.domain.InstrumentOrderSizeRules.DEFAULT
         val marketEntry = hammerBar.close
+        if (FiveMinuteConfirmationLogic.entryPastTakeProfit(fifteenMinuteSetup, marketEntry)) {
+            repository.update(instanceId) { current ->
+                current.withFiveMinuteConfirmationReset(
+                    TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
+                    detailMessage = FiveMinuteConfirmationLogic.MISSED_TOUCH_TURN_MESSAGE
+                )
+            }
+            onFinished(instanceId)
+            return
+        }
         when (val sizing = TouchTurnOrderPlanner.sizeQuantity(
             instance.maxDollars,
             marketEntry,

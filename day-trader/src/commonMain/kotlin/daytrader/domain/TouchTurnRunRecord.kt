@@ -59,6 +59,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
     /** Valid hammer but projected gross profit to 15m TP below per-symbol minimum. */
     NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+    /** Valid hammer but market entry at hammer close crossed the 15m fib take-profit — setup missed. */
+    NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN,
     TRADE_BRACKET_SUBMITTED
 }
 

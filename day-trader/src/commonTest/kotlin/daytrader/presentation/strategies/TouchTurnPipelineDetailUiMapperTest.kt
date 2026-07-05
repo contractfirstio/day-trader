@@ -21,6 +21,7 @@ import daytrader.domain.withLiquidityEvaluatedIfClosed
 import daytrader.domain.withOrdersPlacedForSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -183,6 +184,135 @@ class TouchTurnPipelineDetailUiMapperTest {
             )
         )
         assertEquals(null, TouchTurnPipelineDetailUiMapper.fiveMinHammerBarDetail(session))
+    }
+
+    @Test
+    fun sessionCandlePriceChart_nullWhenOpeningBarMissing() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5
+        )
+        assertEquals(null, TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(session))
+    }
+
+    @Test
+    fun sessionCandlePriceChart_includes15mBarWithoutFiveMinWhenConfirmationInactive() {
+        val candle = OhlcBar(open = 100.0, high = 105.0, low = 99.0, close = 103.0, time = "20260522  09:30:00")
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5
+        )
+        val chart = TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(session)!!
+        assertEquals(candle, chart.candle)
+        assertEquals(FirstCandleColor.GREEN, chart.candleColor)
+        assertFalse(chart.showFiveMinuteOverlay)
+        assertEquals(emptyList(), chart.fiveMinuteBars)
+        assertEquals(null, chart.sweepPrice)
+    }
+
+    @Test
+    fun sessionCandlePriceChart_includesFiveMinOverlayWhenConfirmationAwaiting() {
+        val candle = OhlcBar(open = 385.0, high = 386.0, low = 380.0, close = 381.0, time = "20260522  09:30:00")
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            setup = TouchTurnBracketSetup(
+                range = 6.0,
+                rangeThreshold = 2.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.SHORT,
+                entry = 382.0,
+                stopLoss = 386.0,
+                takeProfit = 381.0
+            ),
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5,
+            rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+                enables = daytrader.domain.TouchTurnRuleEnables.DEFAULT.copy(
+                    fiveMinuteConfirmation = true
+                )
+            ),
+            fiveMinuteConfirmation = FiveMinuteConfirmationLogic.initialState(
+                candle = candle,
+                side = TouchTurnTradeSide.SHORT,
+                nowEpochMillis = 1L
+            )
+        )
+        val chart = TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(session)!!
+        assertTrue(chart.showFiveMinuteOverlay)
+        assertEquals(386.0, chart.sweepPrice)
+        assertEquals(emptyList(), chart.fiveMinuteBars)
+    }
+
+    @Test
+    fun sessionCandlePriceChart_includesEvaluatedFiveMinBars() {
+        val candle = OhlcBar(open = 385.0, high = 386.0, low = 380.0, close = 381.0, time = "20260522  09:30:00")
+        val fiveMinBar = OhlcBar(open = 381.0, high = 382.5, low = 380.2, close = 382.43, time = "20260522  09:35:00")
+        val confirmation = FiveMinuteConfirmationLogic.initialState(
+            candle = candle,
+            side = TouchTurnTradeSide.SHORT,
+            nowEpochMillis = 1L
+        ).let { FiveMinuteConfirmationLogic.stateAfterBarEvaluated(it, fiveMinBar) }
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            setup = TouchTurnBracketSetup(
+                range = 6.0,
+                rangeThreshold = 2.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.SHORT,
+                entry = 382.0,
+                stopLoss = 386.0,
+                takeProfit = 381.0
+            ),
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5,
+            rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+                enables = daytrader.domain.TouchTurnRuleEnables.DEFAULT.copy(
+                    fiveMinuteConfirmation = true
+                )
+            ),
+            fiveMinuteConfirmation = confirmation
+        )
+        val chart = TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(session)!!
+        assertEquals(listOf(fiveMinBar), chart.fiveMinuteBars)
+        assertTrue(chart.showFiveMinuteOverlay)
+    }
+
+    @Test
+    fun sessionCandlePriceChart_omitsLiveMarksWhenRequested() {
+        val candle = OhlcBar(open = 100.0, high = 105.0, low = 99.0, close = 103.0, time = "20260522  09:30:00")
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-05-22",
+            status = TouchTurnCandleStatus.READY,
+            candle = candle,
+            marketZoneId = "America/New_York",
+            rangeThreshold = 2.5
+        )
+        val liveChart = TouchTurnLiveOrderChartUiState(
+            symbol = "AAPL",
+            currencyCode = "USD",
+            priceHistory = listOf(101.0, 102.0),
+            currentPrice = 102.5,
+            levels = emptyList()
+        )
+        val chart = TouchTurnPipelineDetailUiMapper.sessionCandlePriceChart(
+            session = session,
+            formingBarPriceChart = liveChart,
+            includeLiveMarks = false
+        )!!
+        assertEquals(emptyList(), chart.livePriceHistory)
+        assertEquals(null, chart.currentPrice)
+        assertEquals(null, chart.quoteStrip)
     }
 
     @Test

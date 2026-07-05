@@ -271,7 +271,8 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
             TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED ->
                 return Phase(index = IDX_CLOSE, skippedFromIndex = IDX_FIVE_MIN, terminal = true)
-            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> {
+            TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
+            TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> {
                 val skippedFrom = if (session.fiveMinuteConfirmation != null) IDX_FIVE_MIN else IDX_ORDERS
                 return Phase(index = IDX_CLOSE, skippedFromIndex = skippedFrom, terminal = true)
             }
@@ -320,7 +321,8 @@ object TouchTurnStatusBreadcrumbMapper {
 
     private val fiveMinNoTradeOutcomes = setOf(
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED,
+        TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN
     )
 
     private fun isAwaitingFiveMinConfirmation(session: TouchTurnSessionContext?): Boolean {
@@ -339,6 +341,8 @@ object TouchTurnStatusBreadcrumbMapper {
                 "5m hammer confirmed — submitting order"
             FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT ->
                 "5m hammer rejected — insufficient gross profit"
+            FiveMinuteConfirmationStatus.REJECTED_MISSED_TOUCH_TURN ->
+                "5m hammer rejected — missed touch-and-turn"
             FiveMinuteConfirmationStatus.AWAITING ->
                 "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
             else -> "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
@@ -385,7 +389,8 @@ object TouchTurnStatusBreadcrumbMapper {
         val ordersSkipped = notLiquidity || noTradeAfterRules
         val fiveMinNoTrade = decisionOutcome in fiveMinNoTradeOutcomes
         val ordersGrossProfitRejected =
-            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT ||
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN
         val fiveMinApplies = !ordersSkipped &&
             (milestones.fiveMinConfirmedAt != null || fiveMinNoTrade)
         val fiveMinSkipped = ordersSkipped || (!fiveMinApplies && milestones.ordersPlacedAt != null) ||
