@@ -124,11 +124,62 @@ class SimulatedBrokerTouchTurnRulesTest {
     }
 
     @Test
-    fun fieldsForCategoryDisplay_listsDefaultableThresholdsBeforeMandatoryOnes() {
+    fun fieldsForCategoryDisplay_bracketFieldsAreAllDefaultable() {
         val bracketFields = TouchTurnRuleConfig.fieldsForCategoryDisplay(TouchTurnRuleCategory.BRACKET)
-        assertEquals("entryInwardOffsetRatioOfRange", bracketFields.last().key)
-        assertTrue(bracketFields.dropLast(1).all { it.defaultable })
-        assertFalse(bracketFields.last().defaultable)
+        assertTrue(bracketFields.isNotEmpty())
+        assertTrue(bracketFields.all { it.defaultable })
+    }
+
+    @Test
+    fun fieldGroupsForCategory_splitsBracketIntoTakeProfitAndSubmissionGates() {
+        val groups = TouchTurnRuleConfig.fieldGroupsForCategory(
+            category = TouchTurnRuleCategory.BRACKET,
+            invertTradeSide = false,
+            toggleValues = emptyMap()
+        )
+        assertEquals(2, groups.size)
+        assertEquals("Take profit & risk", groups[0].label)
+        assertEquals("Submission gates", groups[1].label)
+        assertEquals(3, groups[0].fields.size)
+        assertEquals("minGrossProfit", groups[1].fields.single().key)
+    }
+
+    @Test
+    fun fieldGroupsForCategory_tradeModeOrdersReversalBeforeInvert() {
+        val reversalGroups = TouchTurnRuleConfig.fieldGroupsForCategory(
+            category = TouchTurnRuleCategory.TRADE_MODE,
+            invertTradeSide = false,
+            toggleValues = mapOf("invertTradeSide" to false)
+        )
+        assertEquals(1, reversalGroups.size)
+        assertEquals("entryInwardOffsetRatioOfRange", reversalGroups.single().fields.single().key)
+
+        val invertGroups = TouchTurnRuleConfig.fieldGroupsForCategory(
+            category = TouchTurnRuleCategory.TRADE_MODE,
+            invertTradeSide = true,
+            toggleValues = mapOf("invertTradeSide" to true)
+        )
+        assertEquals(2, invertGroups.size)
+        assertEquals("reversal_entry", invertGroups[0].testTagSuffix)
+        assertEquals("invert_entry", invertGroups[1].testTagSuffix)
+    }
+
+    @Test
+    fun fieldGroupsForCategory_hidesLiquidityThresholdWhenToggleOff() {
+        val groups = TouchTurnRuleConfig.fieldGroupsForCategory(
+            category = TouchTurnRuleCategory.LIQUIDITY,
+            invertTradeSide = false,
+            toggleValues = mapOf("liquidityRangeDailyAtr" to false)
+        )
+        assertTrue(groups.isEmpty())
+
+        val enabled = TouchTurnRuleConfig.fieldGroupsForCategory(
+            category = TouchTurnRuleCategory.LIQUIDITY,
+            invertTradeSide = false,
+            toggleValues = mapOf("liquidityRangeDailyAtr" to true)
+        )
+        assertEquals(1, enabled.size)
+        assertEquals("Liquidity threshold", enabled.single().label)
     }
 
     @Test
@@ -138,25 +189,36 @@ class SimulatedBrokerTouchTurnRulesTest {
             invertTradeSide = false
         )
         assertFalse(reversalTradeMode.any { it.key == "entryOutwardOffsetRatioOfRange" })
+        assertTrue(reversalTradeMode.any { it.key == "entryInwardOffsetRatioOfRange" })
 
         val invertTradeMode = TouchTurnRuleConfig.fieldsForCategoryDisplay(
             TouchTurnRuleCategory.TRADE_MODE,
-            invertTradeSide = true
+            invertTradeSide = true,
+            toggleValues = mapOf("invertTradeSide" to true)
         )
-        assertEquals(listOf("entryOutwardOffsetRatioOfRange"), invertTradeMode.map { it.key })
+        assertTrue(invertTradeMode.any { it.key == "entryOutwardOffsetRatioOfRange" })
 
         val bracketFields = TouchTurnRuleConfig.fieldsForCategoryDisplay(
             TouchTurnRuleCategory.BRACKET,
             invertTradeSide = true
         )
         assertFalse(bracketFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
+        assertFalse(bracketFields.any { it.key == "entryInwardOffsetRatioOfRange" })
     }
 
     @Test
-    fun visibleFieldDefinitions_excludesOutwardOffsetWhenInvertDisabled() {
-        val reversalFields = TouchTurnRuleConfig.visibleFieldDefinitions(invertTradeSide = false)
-        val invertFields = TouchTurnRuleConfig.visibleFieldDefinitions(invertTradeSide = true)
+    fun visibleFieldDefinitions_respectsToggleVisibility() {
+        val reversalFields = TouchTurnRuleConfig.visibleFieldDefinitions(
+            invertTradeSide = false,
+            toggleValues = mapOf(
+                "liquidityRangeDailyAtr" to false,
+                "adjustableTrailingStop" to false,
+                "openDeadline" to false
+            )
+        )
         assertFalse(reversalFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
-        assertTrue(invertFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
+        assertFalse(reversalFields.any { it.key == "atrLiquidityRatio" })
+        assertFalse(reversalFields.any { it.key == "trailingStopTriggerFractionOfEntryToTp" })
+        assertFalse(reversalFields.any { it.key == "stopAfterOpenMinutes" })
     }
 }

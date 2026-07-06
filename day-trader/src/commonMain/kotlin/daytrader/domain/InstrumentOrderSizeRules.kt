@@ -45,7 +45,9 @@ data class InstrumentOrderSizeRules(
         fun fromIbValues(minOrderSize: Int?, orderSizeIncrement: Int?): InstrumentOrderSizeRules {
             val min = minOrderSize?.takeIf { it > 0 } ?: DEFAULT.minOrderSize
             val increment = orderSizeIncrement?.takeIf { it > 0 } ?: min
-            return InstrumentOrderSizeRules(minOrderSize = min, orderSizeIncrement = increment)
+            // US unit-lot (min 1): IB sizeIncrement is a suggested order step, not a board lot.
+            val normalizedIncrement = if (min == DEFAULT.minOrderSize) DEFAULT.orderSizeIncrement else increment
+            return InstrumentOrderSizeRules(minOrderSize = min, orderSizeIncrement = normalizedIncrement)
         }
     }
 }

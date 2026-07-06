@@ -19,6 +19,20 @@ class InstrumentOrderSizeRulesTest {
     }
 
     @Test
+    fun fromIbValues_unitLotIgnoresIbSizeIncrement() {
+        val rules = InstrumentOrderSizeRules.fromIbValues(minOrderSize = 1, orderSizeIncrement = 100)
+        assertTrue(rules.isUnitLot())
+        assertEquals(SnapOrderSizeResult.Ok(38), rules.snapQuantityDown(38))
+    }
+
+    @Test
+    fun fromIbValues_hkBoardLot_unchanged() {
+        val rules = InstrumentOrderSizeRules.fromIbValues(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        assertEquals(SnapOrderSizeResult.Ok(1_000), rules.snapQuantityDown(1_500))
+        assertEquals(SnapOrderSizeResult.BelowMinimum(1_000), rules.snapQuantityDown(500))
+    }
+
+    @Test
     fun fromIbValues_usesIncrementOrFallsBackToMin() {
         assertEquals(
             InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000),

@@ -32,6 +32,18 @@ class IbOrderSizeRulesTest {
     }
 
     @Test
+    fun fromContractDetails_unitLotIgnoresIbSizeIncrement() {
+        val details = ContractDetails()
+        details.minSize(Decimal.get(1))
+        details.sizeIncrement(Decimal.get(100))
+
+        val rules = IbOrderSizeRules.fromContractDetails(details)
+
+        assertEquals(1, rules.minOrderSize)
+        assertEquals(1, rules.orderSizeIncrement)
+    }
+
+    @Test
     fun fromContractDetails_ignoresZeroOrInvalidValues() {
         val details = ContractDetails()
         details.minSize(Decimal.get(0))

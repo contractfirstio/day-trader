@@ -34,11 +34,11 @@ enum class TouchTurnRuleCategory(
     val fieldsAlwaysVisible: Boolean = false
 ) {
     LIQUIDITY("Liquidity", "liquidityRangeDailyAtr"),
-    BRACKET("Bracket sizing", null, fieldsAlwaysVisible = true),
-    SESSION_DEADLINE("Session deadline", "openDeadline"),
-    TRAILING_STOP("Trailing stop", "adjustableTrailingStop"),
+    TRADE_MODE("Trade mode & entry", "invertTradeSide"),
     CONFIRMATION("5-minute confirmation", "fiveMinuteConfirmation"),
-    TRADE_MODE("Trade mode", "invertTradeSide"),
+    BRACKET("Bracket sizing", null, fieldsAlwaysVisible = true),
+    TRAILING_STOP("Trailing stop", "adjustableTrailingStop"),
+    SESSION_DEADLINE("Session deadline", "openDeadline"),
 }
 
 @Serializable
@@ -146,7 +146,9 @@ data class TouchTurnRuleConfig(
                     "liquidity candle. Higher = stricter (fewer trades).",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.LIQUIDITY,
-                defaultable = true
+                subGroup = TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD,
+                defaultable = true,
+                visibleWhenToggleKey = "liquidityRangeDailyAtr"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "dailyAtrLookbackPeriods",
@@ -154,22 +156,28 @@ data class TouchTurnRuleConfig(
                 description = "Number of prior daily bars used to compute daily ATR(14) for the liquidity threshold.",
                 kind = TouchTurnRuleFieldKind.INTEGER,
                 category = TouchTurnRuleCategory.LIQUIDITY,
-                defaultable = true
+                subGroup = TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD,
+                defaultable = true,
+                visibleWhenToggleKey = "liquidityRangeDailyAtr"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioGreen",
                 label = "Take profit — green bar (× range)",
-                description = "Green liquidity bar (short): take-profit distance below entry as a fraction of bar range.",
+                description = "Green opening bar: take-profit distance as a fraction of bar range. " +
+                    "Reversal shorts at the high; inverse longs on breakout.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.BRACKET,
+                subGroup = TouchTurnRuleFieldSubGroup.TAKE_PROFIT_AND_RISK,
                 defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "takeProfitFibRatioRed",
                 label = "Take profit — red bar (× range)",
-                description = "Red liquidity bar (long): take-profit distance above entry as a fraction of bar range.",
+                description = "Red opening bar: take-profit distance as a fraction of bar range. " +
+                    "Reversal longs at the low; inverse shorts on breakdown.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.BRACKET,
+                subGroup = TouchTurnRuleFieldSubGroup.TAKE_PROFIT_AND_RISK,
                 defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
@@ -179,25 +187,28 @@ data class TouchTurnRuleConfig(
                     "half the take-profit distance (2:1 reward:risk). Higher values tighten the stop (smaller loss).",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.BRACKET,
+                subGroup = TouchTurnRuleFieldSubGroup.TAKE_PROFIT_AND_RISK,
                 defaultable = true
             ),
             TouchTurnRuleFieldDefinition(
                 key = "entryInwardOffsetRatioOfRange",
                 label = "Entry inward offset (× range)",
-                description = "Nudge the entry limit toward the bar middle: long entry moves up from bar low, " +
-                    "short entry moves down from bar high, each by this fraction of bar range. 0 = bar extreme. " +
+                description = "Nudge the entry toward the bar middle: long up from bar low, short down from bar high. " +
+                    "0 = bar extreme. Used for reversal limits and as the inverse anchor when outward offset is 0. " +
                     "Depends on broker mode — not reset by the global defaults button.",
                 kind = TouchTurnRuleFieldKind.RATIO,
-                category = TouchTurnRuleCategory.BRACKET,
+                category = TouchTurnRuleCategory.TRADE_MODE,
+                subGroup = TouchTurnRuleFieldSubGroup.REVERSAL_ENTRY,
                 defaultable = false
             ),
             TouchTurnRuleFieldDefinition(
                 key = "entryOutwardOffsetRatioOfRange",
                 label = "Entry outward offset (× range)",
                 description = "Place the stop entry beyond the bar high/low by this fraction of range so price " +
-                    "must break the opening extreme before entry. 0 uses the inward offset level from Bracket sizing.",
+                    "must break the opening extreme before entry. 0 uses the inward offset level above.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRADE_MODE,
+                subGroup = TouchTurnRuleFieldSubGroup.INVERT_ENTRY,
                 defaultable = false,
                 visibleWhenInvertTradeSide = true
             ),
@@ -208,7 +219,9 @@ data class TouchTurnRuleConfig(
                     "orders/position this many minutes after the session's RTH open anchor.",
                 kind = TouchTurnRuleFieldKind.INTEGER,
                 category = TouchTurnRuleCategory.SESSION_DEADLINE,
-                defaultable = true
+                subGroup = TouchTurnRuleFieldSubGroup.DEADLINE_WHEN_ON,
+                defaultable = true,
+                visibleWhenToggleKey = "openDeadline"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "trailingStopTriggerFractionOfEntryToTp",
@@ -218,7 +231,9 @@ data class TouchTurnRuleConfig(
                     "Default 0.5 = halfway to target. Must be between 0 and 1.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRAILING_STOP,
-                defaultable = true
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_WHEN_ON,
+                defaultable = true,
+                visibleWhenToggleKey = "adjustableTrailingStop"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "trailingStopArmFractionOfEntryToStop",
@@ -228,7 +243,9 @@ data class TouchTurnRuleConfig(
                     "stop. 1 = unchanged at the initial stop. Must be between 0 and 1.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRAILING_STOP,
-                defaultable = true
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_WHEN_ON,
+                defaultable = true,
+                visibleWhenToggleKey = "adjustableTrailingStop"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "minGrossProfit",
@@ -239,6 +256,7 @@ data class TouchTurnRuleConfig(
                     "0 disables the gate.",
                 kind = TouchTurnRuleFieldKind.PRICE,
                 category = TouchTurnRuleCategory.BRACKET,
+                subGroup = TouchTurnRuleFieldSubGroup.SUBMISSION_GATES,
                 defaultable = true
             )
         )
@@ -249,20 +267,64 @@ data class TouchTurnRuleConfig(
         /** Defaultable thresholds first, then mandatory fields without a global default. */
         fun fieldsForCategoryDisplay(
             category: TouchTurnRuleCategory,
-            invertTradeSide: Boolean = false
+            invertTradeSide: Boolean = false,
+            toggleValues: Map<String, Boolean> = emptyMap()
         ): List<TouchTurnRuleFieldDefinition> =
             fieldsForCategory(category)
-                .filter { it.isVisibleForInvertTradeSide(invertTradeSide) }
+                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
                 .sortedWith(
                     compareByDescending<TouchTurnRuleFieldDefinition> { it.defaultable }.thenBy { it.label }
                 )
 
-        fun visibleFieldDefinitions(invertTradeSide: Boolean): List<TouchTurnRuleFieldDefinition> =
-            fieldDefinitions.filter { it.isVisibleForInvertTradeSide(invertTradeSide) }
+        fun fieldGroupsForCategory(
+            category: TouchTurnRuleCategory,
+            invertTradeSide: Boolean,
+            toggleValues: Map<String, Boolean>
+        ): List<TouchTurnRuleFieldGroup> {
+            val visible = fieldsForCategory(category)
+                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
+            if (visible.isEmpty()) return emptyList()
+            return when (category) {
+                TouchTurnRuleCategory.TRADE_MODE -> listOfNotNull(
+                    visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.REVERSAL_ENTRY),
+                    visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.INVERT_ENTRY)
+                )
+                else -> visible
+                    .groupBy { it.subGroup }
+                    .entries
+                    .sortedBy { (subGroup, _) -> subGroup?.ordinal ?: Int.MAX_VALUE }
+                    .mapNotNull { (subGroup, fields) ->
+                        if (fields.isEmpty()) return@mapNotNull null
+                        TouchTurnRuleFieldGroup(
+                            label = subGroup?.label ?: category.label,
+                            fields = fields.sortedBy { it.label },
+                            testTagSuffix = subGroup?.name?.lowercase() ?: category.name.lowercase()
+                        )
+                    }
+            }
+        }
+
+        fun visibleFieldDefinitions(
+            invertTradeSide: Boolean,
+            toggleValues: Map<String, Boolean> = emptyMap()
+        ): List<TouchTurnRuleFieldDefinition> =
+            fieldDefinitions.filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
 
         fun invertLinkedFieldDefinitions(invertTradeSide: Boolean): List<TouchTurnRuleFieldDefinition> =
             fieldsForCategoryDisplay(TouchTurnRuleCategory.TRADE_MODE, invertTradeSide = invertTradeSide)
-                .filter { it.visibleWhenInvertTradeSide == true }
+                .filter { it.subGroup == TouchTurnRuleFieldSubGroup.INVERT_ENTRY }
+
+        private fun List<TouchTurnRuleFieldDefinition>.groupBySubGroup(
+            subGroup: TouchTurnRuleFieldSubGroup
+        ): TouchTurnRuleFieldGroup? {
+            val fields = filter { it.subGroup == subGroup }.sortedBy { it.label }
+            if (fields.isEmpty()) return null
+            return TouchTurnRuleFieldGroup(
+                label = subGroup.label,
+                fields = fields,
+                testTagSuffix = subGroup.name.lowercase()
+            )
+        }
 
         fun toggleForCategory(category: TouchTurnRuleCategory): TouchTurnRuleToggleDefinition? =
             category.toggleKey?.let { key -> toggleDefinitions.find { it.key == key } }
@@ -415,6 +477,24 @@ data class TouchTurnRuleConfig(
 }
 
 @Serializable
+enum class TouchTurnRuleFieldSubGroup(val label: String) {
+    LIQUIDITY_THRESHOLD("Liquidity threshold"),
+    REVERSAL_ENTRY("Reversal / default entry"),
+    INVERT_ENTRY("When inverse is on"),
+    TAKE_PROFIT_AND_RISK("Take profit & risk"),
+    SUBMISSION_GATES("Submission gates"),
+    TRAILING_WHEN_ON("When trailing is on"),
+    DEADLINE_WHEN_ON("When deadline is on"),
+}
+
+@Serializable
+data class TouchTurnRuleFieldGroup(
+    val label: String,
+    val fields: List<TouchTurnRuleFieldDefinition>,
+    val testTagSuffix: String
+)
+
+@Serializable
 enum class TouchTurnRuleFieldKind {
     RATIO,
     PRICE,
@@ -429,14 +509,25 @@ data class TouchTurnRuleFieldDefinition(
     val description: String,
     val kind: TouchTurnRuleFieldKind,
     val category: TouchTurnRuleCategory,
+    val subGroup: TouchTurnRuleFieldSubGroup? = null,
     /** When false, the field has no single global default (e.g. broker-specific entry offset). */
     val defaultable: Boolean = true,
     /** When non-null, field is shown only when [invertTradeSide] matches this value. */
-    val visibleWhenInvertTradeSide: Boolean? = null
+    val visibleWhenInvertTradeSide: Boolean? = null,
+    /** When non-null, field is shown only when the named toggle is enabled. */
+    val visibleWhenToggleKey: String? = null
 )
 
 fun TouchTurnRuleFieldDefinition.isVisibleForInvertTradeSide(invertTradeSide: Boolean): Boolean =
     visibleWhenInvertTradeSide?.let { it == invertTradeSide } != false
+
+fun TouchTurnRuleFieldDefinition.isVisibleForToggle(toggleValues: Map<String, Boolean>): Boolean =
+    visibleWhenToggleKey?.let { toggleValues[it] == true } != false
+
+fun TouchTurnRuleFieldDefinition.isVisibleForConfig(
+    invertTradeSide: Boolean,
+    toggleValues: Map<String, Boolean>
+): Boolean = isVisibleForInvertTradeSide(invertTradeSide) && isVisibleForToggle(toggleValues)
 
 fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig =
     touchTurnSession?.rules ?: touchTurnRules
