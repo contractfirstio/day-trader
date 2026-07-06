@@ -716,9 +716,9 @@ fun TouchTurnPipelineSectionOrdersPreview(
         }
         Text(
             if (isRecap) {
-                "Session recap — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}. Pulsing lines filled during this run."
+                "Session recap — ${TouchTurnLogic.orderPreviewSummary(orderSetup, session.rules)}. Pulsing lines filled during this run."
             } else {
-                "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}"
+                "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup, session.rules)}"
             },
             fontSize = 10.sp,
             color = TextSecondary,

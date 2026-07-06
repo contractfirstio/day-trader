@@ -1416,7 +1416,7 @@ private fun TouchTurnFirstCandleSection(session: TouchTurnSessionContext?, symbo
                         compact = true
                     ) {
                         Text(
-                            "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup)}",
+                            "Preview only — ${TouchTurnLogic.orderPreviewSummary(orderSetup, session.rules)}",
                             fontSize = 10.sp,
                             color = TextSecondary,
                             lineHeight = 13.sp

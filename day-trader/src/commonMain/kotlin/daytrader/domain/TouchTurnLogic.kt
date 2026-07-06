@@ -1350,10 +1350,9 @@ object TouchTurnLogic {
         val color = firstCandleColor(bar)
         val liquidity = evaluatesLiquidityCandle(bar, liquidityThresholds, rules)
         val rangeThreshold = liquidityThresholds.primary
-        val entryInwardOffset = range * rules.entryInwardOffsetRatioOfRange
         val reversal = when (color) {
             FirstCandleColor.GREEN -> {
-                val entry = bar.high - entryInwardOffset
+                val entry = resolveEntryFromBarExtreme(bar, color, rules)
                 val takeProfit = bar.low + range * rules.takeProfitFibRatioGreen
                 val tpDistance = entry - takeProfit
                 val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
@@ -1370,7 +1369,7 @@ object TouchTurnLogic {
             }
             FirstCandleColor.RED -> {
                 val tpDistance = range * rules.takeProfitFibRatioRed
-                val entry = bar.low + entryInwardOffset
+                val entry = resolveEntryFromBarExtreme(bar, color, rules)
                 val takeProfit = entry + tpDistance
                 val stopDistance = tpDistance / rules.takeProfitToStopLossRatio
                 TouchTurnBracketSetup(
@@ -1396,6 +1395,31 @@ object TouchTurnLogic {
             )
         }
         return if (rules.invertTradeSide) applyInvertTradeSide(reversal, rules) else reversal
+    }
+
+    /**
+     * Entry anchor from the opening bar extreme. Reversal uses inward offset; inverse with outward > 0
+     * places the stop beyond the extreme (momentum confirmation).
+     */
+    fun resolveEntryFromBarExtreme(
+        bar: OhlcBar,
+        color: FirstCandleColor,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): Double {
+        val range = bar.range
+        val inward = range * rules.entryInwardOffsetRatioOfRange
+        val outward = range * rules.entryOutwardOffsetRatioOfRange
+        return when (color) {
+            FirstCandleColor.GREEN -> when {
+                rules.invertTradeSide && outward > 0.0 -> bar.high + outward
+                else -> bar.high - inward
+            }
+            FirstCandleColor.RED -> when {
+                rules.invertTradeSide && outward > 0.0 -> bar.low - outward
+                else -> bar.low + inward
+            }
+            FirstCandleColor.DOJI -> bar.close
+        }
     }
 
     /**
@@ -1451,19 +1475,35 @@ object TouchTurnLogic {
         FirstCandleColor.DOJI -> "—"
     }
 
-    fun orderPreviewSummary(setup: TouchTurnBracketSetup): String {
+    fun orderPreviewSummary(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): String {
         val action = tradeSideLabel(setup.side).lowercase()
         val fibPct = takeProfitFibLabel(setup.candleColor)
         val stopDesc = stopLossDistanceDescription(setup)
         val tpRelative = if (setup.takeProfit >= setup.entry) "above" else "below"
         val slRelative = if (setup.stopLoss >= setup.entry) "above" else "below"
+        val useOutward = rules.invertTradeSide && rules.entryOutwardOffsetRatioOfRange > 0.0
         return when (setup.candleColor) {
-            FirstCandleColor.GREEN ->
-                "Green liquidity bar → $action below bar high (inward offset), take profit $tpRelative entry " +
+            FirstCandleColor.GREEN -> {
+                val entryDesc = if (useOutward) {
+                    "above bar high (outward offset)"
+                } else {
+                    "below bar high (inward offset)"
+                }
+                "Green liquidity bar → $action $entryDesc, take profit $tpRelative entry " +
                     "($fibPct fib level), stop $slRelative entry ($stopDesc)."
-            FirstCandleColor.RED ->
-                "Red liquidity bar → $action above bar low (inward offset), take profit $tpRelative entry " +
+            }
+            FirstCandleColor.RED -> {
+                val entryDesc = if (useOutward) {
+                    "below bar low (outward offset)"
+                } else {
+                    "above bar low (inward offset)"
+                }
+                "Red liquidity bar → $action $entryDesc, take profit $tpRelative entry " +
                     "($fibPct of range), stop $slRelative entry ($stopDesc)."
+            }
             FirstCandleColor.DOJI -> "Flat candle (open = close) — no directional bracket."
         }
     }

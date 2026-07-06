@@ -275,6 +275,67 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun entryOutwardOffset_inverseGreen_longStopAboveHigh() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            entryOutwardOffsetRatioOfRange = 0.02
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        assertEquals(TouchTurnTradeSide.LONG, setup.side)
+        assertEquals(410.2, setup.entry, 0.001)
+    }
+
+    @Test
+    fun entryOutwardOffset_inverseRed_shortStopBelowLow() {
+        val bar = OhlcBar(open = 410.0, high = 410.0, low = 400.0, close = 402.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            entryOutwardOffsetRatioOfRange = 0.02
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        assertEquals(TouchTurnTradeSide.SHORT, setup.side)
+        assertEquals(399.8, setup.entry, 0.001)
+    }
+
+    @Test
+    fun entryOutwardOffset_zero_matchesCurrentInvertBehavior() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val inwardOnly = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            entryInwardOffsetRatioOfRange = 0.15,
+            entryOutwardOffsetRatioOfRange = 0.0
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = inwardOnly)
+        assertEquals(408.5, setup.entry, 0.001)
+    }
+
+    @Test
+    fun entryOutwardOffset_ignoredWhenReversal() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = false,
+            entryInwardOffsetRatioOfRange = 0.15,
+            entryOutwardOffsetRatioOfRange = 0.05
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        assertEquals(TouchTurnTradeSide.SHORT, setup.side)
+        assertEquals(408.5, setup.entry, 0.001)
+    }
+
+    @Test
+    fun entryOutwardOffset_outwardWinsOverInwardWhenBothSet() {
+        val bar = OhlcBar(open = 400.0, high = 410.0, low = 400.0, close = 408.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            entryInwardOffsetRatioOfRange = 0.15,
+            entryOutwardOffsetRatioOfRange = 0.02
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0, rules = rules)
+        assertEquals(410.2, setup.entry, 0.001)
+    }
+
+    @Test
     fun candleStillForming_beforeBarEnd() {
         val bar = OhlcBar(
             open = 400.0,

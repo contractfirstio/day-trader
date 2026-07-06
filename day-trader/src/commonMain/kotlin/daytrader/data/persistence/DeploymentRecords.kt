@@ -110,6 +110,7 @@ data class TouchTurnRuleConfigRecord(
     val atrLiquidityRatio: Double = 0.25,
     val dailyAtrLookbackPeriods: Int = 14,
     val entryInwardOffsetRatioOfRange: Double = 0.02,
+    val entryOutwardOffsetRatioOfRange: Double = 0.0,
     val takeProfitFibRatioGreen: Double = 0.382,
     val takeProfitFibRatioRed: Double = 0.382,
     val takeProfitToStopLossRatio: Double = 2.0,

@@ -18,6 +18,7 @@ data class StrategyConfigurationSnapshot(
             append("|atrLiquidityRatio=").append(rules.atrLiquidityRatio)
             append("|dailyAtrLookbackPeriods=").append(rules.dailyAtrLookbackPeriods)
             append("|entryInwardOffsetRatioOfRange=").append(rules.entryInwardOffsetRatioOfRange)
+            append("|entryOutwardOffsetRatioOfRange=").append(rules.entryOutwardOffsetRatioOfRange)
             append("|takeProfitFibRatioGreen=").append(rules.takeProfitFibRatioGreen)
             append("|takeProfitFibRatioRed=").append(rules.takeProfitFibRatioRed)
             append("|takeProfitToStopLossRatio=").append(rules.takeProfitToStopLossRatio)

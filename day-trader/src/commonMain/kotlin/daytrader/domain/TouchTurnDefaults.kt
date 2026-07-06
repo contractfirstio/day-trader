@@ -43,6 +43,10 @@ object TouchTurnDefaults {
     const val ENTRY_INWARD_OFFSET_RATIO_OF_RANGE = 0.02
     /** Paper / emulator / replay: entry at bar extreme (no inward nudge). */
     const val ENTRY_INWARD_OFFSET_RATIO_OF_RANGE_SIMULATED = 0.0
+    /** Inverse only: stop entry beyond bar extreme (green above high, red below low). 0 = use inward anchor. */
+    const val ENTRY_OUTWARD_OFFSET_RATIO_OF_RANGE = 0.0
+    /** Upper bound for [ENTRY_OUTWARD_OFFSET_RATIO_OF_RANGE] in config UI validation. */
+    const val ENTRY_OUTWARD_OFFSET_RATIO_OF_RANGE_MAX = 0.25
     /** Max |bar.close − liveMid| as a fraction of bar range before hybrid mode rejects the setup. */
     const val BAR_LIVE_DIVERGENCE_MAX_RATIO_OF_RANGE = 0.25
     /** For short setups (green liquidity candle), require close in the lower X of range. */

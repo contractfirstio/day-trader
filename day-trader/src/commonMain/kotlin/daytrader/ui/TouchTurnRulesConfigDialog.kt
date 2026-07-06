@@ -224,7 +224,8 @@ fun TouchTurnRulesConfigDialog(
                                     val checked = toggleValues[toggle.key] ?: true
                                     updated = TouchTurnRuleConfig.withToggleEnabled(updated, toggle.key, checked)
                                 }
-                                for (field in TouchTurnRuleConfig.fieldDefinitions) {
+                                val invertTradeSide = toggleValues["invertTradeSide"] == true
+                                for (field in TouchTurnRuleConfig.visibleFieldDefinitions(invertTradeSide)) {
                                     val raw = fieldValues[field.key].orEmpty()
                                     val next = TouchTurnRuleConfig.withFieldValue(updated, field.key, raw)
                                     if (next == null) {
@@ -259,7 +260,8 @@ private fun TouchTurnRuleCategorySection(
     var expanded by rememberSaveable(category.name) { mutableStateOf(true) }
     val toggle = TouchTurnRuleConfig.toggleForCategory(category)
     val toggleEnabled = toggle?.let { toggleValues[it.key] ?: true } ?: true
-    val fields = TouchTurnRuleConfig.fieldsForCategoryDisplay(category)
+    val invertTradeSide = toggleValues["invertTradeSide"] == true
+    val fields = TouchTurnRuleConfig.fieldsForCategoryDisplay(category, invertTradeSide = invertTradeSide)
     val showFields = category.fieldsAlwaysVisible || toggleEnabled
     val defaultableFields = fields.filter { it.defaultable }
     val mandatoryFields = fields.filter { !it.defaultable }
@@ -305,7 +307,20 @@ private fun TouchTurnRuleCategorySection(
                         onCheckedChange = { onToggleChange(definition.key, it) }
                     )
                 }
-                if (showFields && fields.isNotEmpty()) {
+                if (category == TouchTurnRuleCategory.TRADE_MODE && invertTradeSide) {
+                    val invertLinkedFields = TouchTurnRuleConfig.invertLinkedFieldDefinitions(invertTradeSide = true)
+                    if (invertLinkedFields.isNotEmpty()) {
+                        TouchTurnInvertLinkedFieldGroup(
+                            fields = invertLinkedFields,
+                            fieldValues = fieldValues,
+                            enabled = enabled,
+                            onFieldChange = onFieldChange
+                        )
+                    }
+                }
+                if (showFields && fields.isNotEmpty() &&
+                    !(category == TouchTurnRuleCategory.TRADE_MODE && invertTradeSide)
+                ) {
                     if (toggle != null) {
                         HorizontalDivider(color = TableHeaderBg)
                     }
@@ -330,6 +345,41 @@ private fun TouchTurnRuleCategorySection(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnInvertLinkedFieldGroup(
+    fields: List<TouchTurnRuleFieldDefinition>,
+    fieldValues: Map<String, String>,
+    enabled: Boolean,
+    onFieldChange: (String, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .background(DarkBackground.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+            .border(1.dp, BrandRed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .padding(10.dp)
+            .testTag("TouchTurnInvertLinkedFieldGroup"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "When inverse is on",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = BrandRed,
+            modifier = Modifier.testTag("TouchTurnInvertLinkedFieldGroupLabel")
+        )
+        fields.forEach { field ->
+            TouchTurnRuleFieldEditor(
+                field = field,
+                value = fieldValues[field.key].orEmpty(),
+                enabled = enabled,
+                onValueChange = { onFieldChange(field.key, it) }
+            )
         }
     }
 }

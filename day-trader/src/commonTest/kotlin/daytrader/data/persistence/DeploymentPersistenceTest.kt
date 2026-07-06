@@ -163,6 +163,24 @@ class DeploymentPersistenceTest {
     }
 
     @Test
+    fun configurationRoundTrip_persistsEntryOutwardOffset() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
+                invertTradeSide = true,
+                entryOutwardOffsetRatioOfRange = 0.03
+            )
+        )
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(0.03, restored.touchTurnRules.entryOutwardOffsetRatioOfRange)
+    }
+
+    @Test
     fun configurationRoundTrip_migratesLegacyTopLevelInvertTradeSide() {
         val baseRecord = DeploymentPersistence.toRecord(
             defaultStrategyDeployment(

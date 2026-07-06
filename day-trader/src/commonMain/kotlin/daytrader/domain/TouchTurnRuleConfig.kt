@@ -58,6 +58,11 @@ data class TouchTurnRuleConfig(
     val dailyAtrLookbackPeriods: Int = TouchTurnDefaults.DAILY_ATR_LOOKBACK_PERIODS,
     /** Nudge entry limit inward from bar extreme — long up from low, short down from high (fraction of bar range). */
     val entryInwardOffsetRatioOfRange: Double = TouchTurnDefaults.ENTRY_INWARD_OFFSET_RATIO_OF_RANGE,
+    /**
+     * When [invertTradeSide] is true, nudge the stop entry beyond the bar extreme (green above high,
+     * red below low) by this fraction of bar range. 0 = use [entryInwardOffsetRatioOfRange] anchor.
+     */
+    val entryOutwardOffsetRatioOfRange: Double = TouchTurnDefaults.ENTRY_OUTWARD_OFFSET_RATIO_OF_RANGE,
     /** Green liquidity bar: take-profit distance as a fraction of bar range. */
     val takeProfitFibRatioGreen: Double = TouchTurnDefaults.TAKE_PROFIT_FIB_RATIO_GREEN,
     /** Red liquidity bar: take-profit distance as a fraction of bar range. */
@@ -187,6 +192,16 @@ data class TouchTurnRuleConfig(
                 defaultable = false
             ),
             TouchTurnRuleFieldDefinition(
+                key = "entryOutwardOffsetRatioOfRange",
+                label = "Entry outward offset (× range)",
+                description = "Place the stop entry beyond the bar high/low by this fraction of range so price " +
+                    "must break the opening extreme before entry. 0 uses the inward offset level from Bracket sizing.",
+                kind = TouchTurnRuleFieldKind.RATIO,
+                category = TouchTurnRuleCategory.TRADE_MODE,
+                defaultable = false,
+                visibleWhenInvertTradeSide = true
+            ),
+            TouchTurnRuleFieldDefinition(
                 key = "stopAfterOpenMinutes",
                 label = "Max minutes after RTH open",
                 description = "When RTH open deadline is enabled, the session auto-stops and flattens broker " +
@@ -232,10 +247,22 @@ data class TouchTurnRuleConfig(
             fieldDefinitions.filter { it.category == category }
 
         /** Defaultable thresholds first, then mandatory fields without a global default. */
-        fun fieldsForCategoryDisplay(category: TouchTurnRuleCategory): List<TouchTurnRuleFieldDefinition> =
-            fieldsForCategory(category).sortedWith(
-                compareByDescending<TouchTurnRuleFieldDefinition> { it.defaultable }.thenBy { it.label }
-            )
+        fun fieldsForCategoryDisplay(
+            category: TouchTurnRuleCategory,
+            invertTradeSide: Boolean = false
+        ): List<TouchTurnRuleFieldDefinition> =
+            fieldsForCategory(category)
+                .filter { it.isVisibleForInvertTradeSide(invertTradeSide) }
+                .sortedWith(
+                    compareByDescending<TouchTurnRuleFieldDefinition> { it.defaultable }.thenBy { it.label }
+                )
+
+        fun visibleFieldDefinitions(invertTradeSide: Boolean): List<TouchTurnRuleFieldDefinition> =
+            fieldDefinitions.filter { it.isVisibleForInvertTradeSide(invertTradeSide) }
+
+        fun invertLinkedFieldDefinitions(invertTradeSide: Boolean): List<TouchTurnRuleFieldDefinition> =
+            fieldsForCategoryDisplay(TouchTurnRuleCategory.TRADE_MODE, invertTradeSide = invertTradeSide)
+                .filter { it.visibleWhenInvertTradeSide == true }
 
         fun toggleForCategory(category: TouchTurnRuleCategory): TouchTurnRuleToggleDefinition? =
             category.toggleKey?.let { key -> toggleDefinitions.find { it.key == key } }
@@ -244,6 +271,7 @@ data class TouchTurnRuleConfig(
             "atrLiquidityRatio" -> config.atrLiquidityRatio.toString()
             "dailyAtrLookbackPeriods" -> config.dailyAtrLookbackPeriods.toString()
             "entryInwardOffsetRatioOfRange" -> config.entryInwardOffsetRatioOfRange.toString()
+            "entryOutwardOffsetRatioOfRange" -> config.entryOutwardOffsetRatioOfRange.toString()
             "takeProfitFibRatioGreen" -> config.takeProfitFibRatioGreen.toString()
             "takeProfitFibRatioRed" -> config.takeProfitFibRatioRed.toString()
             "takeProfitToStopLossRatio" -> config.takeProfitToStopLossRatio.toString()
@@ -273,6 +301,14 @@ data class TouchTurnRuleConfig(
                         "entryInwardOffsetRatioOfRange" -> {
                             if (doubleValue < 0.0) return null
                             config.copy(entryInwardOffsetRatioOfRange = doubleValue)
+                        }
+                        "entryOutwardOffsetRatioOfRange" -> {
+                            if (doubleValue < 0.0 ||
+                                doubleValue > TouchTurnDefaults.ENTRY_OUTWARD_OFFSET_RATIO_OF_RANGE_MAX
+                            ) {
+                                return null
+                            }
+                            config.copy(entryOutwardOffsetRatioOfRange = doubleValue)
                         }
                         "minGrossProfit" -> {
                             if (doubleValue < 0.0) return null
@@ -394,8 +430,13 @@ data class TouchTurnRuleFieldDefinition(
     val kind: TouchTurnRuleFieldKind,
     val category: TouchTurnRuleCategory,
     /** When false, the field has no single global default (e.g. broker-specific entry offset). */
-    val defaultable: Boolean = true
+    val defaultable: Boolean = true,
+    /** When non-null, field is shown only when [invertTradeSide] matches this value. */
+    val visibleWhenInvertTradeSide: Boolean? = null
 )
+
+fun TouchTurnRuleFieldDefinition.isVisibleForInvertTradeSide(invertTradeSide: Boolean): Boolean =
+    visibleWhenInvertTradeSide?.let { it == invertTradeSide } != false
 
 fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig =
     touchTurnSession?.rules ?: touchTurnRules

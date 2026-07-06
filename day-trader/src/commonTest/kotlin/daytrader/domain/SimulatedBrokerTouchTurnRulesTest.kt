@@ -130,4 +130,33 @@ class SimulatedBrokerTouchTurnRulesTest {
         assertTrue(bracketFields.dropLast(1).all { it.defaultable })
         assertFalse(bracketFields.last().defaultable)
     }
+
+    @Test
+    fun fieldsForCategoryDisplay_showsOutwardOffsetUnderTradeModeWhenInvertEnabled() {
+        val reversalTradeMode = TouchTurnRuleConfig.fieldsForCategoryDisplay(
+            TouchTurnRuleCategory.TRADE_MODE,
+            invertTradeSide = false
+        )
+        assertFalse(reversalTradeMode.any { it.key == "entryOutwardOffsetRatioOfRange" })
+
+        val invertTradeMode = TouchTurnRuleConfig.fieldsForCategoryDisplay(
+            TouchTurnRuleCategory.TRADE_MODE,
+            invertTradeSide = true
+        )
+        assertEquals(listOf("entryOutwardOffsetRatioOfRange"), invertTradeMode.map { it.key })
+
+        val bracketFields = TouchTurnRuleConfig.fieldsForCategoryDisplay(
+            TouchTurnRuleCategory.BRACKET,
+            invertTradeSide = true
+        )
+        assertFalse(bracketFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
+    }
+
+    @Test
+    fun visibleFieldDefinitions_excludesOutwardOffsetWhenInvertDisabled() {
+        val reversalFields = TouchTurnRuleConfig.visibleFieldDefinitions(invertTradeSide = false)
+        val invertFields = TouchTurnRuleConfig.visibleFieldDefinitions(invertTradeSide = true)
+        assertFalse(reversalFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
+        assertTrue(invertFields.any { it.key == "entryOutwardOffsetRatioOfRange" })
+    }
 }
