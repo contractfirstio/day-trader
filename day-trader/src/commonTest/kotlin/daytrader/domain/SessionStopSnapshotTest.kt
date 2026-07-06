@@ -130,6 +130,68 @@ class SessionStopSnapshotTest {
     }
 
     @Test
+    fun touchTurnSnapshot_closedIbRoundTrip_usesNetRealizedWithoutSubtractingCommissionAgain() {
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "09992",
+            maxDollars = 50_000
+        ).onSessionStarted("2026-07-06").copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-07-06",
+                status = TouchTurnCandleStatus.READY,
+                ordersPlacedForSession = true,
+                setup = TouchTurnBracketSetup(
+                    range = 5.0,
+                    rangeThreshold = 1.0,
+                    isLiquidityCandle = true,
+                    candleColor = FirstCandleColor.RED,
+                    side = TouchTurnTradeSide.SHORT,
+                    entry = 148.9,
+                    stopLoss = 150.81,
+                    takeProfit = 146.99
+                )
+            )
+        )
+        val sessionTrades = listOf(
+            SessionTrade(
+                execId = "entry",
+                orderId = 288,
+                permId = 1L,
+                parentOrderId = 0,
+                side = "SLD",
+                quantity = 200,
+                price = 149.0,
+                time = "20260706 09:46:35 Hongkong",
+                currency = "HKD",
+                commission = 54.6893,
+                realizedPnL = 0.0,
+            ),
+            SessionTrade(
+                execId = "exit",
+                orderId = 290,
+                permId = 2L,
+                parentOrderId = 288,
+                side = "BOT",
+                quantity = 200,
+                price = 150.9,
+                time = "20260706 10:10:20 Hongkong",
+                currency = "HKD",
+                commission = 56.00413,
+                realizedPnL = -490.69343,
+            ),
+        )
+
+        val snapshot = instance.resolveStopSnapshot(
+            hadOpenBrokerPosition = false,
+            brokerUnrealizedPnL = null,
+            sessionTrades = sessionTrades,
+        )
+
+        assertEquals(-490.69343, snapshot.sessionPnL)
+        assertEquals(1, snapshot.trades)
+    }
+
+    @Test
     fun quickFlipSnapshot_hasNoTouchTurnFields() {
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.QUICK_FLIP_SCALPER,

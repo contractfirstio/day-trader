@@ -13,28 +13,38 @@ data class SessionTrade(
     val price: Double,
     val time: String,
     val currency: String = "USD",
-    /** Per-fill commission from the broker commission report. */
+    /** Per-fill commission from the broker commission report (shown separately; do not subtract again). */
     val commission: Double? = null,
-    /** Per-fill price-based realized P&L from the broker commission report. */
+    /**
+     * Per-fill realized P&L from the broker commission report. On entry fills this is 0.
+     * On the closing fill IB reports the net round-trip P&L (price move with commissions
+     * already netted into cost basis — see IBKR Realized P&L glossary).
+     */
     val realizedPnL: Double? = null,
 )
 
+/** Sum of per-fill [SessionTrade.realizedPnL] — net session P&L when the round-trip is closed. */
 fun List<SessionTrade>.sessionRealizedPnL(): Double =
     sumOf { it.realizedPnL ?: 0.0 }
 
 fun List<SessionTrade>.sessionCommissionTotal(): Double =
     sumOf { it.commission ?: 0.0 }
 
-/** Gross realized P&L minus per-fill commissions (derived; not stored by IB). */
-fun List<SessionTrade>.sessionNetPnL(): Double =
-    sessionRealizedPnL() - sessionCommissionTotal()
+/**
+ * Price-move P&L before commissions, derived when every fill has commission data.
+ * IB stores net realized on the closing fill; gross = net + commissions.
+ */
+fun List<SessionTrade>.sessionGrossPricePnL(): Double =
+    sessionRealizedPnL() + sessionCommissionTotal()
+
+/** @see [sessionRealizedPnL] — IB net realized is already after commissions. */
+fun List<SessionTrade>.sessionNetPnL(): Double = sessionRealizedPnL()
 
 fun List<SessionTrade>.hasCompleteCommissionData(): Boolean =
     isNotEmpty() && all { it.commission != null }
 
-/** Net when every fill has commission; otherwise gross realized P&L. */
-fun List<SessionTrade>.sessionDisplayPnL(): Double =
-    if (hasCompleteCommissionData()) sessionNetPnL() else sessionRealizedPnL()
+/** Session P&L for display and rollups — [sessionRealizedPnL] (IB net when closed). */
+fun List<SessionTrade>.sessionDisplayPnL(): Double = sessionRealizedPnL()
 
 fun List<SessionTrade>.dedupeByExecId(): List<SessionTrade> {
     val seen = LinkedHashSet<String>()

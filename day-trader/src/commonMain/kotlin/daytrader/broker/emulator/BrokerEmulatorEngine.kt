@@ -1560,6 +1560,7 @@ class BrokerEmulatorEngine(
             fill = execution,
             orderType = order.orderType,
             priceBasedRealizedPnL = realizedPnL,
+            priorFillsForRoundTrip = sessionFills.dropLast(1),
         )
         sessionFills[sessionFills.lastIndex] = fill
         if (realizedPnL != null) {

@@ -13,7 +13,7 @@ class SessionTradeDetailUiMapperTest {
     fun fromSessionTrades_closedRoundTripWithCommission_showsNetBreakdown() {
         val trades = listOf(
             trade(parentOrderId = 0, orderId = 1, price = 100.0, commission = 0.35, realizedPnL = 0.0),
-            trade(parentOrderId = 1, orderId = 2, price = 105.0, commission = 0.35, realizedPnL = 500.0),
+            trade(parentOrderId = 1, orderId = 2, price = 105.0, commission = 0.35, realizedPnL = 499.30),
         )
 
         val ui = SessionTradeDetailUiMapper.fromSessionTrades(trades)
@@ -52,7 +52,7 @@ class SessionTradeDetailUiMapperTest {
     fun tradeSummaryForRow_includesNetWhenCommissionPresent() {
         val trades = listOf(
             trade(parentOrderId = 0, orderId = 1, price = 100.0, commission = 0.35, realizedPnL = 0.0),
-            trade(parentOrderId = 1, orderId = 2, price = 105.0, commission = 0.35, realizedPnL = 500.0),
+            trade(parentOrderId = 1, orderId = 2, price = 105.0, commission = 0.35, realizedPnL = 499.30),
         )
 
         val (_, summary) = SessionTradeDetailUiMapper.tradeSummaryForRow(trades)

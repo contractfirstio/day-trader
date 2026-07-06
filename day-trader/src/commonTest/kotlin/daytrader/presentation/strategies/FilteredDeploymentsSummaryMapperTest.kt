@@ -118,17 +118,17 @@ class FilteredDeploymentsSummaryMapperTest {
     }
 
     @Test
-    fun build_netPnLSubtractsCommissionWhenFillDataComplete() {
+    fun build_netPnLUsesIbNetRealizedWithoutDoubleCountingCommission() {
         val a = deployment(
             id = "a",
             sessions = listOf(
                 closedSessionWithTrades(
                     id = "s1",
-                    pnl = 500.0,
+                    pnl = 499.30,
                     stoppedAt = "2026-06-14T10:00:00",
                     sessionTrades = listOf(
-                        sessionTrade(commission = 0.35, realizedPnL = 0.0),
-                        sessionTrade(commission = 0.35, realizedPnL = 500.0),
+                        sessionTrade(commission = 0.35, realizedPnL = 0.0, parentOrderId = 0),
+                        sessionTrade(commission = 0.35, realizedPnL = 499.30, parentOrderId = 1),
                     ),
                 ),
             ),
@@ -161,12 +161,12 @@ class FilteredDeploymentsSummaryMapperTest {
         sessionTrades = sessionTrades,
     )
 
-    private fun sessionTrade(commission: Double, realizedPnL: Double) =
+    private fun sessionTrade(commission: Double, realizedPnL: Double, parentOrderId: Int = 0) =
         daytrader.domain.SessionTrade(
-            execId = "exec-$commission-$realizedPnL",
-            orderId = 1,
-            permId = 1L,
-            parentOrderId = 0,
+            execId = "exec-$parentOrderId-$commission-$realizedPnL",
+            orderId = if (parentOrderId == 0) 1 else 2,
+            permId = if (parentOrderId == 0) 1L else 2L,
+            parentOrderId = parentOrderId,
             side = "BUY",
             quantity = 10,
             price = 100.0,

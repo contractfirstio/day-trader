@@ -21,17 +21,25 @@ class FillCommissionReportApplierTest {
     }
 
     @Test
-    fun applyReport_exitFill_setsCommissionAndPriceBasedRealizedPnL() {
-        val execution = sampleFill(realizedPnL = null)
+    fun applyReport_exitFill_setsIbNetRealizedPnLAfterAllLegCommissions() {
+        val calculator = TransactionCostCalculator()
+        val entry = FillCommissionReportApplier.applyReport(
+            fill = sampleFill(execId = "entry", parentOrderId = 0, realizedPnL = null),
+            orderType = "LMT",
+            priceBasedRealizedPnL = null,
+        )
+        val execution = sampleFill(execId = "exit", parentOrderId = 1, realizedPnL = null)
+        val exitCommission = calculator.calculateCommission(execution.quantity, "STP").toDouble()
 
         val reported = FillCommissionReportApplier.applyReport(
             fill = execution,
             orderType = "STP",
             priceBasedRealizedPnL = 500.0,
+            priorFillsForRoundTrip = listOf(entry),
         )
 
-        assertEquals(0.35, reported.commission)
-        assertEquals(500.0, reported.realizedPnL)
+        assertEquals(exitCommission, reported.commission)
+        assertEquals(500.0 - (entry.commission ?: 0.0) - exitCommission, reported.realizedPnL)
     }
 
     @Test
@@ -42,11 +50,15 @@ class FillCommissionReportApplierTest {
         assertNull(execution.realizedPnL)
     }
 
-    private fun sampleFill(realizedPnL: Double?) = BrokerFill(
-        execId = "exec-1",
+    private fun sampleFill(
+        realizedPnL: Double?,
+        execId: String = "exec-1",
+        parentOrderId: Int = 0,
+    ) = BrokerFill(
+        execId = execId,
         orderId = 1,
         permId = 1L,
-        parentOrderId = 0,
+        parentOrderId = parentOrderId,
         symbol = "NVDA",
         side = "BUY",
         quantity = 10,

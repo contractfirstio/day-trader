@@ -5,7 +5,8 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.SessionTradeDetails
 import daytrader.domain.SessionTradeDetailsBuilder
 import daytrader.domain.sessionCommissionTotal
-import daytrader.domain.sessionNetPnL
+import daytrader.domain.sessionDisplayPnL
+import daytrader.domain.sessionGrossPricePnL
 import daytrader.broker.SessionTradePnL
 import daytrader.presentation.Formatters
 
@@ -61,10 +62,14 @@ object SessionTradeDetailUiMapper {
         if (trades.isEmpty()) return null
         val details = SessionTradeDetailsBuilder.build(trades) ?: return null
         val currency = details.currency
-        val realized = details.realizedPnL
         val hasCommissionData = trades.isNotEmpty() && trades.all { it.commission != null }
         val totalCommission = if (hasCommissionData) trades.sessionCommissionTotal() else null
-        val netPnL = if (hasCommissionData && !details.isOpen) trades.sessionNetPnL() else null
+        val netPnL = if (hasCommissionData && !details.isOpen) trades.sessionDisplayPnL() else null
+        val realized = if (hasCommissionData && !details.isOpen) {
+            trades.sessionGrossPricePnL()
+        } else {
+            details.realizedPnL
+        }
         val sessionTotal = SessionTradePnL.totalSessionPnL(trades, unrealizedPnL)
         val headline = buildString {
             append(details.quantity)
@@ -77,6 +82,7 @@ object SessionTradeDetailUiMapper {
             hasCommissionData = hasCommissionData,
             totalCommission = totalCommission,
             netPnL = netPnL,
+            grossPnL = if (hasCommissionData && !details.isOpen) realized else null,
         )
         val fills = SessionTradeDetailsBuilder.fillDisplays(trades).map { toFillUi(it) }
         return SessionTradeDetailUiState(
@@ -119,6 +125,7 @@ object SessionTradeDetailUiMapper {
         hasCommissionData: Boolean,
         totalCommission: Double?,
         netPnL: Double?,
+        grossPnL: Double? = null,
     ): String {
         val entry = details.entryPrice ?: return details.sideLabel
         return when {
@@ -128,10 +135,10 @@ object SessionTradeDetailUiMapper {
                 append(" → exit ")
                 append(Formatters.moneyPlain(details.exitPrice, currency))
                 append(" · ")
-                if (hasCommissionData && netPnL != null && totalCommission != null) {
+                if (hasCommissionData && netPnL != null && totalCommission != null && grossPnL != null) {
                     append(Formatters.money(netPnL, currency, showSign = true))
                     append(" net · ")
-                    append(Formatters.money(details.realizedPnL, currency, showSign = true))
+                    append(Formatters.money(grossPnL, currency, showSign = true))
                     append(" gross · ")
                     append(Formatters.money(-totalCommission, currency, showSign = true))
                     append(" commission")
@@ -187,7 +194,7 @@ object SessionTradeDetailUiMapper {
                 append(Formatters.moneyPlain(details.exitPrice, currency))
                 if (trades.isNotEmpty() && trades.all { it.commission != null } && !details.isOpen) {
                     append(" · ")
-                    append(Formatters.money(trades.sessionNetPnL(), currency, showSign = true))
+                    append(Formatters.money(trades.sessionDisplayPnL(), currency, showSign = true))
                     append(" net")
                 }
             }

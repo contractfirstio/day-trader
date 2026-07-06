@@ -160,15 +160,15 @@ data class SessionRollups(
     val tradedDays: Int get() = winDays + lossDays
 }
 
-/** Closed-run P&L for display and rollups — net when fill commissions are complete. */
+/** Closed-run P&L for display and rollups — IB net realized from fills when present. */
 fun StrategySession.effectivePnL(): Double {
     val trades = sessionTrades.dedupeByExecId()
     if (trades.isEmpty()) return pnl
-    if (trades.hasCompleteCommissionData()) return trades.sessionNetPnL()
-    val gross = trades.sessionRealizedPnL()
-    // Persisted fills may have lost commission while session.pnl was saved net at stop.
-    if (kotlin.math.abs(pnl - gross) > 0.005) return pnl
-    return gross
+    val fromFills = trades.sessionDisplayPnL()
+    if (trades.hasCompleteCommissionData()) return fromFills
+    // Persisted fills may have lost commission while session.pnl was saved at stop.
+    if (kotlin.math.abs(pnl - fromFills) > 0.005) return pnl
+    return fromFills
 }
 
 /** True when this closed run opened a broker position (entry filled), not merely rules passed. */
