@@ -31,6 +31,23 @@ class TouchTurnBracketExecutionTest {
     }
 
     @Test
+    fun resolveFromTrades_sessionFlattenWithParentZeroClassifiesExitLeg() {
+        val bracket = TouchTurnPlannedBracket(
+            side = TouchTurnTradeSide.SHORT,
+            entry = 94.94,
+            stopLoss = 98.94,
+            takeProfit = 90.29488
+        )
+        val trades = listOf(
+            trade(parentOrderId = 0, orderId = 1001, price = 94.94, realized = null, side = "SELL"),
+            trade(parentOrderId = 0, orderId = 1003, price = 90.35, realized = 2275.0, side = "BUY")
+        )
+        val legs = TouchTurnBracketExecution.resolveFromTrades(trades, bracket, null, sessionPnl = 0.0)
+        assertTrue(TouchTurnOrderRole.ENTRY in legs)
+        assertTrue(TouchTurnOrderRole.TAKE_PROFIT in legs)
+    }
+
+    @Test
     fun resolveFromTrades_lossUsesExitFillPnl() {
         val bracket = TouchTurnPlannedBracket(
             side = TouchTurnTradeSide.LONG,
@@ -100,13 +117,14 @@ class TouchTurnBracketExecutionTest {
         parentOrderId: Int,
         orderId: Int,
         price: Double,
-        realized: Double?
+        realized: Double?,
+        side: String = if (parentOrderId == 0) "BOT" else "SLD"
     ) = SessionTrade(
         execId = "e$orderId",
         orderId = orderId,
         permId = orderId + 100L,
         parentOrderId = parentOrderId,
-        side = if (parentOrderId == 0) "BOT" else "SLD",
+        side = side,
         quantity = 10,
         price = price,
         time = "2026-05-22T10:00:00",

@@ -76,7 +76,9 @@ enum class TouchTurnSessionStopTrigger {
     PRE_MARKET_CLOSE,
     ERROR,
     /** App quit or startup recovery of a persisted in-progress run from a prior process. */
-    APPLICATION_SHUTDOWN
+    APPLICATION_SHUTDOWN,
+    /** Interactive / batch replay: captured quote timeline ended; open exposure is flattened. */
+    REPLAY_QUOTES_EXHAUSTED
 }
 
 @Serializable

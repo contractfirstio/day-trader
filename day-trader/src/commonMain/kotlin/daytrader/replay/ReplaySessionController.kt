@@ -180,7 +180,10 @@ class ReplaySessionController(
             runtime.drainAllPendingInboundEvents()
             driveSessionToCompletion(deploymentId, bundle)
             awaitBacktestSessionStopped(deploymentId)
-            forceStopIfRunning(deploymentId)
+            forceStopIfRunning(
+                deploymentId,
+                trigger = TouchTurnSessionStopTrigger.REPLAY_QUOTES_EXHAUSTED
+            )
             awaitClosedSessionForGroundTruth(deploymentId)
 
             if (useGroundTruthFills) {
@@ -282,12 +285,15 @@ class ReplaySessionController(
         clock.reset(bundle.timeline.sessionStartedEpochMs)
     }
 
-    private suspend fun forceStopIfRunning(instanceId: String) {
+    private suspend fun forceStopIfRunning(
+        instanceId: String,
+        trigger: TouchTurnSessionStopTrigger = TouchTurnSessionStopTrigger.MANUAL
+    ) {
         if (currentDeployment(instanceId)?.status != DeploymentStatus.RUNNING) return
         dispatchEngine(
             TouchTurnCommand.StopSession(
                 instanceId = instanceId,
-                trigger = TouchTurnSessionStopTrigger.MANUAL,
+                trigger = trigger,
             )
         )
         awaitStopped(instanceId)

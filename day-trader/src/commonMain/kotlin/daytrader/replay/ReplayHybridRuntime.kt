@@ -152,6 +152,38 @@ class ReplayHybridRuntime(
         }
     }
 
+    /**
+     * Interactive replay session stop: publish quotes, flatten on the emulator control channel
+     * (not the async gateway outbound queue), then apply inbound fill/position snapshots before
+     * [TouchTurnEngine] reads gateway state.
+     */
+    suspend fun flattenAndDrainForSessionStop(symbol: String) {
+        quoteFeeder.publishUpTo(symbol, clock.nowEpochMillis())
+        executionGateway.setPauseInboundProcessing(true)
+        try {
+            emulator.flattenSymbolSynchronously(
+                symbol = symbol,
+                maxRounds = ReplayBacktestFastPath.STOP_MAX_YIELDS
+            )
+            drainAllPendingInboundEvents()
+        } finally {
+            executionGateway.setPauseInboundProcessing(false)
+        }
+    }
+
+    /**
+     * Drain emulator control/inbound without flatten — used by tests reproducing async gateway races.
+     */
+    suspend fun drainEmulatorControlQueue(maxRounds: Int = ReplayBacktestFastPath.STOP_MAX_YIELDS) {
+        executionGateway.setPauseInboundProcessing(true)
+        try {
+            emulator.drainOrderActorQueue(maxRounds = maxRounds)
+            drainAllPendingInboundEvents()
+        } finally {
+            executionGateway.setPauseInboundProcessing(false)
+        }
+    }
+
     fun drainAllPendingInboundEvents() {
         while (true) {
             val event = inbound.poll() ?: break
@@ -294,12 +326,8 @@ class ReplayHybridRuntime(
             isReplayOpeningBarQuotesReady = { symbol -> isOpeningBarQuotesReady(symbol) },
             sessionGateway = marketDataGateway,
             executionGateway = executionGateway,
-            replayPrepareSessionStop = { symbol ->
-                quoteFeeder.publishUpTo(symbol, clock.nowEpochMillis())
-            },
-            replayDrainBroker = {
-                drainEmulatorPipeline()
-                drainAllPendingInboundEvents()
+            replaySessionStopHook = ReplaySessionStopHook { symbol ->
+                flattenAndDrainForSessionStop(symbol)
             }
         )
     }

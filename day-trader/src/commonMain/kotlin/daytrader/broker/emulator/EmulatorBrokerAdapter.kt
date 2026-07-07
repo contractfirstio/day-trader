@@ -212,12 +212,24 @@ class EmulatorBrokerAdapter(
                             )
                         }
                     is GatewayCommand.CancelOpenOrdersForSymbol ->
-                        controlChannel.send(EmulatorControlMessage.CancelOpenOrders(command.symbol))
+                        controlChannel.send(
+                            EmulatorControlMessage.CancelOpenOrders(
+                                symbol = command.symbol,
+                                preserveStopLoss = command.preserveStopLoss
+                            )
+                        )
                     is GatewayCommand.CloseOpenPositionForSymbol ->
-                        controlChannel.send(EmulatorControlMessage.ClosePosition(command.symbol))
+                        controlChannel.send(
+                            EmulatorControlMessage.ClosePosition(
+                                symbol = command.symbol,
+                                quantity = command.quantity,
+                                action = command.action
+                            )
+                        )
                     is GatewayCommand.FlattenSymbolForSymbol ->
                         controlChannel.send(EmulatorControlMessage.FlattenSymbol(command.symbol))
                     GatewayCommand.RequestExecutions -> withEngine { engine.republishFills() }
+                    GatewayCommand.RequestPositions -> withEngine { engine.republishPositions() }
                 }
             }
         }
@@ -346,11 +358,19 @@ class EmulatorBrokerAdapter(
             }
             is EmulatorControlMessage.CancelOpenOrders ->
                 runCatching {
-                    withEngine { engine.cancelOpenOrdersForSymbol(message.symbol) }
+                    withEngine {
+                        engine.cancelOpenOrdersForSymbol(message.symbol, message.preserveStopLoss)
+                    }
                 }.onFailure { logControlMessageFailure("cancel_open_orders", message.symbol, it) }
             is EmulatorControlMessage.ClosePosition ->
                 runCatching {
-                    withEngine { engine.closeOpenPositionForSymbol(message.symbol) }
+                    withEngine {
+                        engine.closeOpenPositionForSymbol(
+                            symbol = message.symbol,
+                            quantity = message.quantity,
+                            action = message.action
+                        )
+                    }
                 }.onFailure { logControlMessageFailure("close_position", message.symbol, it) }
             is EmulatorControlMessage.FlattenSymbol ->
                 runCatching {
@@ -472,6 +492,16 @@ class EmulatorBrokerAdapter(
     }
 
     /**
+     * Replay session stop: enqueue flatten on [controlChannel] and drain on the caller thread.
+     * [GatewayCommand.FlattenSymbolForSymbol] via [QueuedBrokerGateway] is async (outbound queue →
+     * command loop) and can finish after a immediate [drainOrderActorQueue] — use this instead.
+     */
+    suspend fun flattenSymbolSynchronously(symbol: String, maxRounds: Int = 16) {
+        controlChannel.send(EmulatorControlMessage.FlattenSymbol(symbol))
+        drainOrderActorQueue(maxRounds = maxRounds)
+    }
+
+    /**
      * Longer wait after bracket submit before quote-driven fill replay begins.
      */
     suspend fun awaitIdleForReplay(maxSpins: Int = 512) {
@@ -492,8 +522,12 @@ class EmulatorBrokerAdapter(
 
     private sealed interface EmulatorControlMessage {
         data class PlaceTouchTurnBracket(val plan: daytrader.domain.TouchTurnOrderPlan) : EmulatorControlMessage
-        data class CancelOpenOrders(val symbol: String) : EmulatorControlMessage
-        data class ClosePosition(val symbol: String) : EmulatorControlMessage
+        data class CancelOpenOrders(val symbol: String, val preserveStopLoss: Boolean = false) : EmulatorControlMessage
+        data class ClosePosition(
+            val symbol: String,
+            val quantity: Int? = null,
+            val action: String? = null
+        ) : EmulatorControlMessage
         data class FlattenSymbol(val symbol: String) : EmulatorControlMessage
     }
 

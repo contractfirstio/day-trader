@@ -48,6 +48,7 @@ import daytrader.replay.BatchReplayRunner
 import daytrader.replay.ReplayBundleResolver
 import daytrader.replay.ReplayCaptureRef
 import daytrader.replay.ReplayHybridRuntime
+import daytrader.replay.ReplaySessionStopHook
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.ReplaySessionPlaybackBridge
 import daytrader.replay.ReplaySessionTiming
@@ -215,6 +216,11 @@ fun rememberAppDependencies(
                 releaseLiveMarketData = releaseLiveMarketData
             )
             val execution = executionManager ?: BrokerGatewayExecutionManager(executionGateway)
+            val replaySessionStopHook: ReplaySessionStopHook? = replayHybridRuntime?.let { runtime ->
+                ReplaySessionStopHook { symbol ->
+                    runtime.flattenAndDrainForSessionStop(symbol)
+                }
+            }
             val engine = TouchTurnEngine(
                 marketData = marketData,
                 execution = execution,
@@ -231,7 +237,8 @@ fun rememberAppDependencies(
                 },
                 sessionGateway = session,
                 executionGateway = executionGateway,
-                liquidityBucketRepository = liquidityBucketRepository
+                liquidityBucketRepository = liquidityBucketRepository,
+                replaySessionStopHook = replaySessionStopHook
             )
             if (TouchTurnEngineConfig.shadowLogEnabled()) {
                 LoggingTouchTurnEngine(engine)

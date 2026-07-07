@@ -346,12 +346,16 @@ class DesktopIbGatewayConnection(
                     }
                     is GatewayCommand.CancelOpenOrdersForSymbol -> {
                         if (!marketDataOnly) {
-                            cancelOpenOrdersForSymbol(command.symbol)
+                            cancelOpenOrdersForSymbol(command.symbol, command.preserveStopLoss)
                         }
                     }
                     is GatewayCommand.CloseOpenPositionForSymbol -> {
                         if (!marketDataOnly) {
-                            closeOpenPositionForSymbol(command.symbol)
+                            closeOpenPositionForSymbol(
+                                symbol = command.symbol,
+                                quantity = command.quantity,
+                                action = command.action
+                            )
                         }
                     }
                     is GatewayCommand.FlattenSymbolForSymbol -> {
@@ -361,6 +365,9 @@ class DesktopIbGatewayConnection(
                     }
                     GatewayCommand.RequestExecutions -> {
                         if (!marketDataOnly) scheduleExecutionsRefresh()
+                    }
+                    GatewayCommand.RequestPositions -> {
+                        if (!marketDataOnly) requestPositions()
                     }
                 }
             }
@@ -2477,9 +2484,14 @@ class DesktopIbGatewayConnection(
         )
     }
 
-    private fun cancelOpenOrdersForSymbol(symbol: String) {
+    private fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false) {
         if (!client.isConnected) return
-        val toCancel = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+        val allForSymbol = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+        val toCancel = if (preserveStopLoss) {
+            allForSymbol.filterNot { daytrader.data.SessionOrderClassification.isProtectiveStopLoss(it) }
+        } else {
+            allForSymbol
+        }
         if (toCancel.isEmpty()) return
         val orderCancel = OrderCancel()
         toCancel.forEach { working ->
@@ -2494,25 +2506,38 @@ class DesktopIbGatewayConnection(
     }
 
     private fun flattenSymbolForSymbol(symbol: String) {
-        cancelOpenOrdersForSymbol(symbol)
+        cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)
         closeOpenPositionForSymbol(symbol)
     }
 
-    private fun closeOpenPositionForSymbol(symbol: String) {
+    private fun closeOpenPositionForSymbol(
+        symbol: String,
+        quantity: Int? = null,
+        action: String? = null
+    ) {
         if (!client.isConnected) return
         val open = openPositions.values.firstOrNull { pos ->
             SymbolMarkets.symbolsMatch(symbol, pos.symbol) && pos.quantity != 0
-        } ?: return
+        }
+        val closeQty = quantity ?: open?.quantity?.let { kotlin.math.abs(it) }
+        if (closeQty == null || closeQty == 0) {
+            if (open == null) {
+                IbGatewayLog.sessionPositionCloseSkipped(symbol, "No open position in gateway cache")
+            }
+            return
+        }
+        val closeAction = action ?: open?.let { if (it.quantity > 0) "SELL" else "BUY" } ?: run {
+            IbGatewayLog.sessionPositionCloseSkipped(symbol, "Cannot infer close action")
+            return
+        }
         val orderId = allocateOrderIds(1) ?: run {
             IbGatewayLog.sessionPositionCloseSkipped(symbol, "Order id not ready")
             return
         }
-        val closeQty = kotlin.math.abs(open.quantity)
-        val action = if (open.quantity > 0) "SELL" else "BUY"
         val order = Order()
         order.orderId(orderId)
         order.clientId(config.clientId)
-        order.action(action)
+        order.action(closeAction)
         order.orderType("MKT")
         order.totalQuantity(Decimal.get(closeQty.toLong()))
         order.tif(Types.TimeInForce.DAY)
@@ -2521,13 +2546,17 @@ class DesktopIbGatewayConnection(
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }
-        val contract = IbContractMapper.forDataRequest(IbContractMapper.clone(open.contract))
+        val contract = if (open != null) {
+            IbContractMapper.forDataRequest(IbContractMapper.clone(open.contract))
+        } else {
+            IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(symbol))
+        }
         paced {
             if (!client.isConnected) return@paced
             client.placeOrder(orderId, contract, order)
             scheduleExecutionsRefresh()
         }
-        IbGatewayLog.sessionPositionClosePlaced(symbol, orderId, action, closeQty)
+        IbGatewayLog.sessionPositionClosePlaced(symbol, orderId, closeAction, closeQty)
     }
 
     private fun registerBracketOrderIds(

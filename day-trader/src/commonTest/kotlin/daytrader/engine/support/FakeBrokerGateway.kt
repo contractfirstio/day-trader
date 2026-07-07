@@ -76,6 +76,10 @@ class FakeBrokerGateway(
     private val deferredBracketAcks = mutableListOf<TouchTurnBracketAck>()
     val flattenedSymbols = mutableListOf<String>()
     val cancelledOrderIds = mutableListOf<Int>()
+    data class CancelCall(val symbol: String, val preserveStopLoss: Boolean)
+    val cancelCalls = mutableListOf<CancelCall>()
+    val closedPositions = mutableListOf<AccountPosition>()
+    var closeClearsPosition: Boolean = true
 
     private val _connectionState = MutableStateFlow<GatewayConnectionState>(GatewayConnectionState.Connected)
     override val connectionState: StateFlow<GatewayConnectionState> = _connectionState.asStateFlow()
@@ -203,6 +207,9 @@ class FakeBrokerGateway(
         placedBrackets.clear()
         flattenedSymbols.clear()
         cancelledOrderIds.clear()
+        cancelCalls.clear()
+        closedPositions.clear()
+        closeClearsPosition = true
         homeMarketRegimeFetchZones.clear()
         refetchSignalContexts = emptyList()
         closedBarRefetchResult = null
@@ -258,13 +265,32 @@ class FakeBrokerGateway(
     override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
         bracketResizeResult
 
-    override fun cancelOpenOrdersForSymbol(symbol: String) = Unit
+    override fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean) {
+        cancelCalls += CancelCall(symbol, preserveStopLoss)
+        val norm = symbol.uppercase()
+        _openOrders.value = _openOrders.value.filterNot { order ->
+            daytrader.broker.SymbolMarkets.symbolsMatch(norm, order.symbol) &&
+                (!preserveStopLoss || !daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order))
+        }
+    }
 
-    override fun closeOpenPositionForSymbol(symbol: String) = Unit
+    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?) {
+        position?.let { closedPositions += it }
+        if (closeClearsPosition && position != null) {
+            _positions.value = _positions.value.filterNot {
+                daytrader.broker.SymbolMarkets.symbolsMatch(symbol, it.symbol)
+            }
+        }
+    }
 
     override fun flattenSymbolForSymbol(symbol: String) {
+        cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)
+        val position = daytrader.broker.SymbolMarkets.findOpenPosition(symbol, _positions.value)
+        closeOpenPositionForSymbol(symbol, position)
         flattenedSymbols.add(symbol)
     }
 
     override fun refreshFills() = Unit
+
+    override fun refreshPositions() = Unit
 }

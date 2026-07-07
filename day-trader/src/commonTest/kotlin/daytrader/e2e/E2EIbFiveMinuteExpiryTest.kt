@@ -53,7 +53,7 @@ class E2EIbFiveMinuteExpiryTest {
                 )
             )
 
-            engine = harness.createEngine(repository, scope) { clock.get() }
+            engine = harness.createEngine(repository, scope, nowEpochMillis = { clock.get() })
             harness.start()
             E2EEngineLiquidityHelper.bootstrapAndAwaitLiquidity(
                 engine = engine,

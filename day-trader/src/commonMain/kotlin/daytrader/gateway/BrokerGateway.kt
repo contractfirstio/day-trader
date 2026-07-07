@@ -109,16 +109,19 @@ interface BrokerGateway {
     fun cancelOrder(orderId: Int)
 
     /** Cancel all open working orders for [symbol] (e.g. when a strategy run stops). */
-    fun cancelOpenOrdersForSymbol(symbol: String)
+    fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false)
 
     /** Market-close a non-flat position for [symbol] (e.g. when a strategy run stops). */
-    fun closeOpenPositionForSymbol(symbol: String)
+    fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition? = null)
 
     /** Cancel open orders and close any position for [symbol] (session stop). */
     fun flattenSymbolForSymbol(symbol: String)
 
     /** Ask the broker adapter to reload execution reports into [fills]. */
     fun refreshFills()
+
+    /** Ask the broker adapter to reload open positions (no-op when unsupported). */
+    fun refreshPositions() = Unit
 
     /** Latest daily bar close via historical request (no streaming subscription). */
     suspend fun fetchLatestDailyClose(

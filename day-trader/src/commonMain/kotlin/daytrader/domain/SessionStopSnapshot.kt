@@ -38,9 +38,9 @@ private fun StrategyDeployment.touchTurnStopSnapshot(
     val deduped = sessionTrades.dedupeByExecId()
     val displayPnl = deduped.sessionDisplayPnL()
     val pnl = when {
-        sessionTrades.isNotEmpty() &&
-            (displayPnl != 0.0 || deduped.hasCompleteCommissionData()) -> displayPnl
+        displayPnl != 0.0 -> displayPnl
         positionOpened && brokerUnrealizedPnL != null -> brokerUnrealizedPnL
+        sessionTrades.isNotEmpty() && deduped.hasCompleteCommissionData() -> displayPnl
         else -> 0.0
     }
     val tradeCount = deduped.roundTripCount().takeIf { it > 0 }

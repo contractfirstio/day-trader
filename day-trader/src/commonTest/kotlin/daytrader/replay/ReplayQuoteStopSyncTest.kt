@@ -3,16 +3,28 @@ package daytrader.replay
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
-import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStopLogic
+import daytrader.domain.beginTouchTurnSession
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.onSessionStarted
-import daytrader.domain.beginTouchTurnSession
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReplayQuoteStopSyncTest {
+    @Test
+    fun quoteTimelineEnded_whenNoRemainingQuotes_isTrue() {
+        assertTrue(ReplayQuoteStopSync.quoteTimelineEnded(nextQuoteEpochMs = null, deadlineEpochMs = null))
+        assertTrue(ReplayQuoteStopSync.quoteTimelineEnded(nextQuoteEpochMs = null, deadlineEpochMs = 1_000L))
+    }
+
+    @Test
+    fun quoteTimelineEnded_whenNextQuotePastDeadline_isTrue() {
+        assertTrue(ReplayQuoteStopSync.quoteTimelineEnded(nextQuoteEpochMs = 2_000L, deadlineEpochMs = 1_000L))
+        assertTrue(!ReplayQuoteStopSync.quoteTimelineEnded(nextQuoteEpochMs = 500L, deadlineEpochMs = 1_000L))
+    }
+
     @Test
     fun openDeadlineEpochMs_isRthOpenPlusStopAfterOpenMinutes() {
         val deployment = defaultStrategyDeployment(

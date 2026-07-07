@@ -205,8 +205,13 @@ class MultiSymbolQuoteFeeder(
             val deadline = resolveStopDeadlineEpochMs?.invoke(symbol)
             val cappedAtDeadline = deadline != null && nextEvent.epochMs > deadline
             if (cappedAtDeadline) {
+                val feeder = feederForSymbol(symbol)
+                val publishedBefore = feeder?.publishedQuoteCount ?: 0
                 publishThroughDeadline(symbol, deadline!!)
                 clockMutex.withLock { clock.advanceTo(deadline) }
+                if (feeder != null && feeder.publishedQuoteCount == publishedBefore) {
+                    disableDripForSymbol(symbol)
+                }
             } else {
                 val published = publishNextQuote(symbol) ?: break
                 clockMutex.withLock { clock.advanceTo(published.epochMs) }

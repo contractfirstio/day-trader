@@ -216,7 +216,9 @@ object TouchTurnSessionReasonUi {
             )
         TouchTurnSessionStopTrigger.OPEN_DEADLINE -> TouchTurnSessionStatusUi(
             headline = "Session stopped — open deadline",
-            detail = "Maximum time after RTH open elapsed. Working orders were cancelled and any open position was flattened.",
+            detail = "Maximum time after RTH open elapsed. The app market-closed the position and confirmed " +
+                "flat before ending the session. If the close could not be confirmed, GTC stop-loss orders " +
+                "were left working at the broker.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionStopTrigger.PRE_MARKET_CLOSE -> TouchTurnSessionStatusUi(
@@ -244,6 +246,12 @@ object TouchTurnSessionReasonUi {
             headline = "Session stopped — app closed",
             detail = "The application exited or restarted while this session was in progress.",
             severity = TouchTurnReasonSeverity.Warning
+        )
+        TouchTurnSessionStopTrigger.REPLAY_QUOTES_EXHAUSTED -> TouchTurnSessionStatusUi(
+            headline = "Session stopped — replay ended",
+            detail = "All captured quotes for this replay were published. Any open position was market-closed " +
+                "and working orders were cancelled.",
+            severity = TouchTurnReasonSeverity.Info
         )
     }
 

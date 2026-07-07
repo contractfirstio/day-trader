@@ -17,6 +17,7 @@ import daytrader.replay.ReplayBundleResolver
 import daytrader.replay.ReplayCaptureRef
 import daytrader.replay.ReplayClock
 import daytrader.replay.ReplayHybridRuntime
+import daytrader.replay.ReplaySessionStopHook
 import daytrader.replay.ReplaySessionController
 import daytrader.replay.ReplaySessionPlaybackBridge
 import daytrader.replay.ReplaySessionTiming
@@ -172,6 +173,9 @@ class AppParityBatchReplayHarness private constructor(
                 sessionGateway = sessionGateway,
                 executionGateway = executionGateway,
                 liquidityBucketRepository = liquidityBucketRepository,
+                replaySessionStopHook = ReplaySessionStopHook { symbol ->
+                    runtime.flattenAndDrainForSessionStop(symbol)
+                },
             )
         }
     }

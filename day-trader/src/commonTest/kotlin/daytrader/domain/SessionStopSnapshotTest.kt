@@ -192,6 +192,44 @@ class SessionStopSnapshotTest {
     }
 
     @Test
+    fun touchTurnSnapshot_entryOnlyWithBrokerUnrealized_usesBrokerFallback() {
+        val instance = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "00148",
+            maxDollars = 500
+        ).onSessionStarted("2026-07-06").copy(
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-07-06",
+                status = TouchTurnCandleStatus.READY,
+                ordersPlacedForSession = true
+            )
+        )
+        val sessionTrades = listOf(
+            SessionTrade(
+                execId = "entry",
+                orderId = 1000,
+                permId = 1L,
+                parentOrderId = 0,
+                side = "SLD",
+                quantity = 500,
+                price = 94.9,
+                time = "20260706 09:46:35 Hongkong",
+                currency = "HKD",
+                commission = 10.0,
+                realizedPnL = 0.0,
+            )
+        )
+
+        val snapshot = instance.resolveStopSnapshot(
+            hadOpenBrokerPosition = true,
+            brokerUnrealizedPnL = 2275.0,
+            sessionTrades = sessionTrades,
+        )
+
+        assertEquals(2275.0, snapshot.sessionPnL)
+    }
+
+    @Test
     fun quickFlipSnapshot_hasNoTouchTurnFields() {
         val instance = defaultStrategyDeployment(
             strategyType = StrategyType.QUICK_FLIP_SCALPER,

@@ -143,6 +143,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionStopTrigger.PRE_MARKET_CLOSE -> "Pre-close"
         TouchTurnSessionStopTrigger.ERROR -> "Error"
         TouchTurnSessionStopTrigger.APPLICATION_SHUTDOWN -> "App exit"
+        TouchTurnSessionStopTrigger.REPLAY_QUOTES_EXHAUSTED -> "Replay ended"
     }
 
     private fun startedByShort(startedBy: TouchTurnSessionStartedBy): String = when (startedBy) {

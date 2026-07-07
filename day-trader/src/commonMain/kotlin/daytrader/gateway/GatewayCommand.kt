@@ -86,16 +86,26 @@ sealed interface GatewayCommand {
     ) : GatewayCommand
 
     /** Cancel all non-terminal working orders for [symbol] (session stop cleanup). */
-    data class CancelOpenOrdersForSymbol(val symbol: String) : GatewayCommand
+    data class CancelOpenOrdersForSymbol(
+        val symbol: String,
+        val preserveStopLoss: Boolean = false
+    ) : GatewayCommand
 
     /** Market-close an open position for [symbol] if quantity is non-zero (session stop cleanup). */
-    data class CloseOpenPositionForSymbol(val symbol: String) : GatewayCommand
+    data class CloseOpenPositionForSymbol(
+        val symbol: String,
+        val quantity: Int? = null,
+        val action: String? = null
+    ) : GatewayCommand
 
     /** Cancel working orders and close any open position for [symbol] (session stop). */
     data class FlattenSymbolForSymbol(val symbol: String) : GatewayCommand
 
     /** Reload executions/fills from the broker (IB: [reqExecutions]). */
     data object RequestExecutions : GatewayCommand
+
+    /** Reload open positions from the broker (IB: [reqPositions]). */
+    data object RequestPositions : GatewayCommand
 
     /** One-shot latest daily bar close — does not hold a streaming market data line. */
     data class FetchLatestDailyClose(

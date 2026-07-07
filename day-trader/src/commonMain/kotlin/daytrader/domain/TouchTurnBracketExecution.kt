@@ -49,6 +49,7 @@ object TouchTurnBracketExecution {
             .ifEmpty { bracketScoped.filter { it.parentOrderId != 0 } }
         return exitCandidates.filter { it.realizedPnL != null }.lastOrNull()
             ?: exitCandidates.lastOrNull()
+            ?: trades.filter { it.realizedPnL != null && it.orderId != entryOrderId }.lastOrNull()
     }
 
     private fun classifyExitFill(

@@ -9,6 +9,7 @@ import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.inProgressSession
 import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnLogic
+import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.engine.TouchTurnCommand
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.platform.MutableTradingClock
@@ -52,6 +53,7 @@ class ReplayPlaybackOrchestrator(
     private val playbackJobs = mutableMapOf<String, Job>()
     private var quotesPublishedSinceLiquidityNudge = 0
     private val fillAnchorAligned = mutableSetOf<String>()
+    private val quotesExhaustedStopDispatched = mutableSetOf<String>()
 
     init {
         quoteFeeder.quoteIntervalMs = quoteIntervalMs
@@ -62,7 +64,10 @@ class ReplayPlaybackOrchestrator(
 
     fun bindRuntime(runtime: ReplayHybridRuntime) {
         hybridRuntime = runtime
-        quoteFeeder.onDripFinished = { hybridRuntime?.disableBacktestFastPath() }
+        quoteFeeder.onDripFinished = {
+            stopRunningSessionsForExhaustedQuoteTimelines()
+            hybridRuntime?.disableBacktestFastPath()
+        }
     }
 
     fun attach(engine: TouchTurnEnginePort, repository: StrategyDeploymentRepository) {
@@ -82,6 +87,8 @@ class ReplayPlaybackOrchestrator(
     }
 
     fun onSessionStarted(instanceId: String) {
+        quotesExhaustedStopDispatched.remove(instanceId)
+        fillAnchorAligned.remove(instanceId)
         if (!interactiveAutoStartEnabled) {
             trace(
                 instanceId,
@@ -407,9 +414,62 @@ class ReplayPlaybackOrchestrator(
             TouchTurnCommand.PollStopRules,
             idleSpins = ReplayBacktestFastPath.ENGINE_IDLE_MAX_SPINS
         )
+        maybeStopSessionsWhenQuoteTimelineEnded(symbol)
         return repository.deployments.value.any {
             it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol)
         }
+    }
+
+    private fun maybeStopSessionsWhenQuoteTimelineEnded(symbol: String) {
+        if (!symbolQuoteTimelineEnded(symbol)) return
+        stopRunningSessionsForSymbol(symbol)
+    }
+
+    private fun stopRunningSessionsForExhaustedQuoteTimelines() {
+        val repository = repository ?: return
+        repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING }
+            .map { it.symbol }
+            .distinct()
+            .filter { symbolQuoteTimelineEnded(it) }
+            .forEach { stopRunningSessionsForSymbol(it) }
+    }
+
+    private fun symbolQuoteTimelineEnded(symbol: String): Boolean {
+        val feeder = quoteFeeder.feederForSymbol(symbol) ?: return true
+        val next = feeder.peekNext()
+        return ReplayQuoteStopSync.quoteTimelineEnded(
+            nextQuoteEpochMs = next?.epochMs,
+            deadlineEpochMs = resolveStopDeadlineEpochMs(symbol)
+        )
+    }
+
+    private fun stopRunningSessionsForSymbol(symbol: String) {
+        val engine = engine ?: return
+        val repository = repository ?: return
+        repository.deployments.value
+            .filter { it.status == DeploymentStatus.RUNNING && SymbolMarkets.symbolsMatch(it.symbol, symbol) }
+            .forEach { deployment ->
+                if (!quotesExhaustedStopDispatched.add(deployment.id)) return@forEach
+                val feeder = quoteFeeder.feederForSymbol(symbol)
+                trace(
+                    deployment.id,
+                    "quotes_exhausted",
+                    deployment,
+                    mapOf(
+                        "symbol" to symbol,
+                        "publishedQuotes" to (feeder?.publishedQuoteCount?.toString() ?: "0"),
+                        "totalQuotes" to (feeder?.totalQuoteCount?.toString() ?: "0"),
+                        "clockEpochMs" to clock.nowEpochMillis().toString()
+                    )
+                )
+                engine.dispatch(
+                    TouchTurnCommand.StopSession(
+                        instanceId = deployment.id,
+                        trigger = TouchTurnSessionStopTrigger.REPLAY_QUOTES_EXHAUSTED
+                    )
+                )
+            }
     }
 
     private fun maybeAlignFillAnchor(symbol: String) {

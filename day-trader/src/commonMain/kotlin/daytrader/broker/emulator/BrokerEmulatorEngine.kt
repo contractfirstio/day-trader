@@ -1586,19 +1586,28 @@ class BrokerEmulatorEngine(
         publishFills()
     }
 
-    fun cancelOpenOrdersForSymbol(symbol: String) {
+    fun republishPositions() {
+        publishPositions()
+    }
+
+    fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false) {
         if (!connected) return
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         var cancelled = 0
         orders.entries.toList().forEach { (_, order) ->
-            if (SymbolMarkets.symbolsMatch(norm, order.symbol) && !order.isTerminal()) {
-                updateOrder(order.copy(status = "Cancelled"))
-                cancelled++
+            if (!SymbolMarkets.symbolsMatch(norm, order.symbol) || order.isTerminal()) return@forEach
+            val working = order.toWorkingOrder()
+            if (preserveStopLoss && daytrader.data.SessionOrderClassification.isProtectiveStopLoss(working)) {
+                return@forEach
             }
+            updateOrder(order.copy(status = "Cancelled"))
+            cancelled++
         }
-        bracketPriceWalks.remove(norm)
-        pendingBracketWalks.remove(norm)
-        bracketEntryPending.remove(norm)
+        if (!preserveStopLoss) {
+            bracketPriceWalks.remove(norm)
+            pendingBracketWalks.remove(norm)
+            bracketEntryPending.remove(norm)
+        }
         if (cancelled > 0) {
             EmulatorLog.sessionOrdersCancelled(norm, cancelled)
         }
@@ -1612,17 +1621,22 @@ class BrokerEmulatorEngine(
         publishOrders()
     }
 
-    fun closeOpenPositionForSymbol(symbol: String) {
+    fun closeOpenPositionForSymbol(
+        symbol: String,
+        quantity: Int? = null,
+        action: String? = null
+    ) {
         if (!connected) return
         val norm = SymbolMarkets.normalizeSymbol(symbol)
         val index = positions.indexOfFirst {
             SymbolMarkets.symbolsMatch(norm, it.instrument.symbol) && it.quantity != 0
         }
-        if (index < 0) return
-        val pos = positions[index]
-        val closeQty = kotlin.math.abs(pos.quantity)
-        val mark = quoteMid(norm)?.takeIf { it > 0.0 } ?: pos.marketPrice
-        val closeAction = if (pos.quantity > 0) "SELL" else "BUY"
+        val pos = index.takeIf { it >= 0 }?.let { positions[it] }
+        val closeQty = quantity ?: pos?.quantity?.let { kotlin.math.abs(it) } ?: return
+        val mark = pos?.let { quoteMid(norm)?.takeIf { price -> price > 0.0 } ?: it.marketPrice }
+            ?: quoteMid(norm)?.takeIf { it > 0.0 }
+            ?: return
+        val closeAction = action ?: pos?.let { if (it.quantity > 0) "SELL" else "BUY" } ?: return
         val closeOrder = EmulatorOrder(
             orderId = allocateOrderId(),
             symbol = norm,
@@ -1634,7 +1648,7 @@ class BrokerEmulatorEngine(
             limitPrice = mark,
             stopPrice = null,
             status = "Submitted",
-            currency = pos.instrument.currency,
+            currency = pos?.instrument?.currency ?: "USD",
             parentId = 0
         )
         applyFill(closeOrder, closeQty)

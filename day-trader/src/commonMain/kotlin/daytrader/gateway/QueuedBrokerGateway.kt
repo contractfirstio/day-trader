@@ -287,12 +287,14 @@ class QueuedBrokerGateway(
         }
     }
 
-    override fun cancelOpenOrdersForSymbol(symbol: String) {
-        sendCommand(GatewayCommand.CancelOpenOrdersForSymbol(symbol))
+    override fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean) {
+        sendCommand(GatewayCommand.CancelOpenOrdersForSymbol(symbol, preserveStopLoss))
     }
 
-    override fun closeOpenPositionForSymbol(symbol: String) {
-        sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol))
+    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?) {
+        val quantity = position?.quantity?.let { kotlin.math.abs(it) }
+        val action = position?.quantity?.let { if (it > 0) "SELL" else "BUY" }
+        sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol, quantity, action))
     }
 
     override fun flattenSymbolForSymbol(symbol: String) {
@@ -301,6 +303,10 @@ class QueuedBrokerGateway(
 
     override fun refreshFills() {
         sendCommand(GatewayCommand.RequestExecutions)
+    }
+
+    override fun refreshPositions() {
+        sendCommand(GatewayCommand.RequestPositions)
     }
 
     override suspend fun fetchFourteenDayAdr(

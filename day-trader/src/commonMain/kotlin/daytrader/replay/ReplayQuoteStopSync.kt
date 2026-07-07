@@ -12,4 +12,10 @@ object ReplayQuoteStopSync {
         val open = TouchTurnSessionStopLogic.sessionOpenEpochMillis(deployment, sessionDate) ?: return null
         return open + rules.stopAfterOpenMinutes * 60_000L
     }
+
+    /** True when replay has no further quotes to publish for fill evaluation on this symbol. */
+    fun quoteTimelineEnded(nextQuoteEpochMs: Long?, deadlineEpochMs: Long?): Boolean {
+        if (nextQuoteEpochMs == null) return true
+        return deadlineEpochMs != null && nextQuoteEpochMs > deadlineEpochMs
+    }
 }
