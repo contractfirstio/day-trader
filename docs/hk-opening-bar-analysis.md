@@ -3,7 +3,7 @@
 **Extend:** *"Add today's HK day data to `docs/hk-opening-bar-analysis.md`"*  
 **Updated:** 2026-07-08 | **Source:** `~/Library/.../interactive-brokers/sessions` SEHK live IB  
 **n=3 days, 63 sym-days, 21 symbols, 32 non-flat (11W/21L), 31 flat, PnL −2531 HKD** | ran: inverse (`invertTradeSide:true`) — **target:** per-symbol **TT vs inv** from bar shape  
-**Live:** §Operator status — **no config change yet**; collecting more data with current inverse setup
+**Live:** §Operator status — **inverse** this week; **TT parity week from Monday** (merge OPEN_DEADLINE fix branch first)
 
 ## Legend
 
@@ -148,11 +148,27 @@ if invert and 40<=atr_pct<=60: skip           # G2
 
 ## Operator status (memory — update when decisions change)
 
-**Decision (2026-07-08):** Do **not** deploy §Recommended config yet. Keep **live config** below; accumulate more sessions before enabling G1 cp gate. **In parallel:** (1) **symbol roster swaps** (§Symbol roster) — drop never-trade names; (2) **TT-switch logging** (§TT-switch candidates) — track symbols that often print TT-draft bars for future per-deployment `invertTradeSide: false`.
+**Decision (2026-07-09):** Do **not** deploy §Recommended config (`HK Inverse + G1`) yet.
 
-**Why wait:** n=32 non-flat only; G1 counterfactual is promising but trades one known winner (00148 Jul6 +1809) for rule that needs more capitulation samples. Jul8 dominated losses — don't overfit one bad day.
+**Schedule (2026-07-09):** **This week (through Sun)** — **no config change**; keep **inverse** live preset below. **From Monday** — switch HK + US to **TT parity week** (same preset both markets; merge OPEN_DEADLINE fix branch first). Jul 6–8 inverse data preserved; parity week is a **controlled experiment**, not a permanent flip until reviewed.
 
-**Promotion gate (revisit when met):** ≥~15–20 additional non-flat trades **or** ~1 calendar week of HK sessions → re-run G1 counterfactual; deploy `HK Inverse + G1` if RED cp≤.15 record still ≥2:1 loss:win ratio and net counterfactual PnL beats actual.
+**Planned — TT parity week (from Monday, HK + US, same preset):**
+
+| Setting | Value |
+|---------|-------|
+| invertTradeSide | **OFF** (Touch Turn) |
+| takeProfitToStopLossRatio | **2.0** |
+| liquidityRangeDailyAtr | **ON**, 0.25 |
+| closePositionGate | **OFF** |
+| adjustableTrailingStop | **OFF** |
+| openDeadline | **ON**, 90 min |
+| entryInwardOffsetRatioOfRange | **0.0** |
+
+Log per sym-day: `recordedPnl` (post-fix), colour, cp, atr%, draft_mode. End of week: compare HK TT vs Jul 6–8 inverse; decide revert vs per-market mode split.
+
+**Why wait on G1:** n=32 inverse-only; parity week runs first on clean fills. Re-run G1 **on inverse history** only if HK reverts to inverse after parity week.
+
+**Promotion gate (revisit when met):** Parity week complete + fix branch live → choose HK **TT stay**, **inverse revert**, or **per-symbol mode**; US U2 evaluated separately (see `us-opening-bar-analysis.md`).
 
 ### Live config (what is running now)
 
