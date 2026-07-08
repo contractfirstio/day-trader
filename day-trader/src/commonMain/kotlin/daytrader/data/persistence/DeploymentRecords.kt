@@ -130,7 +130,17 @@ data class TouchTurnRuleConfigRecord(
     val greenSkipClosePositionBelow: Double? = null,
     val greenSkipClosePositionAbove: Double? = null,
     val redSkipClosePositionBelow: Double? = null,
-    val redSkipClosePositionAbove: Double? = null
+    val redSkipClosePositionAbove: Double? = null,
+    val greenClosePositionBelowAction: String = "OFF",
+    val greenClosePositionAboveAction: String = "OFF",
+    val redClosePositionBelowAction: String = "OFF",
+    val redClosePositionAboveAction: String = "OFF",
+    val greenLiquidityBarAction: String = "OFF",
+    val redLiquidityBarAction: String = "OFF",
+    /** Legacy fixed-shape trigger; migrated into cp action fields on load. */
+    val redCapitulationBarShapeTrigger: String = "OFF",
+    /** Legacy fixed-shape trigger; migrated into cp action fields on load. */
+    val greenEuphoriaBarShapeTrigger: String = "OFF"
 )
 
 @Serializable

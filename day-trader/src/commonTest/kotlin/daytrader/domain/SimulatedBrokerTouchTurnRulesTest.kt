@@ -164,8 +164,8 @@ class SimulatedBrokerTouchTurnRulesTest {
                 "closePositionGate" to true
             )
         )
-        assertEquals(4, withClosePosition.size)
-        assertEquals("Close position (cp)", withClosePosition[1].label)
+        assertEquals(3, withClosePosition.size)
+        assertFalse(withClosePosition.any { it.label == "Close position (cp)" })
         assertEquals("minGrossProfit", groups[1].fields.single().key)
         assertEquals("closedBarRefetchSettleMs", groups[2].fields.single().key)
     }
@@ -240,8 +240,6 @@ class SimulatedBrokerTouchTurnRulesTest {
             listOf(
                 "liquidityRangeDailyAtr",
                 "fiveMinuteConfirmation",
-                "skipGreenLiquidityBar",
-                "skipRedLiquidityBar",
                 "closePositionGate"
             ),
             triggerToggles.map { it.key }

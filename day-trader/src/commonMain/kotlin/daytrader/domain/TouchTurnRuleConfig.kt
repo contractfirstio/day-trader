@@ -8,10 +8,6 @@ import kotlinx.serialization.Serializable
 data class TouchTurnRuleEnables(
     /** Opening 15m range must meet ATR × ratio on daily ATR(14). */
     val liquidityRangeDailyAtr: Boolean = false,
-    /** Do not place brackets when the opening bar is green and qualifies as a liquidity candle. */
-    val skipGreenLiquidityBar: Boolean = false,
-    /** Do not place brackets when the opening bar is red and qualifies as a liquidity candle. */
-    val skipRedLiquidityBar: Boolean = false,
     /** Apply close position (cp) bounds on liquidity-qualified opening bars. */
     val closePositionGate: Boolean = false,
     /** Auto-stop session after [TouchTurnRuleConfig.stopAfterOpenMinutes] from RTH open. */
@@ -102,6 +98,24 @@ data class TouchTurnRuleConfig(
     val redSkipClosePositionBelow: Double? = null,
     /** Red liquidity bar: skip when cp is at or above this (inclusive). Null disables. */
     val redSkipClosePositionAbove: Double? = null,
+    /** Action when green bar cp is at or below [greenSkipClosePositionBelow]. */
+    val greenClosePositionBelowAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when green bar cp is at or above [greenSkipClosePositionAbove]. */
+    val greenClosePositionAboveAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when red bar cp is at or below [redSkipClosePositionBelow]. */
+    val redClosePositionBelowAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when red bar cp is at or above [redSkipClosePositionAbove]. */
+    val redClosePositionAboveAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action on a liquidity-qualified green opening bar. */
+    val greenLiquidityBarAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action on a liquidity-qualified red opening bar. */
+    val redLiquidityBarAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
     /**
      * Same entry levels as reversal mode but long/short flipped (continuation bet).
      */
@@ -132,24 +146,11 @@ data class TouchTurnRuleConfig(
                 category = TouchTurnRuleCategory.TRIGGERS
             ),
             TouchTurnRuleToggleDefinition(
-                key = "skipGreenLiquidityBar",
-                label = "Skip when bar is green",
-                description = "Do not place brackets when the closed 15-minute opening bar is green and " +
-                    "qualifies as a liquidity bar (range meets the threshold above, if enabled).",
-                category = TouchTurnRuleCategory.TRIGGERS
-            ),
-            TouchTurnRuleToggleDefinition(
-                key = "skipRedLiquidityBar",
-                label = "Skip when bar is red",
-                description = "Do not place brackets when the closed 15-minute opening bar is red and " +
-                    "qualifies as a liquidity bar (range meets the threshold above, if enabled).",
-                category = TouchTurnRuleCategory.TRIGGERS
-            ),
-            TouchTurnRuleToggleDefinition(
                 key = "closePositionGate",
-                label = "Close position (cp) gate",
-                description = "Skip liquidity-qualified opening bars when close position is outside the " +
-                    "configured bounds for that bar color. Bounds are inclusive at the threshold.",
+                label = "Close position (cp) triggers",
+                description = "Configure cp bounds on liquidity-qualified opening bars. Each bound can skip " +
+                    "the session or switch from inverse to Touch Turn when invert is on. With action Off, a set " +
+                    "threshold still skips when this toggle is enabled (legacy behaviour).",
                 category = TouchTurnRuleCategory.TRIGGERS
             ),
             TouchTurnRuleToggleDefinition(
@@ -199,32 +200,65 @@ data class TouchTurnRuleConfig(
                 visibleWhenToggleKey = "liquidityRangeDailyAtr"
             ),
             TouchTurnRuleFieldDefinition(
+                key = "greenLiquidityBarAction",
+                label = "Green liquidity bar",
+                description = "When the closed opening bar is green and qualifies as liquidity: skip, flip " +
+                    "invert to Touch Turn, or no action.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_COLOR,
+                defaultable = true
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redLiquidityBarAction",
+                label = "Red liquidity bar",
+                description = "When the closed opening bar is red and qualifies as liquidity: skip, flip " +
+                    "invert to Touch Turn, or no action.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_COLOR,
+                defaultable = true
+            ),
+            TouchTurnRuleFieldDefinition(
                 key = "greenSkipClosePositionBelow",
-                label = "Green bar — skip if cp at or below",
-                description = "Skip green liquidity opening bars when close position (cp) is at or below this " +
-                    "value (0 = bar closed at low, 1 = at high). Leave empty to disable.",
+                label = "Green bar — cp at or below",
+                description = "Trigger when close position (cp) is at or below this value (0 = bar low, 1 = high).",
                 kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION,
                 defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenClosePositionBelowAction",
+                label = "Green bar — cp at or below action",
+                description = "Skip or flip invert when cp is at or below the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
                 visibleWhenToggleKey = "closePositionGate"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "greenSkipClosePositionAbove",
-                label = "Green bar — skip if cp at or above",
-                description = "Skip green liquidity opening bars when cp is at or above this value. Leave empty " +
-                    "to disable.",
+                label = "Green bar — cp at or above",
+                description = "Trigger when cp is at or above this value.",
                 kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION,
                 defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenClosePositionAboveAction",
+                label = "Green bar — cp at or above action",
+                description = "Skip or flip invert when cp is at or above the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
                 visibleWhenToggleKey = "closePositionGate"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "redSkipClosePositionBelow",
-                label = "Red bar — skip if cp at or below",
-                description = "Skip red liquidity opening bars when cp is at or below this value. Leave empty " +
-                    "to disable.",
+                label = "Red bar — cp at or below",
+                description = "Trigger when cp is at or below this value.",
                 kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION,
@@ -232,14 +266,29 @@ data class TouchTurnRuleConfig(
                 visibleWhenToggleKey = "closePositionGate"
             ),
             TouchTurnRuleFieldDefinition(
+                key = "redClosePositionBelowAction",
+                label = "Red bar — cp at or below action",
+                description = "Skip or flip invert when cp is at or below the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
                 key = "redSkipClosePositionAbove",
-                label = "Red bar — skip if cp at or above",
-                description = "Skip red liquidity opening bars when cp is at or above this value. Leave empty " +
-                    "to disable.",
+                label = "Red bar — cp at or above",
+                description = "Trigger when cp is at or above this value.",
                 kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION,
                 defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redClosePositionAboveAction",
+                label = "Red bar — cp at or above action",
+                description = "Skip or flip invert when cp is at or above the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
                 visibleWhenToggleKey = "closePositionGate"
             ),
             TouchTurnRuleFieldDefinition(
@@ -379,7 +428,6 @@ data class TouchTurnRuleConfig(
             return when (category) {
                 TouchTurnRuleCategory.TRIGGERS -> listOfNotNull(
                     visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD),
-                    visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION),
                     visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.SUBMISSION_GATES),
                     visible.groupBySubGroup(TouchTurnRuleFieldSubGroup.BAR_TIMING)
                 )
@@ -450,7 +498,33 @@ data class TouchTurnRuleConfig(
             "greenSkipClosePositionAbove" -> config.greenSkipClosePositionAbove?.toString().orEmpty()
             "redSkipClosePositionBelow" -> config.redSkipClosePositionBelow?.toString().orEmpty()
             "redSkipClosePositionAbove" -> config.redSkipClosePositionAbove?.toString().orEmpty()
+            "greenClosePositionBelowAction" -> config.greenClosePositionBelowAction.name
+            "greenClosePositionAboveAction" -> config.greenClosePositionAboveAction.name
+            "redClosePositionBelowAction" -> config.redClosePositionBelowAction.name
+            "redClosePositionAboveAction" -> config.redClosePositionAboveAction.name
+            "greenLiquidityBarAction" -> config.greenLiquidityBarAction.name
+            "redLiquidityBarAction" -> config.redLiquidityBarAction.name
             else -> ""
+        }
+
+        private fun parseClosePositionTriggerMode(raw: String): TouchTurnClosePositionTriggerMode? =
+            runCatching { TouchTurnClosePositionTriggerMode.valueOf(raw.trim()) }.getOrNull()
+
+        private fun withClosePositionTriggerActionField(
+            config: TouchTurnRuleConfig,
+            key: String,
+            raw: String
+        ): TouchTurnRuleConfig? {
+            val mode = parseClosePositionTriggerMode(raw) ?: return null
+            return when (key) {
+                "greenClosePositionBelowAction" -> config.copy(greenClosePositionBelowAction = mode)
+                "greenClosePositionAboveAction" -> config.copy(greenClosePositionAboveAction = mode)
+                "redClosePositionBelowAction" -> config.copy(redClosePositionBelowAction = mode)
+                "redClosePositionAboveAction" -> config.copy(redClosePositionAboveAction = mode)
+                "greenLiquidityBarAction" -> config.copy(greenLiquidityBarAction = mode)
+                "redLiquidityBarAction" -> config.copy(redLiquidityBarAction = mode)
+                else -> null
+            }
         }
 
         private fun parseOptionalClosePositionThreshold(raw: String): Double? {
@@ -489,6 +563,8 @@ data class TouchTurnRuleConfig(
         fun withFieldValue(config: TouchTurnRuleConfig, key: String, raw: String): TouchTurnRuleConfig? {
             fieldDefinitions.firstOrNull { it.key == key && it.kind == TouchTurnRuleFieldKind.OPTIONAL_RATIO }
                 ?.let { return withOptionalClosePositionField(config, key, raw) }
+            fieldDefinitions.firstOrNull { it.key == key && it.kind == TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE }
+                ?.let { return withClosePositionTriggerActionField(config, key, raw) }
             return when (fieldDefinitions.firstOrNull { it.key == key }?.kind) {
                 TouchTurnRuleFieldKind.INTEGER -> {
                     val intValue = raw.trim().toIntOrNull() ?: return null
@@ -559,8 +635,6 @@ data class TouchTurnRuleConfig(
 
         fun isToggleEnabled(config: TouchTurnRuleConfig, key: String): Boolean = when (key) {
             "liquidityRangeDailyAtr" -> config.enables.liquidityRangeDailyAtr
-            "skipGreenLiquidityBar" -> config.enables.skipGreenLiquidityBar
-            "skipRedLiquidityBar" -> config.enables.skipRedLiquidityBar
             "closePositionGate" -> config.enables.closePositionGate
             "openDeadline" -> config.enables.openDeadline
             "adjustableTrailingStop" -> config.enables.adjustableTrailingStop
@@ -582,8 +656,6 @@ data class TouchTurnRuleConfig(
                 else -> {
                     val enables = when (key) {
                         "liquidityRangeDailyAtr" -> config.enables.copy(liquidityRangeDailyAtr = enabled)
-                        "skipGreenLiquidityBar" -> config.enables.copy(skipGreenLiquidityBar = enabled)
-                        "skipRedLiquidityBar" -> config.enables.copy(skipRedLiquidityBar = enabled)
                         "closePositionGate" -> config.enables.copy(closePositionGate = enabled)
                         "openDeadline" -> config.enables.copy(openDeadline = enabled)
                         "adjustableTrailingStop" -> config.enables.copy(adjustableTrailingStop = enabled)
@@ -636,6 +708,7 @@ data class TouchTurnRuleConfig(
 enum class TouchTurnRuleFieldSubGroup(val label: String) {
     LIQUIDITY_THRESHOLD("15m bar range threshold"),
     OPENING_BAR_CLOSE_POSITION("Close position (cp)"),
+    OPENING_BAR_COLOR("Bar color"),
     SUBMISSION_GATES("Submission gates"),
     BAR_TIMING("15m bar close timing"),
     REVERSAL_ENTRY("Reversal / default entry"),
@@ -658,7 +731,8 @@ enum class TouchTurnRuleFieldKind {
     OPTIONAL_RATIO,
     PRICE,
     INTEGER,
-    MILLISECONDS
+    MILLISECONDS,
+    CLOSE_POSITION_TRIGGER_MODE
 }
 
 @Serializable

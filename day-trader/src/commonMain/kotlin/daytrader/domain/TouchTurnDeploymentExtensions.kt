@@ -146,8 +146,53 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     val candle = session.candle ?: return this
     if (session.candleCloseStatus(nowEpochMillis) != FirstCandleCloseStatus.CLOSED) return this
     if (session.setup != null) return this
-    val rules = effectiveTouchTurnRules()
-    val setup = computeTouchTurnBracketSetup(candle, session.liquidityThresholds, rules)
+    val baseRules = effectiveTouchTurnRules()
+    val preliminarySetup = computeTouchTurnBracketSetup(candle, session.liquidityThresholds, baseRules)
+    val cpTriggerEvaluation = TouchTurnClosePositionTriggers.evaluate(preliminarySetup, baseRules)
+    if (cpTriggerEvaluation == TouchTurnClosePositionTriggerEvaluation.SKIP) {
+        val closeConfirmation = TouchTurnLogic.closeConfirmation(
+            candle = candle,
+            setup = preliminarySetup,
+            marketZoneId = session.marketZoneId,
+            nowEpochMillis = nowEpochMillis,
+            sessionDateIso = session.sessionDate,
+            rules = baseRules
+        )
+        val at = currentSessionTimestampIso()
+        val milestones = session.milestones.let { m ->
+            m.copy(
+                dataReadyAt = m.dataReadyAt ?: m.startingSessionAt,
+                barClosedAt = m.barClosedAt ?: at,
+                liquidityEvaluatedAt = at
+            )
+        }
+        val updatedSession = session.copy(
+            rules = baseRules,
+            setup = preliminarySetup,
+            entryOrdersPermitted = false,
+            decisionOutcome = TouchTurnClosePositionTriggers.skipOutcome(preliminarySetup, baseRules)
+                ?: TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            milestones = milestones
+        )
+        TouchTurnDecisionLog.liquidityEvaluated(
+            instanceId = id,
+            symbol = symbol,
+            session = updatedSession,
+            setup = preliminarySetup,
+            enforceCloseConfirmation = enforceCloseConfirmation,
+            closeConfirmation = closeConfirmation,
+            entryOrdersPermitted = false,
+            decisionOutcome = updatedSession.decisionOutcome,
+            nowEpochMillis = nowEpochMillis
+        )
+        return copy(touchTurnSession = updatedSession)
+    }
+    val rules = TouchTurnClosePositionTriggers.rulesWithEvaluation(cpTriggerEvaluation, baseRules)
+    val setup = if (rules == baseRules) {
+        preliminarySetup
+    } else {
+        computeTouchTurnBracketSetup(candle, session.liquidityThresholds, rules)
+    }
     val gate = TouchTurnLogic.evaluateEntryGate(
         setup = setup,
         candle = candle,
@@ -171,6 +216,7 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
         )
     }
     val updatedSession = session.copy(
+        rules = rules,
         setup = setup,
         entryOrdersPermitted = entryOrdersPermitted,
         decisionOutcome = decisionOutcome ?: session.decisionOutcome,
@@ -502,6 +548,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,

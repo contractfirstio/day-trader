@@ -32,6 +32,7 @@ class DeploymentSessionStopLogicTest {
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_DOJI,
             TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
             TouchTurnSessionOutcome.NO_TRADE_ENTRY_WINDOW_EXPIRED,

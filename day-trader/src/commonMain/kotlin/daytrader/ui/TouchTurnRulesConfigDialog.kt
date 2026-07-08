@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import daytrader.domain.TouchTurnClosePositionTriggerMode
 import daytrader.domain.TouchTurnRuleCategory
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleFieldDefinition
@@ -276,14 +279,11 @@ private fun TouchTurnRuleCategorySection(
                         val openingBarTimingGroup = fieldGroups.firstOrNull {
                             it.testTagSuffix == TouchTurnRuleFieldSubGroup.BAR_TIMING.name.lowercase()
                         }
-                        val openingBarClosePositionGroup = fieldGroups.firstOrNull {
-                            it.testTagSuffix ==
-                                TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION.name.lowercase()
-                        }
                         TouchTurnRuleToggleGroupPanel(
                             label = "15-minute opening bar",
                             description = "Evaluated when the first 15-minute RTH candle closes. Range, color, " +
-                                "and close position (cp) gates decide whether brackets are placed from that bar.",
+                                "and close position (cp) triggers decide whether brackets are placed, skipped, " +
+                                "or invert is switched to Touch Turn for this session.",
                             testTagSuffix = "opening_bar_15m"
                         ) {
                             categoryToggles.filter { it.key == "liquidityRangeDailyAtr" }.forEach { toggle ->
@@ -311,16 +311,11 @@ private fun TouchTurnRuleCategorySection(
                                     }
                                 }
                             }
-                            categoryToggles.filter {
-                                it.key == "skipGreenLiquidityBar" || it.key == "skipRedLiquidityBar"
-                            }.forEach { toggle ->
-                                TouchTurnRuleToggleRow(
-                                    toggle = toggle,
-                                    checked = toggleValues[toggle.key] ?: false,
-                                    enabled = enabled,
-                                    onCheckedChange = { onToggleChange(toggle.key, it) }
-                                )
-                            }
+                            TouchTurnOpeningBarColorTriggersPanel(
+                                enabled = enabled,
+                                fieldValues = fieldValues,
+                                onFieldChange = onFieldChange
+                            )
                             categoryToggles.filter { it.key == "closePositionGate" }.forEach { toggle ->
                                 val toggleEnabled = toggleValues[toggle.key] ?: false
                                 TouchTurnRuleToggleRow(
@@ -330,17 +325,11 @@ private fun TouchTurnRuleCategorySection(
                                     onCheckedChange = { onToggleChange(toggle.key, it) }
                                 )
                                 if (toggleEnabled) {
-                                    openingBarClosePositionGroup?.let { group ->
-                                        TouchTurnRuleFieldSubGroupPanel(
-                                            label = group.label,
-                                            fields = group.fields,
-                                            fieldValues = fieldValues,
-                                            enabled = enabled,
-                                            testTagSuffix = group.testTagSuffix,
-                                            onFieldChange = onFieldChange,
-                                            nested = true
-                                        )
-                                    }
+                                    TouchTurnClosePositionTriggersPanel(
+                                        enabled = enabled,
+                                        fieldValues = fieldValues,
+                                        onFieldChange = onFieldChange
+                                    )
                                 }
                             }
                             openingBarTimingGroup?.let { group ->
@@ -600,6 +589,15 @@ private fun TouchTurnRuleFieldEditor(
     enabled: Boolean,
     onValueChange: (String) -> Unit
 ) {
+    if (field.kind == TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE) {
+        TouchTurnClosePositionTriggerModeEditor(
+            field = field,
+            value = value,
+            enabled = enabled,
+            onValueChange = onValueChange
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -649,11 +647,207 @@ private fun TouchTurnRuleFieldEditor(
                         TouchTurnRuleFieldKind.PRICE -> "0"
                         TouchTurnRuleFieldKind.INTEGER -> "14"
                         TouchTurnRuleFieldKind.MILLISECONDS -> "3000"
+                        TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE -> "OFF"
                     },
                     color = TextSecondary,
                     fontSize = 11.sp
                 )
             }
+        )
+    }
+}
+
+@Composable
+private fun TouchTurnOpeningBarColorTriggersPanel(
+    enabled: Boolean,
+    fieldValues: Map<String, String>,
+    onFieldChange: (String, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, top = 4.dp)
+            .testTag("TouchTurnOpeningBarColorTriggersPanel"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Bar color triggers",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        listOf(
+            "Green liquidity bar" to "greenLiquidityBarAction",
+            "Red liquidity bar" to "redLiquidityBarAction"
+        ).forEach { (label, actionKey) ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("TouchTurnColorTrigger-$actionKey"),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(label, fontSize = 11.sp, color = Color.White)
+                TouchTurnClosePositionTriggerModeChips(
+                    actionKey = actionKey,
+                    value = fieldValues[actionKey].orEmpty(),
+                    enabled = enabled,
+                    onValueChange = { onFieldChange(actionKey, it) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnClosePositionTriggersPanel(
+    enabled: Boolean,
+    fieldValues: Map<String, String>,
+    onFieldChange: (String, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, top = 4.dp)
+            .testTag("TouchTurnClosePositionTriggersPanel"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Close position (cp) triggers",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        listOf(
+            Triple("Green bar — cp at or below", "greenSkipClosePositionBelow", "greenClosePositionBelowAction"),
+            Triple("Green bar — cp at or above", "greenSkipClosePositionAbove", "greenClosePositionAboveAction"),
+            Triple("Red bar — cp at or below", "redSkipClosePositionBelow", "redClosePositionBelowAction"),
+            Triple("Red bar — cp at or above", "redSkipClosePositionAbove", "redClosePositionAboveAction")
+        ).forEach { (label, thresholdKey, actionKey) ->
+            TouchTurnClosePositionTriggerRow(
+                label = label,
+                thresholdKey = thresholdKey,
+                actionKey = actionKey,
+                thresholdValue = fieldValues[thresholdKey].orEmpty(),
+                actionValue = fieldValues[actionKey].orEmpty(),
+                enabled = enabled,
+                onThresholdChange = { onFieldChange(thresholdKey, it) },
+                onActionChange = { onFieldChange(actionKey, it) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnClosePositionTriggerRow(
+    label: String,
+    thresholdKey: String,
+    actionKey: String,
+    thresholdValue: String,
+    actionValue: String,
+    enabled: Boolean,
+    onThresholdChange: (String) -> Unit,
+    onActionChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnClosePositionTrigger-$thresholdKey"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, fontSize = 11.sp, color = Color.White, modifier = Modifier.weight(1f))
+            OutlinedTextField(
+                value = thresholdValue,
+                onValueChange = onThresholdChange,
+                enabled = enabled,
+                singleLine = true,
+                modifier = Modifier
+                    .width(CompactFieldWidth)
+                    .testTag("TouchTurnRuleField-$thresholdKey"),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = DarkBackground,
+                    unfocusedContainerColor = DarkBackground,
+                    disabledContainerColor = DarkBackground,
+                    focusedBorderColor = TableHeaderBg,
+                    unfocusedBorderColor = TableHeaderBg,
+                    disabledBorderColor = TableHeaderBg,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    disabledTextColor = TextSecondary
+                ),
+                placeholder = {
+                    Text("0.15", color = TextSecondary, fontSize = 11.sp)
+                }
+            )
+        }
+        TouchTurnClosePositionTriggerModeChips(
+            actionKey = actionKey,
+            value = actionValue,
+            enabled = enabled,
+            onValueChange = onActionChange
+        )
+    }
+}
+
+@Composable
+private fun TouchTurnClosePositionTriggerModeChips(
+    actionKey: String,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit
+) {
+    val selected = runCatching { TouchTurnClosePositionTriggerMode.valueOf(value) }
+        .getOrDefault(TouchTurnClosePositionTriggerMode.OFF)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        TouchTurnClosePositionTriggerMode.entries.forEach { mode ->
+            val active = mode == selected
+            OutlinedButton(
+                onClick = { onValueChange(mode.name) },
+                enabled = enabled,
+                modifier = Modifier.testTag("TouchTurnRuleField-$actionKey-${mode.name}"),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (active) TableHeaderBg else Color.Transparent,
+                    contentColor = if (active) Color.White else TextSecondary
+                ),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    when (mode) {
+                        TouchTurnClosePositionTriggerMode.OFF -> "Off"
+                        TouchTurnClosePositionTriggerMode.SKIP -> "Skip"
+                        TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN -> "Flip invert"
+                    },
+                    fontSize = 10.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnClosePositionTriggerModeEditor(
+    field: TouchTurnRuleFieldDefinition,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnRuleFieldGroup-${field.key}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(field.label, fontSize = 11.sp, color = Color.White)
+        TouchTurnClosePositionTriggerModeChips(
+            actionKey = field.key,
+            value = value,
+            enabled = enabled,
+            onValueChange = onValueChange
         )
     }
 }

@@ -253,6 +253,7 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
             TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_MISALIGNED,
             TouchTurnSessionOutcome.NO_TRADE_MACRO_TREND_DATA_UNAVAILABLE,
@@ -388,7 +389,8 @@ object TouchTurnStatusBreadcrumbMapper {
         val notLiquidity = hadLiquidityCandle == false ||
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY ||
             decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED ||
-            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED ||
+            decisionOutcome == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED
         val noTradeAfterRules = decisionOutcome in noTradeAfterRulesOutcomes
         val ordersSkipped = notLiquidity || noTradeAfterRules
         val fiveMinNoTrade = decisionOutcome in fiveMinNoTradeOutcomes
@@ -1034,6 +1036,7 @@ object TouchTurnStatusBreadcrumbMapper {
             TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
             TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION,
             TouchTurnSessionOutcome.NO_TRADE_DOJI -> return false
             in noTradeAfterRulesOutcomes -> return true

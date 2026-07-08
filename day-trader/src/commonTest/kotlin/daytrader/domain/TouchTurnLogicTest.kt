@@ -993,7 +993,7 @@ class TouchTurnLogicTest {
         assertTrue(setup.isLiquidityCandle)
         assertEquals(FirstCandleColor.RED, setup.candleColor)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(skipRedLiquidityBar = true)
+            redLiquidityBarAction = TouchTurnClosePositionTriggerMode.SKIP
         )
         assertEquals(
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
@@ -1008,7 +1008,7 @@ class TouchTurnLogicTest {
         assertTrue(setup.isLiquidityCandle)
         assertEquals(FirstCandleColor.GREEN, setup.candleColor)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(skipGreenLiquidityBar = true)
+            greenLiquidityBarAction = TouchTurnClosePositionTriggerMode.SKIP
         )
         assertEquals(
             TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
@@ -1022,11 +1022,9 @@ class TouchTurnLogicTest {
         val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
         assertFalse(setup.isLiquidityCandle)
         val rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(
-                liquidityRangeDailyAtr = false,
-                skipRedLiquidityBar = true,
-                skipGreenLiquidityBar = true
-            )
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = false),
+            greenLiquidityBarAction = TouchTurnClosePositionTriggerMode.SKIP,
+            redLiquidityBarAction = TouchTurnClosePositionTriggerMode.SKIP
         )
         assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, rules))
     }
@@ -1670,5 +1668,149 @@ class TouchTurnLogicTest {
             rules = TouchTurnRuleConfig.DEFAULT.copy(invertTradeSide = false)
         )
         assertNull(outcome)
+    }
+
+    @Test
+    fun closePositionTriggers_evaluate_skipWinsOverSwitch() {
+        val bar = OhlcBar(open = 110.0, high = 110.0, low = 100.0, close = 101.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            redSkipClosePositionBelow = 0.15,
+            redClosePositionBelowAction = TouchTurnClosePositionTriggerMode.SKIP,
+            greenSkipClosePositionAbove = 0.85,
+            greenClosePositionAboveAction = TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 5.0),
+            rules
+        )
+        assertEquals(
+            TouchTurnClosePositionTriggerEvaluation.SKIP,
+            TouchTurnClosePositionTriggers.evaluate(setup, rules)
+        )
+    }
+
+    @Test
+    fun closePositionTriggers_evaluate_switchToTouchTurnWhenInvertOn() {
+        val bar = OhlcBar(open = 110.0, high = 110.0, low = 100.0, close = 101.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            redSkipClosePositionBelow = 0.15,
+            redClosePositionBelowAction = TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        val setup = TouchTurnLogic.computeBracketSetup(
+            bar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 5.0),
+            rules
+        )
+        assertEquals(
+            TouchTurnClosePositionTriggerEvaluation.SWITCH_TO_TOUCH_TURN,
+            TouchTurnClosePositionTriggers.evaluate(setup, rules)
+        )
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_closePositionSkipBlocksTrade() {
+        val bar = OhlcBar(open = 110.0, high = 110.0, low = 100.0, close = 101.0, time = "20260708  09:30:00")
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                closePositionGate = true,
+                liquidityRangeDailyAtr = true
+            ),
+            redSkipClosePositionBelow = 0.15,
+            redClosePositionBelowAction = TouchTurnClosePositionTriggerMode.SKIP
+        )
+        var deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "00700",
+            maxDollars = 500
+        ).copy(
+            touchTurnRules = rules,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-07-08",
+                status = TouchTurnCandleStatus.READY,
+                candle = bar,
+                dailyAtr14 = 10.0,
+                rangeThreshold = 5.0,
+                rules = rules,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        deployment = deployment.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 30_000)
+        val session = deployment.touchTurnSession!!
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            session.decisionOutcome
+        )
+        assertEquals(false, session.entryOrdersPermitted)
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_closePositionSwitchUsesTouchTurnLong() {
+        val bar = OhlcBar(open = 110.0, high = 110.0, low = 100.0, close = 101.0, time = "20260708  09:30:00")
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            redSkipClosePositionBelow = 0.15,
+            redClosePositionBelowAction = TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        var deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "00700",
+            maxDollars = 500
+        ).copy(
+            touchTurnRules = rules,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-07-08",
+                status = TouchTurnCandleStatus.READY,
+                candle = bar,
+                dailyAtr14 = 10.0,
+                rangeThreshold = 5.0,
+                rules = rules,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        deployment = deployment.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 30_000)
+        val session = deployment.touchTurnSession!!
+        assertEquals(false, session.rules.invertTradeSide)
+        assertEquals(TouchTurnTradeSide.LONG, session.setup?.side)
+        assertEquals(true, session.entryOrdersPermitted)
+    }
+
+    @Test
+    fun withLiquidityEvaluatedIfClosed_greenBarSwitchUsesTouchTurnShort() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 100.0, close = 108.0, time = "20260708  09:30:00")
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            invertTradeSide = true,
+            greenLiquidityBarAction = TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN,
+            enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+        )
+        var deployment = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "00700",
+            maxDollars = 500
+        ).copy(
+            touchTurnRules = rules,
+            touchTurnSession = TouchTurnSessionContext(
+                sessionDate = "2026-07-08",
+                status = TouchTurnCandleStatus.READY,
+                candle = bar,
+                dailyAtr14 = 10.0,
+                rangeThreshold = 5.0,
+                rules = rules,
+                marketZoneId = "Asia/Hong_Kong"
+            )
+        )
+        val barEnd = TouchTurnLogic.barEndEpochMillis(bar.time!!, "Asia/Hong_Kong")!!
+        deployment = deployment.withLiquidityEvaluatedIfClosed(nowEpochMillis = barEnd + 30_000)
+        val session = deployment.touchTurnSession!!
+        assertEquals(false, session.rules.invertTradeSide)
+        assertEquals(TouchTurnTradeSide.SHORT, session.setup?.side)
     }
 }

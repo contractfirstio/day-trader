@@ -111,6 +111,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> "Not liq."
         TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED -> "Color gate"
         TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED -> "Cp gate"
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED -> "Shape gate"
         TouchTurnSessionOutcome.NO_TRADE_DOJI -> "Doji"
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED -> "Close gate"
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED -> "Bounce gate"

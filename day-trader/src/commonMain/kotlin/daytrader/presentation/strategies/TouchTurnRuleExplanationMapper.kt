@@ -3,6 +3,7 @@ package daytrader.presentation.strategies
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.OhlcBar
+import daytrader.domain.TouchTurnClosePositionTriggerMode
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnSessionContext
@@ -36,7 +37,7 @@ object TouchTurnRuleExplanationMapper {
         val setup = session.setup ?: return emptyList()
         val rules = session.rules
         val currency = session.currencyCode
-        return TouchTurnRuleConfig.toggleDefinitions
+        val toggleChecks = TouchTurnRuleConfig.toggleDefinitions
             .filter { definition ->
                 definition.key != "fiveMinuteConfirmation" || !rules.invertTradeSide
             }
@@ -45,28 +46,6 @@ object TouchTurnRuleExplanationMapper {
             val check = when (definition.key) {
                 "liquidityRangeDailyAtr" -> liquidityRangeDailyAtrCheck(
                     session, candle, rules, currency, evaluationInstant, enabled
-                )
-                "skipGreenLiquidityBar" -> openingBarColorGateCheck(
-                    session = session,
-                    setup = setup,
-                    rules = rules,
-                    evaluationInstant = evaluationInstant,
-                    key = definition.key,
-                    label = definition.label,
-                    description = definition.description,
-                    color = FirstCandleColor.GREEN,
-                    enabled = enabled
-                )
-                "skipRedLiquidityBar" -> openingBarColorGateCheck(
-                    session = session,
-                    setup = setup,
-                    rules = rules,
-                    evaluationInstant = evaluationInstant,
-                    key = definition.key,
-                    label = definition.label,
-                    description = definition.description,
-                    color = FirstCandleColor.RED,
-                    enabled = enabled
                 )
                 "closePositionGate" -> closePositionGateCheck(
                     session = session,
@@ -90,6 +69,36 @@ object TouchTurnRuleExplanationMapper {
                 )
             }
             if (verboseExplanations && enabled) {
+                check
+            } else if (check.enabled && check.passed == false && check.explanationSteps.isNotEmpty()) {
+                check
+            } else {
+                check.copy(explanationSteps = emptyList())
+            }
+        }
+        return toggleChecks + listOf(
+            openingBarColorActionCheck(
+                session = session,
+                setup = setup,
+                evaluationInstant = evaluationInstant,
+                key = "greenLiquidityBarAction",
+                label = "Green liquidity bar",
+                description = "Action when the closed opening bar is green and qualifies as liquidity.",
+                color = FirstCandleColor.GREEN,
+                action = rules.greenLiquidityBarAction
+            ),
+            openingBarColorActionCheck(
+                session = session,
+                setup = setup,
+                evaluationInstant = evaluationInstant,
+                key = "redLiquidityBarAction",
+                label = "Red liquidity bar",
+                description = "Action when the closed opening bar is red and qualifies as liquidity.",
+                color = FirstCandleColor.RED,
+                action = rules.redLiquidityBarAction
+            )
+        ).map { check ->
+            if (verboseExplanations && check.enabled) {
                 check
             } else if (check.enabled && check.passed == false && check.explanationSteps.isNotEmpty()) {
                 check
@@ -178,6 +187,66 @@ object TouchTurnRuleExplanationMapper {
                 threshold == null -> "ATR unavailable"
                 gatePassed -> "OK"
                 else -> "Below threshold"
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun openingBarColorActionCheck(
+        session: TouchTurnSessionContext,
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        evaluationInstant: Long,
+        key: String,
+        label: String,
+        description: String,
+        color: FirstCandleColor,
+        action: TouchTurnClosePositionTriggerMode
+    ): RuleCheckUi {
+        val closeStatus = session.candleCloseStatus(evaluationInstant)
+        val colorLabel = color.name.lowercase()
+        val enabled = action != TouchTurnClosePositionTriggerMode.OFF
+        val gatePassed = when {
+            !enabled -> null
+            closeStatus != FirstCandleCloseStatus.CLOSED -> null
+            !setup.isLiquidityCandle -> null
+            setup.candleColor != color -> true
+            action == TouchTurnClosePositionTriggerMode.SKIP -> false
+            else -> true
+        }
+        val actionLabel = when (action) {
+            TouchTurnClosePositionTriggerMode.OFF -> "off"
+            TouchTurnClosePositionTriggerMode.SKIP -> "skip"
+            TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN -> "flip invert"
+        }
+        val steps = buildList {
+            add("Wait for the opening 15-minute bar to finish printing.")
+            add("Confirm the bar qualifies as a liquidity candle (range meets the liquidity threshold).")
+            add("Opening bar color is ${setup.candleColor.name.lowercase()}.")
+            add("Configured action for $colorLabel liquidity bars: $actionLabel.")
+            if (!setup.isLiquidityCandle) {
+                add("Bar was not liquidity-qualified — this color trigger does not apply.")
+            } else if (setup.candleColor != color) {
+                add("Color does not match — trigger passes.")
+            } else if (action == TouchTurnClosePositionTriggerMode.SKIP) {
+                add("Skip is configured — bracket orders are blocked.")
+            } else if (action == TouchTurnClosePositionTriggerMode.SWITCH_TO_TOUCH_TURN) {
+                add("Flip invert is configured — continuation may switch to Touch Turn when invert is on.")
+            }
+            add(stepResult(gatePassed))
+        }
+        return RuleCheckUi(
+            key = key,
+            label = label,
+            description = description,
+            passed = gatePassed,
+            detail = when {
+                !enabled -> "Off"
+                closeStatus != FirstCandleCloseStatus.CLOSED -> null
+                !setup.isLiquidityCandle -> "Not liquidity"
+                setup.candleColor != color -> "Other color"
+                action == TouchTurnClosePositionTriggerMode.SKIP -> "Skipped"
+                else -> actionLabel
             },
             enabled = enabled,
             explanationSteps = steps

@@ -87,6 +87,19 @@ object TouchTurnSessionReasonUi {
                 severity = TouchTurnReasonSeverity.Warning
             )
         }
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED -> {
+            val colorLabel = when (session?.setup?.candleColor) {
+                FirstCandleColor.GREEN -> "green"
+                FirstCandleColor.RED -> "red"
+                else -> "opening"
+            }
+            TouchTurnSessionStatusUi(
+                headline = "No trade — $colorLabel 15m bar shape trigger",
+                detail = "A configured opening-bar shape trigger matched with action Skip. Bracket orders " +
+                    "were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> TouchTurnSessionStatusUi(
             headline = "No trade — volume exhaustion",
             detail = "Opening bar volume exceeded the exhaustion threshold (high-conviction breakout filter). Bracket orders were not placed.",

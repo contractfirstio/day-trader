@@ -19,6 +19,8 @@ enum class TouchTurnSessionOutcome {
     NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
     /** Opening bar close position gate blocked bracket submission on a liquidity-qualified bar. */
     NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+    /** Opening bar shape trigger blocked bracket submission on a liquidity-qualified bar. */
+    NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
     NO_TRADE_DOJI,
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
     /** Opening-bar price samples insufficient for extreme bounce evaluation. */
