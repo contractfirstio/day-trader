@@ -78,8 +78,7 @@ object DeploymentSessionStopLogic {
 
     fun tradeCycleComplete(sessionTrades: List<SessionTrade>): Boolean {
         val hasEntry = sessionTrades.any { it.parentOrderId == 0 }
-        val hasExit = sessionTrades.any { it.parentOrderId != 0 }
-        return hasEntry && hasExit
+        return hasEntry && sessionTrades.hasClosingFill()
     }
 
     /**

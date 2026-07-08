@@ -55,10 +55,22 @@ fun List<SessionTrade>.dedupeByExecId(): List<SessionTrade> {
 fun List<SessionTrade>.roundTripCount(): Int {
     if (isEmpty()) return 0
     val hasEntry = any { it.parentOrderId == 0 }
-    val hasExit = any { it.parentOrderId != 0 }
+    val hasExit = hasClosingFill()
     return when {
         hasEntry && hasExit -> 1
         hasEntry || hasExit -> 1
         else -> 0
     }
+}
+
+/**
+ * True when session trades include a bracket exit leg or an OPEN_DEADLINE market-close fill
+ * (standalone MKT orders also use [SessionTrade.parentOrderId] == 0).
+ */
+fun List<SessionTrade>.hasClosingFill(): Boolean {
+    if (any { it.parentOrderId != 0 }) return true
+    if (any { (it.realizedPnL ?: 0.0) != 0.0 }) return true
+    if (size < 2) return false
+    val entryOrderId = firstOrNull { it.parentOrderId == 0 }?.orderId
+    return any { it.parentOrderId == 0 && entryOrderId != null && it.orderId != entryOrderId }
 }

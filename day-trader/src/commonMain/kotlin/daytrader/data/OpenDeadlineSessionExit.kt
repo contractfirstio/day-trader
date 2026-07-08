@@ -45,7 +45,6 @@ object OpenDeadlineSessionExit {
             pollIntervalMs = pollIntervalMs,
             onPoll = {
                 gateway.refreshFills()
-                gateway.refreshPositions()
             }
         )
         return if (flat) {

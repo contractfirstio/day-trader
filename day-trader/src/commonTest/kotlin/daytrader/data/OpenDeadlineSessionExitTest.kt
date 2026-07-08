@@ -32,6 +32,7 @@ class OpenDeadlineSessionExitTest {
         )
 
         assertEquals(OpenDeadlineSessionExit.Result.PositionConfirmedFlat, result)
+        assertEquals(1, gateway.refreshPositionsInvocationCount)
         assertTrue(gateway.cancelCalls.any { it.preserveStopLoss })
         assertTrue(gateway.cancelCalls.last().preserveStopLoss == false)
         assertEquals(0, gateway.openOrders.value.size)

@@ -179,6 +179,8 @@ class DesktopIbGatewayConnection(
     private val lastTickDiagAtMs = ConcurrentHashMap<String, Long>()
     @Volatile
     private var positionRefreshKeysBefore: Set<String>? = null
+    /** Staging map while [requestPositions] reload is in flight; keeps last snapshot visible until [finishPositionsLoad]. */
+    private var positionsReloadBuffer: ConcurrentHashMap<String, OpenPosition>? = null
     /** Keys for symbol-only streaming (paper/hybrid emulator marks). */
     private val streamSymbolByMktDataKey = ConcurrentHashMap<String, String>()
     private val pendingStreamSymbols = ConcurrentHashMap.newKeySet<String>()
@@ -1175,17 +1177,18 @@ class DesktopIbGatewayConnection(
         val symbol = resolveSymbol(contract)
         val key = positionKey(safeAccount, contract, symbol)
         val quantity = pos.value().toDouble().roundToInt()
+        val reloading = positionsReloadBuffer != null
+        val target = positionsReloadBuffer ?: openPositions
 
         if (!Decimal.isValid(pos) || quantity == 0) {
-            if (openPositions.containsKey(key)) {
+            if (target.remove(key) != null && !reloading) {
                 IbGatewayLog.positionRemoved(contract)
+                cancelMarketData(key)
             }
-            openPositions.remove(key)
-            cancelMarketData(key)
             return
         }
 
-        val existing = openPositions[key]
+        val existing = target[key]
         if (existing != null &&
             existing.quantity == quantity &&
             existing.avgCostRaw == avgCost
@@ -1196,7 +1199,7 @@ class DesktopIbGatewayConnection(
         val magnifier = IbPriceScale.defaultMagnifier(contract)
         val companyName = resolveCompanyName(contract, symbol)
 
-        openPositions[key] = OpenPosition(
+        target[key] = OpenPosition(
             key = key,
             account = safeAccount,
             contract = IbContractMapper.clone(contract),
@@ -1208,14 +1211,28 @@ class DesktopIbGatewayConnection(
             needsContractDetails = needsContractDetails(companyName, symbol)
         )
         IbGatewayLog.positionApplied(contract, quantity, avgCost, magnifier)
-        logPositionDiag(openPositions[key]!!, "position")
-        publishPositions(immediate = true)
-        if (enrichmentScheduled) {
-            scheduleEnrichmentFor(openPositions[key]!!)
+        logPositionDiag(target[key]!!, "position")
+        if (!reloading) {
+            publishPositions(immediate = true)
+            if (enrichmentScheduled) {
+                scheduleEnrichmentFor(target[key]!!)
+            }
         }
     }
 
     private fun finishPositionsLoad() {
+        positionsReloadBuffer?.let { buffer ->
+            val before = positionRefreshKeysBefore.orEmpty()
+            (before - buffer.keys).forEach { cancelMarketData(it) }
+            openPositions.clear()
+            openPositions.putAll(buffer)
+            positionsReloadBuffer = null
+            positionRefreshKeysBefore = null
+        } ?: positionRefreshKeysBefore?.let { before ->
+            val removed = before - openPositions.keys
+            removed.forEach { cancelMarketData(it) }
+            positionRefreshKeysBefore = null
+        }
         publishPositions(immediate = true)
         if (positionsLoadFinished) return
         positionsLoadFinished = true
@@ -1712,8 +1729,7 @@ class DesktopIbGatewayConnection(
         clearMarketDataCachesForKeys(positionRefreshKeysBefore.orEmpty())
         cancelAllContractDetailsPaced()
         cancelAllHistoricalPaced()
-        openPositions.clear()
-        emit(GatewayEvent.PositionsSnapshot(emptyList()))
+        positionsReloadBuffer = ConcurrentHashMap()
         paced {
             if (!client.isConnected) return@paced
             IbGatewayLog.requestingPositions()
@@ -2199,6 +2215,7 @@ class DesktopIbGatewayConnection(
         historicalTimeoutJobs.values.forEach { it.cancel() }
         historicalTimeoutJobs.clear()
         positionRefreshKeysBefore = null
+        positionsReloadBuffer = null
         mktDataReqIdToLogicalKeys.clear()
         keyToMktDataReqId.clear()
         canonicalKeyToReqId.clear()

@@ -1,6 +1,8 @@
 package daytrader.engine
 
 import daytrader.data.OpenDeadlineSessionExit
+import daytrader.data.OpenDeadlinePositionResolver
+import daytrader.data.OpenDeadlineFillDrain
 import daytrader.data.DeploymentSessionStopEvaluator
 import daytrader.data.LiquidityBucketRepository
 import daytrader.replay.ReplaySessionStopHook
@@ -10,6 +12,7 @@ import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.TouchTurnManualStopHandler
 import daytrader.data.TouchTurnOrderLog
+import daytrader.data.SessionOrderClassification
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.DeploymentMarket
@@ -129,7 +132,8 @@ class TouchTurnEngine(
     private val executionGateway: BrokerGateway? = null,
     private val liquidityBucketRepository: LiquidityBucketRepository? = null,
     private val replaySessionStopHook: ReplaySessionStopHook? = null,
-    private val openDeadlineConfirmTimeoutMs: Long = OpenDeadlineSessionExit.CONFIRM_TIMEOUT_MS
+    private val openDeadlineConfirmTimeoutMs: Long = OpenDeadlineSessionExit.CONFIRM_TIMEOUT_MS,
+    private val openDeadlineFillDrainTimeoutMs: Long = OpenDeadlineFillDrain.FILL_DRAIN_TIMEOUT_MS
 ) : TouchTurnEnginePort {
     private val commandQueue = Channel<TouchTurnCommand>(Channel.UNLIMITED)
     private val eventFlow = MutableSharedFlow<TouchTurnEvent>(extraBufferCapacity = 64)
@@ -616,11 +620,23 @@ class TouchTurnEngine(
             replaySessionStopHook?.flattenAndDrain(instance.symbol)
         }
         var flattenOnBroker = !replayFlattenHooks
+        var openDeadlinePositionForStop = command.brokerPositionAtDecision
+        var openDeadlineFillsForStop: List<daytrader.gateway.BrokerFill>? = null
         if (command.trigger == TouchTurnSessionStopTrigger.OPEN_DEADLINE && gateway != null && !replayFlattenHooks) {
             flattenOnBroker = false
-            val openDeadlinePosition = SymbolMarkets.findOpenPosition(instance, brokerPositions.value)
-            val exitResult = if (openDeadlinePosition != null) {
-                OpenDeadlineSessionExit.execute(
+            val gatewayFills = gateway.fills.value
+            val fillsSeenBeforeExit = OpenDeadlineFillDrain.sessionFillExecIds(instance, gatewayFills)
+            val resolved = OpenDeadlinePositionResolver.resolve(
+                instance = instance,
+                brokerPositionAtDecision = command.brokerPositionAtDecision,
+                livePositions = brokerPositions.value,
+                fills = command.brokerFillsAtDecision ?: brokerFills.value
+            )
+            val openDeadlinePosition = resolved.position
+            openDeadlinePositionForStop = command.brokerPositionAtDecision ?: openDeadlinePosition
+            val positionSource = resolved.source.name.lowercase()
+            val exitResult = when {
+                openDeadlinePosition != null -> OpenDeadlineSessionExit.execute(
                     gateway = gateway,
                     symbol = instance.symbol,
                     knownPosition = openDeadlinePosition,
@@ -628,9 +644,19 @@ class TouchTurnEngine(
                     openOrders = gateway.openOrders,
                     confirmTimeoutMs = openDeadlineConfirmTimeoutMs
                 )
-            } else {
-                gateway.cancelOpenOrdersForSymbol(instance.symbol, preserveStopLoss = false)
-                OpenDeadlineSessionExit.Result.NoOpenPosition
+                OpenDeadlinePositionResolver.hadPositionOpenedMilestone(instance) -> {
+                    val stopLossCount = SymbolMarkets.openOrdersForDeployment(instance, gateway.openOrders.value)
+                        .count { SessionOrderClassification.isProtectiveStopLoss(it) }
+                    gateway.cancelOpenOrdersForSymbol(instance.symbol, preserveStopLoss = true)
+                    OpenDeadlineSessionExit.Result.CloseUnconfirmedStopLossRetained(
+                        reason = "position_opened_milestone_without_broker_snapshot",
+                        stopLossOrderCount = stopLossCount
+                    )
+                }
+                else -> {
+                    gateway.cancelOpenOrdersForSymbol(instance.symbol, preserveStopLoss = false)
+                    OpenDeadlineSessionExit.Result.NoOpenPosition
+                }
             }
             instance.inProgressSession()?.let { sessionRow ->
                 SessionTrace.log(
@@ -638,14 +664,25 @@ class TouchTurnEngine(
                     deploymentId = instance.id,
                     sessionId = sessionRow.id,
                     symbol = instance.symbol,
-                    details = openDeadlineExitDetails(exitResult)
+                    details = openDeadlineExitDetails(exitResult) + mapOf("positionSource" to positionSource)
                 )
+            }
+            openDeadlineFillsForStop = when (exitResult) {
+                OpenDeadlineSessionExit.Result.PositionConfirmedFlat -> OpenDeadlineFillDrain.awaitClosingFill(
+                    gateway = gateway,
+                    instance = instance,
+                    fillsSeenBefore = fillsSeenBeforeExit,
+                    timeoutMs = openDeadlineFillDrainTimeoutMs,
+                    delayMillis = delayMillis
+                )
+                else -> gateway.fills.value
             }
         }
         val positionsForStop = gateway?.positions?.value ?: brokerPositions.value
         val openOrdersForStop = gateway?.openOrders?.value ?: brokerOpenOrders.value
         val fillsForStop = when {
             replayFlattenHooks && gateway != null -> gateway.fills.value
+            openDeadlineFillsForStop != null -> openDeadlineFillsForStop
             command.brokerFillsAtDecision != null -> command.brokerFillsAtDecision
             command.trigger == TouchTurnSessionStopTrigger.OPEN_DEADLINE && gateway != null -> gateway.fills.value
             else -> brokerFills.value
@@ -657,7 +694,8 @@ class TouchTurnEngine(
                 brokerOpenOrders = openOrdersForStop,
                 brokerFills = fillsForStop,
                 brokerKind = brokerKind,
-                flattenOnBroker = flattenOnBroker
+                flattenOnBroker = flattenOnBroker,
+                brokerPositionAtDecision = openDeadlinePositionForStop
             ),
             gateway = gateway,
             explicitTrigger = command.trigger
@@ -826,7 +864,8 @@ class TouchTurnEngine(
                 TouchTurnCommand.StopSession(
                     instanceId = candidate.instanceId,
                     trigger = candidate.trigger,
-                    brokerFillsAtDecision = fills
+                    brokerFillsAtDecision = fills,
+                    brokerPositionAtDecision = SymbolMarkets.findOpenPosition(instance, positions)
                 )
             )
         }

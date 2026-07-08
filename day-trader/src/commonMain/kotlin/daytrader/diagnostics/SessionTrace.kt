@@ -14,6 +14,7 @@ import daytrader.domain.SessionTrade
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnRunRecord
 import daytrader.domain.dedupeByExecId
+import daytrader.domain.hasClosingFill
 import daytrader.domain.sessionRealizedPnL
 import daytrader.diagnostics.LogTimestamps
 import daytrader.gateway.BrokerFill
@@ -608,7 +609,7 @@ object SessionTrace {
 
     private fun roundTripLabel(trades: List<SessionTrade>): String {
         val hasEntry = trades.any { it.parentOrderId == 0 }
-        val hasExit = trades.any { it.parentOrderId != 0 }
+        val hasExit = trades.hasClosingFill()
         return when {
             hasEntry && hasExit -> "complete"
             hasEntry -> "entry_only"

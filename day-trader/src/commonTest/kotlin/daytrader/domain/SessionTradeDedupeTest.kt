@@ -2,6 +2,7 @@ package daytrader.domain
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SessionTradeDedupeTest {
 
@@ -13,6 +14,16 @@ class SessionTradeDedupeTest {
             trade("emu-2-1", 1000)
         )
         assertEquals(2, trades.dedupeByExecId().size)
+    }
+
+    @Test
+    fun roundTripCount_countsOpenDeadlineMarketCloseWithStandaloneExitFill() {
+        val trades = listOf(
+            trade("entry", parent = 0).copy(orderId = 521, side = "SLD"),
+            trade("exit", parent = 0).copy(orderId = 9001, side = "BOT", realizedPnL = 12.5)
+        )
+        assertTrue(trades.hasClosingFill())
+        assertEquals(1, trades.roundTripCount())
     }
 
     @Test

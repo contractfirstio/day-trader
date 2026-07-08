@@ -26,7 +26,9 @@ object TouchTurnManualStopHandler {
         val brokerOpenOrders: List<WorkingOrder>,
         val brokerFills: List<BrokerFill>,
         val flattenOnBroker: Boolean = true,
-        val brokerKind: BrokerKind? = null
+        val brokerKind: BrokerKind? = null,
+        /** Position captured when auto-stop was decided; survives shared cache wipes before stop runs. */
+        val brokerPositionAtDecision: AccountPosition? = null
     )
 
     data class Result(
@@ -41,6 +43,9 @@ object TouchTurnManualStopHandler {
     ): Result {
         val instance = input.instance
         val brokerPosition = SymbolMarkets.findOpenPosition(instance, input.brokerPositions)
+            ?: input.brokerPositionAtDecision?.takeIf {
+                SymbolMarkets.matchesDeployment(instance, it) && it.quantity != 0
+            }
         val hadOpenPosition = brokerPosition != null
         val hasOpenOrders = SymbolMarkets.hasOpenOrders(instance, input.brokerOpenOrders)
         if (input.flattenOnBroker) {
@@ -58,7 +63,7 @@ object TouchTurnManualStopHandler {
             hasOpenOrders = hasOpenOrders
         )
         val snapshot = instance.resolveStopSnapshot(
-            hadOpenBrokerPosition = hadOpenPosition,
+            hadOpenBrokerPosition = brokerPosition != null,
             brokerUnrealizedPnL = brokerPosition?.totalUnrealizedPnL,
             sessionTrades = sessionTrades
         )

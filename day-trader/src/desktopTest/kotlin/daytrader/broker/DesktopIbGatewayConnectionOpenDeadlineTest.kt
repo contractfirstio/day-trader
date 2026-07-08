@@ -12,6 +12,7 @@ import java.lang.reflect.Constructor
 import daytrader.data.SessionOrderClassification
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ETestFixtures
+import daytrader.gateway.AccountPosition
 import daytrader.gateway.BlockingGatewayQueues
 import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayEvent
@@ -32,6 +33,70 @@ import kotlinx.coroutines.runBlocking
  */
 class DesktopIbGatewayConnectionOpenDeadlineTest {
     private val config = IbGatewayConfig(host = "127.0.0.1", port = 4002, clientId = 7, accountCode = "DU123")
+
+    @Test
+    fun requestPositions_keepsLastSnapshotUntilReloadCompletes() = runBlocking {
+        withHarness { harness ->
+            val aapl = stockContract("AAPL")
+            val mu = stockContract("MU")
+
+            harness.recordingClient.connected = true
+            harness.recordingClient.onReqPositions = {
+                harness.connection.position("DU123", aapl, Decimal.get(100), 150.0)
+                harness.connection.position("DU123", mu, Decimal.get(200), 80.0)
+                harness.connection.positionEnd()
+            }
+            harness.connection.start()
+            harness.connection.nextValidId(100)
+            delay(1_500)
+
+            assertTrue(
+                harness.recordingClient.reqPositionsInvocations > 0,
+                "expected connect-time reqPositions to run"
+            )
+            val seededEvent = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.PositionsSnapshot && it.positions.size == 2
+            } as GatewayEvent.PositionsSnapshot
+            val seeded = seededEvent.positions
+            assertEquals(2, seeded.size)
+            assertTrue(seeded.any { it.symbol == "AAPL" })
+            assertTrue(seeded.any { it.symbol == "MU" })
+
+            harness.drainPositionsSnapshots(timeoutMs = 100)
+
+            harness.recordingClient.onReqPositions = {
+                harness.connection.position("DU123", aapl, Decimal.get(100), 150.0)
+                harness.connection.positionEnd()
+            }
+            harness.recordingClient.holdReqPositions = true
+            harness.queues.outbound.offer(GatewayCommand.RequestPositions)
+            delay(500)
+
+            val duringReload = harness.drainPositionsSnapshots(timeoutMs = 300)
+            assertTrue(
+                duringReload.none { it.isEmpty() },
+                "reload must not publish an empty snapshot before IB callbacks complete"
+            )
+
+            harness.recordingClient.holdReqPositions = false
+            harness.recordingClient.onReqPositions?.invoke()
+            delay(200)
+
+            val finalEvent = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.PositionsSnapshot && it.positions.size == 1
+            } as GatewayEvent.PositionsSnapshot
+            val final = finalEvent.positions
+            assertEquals(listOf("AAPL"), final.map { it.symbol }.sorted())
+        }
+    }
+
+    private fun stockContract(symbol: String): Contract =
+        Contract().also {
+            it.symbol(symbol)
+            it.secType("STK")
+            it.exchange("SMART")
+            it.currency("USD")
+        }
 
     @Test
     fun cancelOpenOrders_preserveStopLoss_keepsStopCancelsEntryAndTakeProfit() = runBlocking {
@@ -131,6 +196,30 @@ class DesktopIbGatewayConnectionOpenDeadlineTest {
         val connection: DesktopIbGatewayConnection,
         val recordingClient: RecordingEClientSocket,
     ) {
+        suspend fun awaitLatestPositionsSnapshot(timeoutMs: Long = 2_000): List<AccountPosition> {
+            var latest = emptyList<AccountPosition>()
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                val event = queues.inbound.poll(50, TimeUnit.MILLISECONDS) ?: continue
+                if (event is GatewayEvent.PositionsSnapshot) {
+                    latest = event.positions
+                }
+            }
+            return latest
+        }
+
+        suspend fun drainPositionsSnapshots(timeoutMs: Long = 2_000): List<List<AccountPosition>> {
+            val snapshots = mutableListOf<List<AccountPosition>>()
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                val event = queues.inbound.poll(50, TimeUnit.MILLISECONDS) ?: continue
+                if (event is GatewayEvent.PositionsSnapshot) {
+                    snapshots += event.positions
+                }
+            }
+            return snapshots
+        }
+
         suspend fun latestOpenOrdersSnapshot(): List<daytrader.gateway.WorkingOrder> {
             var latest = emptyList<daytrader.gateway.WorkingOrder>()
             val deadline = System.currentTimeMillis() + 2_000
@@ -162,8 +251,17 @@ class DesktopIbGatewayConnectionOpenDeadlineTest {
         val placedOrders = mutableListOf<PlacedOrder>()
         val cancelledOrderIds = mutableListOf<Int>()
         @Volatile var connected: Boolean = false
+        @Volatile var holdReqPositions: Boolean = false
+        var onReqPositions: (() -> Unit)? = null
+        var reqPositionsInvocations: Int = 0
 
         override fun isConnected(): Boolean = connected
+
+        override fun reqPositions() {
+            reqPositionsInvocations++
+            if (holdReqPositions) return
+            onReqPositions?.invoke()
+        }
 
         override fun placeOrder(orderId: Int, contract: Contract, order: Order) {
             placedOrders.add(PlacedOrder(orderId, contract, order))

@@ -80,6 +80,17 @@ class FakeBrokerGateway(
     val cancelCalls = mutableListOf<CancelCall>()
     val closedPositions = mutableListOf<AccountPosition>()
     var closeClearsPosition: Boolean = true
+    /**
+     * When true, [refreshPositions] clears the entire position cache (mirrors IB
+     * [daytrader.broker.DesktopIbGatewayConnection.requestPositions] wipe-before-reload).
+     */
+    var refreshPositionsClearsAllPositions: Boolean = false
+    var refreshPositionsInvocationCount: Int = 0
+        private set
+    /** When true, [closeOpenPositionForSymbol] stages an exit fill delivered on the next [refreshFills]. */
+    var synthesizeExitFillOnClose: Boolean = false
+
+    private var pendingExitFill: BrokerFill? = null
 
     private val _connectionState = MutableStateFlow<GatewayConnectionState>(GatewayConnectionState.Connected)
     override val connectionState: StateFlow<GatewayConnectionState> = _connectionState.asStateFlow()
@@ -281,6 +292,9 @@ class FakeBrokerGateway(
                 daytrader.broker.SymbolMarkets.symbolsMatch(symbol, it.symbol)
             }
         }
+        if (synthesizeExitFillOnClose && position != null) {
+            pendingExitFill = synthesizedExitFill(position)
+        }
     }
 
     override fun flattenSymbolForSymbol(symbol: String) {
@@ -290,7 +304,34 @@ class FakeBrokerGateway(
         flattenedSymbols.add(symbol)
     }
 
-    override fun refreshFills() = Unit
+    override fun refreshFills() {
+        pendingExitFill?.let { fill ->
+            _fills.value = _fills.value + fill
+            pendingExitFill = null
+        }
+    }
 
-    override fun refreshPositions() = Unit
+    override fun refreshPositions() {
+        refreshPositionsInvocationCount++
+        if (refreshPositionsClearsAllPositions) {
+            _positions.value = emptyList()
+        }
+    }
+
+    private fun synthesizedExitFill(position: AccountPosition): BrokerFill {
+        val closingSide = if (position.quantity > 0) "SLD" else "BOT"
+        return BrokerFill(
+            execId = "exit-${position.symbol}-${closedPositions.size}",
+            orderId = 9_001,
+            permId = 9_001L,
+            parentOrderId = 0,
+            symbol = position.symbol,
+            side = closingSide,
+            quantity = kotlin.math.abs(position.quantity),
+            price = position.marketPrice,
+            time = "2026-06-04T11:00:00",
+            currency = position.currency,
+            realizedPnL = 12.5
+        )
+    }
 }
