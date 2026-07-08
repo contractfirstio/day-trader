@@ -20,12 +20,19 @@ object TouchTurnRuleConfigPersistence {
                 trailingStopArmFractionOfEntryToStop = it.trailingStopArmFractionOfEntryToStop,
                 enables = TouchTurnRuleEnables(
                     liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
+                    skipGreenLiquidityBar = it.enableSkipGreenLiquidityBar,
+                    skipRedLiquidityBar = it.enableSkipRedLiquidityBar,
+                    closePositionGate = it.enableClosePositionGate,
                     openDeadline = it.enableOpenDeadline,
                     adjustableTrailingStop = it.enableAdjustableTrailingStop,
                     fiveMinuteConfirmation = it.enableFiveMinuteConfirmation
                 ),
                 invertTradeSide = it.invertTradeSide,
-                minGrossProfit = it.minGrossProfit
+                minGrossProfit = it.minGrossProfit,
+                greenSkipClosePositionBelow = it.greenSkipClosePositionBelow,
+                greenSkipClosePositionAbove = it.greenSkipClosePositionAbove,
+                redSkipClosePositionBelow = it.redSkipClosePositionBelow,
+                redSkipClosePositionAbove = it.redSkipClosePositionAbove
             )
         } ?: TouchTurnRuleConfig.DEFAULT
 
@@ -43,10 +50,17 @@ object TouchTurnRuleConfigPersistence {
             trailingStopTriggerFractionOfEntryToTp = config.trailingStopTriggerFractionOfEntryToTp,
             trailingStopArmFractionOfEntryToStop = config.trailingStopArmFractionOfEntryToStop,
             enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
+            enableSkipGreenLiquidityBar = config.enables.skipGreenLiquidityBar,
+            enableSkipRedLiquidityBar = config.enables.skipRedLiquidityBar,
+            enableClosePositionGate = config.enables.closePositionGate,
             enableOpenDeadline = config.enables.openDeadline,
             enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,
             enableFiveMinuteConfirmation = config.enables.fiveMinuteConfirmation,
             minGrossProfit = config.minGrossProfit,
-            invertTradeSide = config.invertTradeSide
+            invertTradeSide = config.invertTradeSide,
+            greenSkipClosePositionBelow = config.greenSkipClosePositionBelow,
+            greenSkipClosePositionAbove = config.greenSkipClosePositionAbove,
+            redSkipClosePositionBelow = config.redSkipClosePositionBelow,
+            redSkipClosePositionAbove = config.redSkipClosePositionAbove
         )
 }

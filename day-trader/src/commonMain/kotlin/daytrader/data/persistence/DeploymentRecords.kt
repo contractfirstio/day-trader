@@ -119,11 +119,18 @@ data class TouchTurnRuleConfigRecord(
     val trailingStopTriggerFractionOfEntryToTp: Double = 0.5,
     val trailingStopArmFractionOfEntryToStop: Double = 0.0,
     val enableLiquidityRangeDailyAtr: Boolean = false,
+    val enableSkipGreenLiquidityBar: Boolean = false,
+    val enableSkipRedLiquidityBar: Boolean = false,
+    val enableClosePositionGate: Boolean = false,
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,
     val enableFiveMinuteConfirmation: Boolean = false,
     val minGrossProfit: Double = 0.0,
-    val invertTradeSide: Boolean = false
+    val invertTradeSide: Boolean = false,
+    val greenSkipClosePositionBelow: Double? = null,
+    val greenSkipClosePositionAbove: Double? = null,
+    val redSkipClosePositionBelow: Double? = null,
+    val redSkipClosePositionAbove: Double? = null
 )
 
 @Serializable

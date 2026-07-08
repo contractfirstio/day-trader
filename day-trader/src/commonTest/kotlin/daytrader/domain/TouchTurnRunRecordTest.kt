@@ -237,7 +237,7 @@ class TouchTurnRunRecordTest {
         assertFalse(liquidity.enabled)
         assertEquals("Disabled", liquidity.detail)
         assertNull(liquidity.passed)
-        assertEquals(5, evaluation.checks.size)
+        assertEquals(8, evaluation.checks.size)
     }
 
     @Test

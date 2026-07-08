@@ -7,11 +7,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -29,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +54,8 @@ import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
+
+private val CompactFieldWidth = 92.dp
 
 @Composable
 fun TouchTurnRulesConfigDialog(
@@ -73,6 +80,8 @@ fun TouchTurnRulesConfigDialog(
         }
     }
 
+    val scrollState = rememberScrollState()
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -81,63 +90,65 @@ fun TouchTurnRulesConfigDialog(
             color = SurfaceDark,
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .wrapContentHeight()
+                .fillMaxHeight(0.88f)
                 .testTag("TouchTurnRulesConfigDialog")
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
                 Text(
                     "Touch Turn rules",
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 16.sp
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Rules follow the session decision flow: liquidity → entry mode → confirmation → bracket → " +
-                        "management. Related thresholds are nested under their toggle.",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                    lineHeight = 16.sp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
                 val invertSelected = toggleValues["invertTradeSide"] == true
-                val visibleCategories = TouchTurnRuleCategory.entries.filter { category ->
-                    category != TouchTurnRuleCategory.CONFIRMATION || !invertSelected
-                }
-                val categoryColumns = visibleCategories.splitIntoColumns(columnCount = 3)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
+                val categoryColumns = TouchTurnRuleCategory.entries.splitIntoColumns(columnCount = 2)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                        .testTag("TouchTurnRulesConfigScroll")
                 ) {
-                    categoryColumns.forEach { columnCategories ->
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            columnCategories.forEach { category ->
-                                TouchTurnRuleCategorySection(
-                                    category = category,
-                                    toggleValues = toggleValues,
-                                    fieldValues = fieldValues,
-                                    enabled = enabled,
-                                    onToggleChange = { key, checked -> toggleValues[key] = checked },
-                                    onFieldChange = { key, value -> fieldValues[key] = value }
-                                )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        categoryColumns.forEach { columnCategories ->
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                columnCategories.forEach { category ->
+                                    TouchTurnRuleCategorySection(
+                                        category = category,
+                                        invertSelected = invertSelected,
+                                        toggleValues = toggleValues,
+                                        fieldValues = fieldValues,
+                                        enabled = enabled,
+                                        onToggleChange = { key, checked -> toggleValues[key] = checked },
+                                        onFieldChange = { key, value -> fieldValues[key] = value }
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 saveError?.let { message ->
                     Text(
                         message,
                         color = LossRed,
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
                         modifier = Modifier.testTag("TouchTurnRulesSaveError")
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -159,11 +170,11 @@ fun TouchTurnRulesConfigDialog(
                         },
                         enabled = enabled
                     ) {
-                        Text("Reset defaults", color = if (enabled) Color.White else TextSecondary)
+                        Text("Reset defaults", fontSize = 12.sp, color = if (enabled) Color.White else TextSecondary)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         TextButton(onClick = onDismiss) {
-                            Text("Cancel", color = TextSecondary)
+                            Text("Cancel", fontSize = 12.sp, color = TextSecondary)
                         }
                         TextButton(
                             onClick = {
@@ -196,7 +207,7 @@ fun TouchTurnRulesConfigDialog(
                             enabled = enabled,
                             modifier = Modifier.testTag("TouchTurnRulesSaveButton")
                         ) {
-                            Text("Save", color = if (enabled) Color.White else TextSecondary)
+                            Text("Save", fontSize = 12.sp, color = if (enabled) Color.White else TextSecondary)
                         }
                     }
                 }
@@ -208,15 +219,18 @@ fun TouchTurnRulesConfigDialog(
 @Composable
 private fun TouchTurnRuleCategorySection(
     category: TouchTurnRuleCategory,
+    invertSelected: Boolean,
     toggleValues: Map<String, Boolean>,
     fieldValues: Map<String, String>,
     enabled: Boolean,
     onToggleChange: (String, Boolean) -> Unit,
     onFieldChange: (String, String) -> Unit
 ) {
-    var expanded by rememberSaveable(category.name) { mutableStateOf(true) }
-    val toggle = TouchTurnRuleConfig.toggleForCategory(category)
-    val toggleEnabled = toggle?.let { toggleValues[it.key] ?: true } ?: true
+    var expanded by rememberSaveable(category.name) {
+        mutableStateOf(category == TouchTurnRuleCategory.TRIGGERS)
+    }
+    val categoryToggles = TouchTurnRuleConfig.togglesForCategory(category)
+    val primaryToggle = TouchTurnRuleConfig.toggleForCategory(category)
     val invertTradeSide = toggleValues["invertTradeSide"] == true
     val fieldGroups = TouchTurnRuleConfig.fieldGroupsForCategory(
         category = category,
@@ -227,38 +241,159 @@ private fun TouchTurnRuleCategorySection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DarkBackground, RoundedCornerShape(8.dp))
-            .border(1.dp, TableHeaderBg, RoundedCornerShape(8.dp))
+            .background(DarkBackground, RoundedCornerShape(6.dp))
+            .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
             .testTag("TouchTurnRuleCategory-${category.name}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 5.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 category.label,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = BrandRed,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = if (expanded) "▾" else "▸",
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 color = TextSecondary
             )
         }
         if (expanded) {
             Column(
-                modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 when (category) {
-                    TouchTurnRuleCategory.TRADE_MODE -> {
+                    TouchTurnRuleCategory.TRIGGERS -> {
+                        val openingBarTimingGroup = fieldGroups.firstOrNull {
+                            it.testTagSuffix == TouchTurnRuleFieldSubGroup.BAR_TIMING.name.lowercase()
+                        }
+                        val openingBarClosePositionGroup = fieldGroups.firstOrNull {
+                            it.testTagSuffix ==
+                                TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION.name.lowercase()
+                        }
+                        TouchTurnRuleToggleGroupPanel(
+                            label = "15-minute opening bar",
+                            description = "Evaluated when the first 15-minute RTH candle closes. Range, color, " +
+                                "and close position (cp) gates decide whether brackets are placed from that bar.",
+                            testTagSuffix = "opening_bar_15m"
+                        ) {
+                            categoryToggles.filter { it.key == "liquidityRangeDailyAtr" }.forEach { toggle ->
+                                val toggleEnabled = toggleValues[toggle.key] ?: true
+                                TouchTurnRuleToggleRow(
+                                    toggle = toggle,
+                                    checked = toggleEnabled,
+                                    enabled = enabled,
+                                    onCheckedChange = { onToggleChange(toggle.key, it) }
+                                )
+                                if (toggleEnabled) {
+                                    fieldGroups.firstOrNull {
+                                        it.testTagSuffix ==
+                                            TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD.name.lowercase()
+                                    }?.let { group ->
+                                        TouchTurnRuleFieldSubGroupPanel(
+                                            label = group.label,
+                                            fields = group.fields,
+                                            fieldValues = fieldValues,
+                                            enabled = enabled,
+                                            testTagSuffix = group.testTagSuffix,
+                                            onFieldChange = onFieldChange,
+                                            nested = true
+                                        )
+                                    }
+                                }
+                            }
+                            categoryToggles.filter {
+                                it.key == "skipGreenLiquidityBar" || it.key == "skipRedLiquidityBar"
+                            }.forEach { toggle ->
+                                TouchTurnRuleToggleRow(
+                                    toggle = toggle,
+                                    checked = toggleValues[toggle.key] ?: false,
+                                    enabled = enabled,
+                                    onCheckedChange = { onToggleChange(toggle.key, it) }
+                                )
+                            }
+                            categoryToggles.filter { it.key == "closePositionGate" }.forEach { toggle ->
+                                val toggleEnabled = toggleValues[toggle.key] ?: false
+                                TouchTurnRuleToggleRow(
+                                    toggle = toggle,
+                                    checked = toggleEnabled,
+                                    enabled = enabled,
+                                    onCheckedChange = { onToggleChange(toggle.key, it) }
+                                )
+                                if (toggleEnabled) {
+                                    openingBarClosePositionGroup?.let { group ->
+                                        TouchTurnRuleFieldSubGroupPanel(
+                                            label = group.label,
+                                            fields = group.fields,
+                                            fieldValues = fieldValues,
+                                            enabled = enabled,
+                                            testTagSuffix = group.testTagSuffix,
+                                            onFieldChange = onFieldChange,
+                                            nested = true
+                                        )
+                                    }
+                                }
+                            }
+                            openingBarTimingGroup?.let { group ->
+                                TouchTurnRuleFieldSubGroupPanel(
+                                    label = group.label,
+                                    fields = group.fields,
+                                    fieldValues = fieldValues,
+                                    enabled = enabled,
+                                    testTagSuffix = group.testTagSuffix,
+                                    onFieldChange = onFieldChange,
+                                    nested = true
+                                )
+                            }
+                        }
+                        categoryToggles.filter { it.key == "fiveMinuteConfirmation" }.forEach { toggle ->
+                            TouchTurnRuleToggleGroupPanel(
+                                label = "5-minute confirmation",
+                                testTagSuffix = "five_minute_confirmation"
+                            ) {
+                                TouchTurnRuleToggleRow(
+                                    toggle = toggle,
+                                    checked = toggleValues[toggle.key] ?: true,
+                                    enabled = enabled && !invertSelected,
+                                    onCheckedChange = { onToggleChange(toggle.key, it) }
+                                )
+                                if (invertSelected) {
+                                    Text(
+                                        "Unavailable while continuation (invert) mode is on.",
+                                        fontSize = 9.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 12.sp,
+                                        modifier = Modifier.testTag("TouchTurnFiveMinuteConfirmationUnavailableHint")
+                                    )
+                                }
+                            }
+                        }
+                        fieldGroups.filter {
+                            val suffix = it.testTagSuffix
+                            suffix != TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD.name.lowercase() &&
+                                suffix != TouchTurnRuleFieldSubGroup.BAR_TIMING.name.lowercase() &&
+                                suffix != TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION.name.lowercase()
+                        }.forEach { group ->
+                            TouchTurnRuleFieldSubGroupPanel(
+                                label = group.label,
+                                fields = group.fields,
+                                fieldValues = fieldValues,
+                                enabled = enabled,
+                                testTagSuffix = group.testTagSuffix,
+                                onFieldChange = onFieldChange
+                            )
+                        }
+                    }
+                    TouchTurnRuleCategory.EXECUTION -> {
                         fieldGroups.firstOrNull {
                             it.testTagSuffix == TouchTurnRuleFieldSubGroup.REVERSAL_ENTRY.name.lowercase()
                         }?.let { group ->
@@ -271,12 +406,12 @@ private fun TouchTurnRuleCategorySection(
                                 onFieldChange = onFieldChange
                             )
                         }
-                        toggle?.let { definition ->
+                        categoryToggles.filter { it.key == "invertTradeSide" }.forEach { toggle ->
                             TouchTurnRuleToggleRow(
-                                toggle = definition,
-                                checked = toggleEnabled,
+                                toggle = toggle,
+                                checked = toggleValues[toggle.key] ?: true,
                                 enabled = enabled,
-                                onCheckedChange = { onToggleChange(definition.key, it) }
+                                onCheckedChange = { onToggleChange(toggle.key, it) }
                             )
                         }
                         fieldGroups.firstOrNull {
@@ -291,30 +426,29 @@ private fun TouchTurnRuleCategorySection(
                                 onFieldChange = onFieldChange
                             )
                         }
-                    }
-                    TouchTurnRuleCategory.CONFIRMATION -> {
-                        toggle?.let { definition ->
-                            TouchTurnRuleToggleRow(
-                                toggle = definition,
-                                checked = toggleEnabled,
+                        fieldGroups.firstOrNull {
+                            it.testTagSuffix == TouchTurnRuleFieldSubGroup.TAKE_PROFIT_AND_RISK.name.lowercase()
+                        }?.let { group ->
+                            TouchTurnRuleFieldSubGroupPanel(
+                                label = group.label,
+                                fields = group.fields,
+                                fieldValues = fieldValues,
                                 enabled = enabled,
-                                onCheckedChange = { onToggleChange(definition.key, it) }
+                                testTagSuffix = group.testTagSuffix,
+                                onFieldChange = onFieldChange
                             )
-                        }
-                        if (toggleEnabled) {
-                            TouchTurnConfirmationLinkedHint()
                         }
                     }
                     else -> {
-                        toggle?.let { definition ->
+                        primaryToggle?.let { definition ->
                             TouchTurnRuleToggleRow(
                                 toggle = definition,
-                                checked = toggleEnabled,
+                                checked = toggleValues[definition.key] ?: true,
                                 enabled = enabled,
                                 onCheckedChange = { onToggleChange(definition.key, it) }
                             )
                         }
-                        if (category.fieldsAlwaysVisible || toggle != null) {
+                        if (category.fieldsAlwaysVisible || primaryToggle != null) {
                             fieldGroups.forEach { group ->
                                 TouchTurnRuleFieldSubGroupPanel(
                                     label = group.label,
@@ -334,29 +468,39 @@ private fun TouchTurnRuleCategorySection(
 }
 
 @Composable
-private fun TouchTurnConfirmationLinkedHint() {
+private fun TouchTurnRuleToggleGroupPanel(
+    label: String,
+    testTagSuffix: String,
+    description: String? = null,
+    content: @Composable () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(DarkBackground.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
-            .border(1.dp, TableHeaderBg, RoundedCornerShape(6.dp))
-            .padding(10.dp)
-            .testTag("TouchTurnConfirmationLinkedHint")
+            .padding(top = 2.dp)
+            .background(DarkBackground.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+            .border(1.dp, BrandRed.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp)
+            .testTag("TouchTurnRuleToggleGroup-$testTagSuffix"),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
-            "When confirmation is on",
-            fontSize = 11.sp,
+            label,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            color = BrandRed
+            color = BrandRed,
+            modifier = Modifier.testTag("TouchTurnRuleToggleGroupLabel-$testTagSuffix")
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            "Hammer market entries use the same min gross profit gate as the 15m bracket " +
-                "(Bracket sizing → Submission gates).",
-            fontSize = 11.sp,
-            color = TextSecondary,
-            lineHeight = 15.sp
-        )
+        description?.let { text ->
+            Text(
+                text,
+                fontSize = 9.sp,
+                color = TextSecondary,
+                lineHeight = 12.sp,
+                modifier = Modifier.testTag("TouchTurnRuleToggleGroupDescription-$testTagSuffix")
+            )
+        }
+        content()
     }
 }
 
@@ -367,24 +511,32 @@ private fun TouchTurnRuleFieldSubGroupPanel(
     fieldValues: Map<String, String>,
     enabled: Boolean,
     testTagSuffix: String,
-    onFieldChange: (String, String) -> Unit
+    onFieldChange: (String, String) -> Unit,
+    nested: Boolean = false
 ) {
     if (fields.isEmpty()) return
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 4.dp)
-            .background(DarkBackground.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
-            .border(1.dp, BrandRed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
-            .padding(10.dp)
+            .padding(top = if (nested) 0.dp else 2.dp)
+            .then(
+                if (nested) {
+                    Modifier.padding(start = 4.dp)
+                } else {
+                    Modifier
+                        .background(DarkBackground.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                        .border(1.dp, BrandRed.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 5.dp)
+                }
+            )
             .testTag("TouchTurnRuleFieldSubGroup-$testTagSuffix"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             label,
-            fontSize = 11.sp,
+            fontSize = if (nested) 9.sp else 10.sp,
             fontWeight = FontWeight.SemiBold,
-            color = BrandRed,
+            color = if (nested) TextSecondary else BrandRed,
             modifier = Modifier.testTag("TouchTurnRuleFieldSubGroupLabel-$testTagSuffix")
         )
         fields.forEach { field ->
@@ -410,22 +562,22 @@ private fun TouchTurnRuleToggleRow(
             .fillMaxWidth()
             .testTag("TouchTurnRuleToggle-${toggle.key}"),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(toggle.label, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                toggle.description,
-                fontSize = 11.sp,
-                color = TextSecondary,
-                lineHeight = 15.sp
-            )
-        }
+        Text(
+            toggle.label,
+            fontSize = 11.sp,
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+        )
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             enabled = enabled,
+            modifier = Modifier.scale(0.82f),
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = GainGreen,
@@ -448,42 +600,36 @@ private fun TouchTurnRuleFieldEditor(
     enabled: Boolean,
     onValueChange: (String) -> Unit
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("TouchTurnRuleFieldGroup-${field.key}")
+            .testTag("TouchTurnRuleFieldGroup-${field.key}"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(field.label, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
-            if (!field.defaultable) {
-                Text(
-                    "Required",
-                    fontSize = 9.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.testTag("TouchTurnRuleFieldRequired-${field.key}")
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(3.dp))
         Text(
-            field.description,
+            field.label,
             fontSize = 11.sp,
-            color = TextSecondary,
-            lineHeight = 14.sp
+            color = Color.White,
+            modifier = Modifier.weight(1f)
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        if (!field.defaultable) {
+            Text(
+                "Req",
+                fontSize = 8.sp,
+                color = TextSecondary,
+                modifier = Modifier.testTag("TouchTurnRuleFieldRequired-${field.key}")
+            )
+        }
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
             modifier = Modifier
-                .fillMaxWidth()
+                .width(CompactFieldWidth)
                 .testTag("TouchTurnRuleField-${field.key}"),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = DarkBackground,
                 unfocusedContainerColor = DarkBackground,
@@ -498,20 +644,21 @@ private fun TouchTurnRuleFieldEditor(
             placeholder = {
                 Text(
                     when (field.kind) {
-                        TouchTurnRuleFieldKind.RATIO -> "e.g. 0.25"
-                        TouchTurnRuleFieldKind.PRICE -> "e.g. 0.05"
-                        TouchTurnRuleFieldKind.INTEGER -> "e.g. 14"
-                        TouchTurnRuleFieldKind.MILLISECONDS -> "e.g. 60000"
+                        TouchTurnRuleFieldKind.RATIO -> "0.25"
+                        TouchTurnRuleFieldKind.OPTIONAL_RATIO -> "0.60"
+                        TouchTurnRuleFieldKind.PRICE -> "0"
+                        TouchTurnRuleFieldKind.INTEGER -> "14"
+                        TouchTurnRuleFieldKind.MILLISECONDS -> "3000"
                     },
                     color = TextSecondary,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
             }
         )
     }
 }
 
-/** Split in decision-flow order: 6 categories → 2 per column; 5 → 2, 2, 1. */
+/** Split in decision-flow order: 4 categories → 2 per column. */
 private fun <T> List<T>.splitIntoColumns(columnCount: Int): List<List<T>> {
     if (isEmpty() || columnCount <= 0) return emptyList()
     val columns = List(columnCount) { mutableListOf<T>() }

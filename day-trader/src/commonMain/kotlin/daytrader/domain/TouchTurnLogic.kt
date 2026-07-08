@@ -623,7 +623,53 @@ object TouchTurnLogic {
         if (rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle) {
             return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         }
+        return openingBarColorBlockOutcome(setup, rules)
+            ?: openingBarClosePositionBlockOutcome(setup, rules)
+    }
+
+    /** Skip liquidity-qualified opening bars when cp is outside configured inclusive bounds. */
+    fun openingBarClosePositionBlockOutcome(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? {
+        if (!rules.enables.closePositionGate) return null
+        if (!setup.isLiquidityCandle) return null
+        val closePosition = setup.closePositionRatio ?: return null
+        val (skipBelow, skipAbove) = when (setup.candleColor) {
+            FirstCandleColor.GREEN -> rules.greenSkipClosePositionBelow to rules.greenSkipClosePositionAbove
+            FirstCandleColor.RED -> rules.redSkipClosePositionBelow to rules.redSkipClosePositionAbove
+            else -> return null
+        }
+        if (skipBelow != null && closePosition <= skipBelow) {
+            return TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED
+        }
+        if (skipAbove != null && closePosition >= skipAbove) {
+            return TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED
+        }
         return null
+    }
+
+    /** Skip liquidity-qualified opening bars by color when configured in [TouchTurnRuleEnables]. */
+    fun openingBarColorBlockOutcome(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? {
+        if (!setup.isLiquidityCandle) return null
+        return when (setup.candleColor) {
+            FirstCandleColor.GREEN ->
+                if (rules.enables.skipGreenLiquidityBar) {
+                    TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED
+                } else {
+                    null
+                }
+            FirstCandleColor.RED ->
+                if (rules.enables.skipRedLiquidityBar) {
+                    TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED
+                } else {
+                    null
+                }
+            else -> null
+        }
     }
 
     data class EntryGateResult(
@@ -1394,7 +1440,8 @@ object TouchTurnLogic {
                 takeProfit = bar.close
             )
         }
-        return if (rules.invertTradeSide) applyInvertTradeSide(reversal, rules) else reversal
+        val setup = if (rules.invertTradeSide) applyInvertTradeSide(reversal, rules) else reversal
+        return setup.copy(closePositionRatio = closePositionRatio(bar))
     }
 
     /**

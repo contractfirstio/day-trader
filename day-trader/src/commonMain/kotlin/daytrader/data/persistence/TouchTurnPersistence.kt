@@ -146,7 +146,8 @@ internal object TouchTurnPersistence {
             side = parseTradeSide(side),
             entry = entry,
             stopLoss = stopLoss,
-            takeProfit = takeProfit
+            takeProfit = takeProfit,
+            closePositionRatio = candle?.let(TouchTurnLogic::closePositionRatio)
         )
     }
 

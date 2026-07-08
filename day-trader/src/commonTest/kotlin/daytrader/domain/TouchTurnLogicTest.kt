@@ -987,6 +987,106 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun barSetupBlockOutcome_skipsRedLiquidityBarWhenEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 99.5)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertTrue(setup.isLiquidityCandle)
+        assertEquals(FirstCandleColor.RED, setup.candleColor)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(skipRedLiquidityBar = true)
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_skipsGreenLiquidityBarWhenEnabled() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 109.0)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertTrue(setup.isLiquidityCandle)
+        assertEquals(FirstCandleColor.GREEN, setup.candleColor)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(skipGreenLiquidityBar = true)
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_doesNotSkipNonLiquidityBarForColorGate() {
+        val bar = OhlcBar(open = 100.0, high = 100.5, low = 99.0, close = 100.2)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertFalse(setup.isLiquidityCandle)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(
+                liquidityRangeDailyAtr = false,
+                skipRedLiquidityBar = true,
+                skipGreenLiquidityBar = true
+            )
+        )
+        assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, rules))
+    }
+
+    @Test
+    fun barSetupBlockOutcome_skipsGreenLiquidityBarWhenClosePositionBelowThreshold() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 105.0)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertEquals(FirstCandleColor.GREEN, setup.candleColor)
+        assertEquals(0.5454545454545454, setup.closePositionRatio!!, 0.0001)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            greenSkipClosePositionBelow = 0.60
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_skipsRedLiquidityBarWhenClosePositionAboveThreshold() {
+        val bar = OhlcBar(open = 108.0, high = 110.0, low = 99.0, close = 104.5)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertEquals(FirstCandleColor.RED, setup.candleColor)
+        assertEquals(0.5, setup.closePositionRatio!!, 0.0001)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            redSkipClosePositionAbove = 0.50
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_closePositionGateInclusiveAtThreshold() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 105.6)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertEquals(0.6, setup.closePositionRatio!!, 0.0001)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            greenSkipClosePositionBelow = 0.60
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_closePositionGateDisabledByDefault() {
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 105.0)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(greenSkipClosePositionBelow = 0.60)
+        assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, rules))
+    }
+
+    @Test
     fun evaluateEntryGate_allowsLiquidityCandle() {
         val bar = OhlcBar(
             open = 400.0,

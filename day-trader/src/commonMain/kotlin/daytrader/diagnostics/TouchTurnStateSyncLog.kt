@@ -380,6 +380,8 @@ object TouchTurnStateSyncLog {
     private val noTradeOutcomes = setOf(
         TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_BOUNCE_REJECTION_FAILED,

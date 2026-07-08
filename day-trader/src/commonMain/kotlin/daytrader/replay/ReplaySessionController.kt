@@ -457,6 +457,8 @@ class ReplaySessionController(
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED,
         TouchTurnSessionOutcome.NO_TRADE_LIVE_QUOTE_UNAVAILABLE,
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
         TouchTurnSessionOutcome.NO_TRADE_DOJI,
         TouchTurnSessionOutcome.NO_TRADE_DATA_FAILED,
         TouchTurnSessionOutcome.NO_TRADE_CLOSE_CONFIRMATION_FAILED,

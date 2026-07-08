@@ -15,6 +15,10 @@ enum class TouchTurnSessionStartedBy {
 enum class TouchTurnSessionOutcome {
     NO_TRADE_DATA_FAILED,
     NO_TRADE_NOT_LIQUIDITY,
+    /** Opening bar color gate blocked bracket submission on a liquidity-qualified bar. */
+    NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+    /** Opening bar close position gate blocked bracket submission on a liquidity-qualified bar. */
+    NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
     NO_TRADE_DOJI,
     NO_TRADE_CLOSE_CONFIRMATION_FAILED,
     /** Opening-bar price samples insufficient for extreme bounce evaluation. */

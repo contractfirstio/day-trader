@@ -46,6 +46,35 @@ object TouchTurnRuleExplanationMapper {
                 "liquidityRangeDailyAtr" -> liquidityRangeDailyAtrCheck(
                     session, candle, rules, currency, evaluationInstant, enabled
                 )
+                "skipGreenLiquidityBar" -> openingBarColorGateCheck(
+                    session = session,
+                    setup = setup,
+                    rules = rules,
+                    evaluationInstant = evaluationInstant,
+                    key = definition.key,
+                    label = definition.label,
+                    description = definition.description,
+                    color = FirstCandleColor.GREEN,
+                    enabled = enabled
+                )
+                "skipRedLiquidityBar" -> openingBarColorGateCheck(
+                    session = session,
+                    setup = setup,
+                    rules = rules,
+                    evaluationInstant = evaluationInstant,
+                    key = definition.key,
+                    label = definition.label,
+                    description = definition.description,
+                    color = FirstCandleColor.RED,
+                    enabled = enabled
+                )
+                "closePositionGate" -> closePositionGateCheck(
+                    session = session,
+                    setup = setup,
+                    rules = rules,
+                    evaluationInstant = evaluationInstant,
+                    enabled = enabled
+                )
                 "openDeadline" -> openDeadlineCheck(
                     session, rules, evaluationInstant, enabled
                 )
@@ -79,8 +108,8 @@ object TouchTurnRuleExplanationMapper {
         enabled: Boolean
     ): RuleCheckUi = liquidityRangeGateCheck(
         key = "liquidityRangeDailyAtr",
-        label = "Liquidity range (daily ATR)",
-        description = "Opening 15m bar range must be at least 25% of daily ATR(14) on close.",
+        label = "15m opening bar range (daily ATR)",
+        description = "Closed 15-minute opening bar range must be at least 25% of daily ATR(14).",
         atrLabel = "Daily ATR14",
         atrValue = session.dailyAtr14,
         threshold = session.liquidityThresholds.thresholdDailyAtr,
@@ -153,6 +182,124 @@ object TouchTurnRuleExplanationMapper {
             enabled = enabled,
             explanationSteps = steps
         )
+    }
+
+    private fun openingBarColorGateCheck(
+        session: TouchTurnSessionContext,
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig,
+        evaluationInstant: Long,
+        key: String,
+        label: String,
+        description: String,
+        color: FirstCandleColor,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val closeStatus = session.candleCloseStatus(evaluationInstant)
+        val colorLabel = color.name.lowercase()
+        val gatePassed = when {
+            !enabled -> null
+            closeStatus != FirstCandleCloseStatus.CLOSED -> null
+            !setup.isLiquidityCandle -> null
+            setup.candleColor != color -> true
+            else -> false
+        }
+        val steps = buildList {
+            add("Wait for the opening 15-minute bar to finish printing.")
+            add("Confirm the bar qualifies as a liquidity candle (range meets the liquidity threshold).")
+            add("Opening bar color is ${setup.candleColor.name.lowercase()}.")
+            if (!setup.isLiquidityCandle) {
+                add("Bar was not liquidity-qualified — this color gate does not apply.")
+            } else if (setup.candleColor != color) {
+                add("Color does not match the $colorLabel skip rule — gate passes.")
+            } else if (enabled) {
+                add("Skip $colorLabel liquidity bars is enabled — bracket orders are blocked.")
+            } else {
+                add("Rule disabled — $colorLabel liquidity bars would be allowed.")
+            }
+            add(stepResult(gatePassed))
+        }
+        return RuleCheckUi(
+            key = key,
+            label = label,
+            description = description,
+            passed = gatePassed,
+            detail = when {
+                !enabled -> "Disabled"
+                closeStatus != FirstCandleCloseStatus.CLOSED -> null
+                !setup.isLiquidityCandle -> "Not liquidity"
+                setup.candleColor != color -> "Other color"
+                else -> "Skipped"
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun closePositionGateCheck(
+        session: TouchTurnSessionContext,
+        setup: daytrader.domain.TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig,
+        evaluationInstant: Long,
+        enabled: Boolean
+    ): RuleCheckUi {
+        val closeStatus = session.candleCloseStatus(evaluationInstant)
+        val cp = setup.closePositionRatio
+        val (skipBelow, skipAbove) = when (setup.candleColor) {
+            FirstCandleColor.GREEN -> rules.greenSkipClosePositionBelow to rules.greenSkipClosePositionAbove
+            FirstCandleColor.RED -> rules.redSkipClosePositionBelow to rules.redSkipClosePositionAbove
+            else -> null to null
+        }
+        val hasBounds = skipBelow != null || skipAbove != null
+        val blocked = cp != null && (
+            (skipBelow != null && cp <= skipBelow) ||
+                (skipAbove != null && cp >= skipAbove)
+            )
+        val passed = when {
+            !enabled -> null
+            closeStatus != FirstCandleCloseStatus.CLOSED -> null
+            !setup.isLiquidityCandle -> null
+            cp == null -> null
+            !hasBounds -> null
+            blocked -> false
+            else -> true
+        }
+        val steps = buildList {
+            add("Wait for the opening 15-minute bar to finish printing.")
+            add("Confirm the bar qualifies as a liquidity candle.")
+            add("Close position cp = (close − low) / range on the closed bar.")
+            cp?.let { add("Measured cp = ${formatClosePosition(it)} for ${setup.candleColor.name.lowercase()} bar.") }
+            if (!hasBounds) {
+                add("No cp bounds configured — gate passes when enabled but inactive.")
+            } else {
+                skipBelow?.let { add("Skip when cp is at or below $it.") }
+                skipAbove?.let { add("Skip when cp is at or above $it.") }
+            }
+            add(stepResult(passed))
+        }
+        return RuleCheckUi(
+            key = "closePositionGate",
+            label = "Close position (cp) gate",
+            description = "Skip liquidity-qualified opening bars when close position is outside the " +
+                "configured inclusive bounds for that bar color.",
+            passed = passed,
+            detail = when {
+                !enabled -> "Disabled"
+                closeStatus != FirstCandleCloseStatus.CLOSED -> null
+                !setup.isLiquidityCandle -> "Not liquidity"
+                cp == null -> "cp unavailable"
+                !hasBounds -> "No bounds"
+                blocked -> "Out of range"
+                else -> "OK"
+            },
+            enabled = enabled,
+            explanationSteps = steps
+        )
+    }
+
+    private fun formatClosePosition(value: Double): String {
+        val scaled = kotlin.math.round(value * 1000.0) / 1000.0
+        return scaled.toString()
     }
 
     private fun openDeadlineCheck(

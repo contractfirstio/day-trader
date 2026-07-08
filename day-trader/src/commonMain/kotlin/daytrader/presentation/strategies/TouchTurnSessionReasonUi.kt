@@ -1,6 +1,7 @@
 package daytrader.presentation.strategies
 
 import daytrader.domain.FirstCandleCloseStatus
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.LiquidityCandleEvaluation
@@ -57,6 +58,35 @@ object TouchTurnSessionReasonUi {
             detail = "Opening 15-minute range did not exceed 25% of 14-day ADR. Bracket orders were not placed.",
             severity = TouchTurnReasonSeverity.Warning
         )
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED -> {
+            val colorLabel = when (session?.setup?.candleColor) {
+                FirstCandleColor.GREEN -> "green"
+                FirstCandleColor.RED -> "red"
+                else -> "opening"
+            }
+            TouchTurnSessionStatusUi(
+                headline = "No trade — $colorLabel 15m opening bar skipped",
+                detail = "15-minute opening bar color gate is enabled for this deployment — bracket orders " +
+                    "were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
+        TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED -> {
+            val colorLabel = when (session?.setup?.candleColor) {
+                FirstCandleColor.GREEN -> "green"
+                FirstCandleColor.RED -> "red"
+                else -> "opening"
+            }
+            val cpText = session?.setup?.closePositionRatio?.let { cp ->
+                val scaled = kotlin.math.round(cp * 100.0) / 100.0
+                "cp=$scaled"
+            } ?: "cp unavailable"
+            TouchTurnSessionStatusUi(
+                headline = "No trade — $colorLabel 15m opening bar cp out of range",
+                detail = "Close position gate blocked this liquidity bar ($cpText). Bracket orders were not placed.",
+                severity = TouchTurnReasonSeverity.Warning
+            )
+        }
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> TouchTurnSessionStatusUi(
             headline = "No trade — volume exhaustion",
             detail = "Opening bar volume exceeded the exhaustion threshold (high-conviction breakout filter). Bracket orders were not placed.",
