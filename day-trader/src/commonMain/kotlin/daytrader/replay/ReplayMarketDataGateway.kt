@@ -169,7 +169,7 @@ class ReplayMarketDataGateway(
 
     override fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean) = Unit
 
-    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?) = Unit
+    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?, purpose: String) = Unit
 
     override fun flattenSymbolForSymbol(symbol: String) = Unit
 

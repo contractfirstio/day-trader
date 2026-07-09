@@ -104,4 +104,22 @@ class InMemoryLiquidityBucketRepository(
         }
         return result
     }
+
+    override fun clearCurrencyBucket(
+        currencyCode: String,
+        sessionDate: String,
+    ): Result<Int> {
+        var result: Result<Int> = Result.failure(IllegalStateException("not_updated"))
+        update { state ->
+            LiquidityBucketLogic.clearBucketForDate(
+                state = state,
+                currencyCode = currencyCode,
+                sessionDate = sessionDate,
+            ).also { cleared ->
+                result = cleared.map { (_, amount) -> amount }
+            }.getOrElse { return@update state }
+                .first
+        }
+        return result
+    }
 }

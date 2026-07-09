@@ -10,6 +10,7 @@ import com.ib.client.OrderCancel
 import com.ib.client.OrderState
 import java.lang.reflect.Constructor
 import daytrader.data.SessionOrderClassification
+import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.gateway.AccountPosition
@@ -146,26 +147,40 @@ class DesktopIbGatewayConnectionOpenDeadlineTest {
 
     @Test
     fun closeOpenPosition_explicitSnapshot_placesMarketOrderWithoutPositionCache() = runBlocking {
-        withHarness { harness ->
-            harness.recordingClient.connected = true
-            harness.connection.start()
-            harness.connection.nextValidId(700)
+        val captured = mutableListOf<Triple<String, String?, Map<String, String>>>()
+        ExecutionGatewayLog.testListener = { type, symbol, details ->
+            captured += Triple(type, symbol, details)
+        }
+        try {
+            withHarness { harness ->
+                harness.recordingClient.connected = true
+                harness.connection.start()
+                harness.connection.nextValidId(700)
 
-            harness.queues.outbound.offer(
-                GatewayCommand.CloseOpenPositionForSymbol(
-                    symbol = "F",
-                    quantity = 301,
-                    action = "BUY"
+                harness.queues.outbound.offer(
+                    GatewayCommand.CloseOpenPositionForSymbol(
+                        symbol = "F",
+                        quantity = 301,
+                        action = "BUY",
+                        purpose = "open_deadline"
+                    )
                 )
-            )
-            delay(400)
+                delay(400)
 
-            val placed = harness.recordingClient.placedOrders.single()
-            assertEquals(700, placed.orderId)
-            assertTrue(placed.order.action()?.name == "BUY")
-            assertTrue(placed.order.getOrderType() == "MKT")
-            assertEquals(301L, placed.order.totalQuantity().longValue())
-            assertTrue(placed.contract.symbol() == "F")
+                val placed = harness.recordingClient.placedOrders.single()
+                assertEquals(700, placed.orderId)
+                assertTrue(placed.order.action()?.name == "BUY")
+                assertTrue(placed.order.getOrderType() == "MKT")
+                assertEquals(301L, placed.order.totalQuantity().longValue())
+                assertTrue(placed.contract.symbol() == "F")
+
+                val logged = captured.single { it.first == "session_position_close_placed" }
+                assertEquals("F", logged.second)
+                assertEquals("open_deadline", logged.third["purpose"])
+                assertEquals("700", logged.third["orderId"])
+            }
+        } finally {
+            ExecutionGatewayLog.testListener = null
         }
     }
 

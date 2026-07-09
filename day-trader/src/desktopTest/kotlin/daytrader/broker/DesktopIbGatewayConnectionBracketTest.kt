@@ -6,9 +6,13 @@ import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EWrapper
 import com.ib.client.Order
+import com.ib.client.OrderState
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.TouchTurnBracketOrderIds
+import daytrader.domain.TouchTurnBracketResizeRequest
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnOrderPlanner
+import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnTradeSide
@@ -19,6 +23,7 @@ import daytrader.gateway.GatewayCommand
 import daytrader.gateway.GatewayEvent
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.lang.reflect.Constructor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -124,6 +129,199 @@ class DesktopIbGatewayConnectionBracketTest {
 
             assertFalse(event.ack.result.isSuccess)
             assertEquals("bracket_build_failed", event.ack.result.exceptionOrNull()?.message)
+        }
+    }
+
+    @Test
+    fun resizeTouchTurnBracket_acksAfterChildOrderStatus() = runBlocking {
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            harness.connection.nextValidId(500)
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 5)
+
+            val orderIds = TouchTurnBracketOrderIds(
+                parentOrderId = 500,
+                takeProfitOrderId = 501,
+                stopLossOrderId = 502,
+                adjustableStopOrderId = null,
+            )
+            val resizePlan = planWithQuantity(threeLegLiquidityPlan(), quantity = 10)
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 42L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = orderIds,
+                        plan = resizePlan,
+                    ),
+                )
+            )
+            delay(500)
+
+            assertEquals(3, harness.recordingClient.placedOrders.size)
+            assertTrue(
+                harness.recordingClient.placedOrders.all {
+                    it.order.totalQuantity().longValue() == 10L
+                }
+            )
+
+            harness.connection.orderStatus(
+                orderId = 501,
+                status = "Submitted",
+                filled = Decimal.ZERO,
+                remaining = Decimal.get(10),
+                avgFillPrice = 0.0,
+                permId = 1L,
+                parentId = 500,
+                lastFillPrice = 0.0,
+                clientId = config.clientId,
+                whyHeld = "",
+                mktCapPrice = 0.0,
+            )
+
+            val event = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized
+            } as GatewayEvent.TouchTurnBracketResized
+
+            assertEquals(42L, event.requestId)
+            assertTrue(event.result.isSuccess)
+            assertEquals(10, event.result.getOrNull())
+        }
+    }
+
+    @Test
+    fun resizeTouchTurnBracket_whenEntryPartiallyFilled_rejectsBeforeTransmit() = runBlocking {
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            harness.connection.nextValidId(500)
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 5, entryFilled = 1)
+
+            val orderIds = TouchTurnBracketOrderIds(500, 501, 502, null)
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 7L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = orderIds,
+                        plan = planWithQuantity(threeLegLiquidityPlan(), quantity = 10),
+                    ),
+                )
+            )
+            delay(300)
+
+            assertTrue(harness.recordingClient.placedOrders.isEmpty())
+
+            val event = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized
+            } as GatewayEvent.TouchTurnBracketResized
+
+            assertTrue(event.result.isFailure)
+            assertEquals("entry_already_filled", event.result.exceptionOrNull()?.message)
+        }
+    }
+
+    @Test
+    fun resizeTouchTurnBracket_orderError_emitsFailure() = runBlocking {
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            harness.connection.nextValidId(500)
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 5)
+
+            val orderIds = TouchTurnBracketOrderIds(500, 501, 502, null)
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 9L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = orderIds,
+                        plan = planWithQuantity(threeLegLiquidityPlan(), quantity = 10),
+                    ),
+                )
+            )
+            delay(500)
+
+            harness.connection.error(
+                reqId = 501,
+                errorTime = System.currentTimeMillis(),
+                errorCode = 201,
+                errorMsg = "Order rejected - reason",
+                advancedOrderRejectJson = null,
+            )
+
+            val event = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized && it.result.isFailure
+            } as GatewayEvent.TouchTurnBracketResized
+
+            assertEquals(9L, event.requestId)
+            assertTrue(event.result.exceptionOrNull()?.message?.contains("ib_order_error") == true)
+        }
+    }
+
+    private fun planWithQuantity(plan: TouchTurnOrderPlan, quantity: Int): TouchTurnOrderPlan =
+        plan.copy(
+            quantity = quantity,
+            orders = plan.orders.map { it.copy(quantity = quantity) },
+        )
+
+    private fun seedWorkingBracket(
+        harness: Harness,
+        orderIdBase: Int,
+        quantity: Int,
+        entryFilled: Int = 0,
+    ) {
+        val contract = Contract().also {
+            it.symbol(E2ETestFixtures.SYMBOL)
+            it.secType("STK")
+            it.exchange("SMART")
+            it.currency("USD")
+        }
+        val entry = Order().also {
+            it.orderId(orderIdBase)
+            it.action("BUY")
+            it.orderType("LMT")
+            it.totalQuantity(Decimal.get(quantity.toLong()))
+            it.filledQuantity(Decimal.get(entryFilled.toLong()))
+            it.lmtPrice(100.0)
+            it.transmit(false)
+        }
+        val takeProfit = Order().also {
+            it.orderId(orderIdBase + 1)
+            it.parentId(orderIdBase)
+            it.action("SELL")
+            it.orderType("LMT")
+            it.totalQuantity(Decimal.get(quantity.toLong()))
+            it.lmtPrice(101.0)
+            it.transmit(false)
+        }
+        val stopLoss = Order().also {
+            it.orderId(orderIdBase + 2)
+            it.parentId(orderIdBase)
+            it.action("SELL")
+            it.orderType("STP")
+            it.totalQuantity(Decimal.get(quantity.toLong()))
+            it.auxPrice(99.0)
+            it.transmit(true)
+        }
+        val state = submittedOrderState()
+        harness.connection.openOrder(orderIdBase, contract, entry, state)
+        harness.connection.openOrder(orderIdBase + 1, contract, takeProfit, state)
+        harness.connection.openOrder(orderIdBase + 2, contract, stopLoss, state)
+    }
+
+    private fun submittedOrderState(): OrderState {
+        val ctor: Constructor<OrderState> = OrderState::class.java.getDeclaredConstructor()
+        ctor.isAccessible = true
+        return ctor.newInstance().apply {
+            status("Submitted")
         }
     }
 

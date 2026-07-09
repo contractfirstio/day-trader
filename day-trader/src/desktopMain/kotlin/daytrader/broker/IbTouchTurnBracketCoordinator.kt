@@ -16,6 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * All legs are placed in one [IbRequestPacer.enqueuePriority] job; this coordinator waits for
  * broker acknowledgment via [openOrder] or [orderStatus].
+ *
+ * Used for initial bracket placement and in-place bracket resizes (liquidity allocator).
  */
 internal class IbTouchTurnBracketCoordinator(
     private val scope: CoroutineScope,
@@ -26,6 +28,8 @@ internal class IbTouchTurnBracketCoordinator(
         val submission: IbTouchTurnBracketSubmission,
         var bracketTransmitted: Boolean,
         var timeoutJob: Job?,
+        val onSuccess: (Pending) -> Unit,
+        val onFailure: (Pending, String) -> Unit,
     ) {
         val orderIds: List<Int>
             get() = buildList {
@@ -42,7 +46,8 @@ internal class IbTouchTurnBracketCoordinator(
     fun begin(
         plan: TouchTurnOrderPlan,
         submission: IbTouchTurnBracketSubmission,
-        onTimeout: (pending: Pending, reason: String) -> Unit,
+        onSuccess: (Pending) -> Unit,
+        onFailure: (Pending, String) -> Unit,
     ) {
         val parentId = submission.parentOrderId
         registerOrderIds(submission)
@@ -50,22 +55,21 @@ internal class IbTouchTurnBracketCoordinator(
             plan = plan,
             submission = submission,
             bracketTransmitted = false,
-            timeoutJob = null
+            timeoutJob = null,
+            onSuccess = onSuccess,
+            onFailure = onFailure,
         )
     }
 
     /** Starts the broker-ack wait after every bracket leg has been [EClientSocket.placeOrder]'d. */
-    fun onBracketTransmitted(
-        parentOrderId: Int,
-        onTimeout: (pending: Pending, reason: String) -> Unit,
-    ) {
+    fun onBracketTransmitted(parentOrderId: Int) {
         val pending = pendingByParentId[parentOrderId] ?: return
         if (pending.bracketTransmitted) return
         pending.bracketTransmitted = true
         pending.timeoutJob?.cancel()
         pending.timeoutJob = scope.launch {
             delay(brokerAckTimeoutMs)
-            fail(parentOrderId, "parent_open_order_timeout", onTimeout)
+            fail(parentOrderId, "bracket_ack_timeout")
         }
         IbGatewayLog.touchTurnBracketParentSubmitted(
             symbol = pending.submission.symbol,
@@ -79,92 +83,62 @@ internal class IbTouchTurnBracketCoordinator(
         )
     }
 
-    fun onOpenOrder(
-        orderId: Int,
-        isWorking: Boolean,
-        onSuccess: (Pending) -> Unit,
-        onFailure: (pending: Pending, reason: String) -> Unit,
-    ) {
+    fun onOpenOrder(orderId: Int, isWorking: Boolean) {
         val parentId = orderIdToParentId[orderId] ?: return
         val pending = pendingByParentId[parentId] ?: return
         if (!pending.bracketTransmitted) return
         if (!isWorking) {
             if (orderId == parentId) {
-                fail(parentId, "parent_order_not_working", onFailure)
+                fail(parentId, "parent_order_not_working")
             }
             return
         }
         if (orderId == parentId) return
-        complete(parentId, onSuccess)
+        complete(parentId)
     }
 
     fun onOrderStatus(
         orderId: Int,
         status: String,
         remainingQuantity: Int,
-        onSuccess: (Pending) -> Unit,
-        onFailure: (pending: Pending, reason: String) -> Unit,
     ) {
         if (!isAcknowledgementStatus(status, remainingQuantity)) return
         val parentId = orderIdToParentId[orderId] ?: return
         val pending = pendingByParentId[parentId] ?: return
         if (!pending.bracketTransmitted) return
         if (orderId == parentId) return
-        complete(parentId, onSuccess)
+        complete(parentId)
     }
 
-    fun onOrderError(
-        orderId: Int,
-        message: String,
-        onFailure: (pending: Pending, reason: String) -> Unit,
-    ) {
+    fun onOrderError(orderId: Int, message: String) {
         val parentId = orderIdToParentId[orderId] ?: return
-        fail(parentId, "ib_order_error:${message.ifBlank { "unknown" }}", onFailure)
+        fail(parentId, "ib_order_error:${message.ifBlank { "unknown" }}")
     }
 
-    fun failPending(
-        parentOrderId: Int,
-        reason: String,
-        onFailure: (pending: Pending, reason: String) -> Unit,
-    ) {
-        fail(parentOrderId, reason, onFailure)
+    fun failPending(parentOrderId: Int, reason: String) {
+        fail(parentOrderId, reason)
     }
 
-    fun clearAll(onFailure: ((pending: Pending, reason: String) -> Unit)? = null) {
+    fun clearAll() {
         val parentIds = pendingByParentId.keys.toList()
         parentIds.forEach { parentId ->
-            if (onFailure != null) {
-                fail(parentId, "disconnected", onFailure)
-            } else {
-                remove(parentId)
-            }
+            fail(parentId, "disconnected")
         }
     }
 
-    private fun complete(parentId: Int, onSuccess: (Pending) -> Unit) {
+    private fun complete(parentId: Int) {
         val pending = pendingByParentId.remove(parentId) ?: return
         pending.timeoutJob?.cancel()
         unregisterOrderIds(pending.submission)
-        onSuccess(pending)
+        pending.onSuccess(pending)
     }
 
-    private fun fail(
-        parentId: Int,
-        reason: String,
-        onFailure: (pending: Pending, reason: String) -> Unit,
-    ) {
+    private fun fail(parentId: Int, reason: String) {
         val pending = pendingByParentId.remove(parentId) ?: return
         pending.timeoutJob?.cancel()
         unregisterOrderIds(pending.submission)
         IbGatewayLog.touchTurnBracketFailed(pending.submission.symbol, reason)
-        onFailure(pending, reason)
-    }
-
-    private fun remove(parentId: Int) {
-        pendingByParentId.remove(parentId)?.let { pending ->
-            pending.timeoutJob?.cancel()
-            unregisterOrderIds(pending.submission)
-        }
+        pending.onFailure(pending, reason)
     }
 
     private fun registerOrderIds(submission: IbTouchTurnBracketSubmission) {

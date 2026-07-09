@@ -313,4 +313,59 @@ class E2ELiquidityAllocatorIntegrationTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun viewModel_clearSelectedCurrency_removesOnlyThatCurrencyPool() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val sessionDate = currentSessionDateIso()
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+            val bucketRepository = InMemoryLiquidityBucketRepository()
+            val openOrderRepository = E2ESyncedOpenOrderRepository(gateway, scope)
+            E2ELiquidityAllocatorHelper.creditUsdBucket(
+                bucketRepository,
+                amount = 500,
+                sessionDate = sessionDate,
+            )
+            E2ELiquidityAllocatorHelper.creditCurrencyBucket(
+                bucketRepository,
+                currencyCode = "HKD",
+                amount = 800,
+                sessionDate = sessionDate,
+            )
+
+            val viewModel = LiquidityAllocatorViewModel(
+                deploymentRepository = repository,
+                openOrderRepository = openOrderRepository,
+                liquidityBucketRepository = bucketRepository,
+                brokerGateway = gateway,
+                executionManager = BrokerGatewayExecutionManager(gateway),
+                scope = scope,
+            )
+            delay(50)
+
+            viewModel.onCurrencySelected("HKD")
+            delay(50)
+            assertEquals(800, viewModel.uiState.value.availableLiquidity)
+
+            viewModel.clearSelectedCurrencyLiquidity()
+            delay(100)
+
+            val state = viewModel.uiState.value
+            assertEquals(0, state.availableLiquidity)
+            assertEquals(0, state.creditCount)
+            assertNotNull(state.globalMessage)
+            assertTrue(state.globalMessage!!.contains("HKD", ignoreCase = true))
+
+            val usdAvailable = LiquidityBucketLogic.rollBucketForDate(
+                LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+                sessionDate,
+            ).available
+            assertEquals(500, usdAvailable)
+            assertEquals(1, bucketRepository.flushInvocationCount)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

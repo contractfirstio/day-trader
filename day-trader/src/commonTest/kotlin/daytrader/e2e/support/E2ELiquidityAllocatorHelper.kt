@@ -122,14 +122,24 @@ object E2ELiquidityAllocatorHelper {
         amount: Int = 1_000,
         sessionDate: String = currentSessionDateIso(),
     ) {
+        creditCurrencyBucket(repository, currencyCode = "USD", amount = amount, sessionDate = sessionDate)
+    }
+
+    fun creditCurrencyBucket(
+        repository: InMemoryLiquidityBucketRepository,
+        currencyCode: String,
+        amount: Int,
+        sessionDate: String = currentSessionDateIso(),
+        sessionId: String = "credit-$currencyCode-$sessionDate",
+    ) {
         repository.update { state ->
             LiquidityBucketLogic.creditSession(
                 state = state,
-                currencyCode = "USD",
+                currencyCode = currencyCode,
                 sessionDate = sessionDate,
-                sessionId = "credit-${sessionDate}",
-                deploymentId = "credit-dep",
-                symbol = E2ETestFixtures.SYMBOL,
+                sessionId = sessionId,
+                deploymentId = "credit-dep-$currencyCode",
+                symbol = if (currencyCode == "HKD") "939" else E2ETestFixtures.SYMBOL,
                 amount = amount,
                 outcome = TouchTurnSessionOutcome.NO_TRADE_DOJI,
                 creditedAtEpochMs = System.currentTimeMillis(),

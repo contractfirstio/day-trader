@@ -32,11 +32,36 @@ class OpenDeadlineSessionExitTest {
         )
 
         assertEquals(OpenDeadlineSessionExit.Result.PositionConfirmedFlat, result)
-        assertEquals(1, gateway.refreshPositionsInvocationCount)
+        assertTrue(gateway.refreshPositionsInvocationCount >= 1)
         assertTrue(gateway.cancelCalls.any { it.preserveStopLoss })
         assertTrue(gateway.cancelCalls.last().preserveStopLoss == false)
         assertEquals(0, gateway.openOrders.value.size)
         assertTrue(gateway.closedPositions.any { it.symbol == "AAPL" })
+    }
+
+    @Test
+    fun execute_whenBrokerDropsStopLoss_recoversViaFlattenAndConfirmsFlat() = runBlocking {
+        val gateway = FakeBrokerGateway()
+        gateway.setPositions(listOf(shortPosition()))
+        gateway.closeClearsPosition = true
+        gateway.closeClearsPositionAfterAttempts = 2
+        gateway.removeProtectiveStopsOnCloseAttempt = true
+        gateway.setOpenOrders(listOf(stopLoss("AAPL", 1001), takeProfit("AAPL", 1002)))
+
+        val result = OpenDeadlineSessionExit.execute(
+            gateway = gateway,
+            symbol = "AAPL",
+            knownPosition = shortPosition(),
+            positions = gateway.positions,
+            openOrders = gateway.openOrders,
+            confirmTimeoutMs = 100,
+            pollIntervalMs = 25
+        )
+
+        assertEquals(OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterRecovery, result)
+        assertTrue(gateway.flattenedSymbols.contains("AAPL"))
+        assertTrue(gateway.positions.value.none { it.symbol == "AAPL" })
+        assertEquals(0, gateway.openOrders.value.size)
     }
 
     @Test

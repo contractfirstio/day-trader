@@ -10,6 +10,7 @@ data class LiquidityAllocatorUiState(
     val allocatedPending: Int = 0,
     val remainingLiquidity: Int = 0,
     val creditCount: Int = 0,
+    val canClearLiquidity: Boolean = false,
     val rows: List<LiquidityAllocatorRowUi> = emptyList(),
     val lastUpdatedEpochMs: Long = 0L,
     val globalMessage: String? = null

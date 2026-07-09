@@ -102,8 +102,19 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
             onDistributeEvenly = viewModel::distributeEvenly,
             onDistributeByWinRate = viewModel::distributeByWinRate,
             onApplyAll = viewModel::applyAll,
-            canApply = uiState.allocatedPending > 0 && uiState.rows.isNotEmpty()
+            onClearLiquidity = viewModel::clearSelectedCurrencyLiquidity,
+            canApply = uiState.allocatedPending > 0 && uiState.rows.isNotEmpty(),
+            canClear = uiState.canClearLiquidity,
         )
+
+        uiState.globalMessage?.let { message ->
+            Text(
+                message,
+                fontSize = 12.sp,
+                color = GainGreen,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -144,7 +155,9 @@ private fun BucketSummaryCard(
     onDistributeEvenly: () -> Unit,
     onDistributeByWinRate: () -> Unit,
     onApplyAll: () -> Unit,
-    canApply: Boolean
+    onClearLiquidity: () -> Unit,
+    canApply: Boolean,
+    canClear: Boolean,
 ) {
     Column(
         modifier = Modifier
@@ -187,6 +200,18 @@ private fun BucketSummaryCard(
                 colors = ButtonDefaults.buttonColors(containerColor = GainGreen, contentColor = Color.Black)
             ) {
                 Text("Apply allocations", fontSize = 12.sp)
+            }
+            Button(
+                onClick = onClearLiquidity,
+                enabled = canClear,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = Color(0xFFFF6B6B),
+                    disabledContainerColor = Color.Transparent,
+                    disabledContentColor = TextSecondary,
+                )
+            ) {
+                Text("Clear $currencyCode", fontSize = 12.sp)
             }
         }
     }

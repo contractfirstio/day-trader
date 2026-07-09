@@ -55,6 +55,7 @@ class LiquidityAllocatorViewModel(
     private var latestQuotes: Map<String, LiveQuote> = emptyMap()
     private var latestBucketState = daytrader.domain.LiquidityBucketState()
     private val sessionRollupCache = SessionRollupCache()
+    private var globalMessage: String? = null
 
     init {
         combine(
@@ -91,6 +92,7 @@ class LiquidityAllocatorViewModel(
         selectedCurrency = LiquidityBucketLogic.normalizeCurrency(currencyCode)
         allocations.clear()
         applyErrors.clear()
+        globalMessage = null
         publishUi()
     }
 
@@ -173,6 +175,42 @@ class LiquidityAllocatorViewModel(
             pending.forEach { (deploymentId, amount) ->
                 applyInternal(deploymentId, amount)
             }
+        }
+    }
+
+    fun clearSelectedCurrencyLiquidity() {
+        scope.launchUiAction(AppScreen.LIQUIDITY, "clearLiquidity") {
+            clearSelectedCurrencyLiquidityInternal()
+        }
+    }
+
+    private fun clearSelectedCurrencyLiquidityInternal() {
+        val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
+        val sessionDate = currentSessionDateIso()
+        val result = liquidityBucketRepository.clearCurrencyBucket(
+            currencyCode = currency,
+            sessionDate = sessionDate,
+        )
+        if (result.isFailure) {
+            globalMessage = result.exceptionOrNull()?.message ?: "Clear failed"
+            publishUi()
+            return
+        }
+        val clearedAmount = result.getOrThrow()
+        clearPendingStateForCurrency(currency)
+        globalMessage = "Cleared ${daytrader.presentation.Formatters.maxAtRisk(clearedAmount)} $currency liquidity"
+        liquidityBucketRepository.flushPersistence()
+        publishUi()
+    }
+
+    private fun clearPendingStateForCurrency(currency: String) {
+        val deploymentIds = latestDeployments
+            .filter { LiquidityBucketLogic.normalizeCurrency(it.currencyCode) == currency }
+            .map { it.id }
+            .toSet()
+        deploymentIds.forEach { deploymentId ->
+            allocations.remove(deploymentId)
+            applyErrors.remove(deploymentId)
         }
     }
 
@@ -290,7 +328,10 @@ class LiquidityAllocatorViewModel(
             ) {
                 selectedCurrency = built.currencyOptions.first().currencyCode
             }
-            val next = built.copy(selectedCurrency = selectedCurrency)
+            val next = built.copy(
+                selectedCurrency = selectedCurrency,
+                globalMessage = globalMessage,
+            )
             val prev = _uiState.value
             if (next.copy(lastUpdatedEpochMs = 0L) == prev.copy(lastUpdatedEpochMs = 0L)) return@safeUiEmit
             _uiState.value = next.copy(lastUpdatedEpochMs = System.currentTimeMillis())

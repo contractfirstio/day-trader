@@ -291,10 +291,10 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.CancelOpenOrdersForSymbol(symbol, preserveStopLoss))
     }
 
-    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?) {
+    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?, purpose: String) {
         val quantity = position?.quantity?.let { kotlin.math.abs(it) }
         val action = position?.quantity?.let { if (it > 0) "SELL" else "BUY" }
-        sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol, quantity, action))
+        sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol, quantity, action, purpose))
     }
 
     override fun flattenSymbolForSymbol(symbol: String) {

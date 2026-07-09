@@ -45,7 +45,7 @@ class IbTouchTurnBracketCoordinatorTest {
         advanceTimeBy(1_001)
 
         assertEquals(1, harness.failures.size)
-        assertEquals("parent_open_order_timeout", harness.failures.single().second)
+        assertEquals("bracket_ack_timeout", harness.failures.single().second)
     }
 
     @Test
@@ -137,24 +137,20 @@ class IbTouchTurnBracketCoordinatorTest {
         val failures = mutableListOf<Pair<IbTouchTurnBracketCoordinator.Pending, String>>()
 
         fun begin() {
-            coordinator.begin(plan, submission) { pending, reason ->
-                failures += pending to reason
-            }
+            coordinator.begin(
+                plan = plan,
+                submission = submission,
+                onSuccess = { pending -> successes += pending },
+                onFailure = { pending, reason -> failures += pending to reason },
+            )
         }
 
         fun onBracketTransmitted() {
-            coordinator.onBracketTransmitted(submission.parentOrderId) { pending, reason ->
-                failures += pending to reason
-            }
+            coordinator.onBracketTransmitted(submission.parentOrderId)
         }
 
         fun onOpenOrder(orderId: Int, isWorking: Boolean) {
-            coordinator.onOpenOrder(
-                orderId = orderId,
-                isWorking = isWorking,
-                onSuccess = { pending -> successes += pending },
-                onFailure = { pending, reason -> failures += pending to reason }
-            )
+            coordinator.onOpenOrder(orderId = orderId, isWorking = isWorking)
         }
 
         fun onOrderStatus(orderId: Int, status: String, remaining: Int) {
@@ -162,15 +158,11 @@ class IbTouchTurnBracketCoordinatorTest {
                 orderId = orderId,
                 status = status,
                 remainingQuantity = remaining,
-                onSuccess = { pending -> successes += pending },
-                onFailure = { pending, reason -> failures += pending to reason }
             )
         }
 
         fun onOrderError(orderId: Int, message: String) {
-            coordinator.onOrderError(orderId, message) { pending, reason ->
-                failures += pending to reason
-            }
+            coordinator.onOrderError(orderId, message)
         }
     }
 }

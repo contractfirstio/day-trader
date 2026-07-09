@@ -310,6 +310,56 @@ class E2EOpenDeadlineIbTest {
 
     @E2EIbTest
     @Test
+    fun ibMode_openDeadlineStop_whenBrokerDropsStopLoss_recoversViaFlatten() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var engine: daytrader.engine.TouchTurnEngine? = null
+        val harness = IbModeTestHarness()
+        try {
+            harness.start()
+            val repository = InMemoryStrategyDeploymentRepository()
+            repository.add(openDeadlineRunningDeployment())
+            engine = harness.createEngine(
+                repository = repository,
+                scope = scope,
+                openDeadlineConfirmTimeoutMs = 100,
+                openDeadlineFillDrainTimeoutMs = 100
+            )
+            engine.start()
+
+            harness.gateway.setPositions(listOf(shortPosition(quantity = -16)))
+            harness.gateway.setOpenOrders(listOf(stopLossOrder(quantity = 16), takeProfitOrder(quantity = 16)))
+            harness.gateway.closeClearsPosition = true
+            harness.gateway.closeClearsPositionAfterAttempts = 2
+            harness.gateway.removeProtectiveStopsOnCloseAttempt = true
+            delay(50)
+
+            engine.setBacktestSyncCommands(true)
+            engine.dispatchAndAwait(
+                TouchTurnCommand.StopSession(
+                    instanceId = E2ETestFixtures.DEPLOYMENT_ID,
+                    trigger = TouchTurnSessionStopTrigger.OPEN_DEADLINE,
+                    brokerPositionAtDecision = shortPosition(quantity = -16)
+                )
+            )
+            engine.setBacktestSyncCommands(false)
+
+            assertTrue(harness.gateway.flattenedSymbols.contains(E2ETestFixtures.SYMBOL))
+            assertTrue(harness.gateway.positions.value.none { it.symbol == E2ETestFixtures.SYMBOL })
+            assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
+
+            val closed = repository.deployments.value.single()
+                .sessionHistory
+                .single { it.status == SessionStatus.CLOSED }
+            assertEquals(TouchTurnSessionStopTrigger.OPEN_DEADLINE, closed.touchTurnRunRecord?.stopEvent?.stopTrigger)
+        } finally {
+            engine.shutdownEngine()
+            harness.shutdown()
+            scope.cancel()
+        }
+    }
+
+    @E2EIbTest
+    @Test
     fun ibMode_openDeadlineStop_whenCloseUnconfirmed_retainsStopLossAtBroker() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var engine: daytrader.engine.TouchTurnEngine? = null

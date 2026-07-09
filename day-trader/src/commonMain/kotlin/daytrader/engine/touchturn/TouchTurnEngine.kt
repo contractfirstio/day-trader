@@ -668,7 +668,8 @@ class TouchTurnEngine(
                 )
             }
             openDeadlineFillsForStop = when (exitResult) {
-                OpenDeadlineSessionExit.Result.PositionConfirmedFlat -> OpenDeadlineFillDrain.awaitClosingFill(
+                OpenDeadlineSessionExit.Result.PositionConfirmedFlat,
+                OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterRecovery -> OpenDeadlineFillDrain.awaitClosingFill(
                     gateway = gateway,
                     instance = instance,
                     fillsSeenBefore = fillsSeenBeforeExit,
@@ -2170,10 +2171,15 @@ class TouchTurnEngine(
         when (result) {
             OpenDeadlineSessionExit.Result.NoOpenPosition -> mapOf("outcome" to "no_open_position")
             OpenDeadlineSessionExit.Result.PositionConfirmedFlat -> mapOf("outcome" to "position_confirmed_flat")
+            OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterRecovery -> mapOf(
+                "outcome" to "position_confirmed_flat",
+                "recoveryFlatten" to "true"
+            )
             is OpenDeadlineSessionExit.Result.CloseUnconfirmedStopLossRetained -> mapOf(
                 "outcome" to "close_unconfirmed_stop_loss_retained",
                 "reason" to result.reason,
-                "stopLossOrderCount" to result.stopLossOrderCount.toString()
+                "stopLossOrderCount" to result.stopLossOrderCount.toString(),
+                "recoveryFlattenAttempted" to result.recoveryFlattenAttempted.toString()
             )
         }
 }

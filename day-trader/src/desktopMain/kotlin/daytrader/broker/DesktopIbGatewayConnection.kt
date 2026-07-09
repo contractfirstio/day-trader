@@ -39,6 +39,7 @@ import daytrader.domain.requiresDailyHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentPriceIncrement
+import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
 import daytrader.gateway.BlockingGatewayQueues
@@ -132,6 +133,15 @@ class DesktopIbGatewayConnection(
         val triggerPrice: Double,
         val trailAmount: Double
     )
+
+    private data class SessionCloseOrderMeta(
+        val symbol: String,
+        val action: String,
+        val quantity: Int,
+        val purpose: String
+    )
+
+    private val sessionCloseOrdersById = ConcurrentHashMap<Int, SessionCloseOrderMeta>()
     private val executionsReqId = AtomicInteger(9_001)
     private val nextOrderId = AtomicInteger(0)
     @Volatile
@@ -355,7 +365,8 @@ class DesktopIbGatewayConnection(
                             closeOpenPositionForSymbol(
                                 symbol = command.symbol,
                                 quantity = command.quantity,
-                                action = command.action
+                                action = command.action,
+                                purpose = command.purpose
                             )
                         }
                     }
@@ -857,6 +868,7 @@ class DesktopIbGatewayConnection(
         mktCapPrice: Double
     ) {
         try {
+            notifySessionCloseOrderStatus(orderId, status, filled, avgFillPrice)
             applyOrderStatus(orderId, status, filled, remaining, permId, parentId)
             notifyTouchTurnBracketOrderStatus(orderId, status, remaining)
             if (status.equals("Filled", ignoreCase = true)) {
@@ -1137,9 +1149,8 @@ class DesktopIbGatewayConnection(
         }
 
         if (reqId > 0) {
-            touchTurnBracketCoordinator.onOrderError(reqId, errorMsg ?: "") { pending, reason ->
-                emitTouchTurnBracketFailure(pending, reason)
-            }
+            notifySessionCloseOrderError(reqId, errorCode, errorMsg)
+            touchTurnBracketCoordinator.onOrderError(reqId, errorMsg ?: "")
         }
 
         when {
@@ -1708,9 +1719,7 @@ class DesktopIbGatewayConnection(
             client.eDisconnect()
         }
         requestPacer.clear()
-        touchTurnBracketCoordinator.clearAll { pending, reason ->
-            emitTouchTurnBracketFailure(pending, reason)
-        }
+        touchTurnBracketCoordinator.clearAll()
         executionsRefresh.reset()
         clearPositionState()
         emitConnectionState(GatewayConnectionState.Disconnected)
@@ -2251,6 +2260,7 @@ class DesktopIbGatewayConnection(
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         fillsByExecId.clear()
         orderParentByOrderId.clear()
+        sessionCloseOrdersById.clear()
         trailAdjustmentOrderIds.clear()
         stopTrailParamsByOrderId.clear()
         emit(GatewayEvent.FillsSnapshot(emptyList()))
@@ -2343,40 +2353,81 @@ class DesktopIbGatewayConnection(
         requestId: Long,
         request: daytrader.domain.TouchTurnBracketResizeRequest
     ) {
+        val fillFailure = bracketResizeFillFailure(request.orderIds)
+        if (fillFailure != null) {
+            emitTouchTurnBracketResizeFailure(requestId, fillFailure)
+            return
+        }
         val submission = IbTouchTurnBracketPlacer.buildResize(
             config = config,
             plan = request.plan,
             orderIds = request.orderIds
         ) ?: run {
-            emit(
-                GatewayEvent.TouchTurnBracketResized(
-                    requestId = requestId,
-                    result = Result.failure(IllegalStateException("bracket_resize_build_failed"))
-                )
-            )
+            emitTouchTurnBracketResizeFailure(requestId, "bracket_resize_build_failed")
             return
         }
+        touchTurnBracketCoordinator.begin(
+            plan = request.plan,
+            submission = submission,
+            onSuccess = { pending ->
+                emitTouchTurnBracketResizeSuccess(requestId, pending.plan.quantity, submission)
+            },
+            onFailure = { _, reason ->
+                emitTouchTurnBracketResizeFailure(requestId, reason)
+            },
+        )
         paced {
-            if (!client.isConnected) return@paced
+            if (!client.isConnected) {
+                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected")
+                return@paced
+            }
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
             client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
             client.placeOrder(submission.stopLossOrderId, submission.contract, submission.stopLoss)
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
-            IbGatewayLog.touchTurnBracketResized(
-                submission.symbol,
-                request.plan.quantity,
-                submission.parentOrderId
-            )
-            scheduleExecutionsRefresh()
-            emit(
-                GatewayEvent.TouchTurnBracketResized(
-                    requestId = requestId,
-                    result = Result.success(request.plan.quantity)
-                )
-            )
+            touchTurnBracketCoordinator.onBracketTransmitted(submission.parentOrderId)
         }
+    }
+
+    private fun bracketResizeFillFailure(
+        orderIds: daytrader.domain.TouchTurnBracketOrderIds
+    ): String? {
+        orderIds.allIds.forEach { orderId ->
+            val open = openOrdersById[orderId] ?: return@forEach
+            if (open.filled > 0) return "entry_already_filled"
+            if (open.remaining <= 0) return "entry_not_working"
+        }
+        return null
+    }
+
+    private fun emitTouchTurnBracketResizeSuccess(
+        requestId: Long,
+        quantity: Int,
+        submission: IbTouchTurnBracketSubmission,
+    ) {
+        IbGatewayLog.touchTurnBracketResized(
+            submission.symbol,
+            quantity,
+            submission.parentOrderId
+        )
+        scheduleExecutionsRefresh()
+        emit(
+            GatewayEvent.TouchTurnBracketResized(
+                requestId = requestId,
+                result = Result.success(quantity)
+            )
+        )
+    }
+
+    private fun emitTouchTurnBracketResizeFailure(requestId: Long, reason: String) {
+        emit(
+            GatewayEvent.TouchTurnBracketResized(
+                requestId = requestId,
+                result = Result.failure(IllegalStateException(reason))
+            )
+        )
     }
 
     private fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) {
@@ -2412,10 +2463,15 @@ class DesktopIbGatewayConnection(
         val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
             emitTouchTurnBracketFailure(pending, reason)
         }
-        touchTurnBracketCoordinator.begin(plan, submission, onFailure)
+        touchTurnBracketCoordinator.begin(
+            plan = plan,
+            submission = submission,
+            onSuccess = ::emitTouchTurnBracketSuccess,
+            onFailure = onFailure,
+        )
         pacedPriority {
             if (!client.isConnected) {
-                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected", onFailure)
+                touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected")
                 return@pacedPriority
             }
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
@@ -2424,17 +2480,12 @@ class DesktopIbGatewayConnection(
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
-            touchTurnBracketCoordinator.onBracketTransmitted(submission.parentOrderId, onFailure)
+            touchTurnBracketCoordinator.onBracketTransmitted(submission.parentOrderId)
         }
     }
 
     private fun notifyTouchTurnBracketOpenOrder(orderId: Int, isWorking: Boolean) {
-        touchTurnBracketCoordinator.onOpenOrder(
-            orderId = orderId,
-            isWorking = isWorking,
-            onSuccess = ::emitTouchTurnBracketSuccess,
-            onFailure = ::emitTouchTurnBracketFailure
-        )
+        touchTurnBracketCoordinator.onOpenOrder(orderId = orderId, isWorking = isWorking)
     }
 
     private fun notifyTouchTurnBracketOrderStatus(orderId: Int, status: String, remaining: Decimal) {
@@ -2443,8 +2494,6 @@ class DesktopIbGatewayConnection(
             orderId = orderId,
             status = status,
             remainingQuantity = remainingQty,
-            onSuccess = ::emitTouchTurnBracketSuccess,
-            onFailure = ::emitTouchTurnBracketFailure
         )
     }
 
@@ -2522,31 +2571,35 @@ class DesktopIbGatewayConnection(
 
     private fun flattenSymbolForSymbol(symbol: String) {
         cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)
-        closeOpenPositionForSymbol(symbol)
+        closeOpenPositionForSymbol(symbol, purpose = "flatten")
     }
 
     private fun closeOpenPositionForSymbol(
         symbol: String,
         quantity: Int? = null,
-        action: String? = null
+        action: String? = null,
+        purpose: String = "session_stop"
     ) {
-        if (!client.isConnected) return
+        if (!client.isConnected) {
+            logSessionPositionCloseSkipped(symbol, "Not connected", purpose)
+            return
+        }
         val open = openPositions.values.firstOrNull { pos ->
             SymbolMarkets.symbolsMatch(symbol, pos.symbol) && pos.quantity != 0
         }
         val closeQty = quantity ?: open?.quantity?.let { kotlin.math.abs(it) }
         if (closeQty == null || closeQty == 0) {
-            if (open == null) {
-                IbGatewayLog.sessionPositionCloseSkipped(symbol, "No open position in gateway cache")
+            if (open == null && quantity == null) {
+                logSessionPositionCloseSkipped(symbol, "No open position in gateway cache", purpose)
             }
             return
         }
         val closeAction = action ?: open?.let { if (it.quantity > 0) "SELL" else "BUY" } ?: run {
-            IbGatewayLog.sessionPositionCloseSkipped(symbol, "Cannot infer close action")
+            logSessionPositionCloseSkipped(symbol, "Cannot infer close action", purpose)
             return
         }
         val orderId = allocateOrderIds(1) ?: run {
-            IbGatewayLog.sessionPositionCloseSkipped(symbol, "Order id not ready")
+            logSessionPositionCloseSkipped(symbol, "Order id not ready", purpose)
             return
         }
         val order = Order()
@@ -2566,13 +2619,86 @@ class DesktopIbGatewayConnection(
         } else {
             IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(symbol))
         }
+        sessionCloseOrdersById[orderId] = SessionCloseOrderMeta(
+            symbol = symbol,
+            action = closeAction,
+            quantity = closeQty,
+            purpose = purpose
+        )
         paced {
             if (!client.isConnected) return@paced
             client.placeOrder(orderId, contract, order)
             scheduleExecutionsRefresh()
         }
         IbGatewayLog.sessionPositionClosePlaced(symbol, orderId, closeAction, closeQty)
+        ExecutionGatewayLog.sessionPositionClosePlaced(
+            brokerId = BrokerId.INTERACTIVE_BROKERS,
+            symbol = symbol,
+            orderId = orderId,
+            action = closeAction,
+            quantity = closeQty,
+            purpose = purpose
+        )
     }
+
+    private fun logSessionPositionCloseSkipped(symbol: String, reason: String, purpose: String) {
+        IbGatewayLog.sessionPositionCloseSkipped(symbol, reason)
+        ExecutionGatewayLog.sessionPositionCloseSkipped(
+            brokerId = BrokerId.INTERACTIVE_BROKERS,
+            symbol = symbol,
+            reason = reason,
+            purpose = purpose
+        )
+    }
+
+    private fun notifySessionCloseOrderStatus(
+        orderId: Int,
+        status: String,
+        filled: Decimal,
+        avgFillPrice: Double
+    ) {
+        val meta = sessionCloseOrdersById[orderId] ?: return
+        when {
+            status.equals("Filled", ignoreCase = true) -> {
+                ExecutionGatewayLog.sessionPositionCloseFilled(
+                    brokerId = BrokerId.INTERACTIVE_BROKERS,
+                    symbol = meta.symbol,
+                    orderId = orderId,
+                    purpose = meta.purpose,
+                    filledQuantity = decimalToInt(filled),
+                    avgFillPrice = avgFillPrice
+                )
+                sessionCloseOrdersById.remove(orderId)
+            }
+            isRejectedSessionCloseStatus(status) -> {
+                ExecutionGatewayLog.sessionPositionCloseRejected(
+                    brokerId = BrokerId.INTERACTIVE_BROKERS,
+                    symbol = meta.symbol,
+                    orderId = orderId,
+                    purpose = meta.purpose,
+                    status = status
+                )
+                sessionCloseOrdersById.remove(orderId)
+            }
+        }
+    }
+
+    private fun notifySessionCloseOrderError(orderId: Int, errorCode: Int, errorMsg: String) {
+        val meta = sessionCloseOrdersById.remove(orderId) ?: return
+        ExecutionGatewayLog.sessionPositionCloseRejected(
+            brokerId = BrokerId.INTERACTIVE_BROKERS,
+            symbol = meta.symbol,
+            orderId = orderId,
+            purpose = meta.purpose,
+            errorCode = errorCode,
+            errorMessage = errorMsg
+        )
+    }
+
+    private fun isRejectedSessionCloseStatus(status: String): Boolean =
+        status.equals("Cancelled", ignoreCase = true) ||
+            status.equals("ApiCancelled", ignoreCase = true) ||
+            status.equals("Inactive", ignoreCase = true)
 
     private fun registerBracketOrderIds(
         parentOrderId: Int,

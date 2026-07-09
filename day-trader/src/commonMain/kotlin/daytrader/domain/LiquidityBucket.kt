@@ -155,6 +155,22 @@ object LiquidityBucketLogic {
         return Result.success(state.copy(buckets = state.buckets + (key to updated)))
     }
 
+    /** Discards today's liquidity pool for [currencyCode] (available balance and credit/debit history). */
+    fun clearBucketForDate(
+        state: LiquidityBucketState,
+        currencyCode: String,
+        sessionDate: String,
+    ): Result<Pair<LiquidityBucketState, Int>> {
+        val key = normalizeCurrency(currencyCode)
+        val rolled = rollBucketForDate(bucketForCurrency(state, key), sessionDate)
+        if (rolled.available <= 0 && rolled.credits.isEmpty() && rolled.debits.isEmpty()) {
+            return Result.failure(IllegalStateException("nothing_to_clear"))
+        }
+        val clearedAmount = rolled.available
+        val nextBuckets = state.buckets - key
+        return Result.success(state.copy(buckets = nextBuckets) to clearedAmount)
+    }
+
     fun currenciesWithActivity(state: LiquidityBucketState): List<String> =
         state.buckets.values
             .filter { it.available > 0 || it.credits.isNotEmpty() }

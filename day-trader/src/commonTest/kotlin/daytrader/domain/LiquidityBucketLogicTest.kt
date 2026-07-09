@@ -115,4 +115,52 @@ class LiquidityBucketLogicTest {
         )
         assertFalse(LiquidityBucketLogic.isNoTradeCreditEligible(touchTurn, 500))
     }
+
+    @Test
+    fun clearBucketForDate_removesCurrencyPoolAndReturnsClearedAmount() {
+        val sessionDate = "2026-06-12"
+        var state = LiquidityBucketLogic.creditSession(
+            state = LiquidityBucketState(),
+            currencyCode = "HKD",
+            sessionDate = sessionDate,
+            sessionId = "s-hkd",
+            deploymentId = "d1",
+            symbol = "939",
+            amount = 800,
+            outcome = TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            creditedAtEpochMs = 1L,
+        )
+        state = LiquidityBucketLogic.creditSession(
+            state = state,
+            currencyCode = "USD",
+            sessionDate = sessionDate,
+            sessionId = "s-usd",
+            deploymentId = "d2",
+            symbol = "AAPL",
+            amount = 500,
+            outcome = TouchTurnSessionOutcome.NO_TRADE_DOJI,
+            creditedAtEpochMs = 2L,
+        )
+
+        val cleared = LiquidityBucketLogic.clearBucketForDate(
+            state = state,
+            currencyCode = "HKD",
+            sessionDate = sessionDate,
+        )
+
+        assertTrue(cleared.isSuccess)
+        assertEquals(800, cleared.getOrThrow().second)
+        assertFalse(cleared.getOrThrow().first.buckets.containsKey("HKD"))
+        assertEquals(500, LiquidityBucketLogic.bucketForCurrency(cleared.getOrThrow().first, "USD").available)
+    }
+
+    @Test
+    fun clearBucketForDate_failsWhenNothingToClear() {
+        val result = LiquidityBucketLogic.clearBucketForDate(
+            state = LiquidityBucketState(),
+            currencyCode = "HKD",
+            sessionDate = "2026-06-12",
+        )
+        assertTrue(result.isFailure)
+    }
 }

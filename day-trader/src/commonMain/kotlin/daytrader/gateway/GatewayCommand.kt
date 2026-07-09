@@ -95,7 +95,9 @@ sealed interface GatewayCommand {
     data class CloseOpenPositionForSymbol(
         val symbol: String,
         val quantity: Int? = null,
-        val action: String? = null
+        val action: String? = null,
+        /** Trace tag for [ExecutionGatewayLog] — e.g. open_deadline, flatten. */
+        val purpose: String = "session_stop"
     ) : GatewayCommand
 
     /** Cancel working orders and close any open position for [symbol] (session stop). */

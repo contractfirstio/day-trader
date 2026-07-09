@@ -89,8 +89,16 @@ class FakeBrokerGateway(
         private set
     /** When true, [closeOpenPositionForSymbol] stages an exit fill delivered on the next [refreshFills]. */
     var synthesizeExitFillOnClose: Boolean = false
+    /**
+     * When true, the first [closeOpenPositionForSymbol] for a symbol drops protective stop orders
+     * (mirrors IB bracket behaviour when a deadline market-close is placed).
+     */
+    var removeProtectiveStopsOnCloseAttempt: Boolean = false
+    /** Position clears only after this many [closeOpenPositionForSymbol] calls when [closeClearsPosition] is true. */
+    var closeClearsPositionAfterAttempts: Int = 1
 
     private var pendingExitFill: BrokerFill? = null
+    private val closeAttemptCountBySymbol = mutableMapOf<String, Int>()
 
     private val _connectionState = MutableStateFlow<GatewayConnectionState>(GatewayConnectionState.Connected)
     override val connectionState: StateFlow<GatewayConnectionState> = _connectionState.asStateFlow()
@@ -285,9 +293,17 @@ class FakeBrokerGateway(
         }
     }
 
-    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?) {
+    override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?, purpose: String) {
         position?.let { closedPositions += it }
-        if (closeClearsPosition && position != null) {
+        if (removeProtectiveStopsOnCloseAttempt) {
+            _openOrders.value = _openOrders.value.filterNot { order ->
+                daytrader.broker.SymbolMarkets.symbolsMatch(symbol, order.symbol) &&
+                    daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order)
+            }
+        }
+        val normalized = daytrader.broker.SymbolMarkets.normalizeSymbol(symbol)
+        val attempts = closeAttemptCountBySymbol.merge(normalized, 1, Int::plus)!!
+        if (closeClearsPosition && position != null && attempts >= closeClearsPositionAfterAttempts) {
             _positions.value = _positions.value.filterNot {
                 daytrader.broker.SymbolMarkets.symbolsMatch(symbol, it.symbol)
             }

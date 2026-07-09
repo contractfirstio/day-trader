@@ -112,7 +112,11 @@ interface BrokerGateway {
     fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false)
 
     /** Market-close a non-flat position for [symbol] (e.g. when a strategy run stops). */
-    fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition? = null)
+    fun closeOpenPositionForSymbol(
+        symbol: String,
+        position: AccountPosition? = null,
+        purpose: String = "session_stop"
+    )
 
     /** Cancel open orders and close any position for [symbol] (session stop). */
     fun flattenSymbolForSymbol(symbol: String)

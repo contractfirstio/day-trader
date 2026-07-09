@@ -66,6 +66,7 @@ object LiquidityAllocatorMapper {
             allocatedPending = allocatedTotal,
             remainingLiquidity = (bucket.available - allocatedTotal).coerceAtLeast(0),
             creditCount = bucket.credits.size,
+            canClearLiquidity = bucket.available > 0 || bucket.credits.isNotEmpty(),
             rows = rows,
             lastUpdatedEpochMs = 0L,
         )

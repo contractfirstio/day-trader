@@ -59,6 +59,96 @@ object ExecutionGatewayLog {
         )
     }
 
+    fun sessionPositionClosePlaced(
+        brokerId: BrokerId,
+        symbol: String,
+        orderId: Int,
+        action: String,
+        quantity: Int,
+        purpose: String
+    ) {
+        if (!enabled) return
+        event(
+            type = "session_position_close_placed",
+            brokerId = brokerId,
+            symbol = symbol,
+            details = mapOf(
+                "orderId" to orderId.toString(),
+                "action" to action,
+                "quantity" to quantity.toString(),
+                "orderType" to "MKT",
+                "purpose" to purpose
+            )
+        )
+    }
+
+    fun sessionPositionCloseSkipped(
+        brokerId: BrokerId,
+        symbol: String,
+        reason: String,
+        purpose: String
+    ) {
+        if (!enabled) return
+        event(
+            type = "session_position_close_skipped",
+            brokerId = brokerId,
+            symbol = symbol,
+            details = mapOf(
+                "reason" to reason,
+                "purpose" to purpose
+            )
+        )
+    }
+
+    fun sessionPositionCloseRejected(
+        brokerId: BrokerId,
+        symbol: String,
+        orderId: Int,
+        purpose: String,
+        status: String? = null,
+        errorCode: Int? = null,
+        errorMessage: String? = null
+    ) {
+        if (!enabled) return
+        event(
+            type = "session_position_close_rejected",
+            brokerId = brokerId,
+            symbol = symbol,
+            details = buildMap {
+                put("orderId", orderId.toString())
+                put("purpose", purpose)
+                status?.let { put("status", it) }
+                errorCode?.let { put("errorCode", it.toString()) }
+                errorMessage?.let { put("errorMessage", it) }
+            }
+        )
+    }
+
+    fun sessionPositionCloseFilled(
+        brokerId: BrokerId,
+        symbol: String,
+        orderId: Int,
+        purpose: String,
+        filledQuantity: Int,
+        avgFillPrice: Double
+    ) {
+        if (!enabled) return
+        event(
+            type = "session_position_close_filled",
+            brokerId = brokerId,
+            symbol = symbol,
+            details = mapOf(
+                "orderId" to orderId.toString(),
+                "purpose" to purpose,
+                "filledQuantity" to filledQuantity.toString(),
+                "avgFillPrice" to avgFillPrice.toString()
+            )
+        )
+    }
+
+    /** Test hook — captures events without writing to disk. */
+    internal var testListener: ((type: String, symbol: String?, details: Map<String, String>) -> Unit)? = null
+
     private fun event(
         type: String,
         brokerId: BrokerId,
@@ -77,6 +167,7 @@ object ExecutionGatewayLog {
                 details = details
             )
         )
+        testListener?.invoke(type, symbol, details)
         DiagnosticJsonlWriter.appendLine(AppDataFiles.executionGatewayLogFileName(), line)
     }
 }
