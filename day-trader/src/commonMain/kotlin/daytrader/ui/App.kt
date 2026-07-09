@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,6 +19,8 @@ import daytrader.domain.InstrumentIdentity
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.IbStreamingMarketDataType
+import daytrader.data.FillsRepository
+import daytrader.data.HistoricalTradeSync
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.presentation.navigation.AppScreen
@@ -46,6 +49,8 @@ fun App(
     brokerGateway: BrokerGateway,
     positionRepository: PositionRepository,
     openOrderRepository: OpenOrderRepository,
+    fillsRepository: FillsRepository,
+    historicalTradeSync: HistoricalTradeSync? = null,
     brokerKind: BrokerKind,
     touchTurnSessionGateway: BrokerGateway = brokerGateway,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
@@ -62,11 +67,14 @@ fun App(
     },
     tradingClock: TradingClock = WallClock,
     onRegisterApplicationQuit: ((ApplicationQuitCoordinator) -> Unit)? = null,
-    onChangeBrokerMode: (() -> Unit)? = null
+    onChangeBrokerMode: (() -> Unit)? = null,
+    onOpenIbSettings: (() -> Unit)? = null,
 ) {
     val dependencies = rememberAppDependencies(
         positionRepository = positionRepository,
         openOrderRepository = openOrderRepository,
+        fillsRepository = fillsRepository,
+        historicalTradeSync = historicalTradeSync,
         brokerGateway = brokerGateway,
         touchTurnSessionGateway = touchTurnSessionGateway,
         brokerKind = brokerKind,
@@ -316,6 +324,17 @@ fun App(
                             )
                         )
                         NavigationRailItem(
+                            selected = currentScreen == AppScreen.TRADES,
+                            onClick = { currentScreen = AppScreen.TRADES },
+                            icon = { Icon(Icons.Default.SwapHoriz, "Trades") },
+                            label = { Text("Trades") },
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = GainGreen,
+                                selectedTextColor = Color.White,
+                                indicatorColor = Color.Transparent
+                            )
+                        )
+                        NavigationRailItem(
                             selected = currentScreen == AppScreen.POSITIONS,
                             onClick = { currentScreen = AppScreen.POSITIONS },
                             icon = { Icon(Icons.Default.Wallet, "Positions") },
@@ -355,6 +374,12 @@ fun App(
                                 viewModel = dependencies.ordersViewModel,
                                 connectionState = connectionState,
                                 brokerKind = brokerKind
+                            )
+                            AppScreen.TRADES -> TradesScreen(
+                                viewModel = dependencies.tradesViewModel,
+                                connectionState = connectionState,
+                                brokerKind = brokerKind,
+                                onOpenIbSettings = onOpenIbSettings,
                             )
                             AppScreen.STRATEGIES -> StrategiesScreen(dependencies.strategiesViewModel)
                             AppScreen.WATCHLIST -> WatchlistScreen(dependencies.watchlistViewModel)

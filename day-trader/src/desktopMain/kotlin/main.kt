@@ -13,12 +13,15 @@ import androidx.compose.ui.window.rememberWindowState
 import java.awt.Desktop
 import java.awt.desktop.QuitResponse
 import javax.swing.SwingUtilities
+import daytrader.broker.IbFlexHistoricalTradeSync
 import daytrader.broker.IbGatewayConfig
 import daytrader.broker.IbGatewaySettingsStore
+import daytrader.data.FileFillsRepository
 import daytrader.data.GatewayOpenOrderRepository
 import daytrader.data.GatewayPositionRepository
 import daytrader.gateway.BrokerKind
 import daytrader.gateway.BrokerRuntime
+import daytrader.gateway.fillsGatewayFor
 import daytrader.platform.AppFileSystem
 import daytrader.platform.CrashLogging
 import daytrader.platform.DesktopFolderPicker
@@ -204,7 +207,11 @@ fun main() {
                                 runtime.start()
                                 phase = StartupPhase.Running(runtime)
                             }
-                        }
+                        },
+                        onOpenIbSettings = {
+                            ibGatewayConfig = IbGatewayConfig.load()
+                            showIbSettings = true
+                        },
                     )
 
                     StartupPhase.PickSession -> {
@@ -285,10 +292,33 @@ fun main() {
                         val openOrderRepository = remember(current.runtime) {
                             GatewayOpenOrderRepository(current.runtime.gateway)
                         }
+                        val fillsRepository = remember(current.runtime) {
+                            val fillsGateway = fillsGatewayFor(
+                                brokerKind = current.runtime.kind,
+                                brokerGateway = current.runtime.gateway,
+                                touchTurnSessionGateway = current.runtime.marketDataGateway
+                            ) ?: current.runtime.gateway
+                            FileFillsRepository(fillsGateway)
+                        }
+                        val historicalTradeSync = remember(current.runtime, ibGatewayConfig) {
+                            when (current.runtime.kind) {
+                                BrokerKind.INTERACTIVE_BROKERS,
+                                BrokerKind.EMULATOR_LIVE_IB_MARKET_DATA -> {
+                                    if (ibGatewayConfig.hasFlexTradeSync) {
+                                        IbFlexHistoricalTradeSync(ibGatewayConfig)
+                                    } else {
+                                        null
+                                    }
+                                }
+                                else -> null
+                            }
+                        }
                         App(
                             brokerGateway = current.runtime.gateway,
                             positionRepository = positionRepository,
                             openOrderRepository = openOrderRepository,
+                            fillsRepository = fillsRepository,
+                            historicalTradeSync = historicalTradeSync,
                             brokerKind = current.runtime.kind,
                             touchTurnSessionGateway = current.runtime.marketDataGateway
                                 ?: current.runtime.gateway,
@@ -304,7 +334,8 @@ fun main() {
                             loadReplayBundle = SessionBundleDirectoryReader::loadReplayableFromDirectory,
                             tradingClock = current.runtime.clock,
                             onRegisterApplicationQuit = { applicationQuit = it },
-                            onChangeBrokerMode = { requestChangeBrokerMode() }
+                            onChangeBrokerMode = { requestChangeBrokerMode() },
+                            onOpenIbSettings = { showIbSettings = true },
                         )
                     }
                 }

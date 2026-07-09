@@ -15,6 +15,8 @@ import daytrader.data.ReplaySettingsRepository
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.WatchlistRepository
+import daytrader.data.FillsRepository
+import daytrader.data.HistoricalTradeSync
 import daytrader.data.OpenOrderRepository
 import daytrader.data.PositionRepository
 import daytrader.data.ReversalScoreService
@@ -33,6 +35,7 @@ import daytrader.engine.TouchTurnEnginePort
 import daytrader.execution.BrokerGatewayExecutionManager
 import daytrader.execution.LoggingExecutionManager
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.fillsGatewayFor
 import daytrader.gateway.BrokerId
 import daytrader.gateway.BrokerKind
 import daytrader.marketdata.BrokerGatewayMarketDataProvider
@@ -40,6 +43,7 @@ import daytrader.presentation.markets.MarketFilterState
 import daytrader.presentation.liquidity.LiquidityAllocatorViewModel
 import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.PositionsViewModel
+import daytrader.presentation.trades.TradesViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.execution.ExecutionManager
 import daytrader.presentation.watchlist.WatchlistViewModel
@@ -69,6 +73,7 @@ data class AppDependencies(
     val strategiesViewModel: StrategiesViewModel,
     val positionsViewModel: PositionsViewModel,
     val ordersViewModel: OrdersViewModel,
+    val tradesViewModel: TradesViewModel,
     val watchlistViewModel: WatchlistViewModel,
     val liquidityAllocatorViewModel: LiquidityAllocatorViewModel,
     val watchlistStrategyCreateBridge: WatchlistStrategyCreateBridge,
@@ -89,6 +94,8 @@ data class AppDependencies(
 fun rememberAppDependencies(
     positionRepository: PositionRepository,
     openOrderRepository: OpenOrderRepository,
+    fillsRepository: FillsRepository,
+    historicalTradeSync: HistoricalTradeSync? = null,
     brokerGateway: BrokerGateway? = null,
     touchTurnSessionGateway: BrokerGateway? = null,
     brokerKind: BrokerKind = BrokerKind.EMULATOR,
@@ -123,6 +130,8 @@ fun rememberAppDependencies(
         marketFilter,
         positionRepository,
         openOrderRepository,
+        fillsRepository,
+        historicalTradeSync,
         brokerGateway,
         touchTurnSessionGateway,
         brokerKind,
@@ -320,6 +329,17 @@ fun rememberAppDependencies(
                 executionGateway = brokerGateway ?: touchTurnSessionGateway,
                 brokerKind = brokerKind
             ),
+            tradesViewModel = TradesViewModel(
+                repository = fillsRepository,
+                executionGateway = fillsGatewayFor(
+                    brokerKind = brokerKind,
+                    brokerGateway = brokerGateway,
+                    touchTurnSessionGateway = touchTurnSessionGateway
+                ),
+                historicalTradeSync = historicalTradeSync,
+                brokerKind = brokerKind,
+                tradingClock = tradingClock
+            ),
             watchlistViewModel = watchlistViewModel,
             liquidityAllocatorViewModel = liquidityAllocatorViewModel,
             watchlistStrategyCreateBridge = watchlistStrategyCreateBridge,
@@ -338,6 +358,7 @@ fun rememberAppDependencies(
                     liquidity = liquidityBucketRepository,
                     appState = appStateRepository,
                     replaySettings = replaySettingsRepository,
+                    fills = fillsRepository,
                 )
             },
         )

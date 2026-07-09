@@ -54,6 +54,14 @@ object JsonFileStore {
         write(AppDataFiles.WATCHLISTS, document)
     }
 
+    fun readTrades(): TradesDocument? =
+        readWithBackup<TradesDocument>(AppDataFiles.TRADES, AppDataFiles.TRADES_BACKUP).value
+
+    fun writeTrades(document: TradesDocument) {
+        backupIfPresent(AppDataFiles.TRADES, AppDataFiles.TRADES_BACKUP)
+        write(AppDataFiles.TRADES, document)
+    }
+
     fun readLiquidityBuckets(): LiquidityBucketsDocument? =
         readWithBackup<LiquidityBucketsDocument>(
             AppDataFiles.LIQUIDITY_BUCKETS,

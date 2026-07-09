@@ -45,6 +45,7 @@ fun BrokerSelectionScreen(
     selected: BrokerKind,
     onSelect: (BrokerKind) -> Unit,
     onContinue: () -> Unit,
+    onOpenIbSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -120,8 +121,24 @@ fun BrokerSelectionScreen(
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (onOpenIbSettings != null && selected.usesLiveIbMarketData && selected != BrokerKind.REPLAY) {
+                    Button(
+                        onClick = onOpenIbSettings,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 640.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SurfaceDark,
+                            contentColor = TextSecondary
+                        )
+                    ) {
+                        Text("Interactive Brokers Settings…", fontSize = 14.sp)
+                    }
+                }
                 Button(
                     onClick = onContinue,
                     modifier = Modifier

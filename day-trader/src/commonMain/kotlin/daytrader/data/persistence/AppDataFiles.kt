@@ -15,6 +15,9 @@ object AppDataFiles {
     /** Broker-scoped: `{broker-scope}/watchlists.json` (separate file per emulator / hybrid / IB / replay). */
     const val WATCHLISTS = "watchlists.json"
     const val WATCHLISTS_BACKUP = "watchlists.json.bak"
+    /** Broker-scoped account fill history for the Trades screen. */
+    const val TRADES = "trades.json"
+    const val TRADES_BACKUP = "trades.json.bak"
 
     /**
      * Per-session log root (paired application + price logs).

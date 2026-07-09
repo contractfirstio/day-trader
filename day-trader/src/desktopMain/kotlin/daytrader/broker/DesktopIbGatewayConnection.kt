@@ -7,7 +7,6 @@ import com.ib.client.ContractDetails
 import com.ib.client.Decimal
 import com.ib.client.DefaultEWrapper
 import com.ib.client.Execution
-import com.ib.client.ExecutionFilter
 import com.ib.client.EClientSocket
 import com.ib.client.EJavaSignal
 import com.ib.client.EReader
@@ -365,9 +364,7 @@ class DesktopIbGatewayConnection(
                             flattenSymbolForSymbol(command.symbol)
                         }
                     }
-                    GatewayCommand.RequestExecutions -> {
-                        if (!marketDataOnly) scheduleExecutionsRefresh()
-                    }
+                    GatewayCommand.RequestExecutions -> scheduleExecutionsRefresh()
                     GatewayCommand.RequestPositions -> {
                         if (!marketDataOnly) requestPositions()
                     }
@@ -791,6 +788,7 @@ class DesktopIbGatewayConnection(
             client.reqMarketDataType(streamingMarketDataType.ibCode)
         }
         if (marketDataOnly) {
+            scheduleExecutionsRefresh()
             resubscribeAllStreamingSymbols()
             return
         }
@@ -2628,12 +2626,7 @@ class DesktopIbGatewayConnection(
     private fun enqueueRequestExecutions() {
         if (!client.isConnected) return
         val reqId = executionsReqId.incrementAndGet()
-        val filter = ExecutionFilter().apply {
-            clientId(config.clientId)
-            if (config.accountCode.isNotBlank()) {
-                acctCode(config.accountCode)
-            }
-        }
+        val filter = IbExecutionFilterFactory.forTodayExecutions(accountCode = config.accountCode)
         IbGatewayLog.requestingExecutions(reqId)
         client.reqExecutions(reqId, filter)
     }
@@ -2676,7 +2669,6 @@ class DesktopIbGatewayConnection(
     }
 
     private fun publishFills() {
-        if (marketDataOnly) return
         emit(
             GatewayEvent.FillsSnapshot(
                 fillsByExecId.values.sortedWith(

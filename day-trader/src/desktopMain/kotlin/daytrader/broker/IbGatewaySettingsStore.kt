@@ -11,7 +11,9 @@ internal data class IbGatewaySettingsRecord(
     val host: String = "127.0.0.1",
     val port: Int = 4001,
     val clientId: Int = 1,
-    val accountCode: String = ""
+    val accountCode: String = "",
+    val flexToken: String = "",
+    val flexTradesQueryId: String = "",
 )
 
 internal object IbGatewaySettingsStore {
@@ -27,7 +29,10 @@ internal object IbGatewaySettingsStore {
             host = envOrPersisted("DAY_TRADER_IB_HOST", persisted?.host) ?: "127.0.0.1",
             port = envOrPersistedInt("DAY_TRADER_IB_PORT", persisted?.port) ?: 4001,
             clientId = envOrPersistedInt("DAY_TRADER_IB_CLIENT_ID", persisted?.clientId) ?: 1,
-            accountCode = System.getenv("DAY_TRADER_IB_ACCOUNT") ?: persisted?.accountCode.orEmpty()
+            accountCode = System.getenv("DAY_TRADER_IB_ACCOUNT") ?: persisted?.accountCode.orEmpty(),
+            flexToken = System.getenv("DAY_TRADER_IB_FLEX_TOKEN") ?: persisted?.flexToken.orEmpty(),
+            flexTradesQueryId = System.getenv("DAY_TRADER_IB_FLEX_TRADES_QUERY_ID")
+                ?: persisted?.flexTradesQueryId.orEmpty(),
         )
     }
 
@@ -36,7 +41,9 @@ internal object IbGatewaySettingsStore {
             host = config.host.trim(),
             port = config.port,
             clientId = config.clientId,
-            accountCode = config.accountCode.trim()
+            accountCode = config.accountCode.trim(),
+            flexToken = config.flexToken.trim(),
+            flexTradesQueryId = config.flexTradesQueryId.trim(),
         )
         AppFileSystem.writeApplicationRootTextAtomic(
             AppDataFiles.IB_GATEWAY_SETTINGS,

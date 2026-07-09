@@ -10,11 +10,13 @@ object PersistenceDrain {
         liquidity: LiquidityBucketRepository? = null,
         appState: StrategiesAppStateRepository? = null,
         replaySettings: ReplaySettingsRepository? = null,
+        fills: FillsRepository? = null,
     ) {
         deployments.flushPersistenceBlocking()
         watchlists?.flushPersistenceBlocking()
         liquidity?.flushPersistenceBlocking()
         appState?.flushPersistenceBlocking()
         replaySettings?.flushPersistenceBlocking()
+        fills?.flushPersistenceBlocking()
     }
 }

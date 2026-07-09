@@ -41,6 +41,8 @@ fun IbGatewaySettingsDialog(
     var port by remember(initial) { mutableStateOf(initial.port.toString()) }
     var clientId by remember(initial) { mutableStateOf(initial.clientId.toString()) }
     var accountCode by remember(initial) { mutableStateOf(initial.accountCode) }
+    var flexToken by remember(initial) { mutableStateOf(initial.flexToken) }
+    var flexTradesQueryId by remember(initial) { mutableStateOf(initial.flexTradesQueryId) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -73,6 +75,32 @@ fun IbGatewaySettingsDialog(
                     onValueChange = { accountCode = it },
                     supportingText = "Leave blank to subscribe to all accounts."
                 )
+                Text(
+                    "Settled trade history (Flex Web Service)",
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    "In IB Client Portal (not TWS): Menu → Reporting → Flex Queries. " +
+                        "Create an Activity Flex Query with the Trades section, then open the gear icon " +
+                        "→ Flex Web Service Configuration to enable and copy the token. " +
+                        "Live accounts only — paper accounts cannot use Flex.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+                IbSettingsField(
+                    label = "Flex token",
+                    value = flexToken,
+                    onValueChange = { flexToken = it },
+                    supportingText = "From Flex Web Service Configuration in Client Portal."
+                )
+                IbSettingsField(
+                    label = "Trades query ID",
+                    value = flexTradesQueryId,
+                    onValueChange = { flexTradesQueryId = it },
+                    supportingText = "Numeric ID beside query name. Query must include Trade Date and cover your history (e.g. Last 3 Days)."
+                )
                 errorMessage?.let { message ->
                     Text(message, color = BrandRed, fontSize = 13.sp)
                 }
@@ -90,7 +118,9 @@ fun IbGatewaySettingsDialog(
                                 host = host,
                                 port = port,
                                 clientId = clientId,
-                                accountCode = accountCode
+                                accountCode = accountCode,
+                                flexToken = flexToken,
+                                flexTradesQueryId = flexTradesQueryId,
                             )
                             if (parsed == null) {
                                 errorMessage = "Enter a valid host, port (1–65535), and client ID."
@@ -143,7 +173,9 @@ internal fun parseIbGatewaySettings(
     host: String,
     port: String,
     clientId: String,
-    accountCode: String
+    accountCode: String,
+    flexToken: String = "",
+    flexTradesQueryId: String = "",
 ): IbGatewayConfig? {
     val trimmedHost = host.trim()
     if (trimmedHost.isEmpty()) return null
@@ -153,6 +185,8 @@ internal fun parseIbGatewaySettings(
         host = trimmedHost,
         port = parsedPort,
         clientId = parsedClientId,
-        accountCode = accountCode.trim()
+        accountCode = accountCode.trim(),
+        flexToken = flexToken.trim(),
+        flexTradesQueryId = flexTradesQueryId.trim(),
     )
 }
