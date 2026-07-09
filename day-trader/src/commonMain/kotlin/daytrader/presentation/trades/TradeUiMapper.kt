@@ -23,6 +23,7 @@ object TradeUiMapper {
             execId = fill.execId,
             formattedTime = formatTradeDate(fill.time),
             symbol = fill.symbol,
+            marketLabel = TradeMarketResolver.shortLabel(fill),
             sideLabel = sideLabel,
             isBuySide = fill.side.equals("BOT", ignoreCase = true),
             quantityLabel = fill.quantity.toString(),
@@ -70,15 +71,22 @@ object TradeUiMapper {
         }
     }
 
+    fun sideLabel(side: String): String = when (side.uppercase()) {
+        "BOT" -> "Buy"
+        "SLD" -> "Sell"
+        else -> side.ifBlank { "—" }
+    }
+
+    fun tradeDateKey(raw: String): String? = parseFillDate(raw)?.format(isoDateFormatter)
+
+    fun tradeDateLabel(isoDate: String): String {
+        if (isoDate.isBlank()) return "—"
+        return parseFillDate(isoDate)?.format(displayDateFormatter) ?: isoDate
+    }
+
     private fun formatTradeDate(raw: String): String {
         if (raw.isBlank()) return "—"
         parseFillDate(raw)?.let { return it.format(displayDateFormatter) }
         return raw
-    }
-
-    private fun sideLabel(side: String): String = when (side.uppercase()) {
-        "BOT" -> "Buy"
-        "SLD" -> "Sell"
-        else -> side.ifBlank { "—" }
     }
 }

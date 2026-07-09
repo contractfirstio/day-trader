@@ -654,12 +654,13 @@ private fun StrategyDeploymentDetail(
                     .padding(20.dp),
             )
         } else {
+            val tabContentPadding = if (detailTab == StrategyDetailTab.CONFIGURATION) 14.dp else 20.dp
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp)
+                    .padding(tabContentPadding)
             ) {
                 when (detailTab) {
                     StrategyDetailTab.CONFIGURATION -> ConfigurationTab(
@@ -889,74 +890,233 @@ private fun ConfigurationTab(
     val otherDeploymentCount = remember(instance.id, deploymentCopyTargets) {
         deploymentCopyTargets.count { it.id != instance.id }
     }
+    var showCopyRiskBudgetConfirm by remember { mutableStateOf(false) }
+    var showTouchTurnRules by remember(instance.id, instance.touchTurnRules) {
+        mutableStateOf(false)
+    }
+    var showCopyRulesConfirm by remember { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("ConfigurationTab"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         if (!globalAutoStartEnabled) {
             Text(
                 "Global auto-start is OFF (top bar). Per-deployment settings are saved but won't run until re-enabled.",
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = LossRed,
-                lineHeight = 15.sp
+                lineHeight = 14.sp
             )
         }
-        ConfigField(
-            label = "Symbol",
-            value = instance.symbol,
-            enabled = false,
-            onValueChange = {}
-        )
-        DeploymentMarketSection(
-            deployment = instance,
-            canEdit = canEdit,
-            onResolveSymbol = onResolveSymbol,
-            onUpdate = onUpdate,
-            canRelookupInstrument = canRelookupInstrument,
-            instrumentRelookupInProgress = instrumentRelookupInProgress,
-            instrumentRelookupMessage = instrumentRelookupMessage,
-            onRelookupInstrument = onRelookupInstrument
-        )
         if (!canEdit) {
             Text(
                 "End the session to edit configuration.",
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = TextSecondary
             )
         }
-        AutoStartOnMarketOpenField(
-            checked = instance.autoStartOnMarketOpen,
-            enabled = canEdit && globalAutoStartEnabled,
-            onCheckedChange = { enabled ->
-                onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
-            }
-        )
-        var showCopyRiskBudgetConfirm by remember { mutableStateOf(false) }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            ConfigField(
-                label = "Risk budget (\$)",
-                value = instance.maxDollars.toString(),
-                enabled = canEdit,
-                onValueChange = { value ->
-                    value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
-                        onUpdate { it.copy(maxDollars = max) }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val sideBySide = maxWidth >= 560.dp
+
+            val instrumentSection: @Composable () -> Unit = {
+                ConfigTableSection(
+                    title = "Instrument",
+                    testTag = "ConfigurationTabInstrumentSection"
+                ) {
+                    ConfigTableRow(label = "Symbol", testTag = "ConfigurationTabSymbolRow") {
+                        ConfigTableValueText(
+                            value = instance.symbol,
+                            emphasized = true
+                        )
                     }
-                },
-                modifier = Modifier.weight(1f)
-            )
-            OutlinedButton(
-                onClick = { showCopyRiskBudgetConfirm = true },
-                enabled = canEdit && otherDeploymentCount > 0,
-                modifier = Modifier.testTag("RiskBudgetCopyToAllButton")
-            ) {
-                Text(
-                    "Copy budget…",
-                    color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
-                )
+                    DeploymentMarketSection(
+                        deployment = instance,
+                        canEdit = canEdit,
+                        onResolveSymbol = onResolveSymbol,
+                        onUpdate = onUpdate,
+                        canRelookupInstrument = canRelookupInstrument,
+                        instrumentRelookupInProgress = instrumentRelookupInProgress,
+                        instrumentRelookupMessage = instrumentRelookupMessage,
+                        onRelookupInstrument = onRelookupInstrument,
+                        compact = true,
+                        tableLayout = true,
+                        category = DeploymentConfigCategory.Instrument
+                    )
+                }
+            }
+
+            val marketSessionSection: @Composable () -> Unit = {
+                ConfigTableSection(
+                    title = "Market session",
+                    testTag = "ConfigurationTabMarketSessionSection"
+                ) {
+                    DeploymentMarketSection(
+                        deployment = instance,
+                        canEdit = canEdit,
+                        onResolveSymbol = onResolveSymbol,
+                        onUpdate = onUpdate,
+                        canRelookupInstrument = canRelookupInstrument,
+                        instrumentRelookupInProgress = instrumentRelookupInProgress,
+                        instrumentRelookupMessage = instrumentRelookupMessage,
+                        onRelookupInstrument = onRelookupInstrument,
+                        compact = true,
+                        tableLayout = true,
+                        category = DeploymentConfigCategory.MarketSession
+                    )
+                    if (instance.isTouchTurn) {
+                        TouchTurnMarketOpenTimers(
+                            deployment = instance,
+                            embedded = true,
+                            tableLayout = true
+                        )
+                    }
+                }
+            }
+
+            val automationSection: @Composable () -> Unit = {
+                ConfigTableSection(
+                    title = "Risk & automation",
+                    testTag = "ConfigurationTabAutomationSection"
+                ) {
+                    ConfigTableRow(
+                        label = "Risk budget",
+                        alignTop = true,
+                        testTag = "ConfigurationTabRiskBudgetRow"
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ConfigField(
+                                label = "Risk budget (\$)",
+                                value = instance.maxDollars.toString(),
+                                enabled = canEdit,
+                                onValueChange = { value ->
+                                    value.toIntOrNull()?.takeIf { it > 0 }?.let { max ->
+                                        onUpdate { it.copy(maxDollars = max) }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                compact = true,
+                                showLabel = false
+                            )
+                            OutlinedButton(
+                                onClick = { showCopyRiskBudgetConfirm = true },
+                                enabled = canEdit && otherDeploymentCount > 0,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.testTag("RiskBudgetCopyToAllButton")
+                            ) {
+                                Text(
+                                    "Copy…",
+                                    fontSize = 12.sp,
+                                    color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
+                                )
+                            }
+                        }
+                    }
+                    ConfigTableRow(
+                        label = "Auto-start",
+                        alignTop = true,
+                        testTag = "ConfigurationTabAutoStartRow"
+                    ) {
+                        AutoStartOnMarketOpenField(
+                            checked = instance.autoStartOnMarketOpen,
+                            enabled = canEdit && globalAutoStartEnabled,
+                            onCheckedChange = { enabled ->
+                                onUpdate { it.copy(autoStartOnMarketOpen = enabled) }
+                            },
+                            compact = true
+                        )
+                    }
+                }
+            }
+
+            val strategySection: @Composable () -> Unit = {
+                if (instance.isTouchTurn) {
+                    ConfigTableSection(
+                        title = "Touch Turn strategy",
+                        testTag = "ConfigurationTabStrategySection"
+                    ) {
+                    ConfigTableRow(label = "Rules", testTag = "ConfigurationTabRulesRow") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = { showTouchTurnRules = true },
+                                enabled = canEdit,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.testTag("TouchTurnRulesConfigButton")
+                            ) {
+                                Text(
+                                    "Edit rules…",
+                                    fontSize = 12.sp,
+                                    color = if (canEdit) Color.White else TextSecondary
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { showCopyRulesConfirm = true },
+                                enabled = canEdit && otherDeploymentCount > 0,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.testTag("TouchTurnRulesCopyToAllButton")
+                            ) {
+                                Text(
+                                    "Copy…",
+                                    fontSize = 12.sp,
+                                    color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
+                                )
+                            }
+                        }
+                    }
+                    touchTurnPrepare?.let { prepare ->
+                        ConfigTableRow(
+                            label = "Prepare",
+                            alignTop = true,
+                            testTag = "ConfigurationTabPrepareRow"
+                        ) {
+                            TouchTurnPrepareChecklist(
+                                prepare = prepare,
+                                embedded = true
+                            )
+                        }
+                    }
+                    }
+                }
+            }
+
+            if (sideBySide) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        instrumentSection()
+                        automationSection()
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        marketSessionSection()
+                        strategySection()
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    instrumentSection()
+                    marketSessionSection()
+                    automationSection()
+                    strategySection()
+                }
             }
         }
+
         if (showCopyRiskBudgetConfirm) {
             RiskBudgetCopyDialog(
                 sourceId = instance.id,
@@ -968,71 +1128,27 @@ private fun ConfigurationTab(
                 }
             )
         }
-        if (instance.isTouchTurn) {
-            var showTouchTurnRules by remember(instance.id, instance.touchTurnRules) {
-                mutableStateOf(false)
-            }
-            var showCopyRulesConfirm by remember { mutableStateOf(false) }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { showTouchTurnRules = true },
-                    enabled = canEdit,
-                    modifier = Modifier.testTag("TouchTurnRulesConfigButton")
-                ) {
-                    Text("Touch Turn rules…", color = if (canEdit) Color.White else TextSecondary)
+        if (instance.isTouchTurn && showCopyRulesConfirm) {
+            TouchTurnRulesCopyDialog(
+                sourceId = instance.id,
+                deploymentCopyTargets = deploymentCopyTargets,
+                onDismiss = { showCopyRulesConfirm = false },
+                onConfirm = { marketZoneIds ->
+                    showCopyRulesConfirm = false
+                    onCopyTouchTurnRulesToOther(marketZoneIds)
                 }
-                OutlinedButton(
-                    onClick = { showCopyRulesConfirm = true },
-                    enabled = canEdit && otherDeploymentCount > 0,
-                    modifier = Modifier.testTag("TouchTurnRulesCopyToAllButton")
-                ) {
-                    Text(
-                        "Copy rules…",
-                        color = if (canEdit && otherDeploymentCount > 0) Color.White else TextSecondary
-                    )
+            )
+        }
+        if (instance.isTouchTurn && showTouchTurnRules) {
+            TouchTurnRulesConfigDialog(
+                initialRules = instance.touchTurnRules,
+                enabled = canEdit,
+                onDismiss = { showTouchTurnRules = false },
+                onSave = { rules ->
+                    onUpdate { it.copy(touchTurnRules = rules) }
+                    showTouchTurnRules = false
                 }
-            }
-            if (showCopyRulesConfirm) {
-                TouchTurnRulesCopyDialog(
-                    sourceId = instance.id,
-                    deploymentCopyTargets = deploymentCopyTargets,
-                    onDismiss = { showCopyRulesConfirm = false },
-                    onConfirm = { marketZoneIds ->
-                        showCopyRulesConfirm = false
-                        onCopyTouchTurnRulesToOther(marketZoneIds)
-                    }
-                )
-            }
-            if (showTouchTurnRules) {
-                TouchTurnRulesConfigDialog(
-                    initialRules = instance.touchTurnRules,
-                    enabled = canEdit,
-                    onDismiss = { showTouchTurnRules = false },
-                    onSave = { rules ->
-                        onUpdate { it.copy(touchTurnRules = rules) }
-                        showTouchTurnRules = false
-                    }
-                )
-            }
-            touchTurnPrepare?.let { prepare ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    TouchTurnPrepareChecklist(
-                        prepare = prepare,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TouchTurnMarketOpenTimers(
-                        deployment = instance,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            } ?: TouchTurnMarketOpenTimers(deployment = instance)
+            )
         }
     }
 }
@@ -1040,15 +1156,23 @@ private fun ConfigurationTab(
 @Composable
 private fun TouchTurnPrepareChecklist(
     prepare: TouchTurnPrepareUiState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    embedded: Boolean = false
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(SurfaceDark, RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .then(
+                if (embedded) {
+                    Modifier
+                } else {
+                    Modifier
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                }
+            )
             .testTag("TouchTurnPrepareChecklist"),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1057,7 +1181,7 @@ private fun TouchTurnPrepareChecklist(
         ) {
             Text(
                 "Pre-market prepare",
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
@@ -1071,38 +1195,38 @@ private fun TouchTurnPrepareChecklist(
             }
             Text(
                 statusLabel,
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 color = touchTurnPrepareStatusColor(prepare),
                 fontWeight = FontWeight.Medium
             )
         }
         prepare.preparedAtLabel?.let { at ->
-            Text("Last run $at (market local)", fontSize = 10.sp, color = TextSecondary)
+            Text("Last run $at (market local)", fontSize = 9.sp, color = TextSecondary)
         }
         if (prepare.checks.isEmpty() && !prepare.inProgress) {
             Text(
                 "Use Prepare before Start to validate IB, bootstrap history, and cache signal context for today.",
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 color = TextSecondary,
-                lineHeight = 14.sp
+                lineHeight = 12.sp
             )
         }
         prepare.checks.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 Text(
                     touchTurnPrepareStatusGlyph(row.status),
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     color = touchTurnPrepareCheckColor(row.status),
-                    modifier = Modifier.width(14.dp)
+                    modifier = Modifier.width(12.dp)
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(row.label, fontSize = 10.sp, color = Color.White)
+                    Text(row.label, fontSize = 9.sp, color = Color.White)
                     row.detail?.let { detail ->
-                        Text(detail, fontSize = 9.sp, color = TextSecondary, lineHeight = 12.sp)
+                        Text(detail, fontSize = 8.sp, color = TextSecondary, lineHeight = 11.sp)
                     }
                 }
             }
@@ -1134,22 +1258,62 @@ private fun touchTurnPrepareStatusColor(prepare: TouchTurnPrepareUiState): Color
 @Composable
 private fun TouchTurnMarketOpenTimers(
     deployment: daytrader.domain.StrategyDeployment,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    embedded: Boolean = false,
+    tableLayout: Boolean = false
 ) {
     val marketZone = DeploymentMarket.effectiveZoneId(deployment)
     val secondTick = LocalUiSecondTick.current
     val timers = remember(marketZone, secondTick) { TouchTurnScreenLabels.marketOpenTimers(marketZone) }
+    if (tableLayout) {
+        ConfigTableRow(
+            label = "Since open",
+            testTag = "TouchTurnSinceMarketOpen"
+        ) {
+            ConfigTableValueText(
+                timers.elapsedSinceOpen,
+                emphasized = true,
+                testTag = "TouchTurnSinceMarketOpenElapsed"
+            )
+        }
+        ConfigTableRow(
+            label = "Next open",
+            alignTop = true,
+            testTag = "TouchTurnUntilNextMarketOpen"
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ConfigTableValueText(
+                    timers.countdownToNextOpen,
+                    emphasized = true,
+                    color = Color(0xFFFFB74D),
+                    testTag = "TouchTurnUntilNextMarketOpenCountdown"
+                )
+                ConfigTableValueText(
+                    "${timers.zoneAbbrev} · ${timers.nextOpenAt}",
+                    color = TextSecondary
+                )
+            }
+        }
+        return
+    }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(SurfaceDark, RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .then(
+                if (embedded) {
+                    Modifier
+                } else {
+                    Modifier
+                        .background(SurfaceDark, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                }
+            )
             .testTag("TouchTurnMarketOpenTimers"),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             "Market session (${timers.zoneAbbrev})",
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
             color = Color.White
         )
@@ -1160,10 +1324,10 @@ private fun TouchTurnMarketOpenTimers(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Since market open", fontSize = 10.sp, color = TextSecondary)
+            Text("Since market open", fontSize = 9.sp, color = TextSecondary)
             Text(
                 timers.elapsedSinceOpen,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 modifier = Modifier.testTag("TouchTurnSinceMarketOpenElapsed")
@@ -1178,13 +1342,13 @@ private fun TouchTurnMarketOpenTimers(
         ) {
             Text(
                 "Next open at ${timers.nextOpenAt}",
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 color = TextSecondary,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 timers.countdownToNextOpen,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFFFFB74D),
                 modifier = Modifier.testTag("TouchTurnUntilNextMarketOpenCountdown")
@@ -3113,16 +3277,26 @@ internal fun ConfigField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    showLabel: Boolean = true
 ) {
     Column(modifier = modifier) {
-        Text(label, fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(4.dp))
+        if (showLabel) {
+            Text(
+                label,
+                fontSize = if (compact) 10.sp else 11.sp,
+                color = TextSecondary,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(if (compact) 2.dp else 4.dp))
+        }
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
+            textStyle = TextStyle(fontSize = if (compact) 13.sp else 14.sp),
             modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = DarkBackground,
@@ -3133,9 +3307,9 @@ internal fun ConfigField(
                 disabledBorderColor = TableHeaderBg,
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
-                disabledTextColor = TextSecondary
+                disabledTextColor = Color.White.copy(alpha = 0.72f)
             ),
-            shape = RoundedCornerShape(6.dp)
+            shape = RoundedCornerShape(if (compact) 4.dp else 6.dp)
         )
     }
 }
@@ -3191,14 +3365,15 @@ private fun ConfigDropdown(
 internal fun AutoStartOnMarketOpenField(
     checked: Boolean,
     enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    compact: Boolean = false
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("AutoStartOnMarketOpenField"),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 8.dp)
     ) {
         Checkbox(
             checked = checked,
@@ -3208,20 +3383,26 @@ internal fun AutoStartOnMarketOpenField(
                 checkedColor = BrandRed,
                 checkmarkColor = Color.White
             ),
-            modifier = Modifier.testTag("AutoStartOnMarketOpenCheckbox")
+            modifier = Modifier
+                .testTag("AutoStartOnMarketOpenCheckbox")
+                .then(if (compact) Modifier.size(20.dp) else Modifier)
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 "Auto-start when market opens",
-                fontSize = 13.sp,
+                fontSize = if (compact) 12.sp else 13.sp,
                 color = if (enabled) Color.White else TextSecondary,
                 fontWeight = FontWeight.Medium
             )
             Text(
-                "Starts this deployment at RTH open in the deployment's market session.",
-                fontSize = 11.sp,
+                if (compact) {
+                    "Starts at RTH open in this deployment's market session."
+                } else {
+                    "Starts this deployment at RTH open in the deployment's market session."
+                },
+                fontSize = if (compact) 10.sp else 11.sp,
                 color = TextSecondary,
-                lineHeight = 14.sp
+                lineHeight = if (compact) 12.sp else 14.sp
             )
         }
     }

@@ -22,6 +22,25 @@ import kotlinx.coroutines.runBlocking
 
 class TradesViewModelTest {
     @Test
+    fun dateColumnFilterNarrowsRows() = runBlocking {
+        val repository = FakeFillsRepository(
+            listOf(
+                sampleFill(execId = "day1", time = "2026-07-07"),
+                sampleFill(execId = "day2", time = "2026-07-08"),
+            )
+        )
+        val viewModel = TradesViewModel(repository = repository, tradingClock = fixedJulyClock())
+        delay(50)
+        viewModel.onDatePresetSelected(TradeDatePreset.ALL)
+        delay(25)
+        viewModel.onColumnFilterToggled(TradeFilterColumn.DATE, "2026-07-07")
+        delay(25)
+        assertEquals(1, viewModel.uiState.value.totalFillCount)
+        assertEquals("day2", viewModel.uiState.value.rows.single().execId)
+        assertEquals("1 trade · Jul 8, 2026", viewModel.uiState.value.filterSummary?.tradeCountLabel)
+    }
+
+    @Test
     fun symbolFilterNarrowsRowsAndAggregatesPnL() = runBlocking {
         val repository = FakeFillsRepository(
             listOf(
@@ -34,8 +53,7 @@ class TradesViewModelTest {
         delay(50)
         viewModel.onDatePresetSelected(TradeDatePreset.ALL)
         delay(25)
-        assertEquals(listOf("AAPL", "MSFT"), viewModel.uiState.value.availableSymbols)
-        viewModel.onSymbolFilterSelected("AAPL")
+        viewModel.onColumnFilterToggled(TradeFilterColumn.SYMBOL, "MSFT")
         delay(25)
         assertEquals(2, viewModel.uiState.value.totalFillCount)
         assertEquals(setOf("aapl-1", "aapl-2"), viewModel.uiState.value.rows.map { it.execId }.toSet())

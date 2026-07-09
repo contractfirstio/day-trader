@@ -1,6 +1,5 @@
 package daytrader.presentation.trades
 
-import daytrader.broker.SymbolMarkets
 import daytrader.data.FillsRepository
 import daytrader.data.HistoricalTradeSync
 import daytrader.diagnostics.TimestampedConsoleLog
@@ -47,7 +46,7 @@ class TradesViewModel(
     private var sortDirection = SortDirection.DESCENDING
     private var dateRange = defaultDateRange(tradingClock)
     private var activeDatePreset: TradeDatePreset? = TradeDatePreset.THIRTY_DAYS
-    private var filterSymbol: String? = null
+    private var columnFilters = TradeColumnFilters()
     private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var isSyncing = false
     private var syncMessage: String? = null
@@ -110,8 +109,23 @@ class TradesViewModel(
         emitUiState()
     }
 
-    fun onSymbolFilterSelected(symbol: String?) {
-        filterSymbol = symbol?.takeIf { it.isNotBlank() }
+    fun onColumnFilterToggled(column: TradeFilterColumn, value: String) {
+        columnFilters = when (column) {
+            TradeFilterColumn.DATE -> columnFilters.copy(dates = columnFilters.dates.toggle(value))
+            TradeFilterColumn.SYMBOL -> columnFilters.copy(symbols = columnFilters.symbols.toggle(value))
+            TradeFilterColumn.SIDE -> columnFilters.copy(sides = columnFilters.sides.toggle(value))
+            TradeFilterColumn.MARKET -> columnFilters.copy(markets = columnFilters.markets.toggle(value))
+        }
+        emitUiState()
+    }
+
+    fun onColumnFilterSelectAll(column: TradeFilterColumn, selectAll: Boolean) {
+        columnFilters = when (column) {
+            TradeFilterColumn.DATE -> columnFilters.copy(dates = columnFilters.dates.setSelectAll(selectAll))
+            TradeFilterColumn.SYMBOL -> columnFilters.copy(symbols = columnFilters.symbols.setSelectAll(selectAll))
+            TradeFilterColumn.SIDE -> columnFilters.copy(sides = columnFilters.sides.setSelectAll(selectAll))
+            TradeFilterColumn.MARKET -> columnFilters.copy(markets = columnFilters.markets.setSelectAll(selectAll))
+        }
         emitUiState()
     }
 
@@ -217,22 +231,15 @@ class TradesViewModel(
     }
 
     private fun filteredFills(): List<BrokerFill> =
-        TradeLedgerFilter.filter(fills, dateRange, filterSymbol)
+        TradeLedgerFilter.filter(fills, dateRange, columnFilters)
 
     private fun dateFilteredFills(): List<BrokerFill> =
         TradeLedgerFilter.filterByDate(fills, dateRange)
 
-    private fun normalizeSymbolFilter(availableSymbols: List<String>) {
-        val selected = filterSymbol ?: return
-        if (availableSymbols.none { SymbolMarkets.symbolsMatch(selected, it) }) {
-            filterSymbol = null
-        }
-    }
-
     private fun emitUiState() {
         safeUiEmit(AppScreen.TRADES, "emitUiState") {
-            val availableSymbols = TradeLedgerFilter.distinctSymbols(dateFilteredFills())
-            normalizeSymbolFilter(availableSymbols)
+            val dateFiltered = dateFilteredFills()
+            columnFilters = columnFilters.reconcileFrom(dateFiltered, columnFilters)
             val filtered = filteredFills()
             val summary = TradeLedgerFilter.summarize(filtered)
             val comparator = when (sortColumn) {
@@ -240,6 +247,8 @@ class TradesViewModel(
                     .thenBy { it.execId }
                 TradeSortColumn.SYMBOL -> compareBy<BrokerFill> { it.symbol }
                     .thenBy { TradeUiMapper.parseFillTime(it.time) ?: LocalDateTime.MIN }
+                TradeSortColumn.MARKET -> compareBy<BrokerFill> { TradeMarketResolver.shortLabel(it) }
+                    .thenBy { it.symbol }
                 TradeSortColumn.SIDE -> compareBy<BrokerFill> { it.side }
                     .thenBy { it.symbol }
                 TradeSortColumn.QUANTITY -> compareBy<BrokerFill> { it.quantity }
@@ -266,9 +275,11 @@ class TradesViewModel(
                     filterFromDate = formatFilterDate(dateRange.from),
                     filterToDate = formatFilterDate(dateRange.to),
                     activeDatePreset = activeDatePreset,
-                    filterSymbol = filterSymbol,
-                    availableSymbols = availableSymbols,
-                    filterSummary = toFilterSummaryUi(summary, filterSymbol),
+                    dateFilter = toSetFilterUi(TradeFilterColumn.DATE, columnFilters.dates),
+                    symbolFilter = toSetFilterUi(TradeFilterColumn.SYMBOL, columnFilters.symbols),
+                    sideFilter = toSetFilterUi(TradeFilterColumn.SIDE, columnFilters.sides),
+                    marketFilter = toSetFilterUi(TradeFilterColumn.MARKET, columnFilters.markets),
+                    filterSummary = toFilterSummaryUi(summary, columnFilters),
                     sortColumn = sortColumn,
                     sortDirection = sortDirection,
                     canSync = canSync(),
@@ -300,15 +311,15 @@ class TradesViewModel(
 
         internal fun toFilterSummaryUi(
             summary: TradeLedgerSummary,
-            filterSymbol: String? = null,
+            columnFilters: TradeColumnFilters = TradeColumnFilters(),
         ): TradeFilterSummaryUi {
             val currency = summary.currencies.singleOrNull().orEmpty().ifBlank { "USD" }
             val mixedCurrency = summary.currencies.size > 1
             val pnl = summary.realizedPnL
             val commission = summary.commission
-            val symbolSuffix = filterSymbol?.let { " · $it" }.orEmpty()
+            val filterSuffix = activeColumnFilterSuffix(columnFilters)
             return TradeFilterSummaryUi(
-                tradeCountLabel = "${summary.tradeCount} trade${if (summary.tradeCount == 1) "" else "s"}$symbolSuffix",
+                tradeCountLabel = "${summary.tradeCount} trade${if (summary.tradeCount == 1) "" else "s"}$filterSuffix",
                 formattedRealizedPnL = when {
                     pnl == null -> "—"
                     mixedCurrency -> "${Formatters.money(pnl, currency, showSign = true)} (mixed)"
@@ -320,6 +331,63 @@ class TradesViewModel(
                     else -> Formatters.money(commission, currency)
                 },
                 isPositiveRealizedPnL = pnl?.let { it >= 0 },
+            )
+        }
+
+        private fun activeColumnFilterSuffix(columnFilters: TradeColumnFilters): String {
+            val parts = buildList {
+                if (columnFilters.dates.isActive) {
+                    add(
+                        columnFilters.dates.selected
+                            .sortedDescending()
+                            .map(TradeUiMapper::tradeDateLabel)
+                            .joinToString(", ")
+                    )
+                }
+                if (columnFilters.symbols.isActive) {
+                    add(columnFilters.symbols.selected.sorted().joinToString(", "))
+                }
+                if (columnFilters.markets.isActive) {
+                    add(
+                        columnFilters.markets.selected
+                            .map(TradeMarketResolver::shortLabel)
+                            .sorted()
+                            .joinToString(", ")
+                    )
+                }
+                if (columnFilters.sides.isActive) {
+                    add(columnFilters.sides.selected.sorted().joinToString(", "))
+                }
+            }
+            return if (parts.isEmpty()) "" else " · ${parts.joinToString(" · ")}"
+        }
+
+        private fun toSetFilterUi(column: TradeFilterColumn, filter: TradeSetColumnFilter): TradeSetFilterUi? {
+            if (filter.available.isEmpty()) return null
+            val options = filter.available
+                .sortedWith(
+                    when (column) {
+                        TradeFilterColumn.DATE -> compareByDescending<String> { it }
+                        TradeFilterColumn.MARKET -> compareBy { TradeMarketResolver.shortLabel(it) }
+                        else -> compareBy(String.CASE_INSENSITIVE_ORDER) { it }
+                    }
+                )
+                .map { value ->
+                    TradeSetFilterOptionUi(
+                        value = value,
+                        label = when (column) {
+                            TradeFilterColumn.DATE -> TradeUiMapper.tradeDateLabel(value)
+                            TradeFilterColumn.MARKET -> TradeMarketResolver.shortLabel(value)
+                            else -> value
+                        },
+                        selected = filter.isValueSelected(value),
+                    )
+                }
+            return TradeSetFilterUi(
+                column = column,
+                options = options,
+                isActive = filter.isActive,
+                allSelected = filter.isAllSelected(),
             )
         }
 

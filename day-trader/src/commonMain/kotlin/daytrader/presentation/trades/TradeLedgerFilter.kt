@@ -21,7 +21,14 @@ object TradeLedgerFilter {
     fun filter(
         fills: List<BrokerFill>,
         range: TradeDateRange,
-        symbol: String? = null,
+        columnFilters: TradeColumnFilters = TradeColumnFilters(),
+    ): List<BrokerFill> =
+        filterByDate(fills, range).filter(columnFilters::apply)
+
+    fun filter(
+        fills: List<BrokerFill>,
+        range: TradeDateRange,
+        symbol: String?,
     ): List<BrokerFill> {
         val dateFiltered = filterByDate(fills, range)
         return filterBySymbol(dateFiltered, symbol)

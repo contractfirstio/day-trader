@@ -37,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,8 +52,10 @@ import daytrader.gateway.BrokerKind
 import daytrader.gateway.GatewayConnectionState
 import daytrader.presentation.positions.SortDirection
 import daytrader.presentation.trades.TradeDatePreset
+import daytrader.presentation.trades.TradeFilterColumn
 import daytrader.presentation.trades.TradeFilterSummaryUi
 import daytrader.presentation.trades.TradeRowUi
+import daytrader.presentation.trades.TradeSetFilterUi
 import daytrader.presentation.trades.TradeSortColumn
 import daytrader.presentation.trades.TradesViewModel
 import daytrader.ui.theme.BrandRed
@@ -93,7 +98,7 @@ fun TradesScreen(
                     color = TextSecondary
                 )
                 Text(
-                    "Filter by trade date and symbol. Trades are saved locally; live executions persist automatically; Flex sync backfills history.",
+                    "Filter by trade date. Use column filters on Symbol, Market, and Side for spreadsheet-style selection.",
                     fontSize = 11.sp,
                     color = TextSecondary,
                     lineHeight = 14.sp,
@@ -164,16 +169,15 @@ fun TradesScreen(
             fromDate = uiState.filterFromDate,
             toDate = uiState.filterToDate,
             activePreset = uiState.activeDatePreset,
-            filterSymbol = uiState.filterSymbol,
-            availableSymbols = uiState.availableSymbols,
             summary = uiState.filterSummary,
             onFromDateChanged = viewModel::onFilterFromDateChanged,
             onToDateChanged = viewModel::onFilterToDateChanged,
             onPresetSelected = viewModel::onDatePresetSelected,
-            onSymbolFilterSelected = viewModel::onSymbolFilterSelected,
         )
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        var openFilterColumn by remember { mutableStateOf<TradeFilterColumn?>(null) }
 
         Column(
             modifier = Modifier
@@ -184,7 +188,18 @@ fun TradesScreen(
             TradesTableHeader(
                 activeSortColumn = uiState.sortColumn,
                 sortDirection = uiState.sortDirection,
-                onHeaderClick = viewModel::onHeaderClick
+                dateFilter = uiState.dateFilter,
+                symbolFilter = uiState.symbolFilter,
+                marketFilter = uiState.marketFilter,
+                sideFilter = uiState.sideFilter,
+                openFilterColumn = openFilterColumn,
+                onHeaderClick = viewModel::onHeaderClick,
+                onFilterClick = { column ->
+                    openFilterColumn = if (openFilterColumn == column) null else column
+                },
+                onFilterDismiss = { openFilterColumn = null },
+                onFilterSelectAll = viewModel::onColumnFilterSelectAll,
+                onFilterOptionToggled = viewModel::onColumnFilterToggled,
             )
 
             if (uiState.rows.isEmpty()) {
@@ -193,12 +208,14 @@ fun TradesScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = emptyTradesMessage(
+                        text =                         emptyTradesMessage(
                             connectionState = connectionState,
                             brokerKind = brokerKind,
                             filterFromDate = uiState.filterFromDate,
                             filterToDate = uiState.filterToDate,
-                            filterSymbol = uiState.filterSymbol,
+                            hasColumnFilters = uiState.symbolFilter?.isActive == true ||
+                                uiState.marketFilter?.isActive == true ||
+                                uiState.sideFilter?.isActive == true,
                         ),
                         color = TextSecondary,
                         fontSize = 14.sp,
@@ -239,7 +256,7 @@ private fun emptyTradesMessage(
     brokerKind: BrokerKind,
     filterFromDate: String,
     filterToDate: String,
-    filterSymbol: String?,
+    hasColumnFilters: Boolean,
 ): String {
     val rangeLabel = when {
         filterFromDate.isNotBlank() && filterToDate.isNotBlank() -> "$filterFromDate to $filterToDate"
@@ -247,19 +264,19 @@ private fun emptyTradesMessage(
         filterToDate.isNotBlank() -> "through $filterToDate"
         else -> "all stored dates"
     }
-    val symbolLabel = filterSymbol?.let { " for $it" }.orEmpty()
+    val filterLabel = if (hasColumnFilters) " with the current column filters" else ""
     return when (connectionState) {
         GatewayConnectionState.Connected ->
-            "No trades$symbolLabel for $rangeLabel from ${brokerKind.displayName.lowercase()}."
+            "No trades$filterLabel for $rangeLabel from ${brokerKind.displayName.lowercase()}."
         GatewayConnectionState.Connecting ->
             "Loading executions…"
         is GatewayConnectionState.Error ->
             "Trades unavailable — fix broker connection and reconnect."
         GatewayConnectionState.Disconnected ->
-            if (filterFromDate.isBlank() && filterToDate.isBlank() && filterSymbol.isNullOrBlank()) {
+            if (filterFromDate.isBlank() && filterToDate.isBlank() && !hasColumnFilters) {
                 "No stored trades yet."
             } else {
-                "No trades$symbolLabel for $rangeLabel."
+                "No trades$filterLabel for $rangeLabel."
             }
     }
 }
@@ -269,13 +286,10 @@ private fun TradesDateFilterBar(
     fromDate: String,
     toDate: String,
     activePreset: TradeDatePreset?,
-    filterSymbol: String?,
-    availableSymbols: List<String>,
     summary: TradeFilterSummaryUi?,
     onFromDateChanged: (String) -> Unit,
     onToDateChanged: (String) -> Unit,
     onPresetSelected: (TradeDatePreset) -> Unit,
-    onSymbolFilterSelected: (String?) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -318,30 +332,6 @@ private fun TradesDateFilterBar(
                 )
             }
         }
-        if (availableSymbols.size > 1) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Symbol", color = TextSecondary, fontSize = 12.sp)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TradesSymbolFilterChip(
-                        label = "All",
-                        selected = filterSymbol.isNullOrBlank(),
-                        onClick = { onSymbolFilterSelected(null) },
-                    )
-                    availableSymbols.forEach { symbol ->
-                        TradesSymbolFilterChip(
-                            label = symbol,
-                            selected = filterSymbol == symbol,
-                            onClick = { onSymbolFilterSelected(symbol) },
-                        )
-                    }
-                }
-            }
-        }
         summary?.let {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -367,26 +357,6 @@ private fun TradesDateFilterBar(
             }
         }
     }
-}
-
-@Composable
-private fun TradesSymbolFilterChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = { Text(label, fontSize = 12.sp) },
-        modifier = Modifier.testTag("TradesSymbolFilter-$label"),
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = DarkBackground,
-            selectedLabelColor = Color.White,
-            containerColor = DarkBackground.copy(alpha = 0.5f),
-            labelColor = TextSecondary
-        )
-    )
 }
 
 @Composable
@@ -427,23 +397,112 @@ private val TradeDatePreset.label: String
 private fun TradesTableHeader(
     activeSortColumn: TradeSortColumn,
     sortDirection: SortDirection,
-    onHeaderClick: (TradeSortColumn) -> Unit
+    dateFilter: TradeSetFilterUi?,
+    symbolFilter: TradeSetFilterUi?,
+    marketFilter: TradeSetFilterUi?,
+    sideFilter: TradeSetFilterUi?,
+    openFilterColumn: TradeFilterColumn?,
+    onHeaderClick: (TradeSortColumn) -> Unit,
+    onFilterClick: (TradeFilterColumn) -> Unit,
+    onFilterDismiss: () -> Unit,
+    onFilterSelectAll: (TradeFilterColumn, Boolean) -> Unit,
+    onFilterOptionToggled: (TradeFilterColumn, String) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(TableHeaderBg, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-            .padding(horizontal = 12.dp, vertical = 12.dp)
-            .testTag("TradesTableHeaderRow"),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TradesHeaderCell("Date", TradeSortColumn.TIME, activeSortColumn, sortDirection, Modifier.weight(1.1f), onClick = onHeaderClick)
-        TradesHeaderCell("Symbol", TradeSortColumn.SYMBOL, activeSortColumn, sortDirection, Modifier.weight(0.8f), onClick = onHeaderClick)
-        TradesHeaderCell("Side", TradeSortColumn.SIDE, activeSortColumn, sortDirection, Modifier.weight(0.55f), onClick = onHeaderClick)
-        TradesHeaderCell("Qty", TradeSortColumn.QUANTITY, activeSortColumn, sortDirection, Modifier.weight(0.45f), onClick = onHeaderClick)
-        TradesHeaderCell("Price", TradeSortColumn.PRICE, activeSortColumn, sortDirection, Modifier.weight(0.75f), onClick = onHeaderClick)
-        TradesHeaderCell("Commission", TradeSortColumn.COMMISSION, activeSortColumn, sortDirection, Modifier.weight(0.8f), onClick = onHeaderClick)
-        TradesHeaderCell("Realized P&L", TradeSortColumn.REALIZED_PNL, activeSortColumn, sortDirection, Modifier.weight(0.9f), alignEnd = true, onClick = onHeaderClick)
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(TableHeaderBg, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp)
+                .testTag("TradesTableHeaderRow"),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TradesFilterableHeaderCell(
+                label = "Date",
+                filter = dateFilter,
+                expanded = openFilterColumn == TradeFilterColumn.DATE,
+                onSortClick = { onHeaderClick(TradeSortColumn.TIME) },
+                onFilterClick = { onFilterClick(TradeFilterColumn.DATE) },
+                onFilterDismiss = onFilterDismiss,
+                onFilterSelectAll = { selected -> onFilterSelectAll(TradeFilterColumn.DATE, selected) },
+                onFilterOptionToggled = { value -> onFilterOptionToggled(TradeFilterColumn.DATE, value) },
+                modifier = Modifier.weight(1.0f),
+                sortActive = activeSortColumn == TradeSortColumn.TIME,
+                sortAscending = sortDirection == SortDirection.ASCENDING,
+            )
+            TradesFilterableHeaderCell(
+                label = "Symbol",
+                filter = symbolFilter,
+                expanded = openFilterColumn == TradeFilterColumn.SYMBOL,
+                onSortClick = { onHeaderClick(TradeSortColumn.SYMBOL) },
+                onFilterClick = { onFilterClick(TradeFilterColumn.SYMBOL) },
+                onFilterDismiss = onFilterDismiss,
+                onFilterSelectAll = { selected -> onFilterSelectAll(TradeFilterColumn.SYMBOL, selected) },
+                onFilterOptionToggled = { value -> onFilterOptionToggled(TradeFilterColumn.SYMBOL, value) },
+                modifier = Modifier.weight(0.75f),
+                sortActive = activeSortColumn == TradeSortColumn.SYMBOL,
+                sortAscending = sortDirection == SortDirection.ASCENDING,
+            )
+            TradesFilterableHeaderCell(
+                label = "Market",
+                filter = marketFilter,
+                expanded = openFilterColumn == TradeFilterColumn.MARKET,
+                onSortClick = { onHeaderClick(TradeSortColumn.MARKET) },
+                onFilterClick = { onFilterClick(TradeFilterColumn.MARKET) },
+                onFilterDismiss = onFilterDismiss,
+                onFilterSelectAll = { selected -> onFilterSelectAll(TradeFilterColumn.MARKET, selected) },
+                onFilterOptionToggled = { value -> onFilterOptionToggled(TradeFilterColumn.MARKET, value) },
+                modifier = Modifier.weight(0.55f),
+                sortActive = activeSortColumn == TradeSortColumn.MARKET,
+                sortAscending = sortDirection == SortDirection.ASCENDING,
+            )
+            TradesFilterableHeaderCell(
+                label = "Side",
+                filter = sideFilter,
+                expanded = openFilterColumn == TradeFilterColumn.SIDE,
+                onSortClick = { onHeaderClick(TradeSortColumn.SIDE) },
+                onFilterClick = { onFilterClick(TradeFilterColumn.SIDE) },
+                onFilterDismiss = onFilterDismiss,
+                onFilterSelectAll = { selected -> onFilterSelectAll(TradeFilterColumn.SIDE, selected) },
+                onFilterOptionToggled = { value -> onFilterOptionToggled(TradeFilterColumn.SIDE, value) },
+                modifier = Modifier.weight(0.55f),
+                sortActive = activeSortColumn == TradeSortColumn.SIDE,
+                sortAscending = sortDirection == SortDirection.ASCENDING,
+            )
+            TradesHeaderCell(
+                label = "Qty",
+                column = TradeSortColumn.QUANTITY,
+                activeColumn = activeSortColumn,
+                direction = sortDirection,
+                modifier = Modifier.weight(0.45f),
+                onClick = onHeaderClick
+            )
+            TradesHeaderCell(
+                label = "Price",
+                column = TradeSortColumn.PRICE,
+                activeColumn = activeSortColumn,
+                direction = sortDirection,
+                modifier = Modifier.weight(0.7f),
+                onClick = onHeaderClick
+            )
+            TradesHeaderCell(
+                label = "Commission",
+                column = TradeSortColumn.COMMISSION,
+                activeColumn = activeSortColumn,
+                direction = sortDirection,
+                modifier = Modifier.weight(0.75f),
+                onClick = onHeaderClick
+            )
+            TradesHeaderCell(
+                label = "Realized P&L",
+                column = TradeSortColumn.REALIZED_PNL,
+                activeColumn = activeSortColumn,
+                direction = sortDirection,
+                modifier = Modifier.weight(0.85f),
+                alignEnd = true,
+                onClick = onHeaderClick
+            )
+        }
     }
 }
 
@@ -493,8 +552,9 @@ private fun TradesTableRow(row: TradeRowUi) {
             .testTag("TradesTableRow-${row.execId}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(row.formattedTime, Modifier.weight(1.1f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
-        Text(row.symbol, Modifier.weight(0.8f), color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1)
+        Text(row.formattedTime, Modifier.weight(1.0f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
+        Text(row.symbol, Modifier.weight(0.75f), color = Color.White, fontWeight = FontWeight.Medium, fontSize = 13.sp, maxLines = 1)
+        Text(row.marketLabel, Modifier.weight(0.55f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
         Text(
             row.sideLabel,
             Modifier.weight(0.55f),
@@ -503,11 +563,11 @@ private fun TradesTableRow(row: TradeRowUi) {
             maxLines = 1
         )
         Text(row.quantityLabel, Modifier.weight(0.45f), color = Color.White, fontSize = 13.sp, maxLines = 1)
-        Text(row.formattedPrice, Modifier.weight(0.75f), color = Color.White, fontSize = 13.sp, maxLines = 1)
-        Text(row.formattedCommission ?: "—", Modifier.weight(0.8f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
+        Text(row.formattedPrice, Modifier.weight(0.7f), color = Color.White, fontSize = 13.sp, maxLines = 1)
+        Text(row.formattedCommission ?: "—", Modifier.weight(0.75f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
         Text(
             text = row.formattedRealizedPnL ?: "—",
-            modifier = Modifier.weight(0.9f),
+            modifier = Modifier.weight(0.85f),
             color = when (row.isPositiveRealizedPnL) {
                 true -> GainGreen
                 false -> LossRed

@@ -1661,14 +1661,14 @@ fun TouchTurnPipelineSectionLiveOrderPricing(
             .testTag("TouchTurnPipelineSectionLiveOrderPricing"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        liveOrderChart?.let { chart ->
+            TouchTurnPipelineLiveOrderChart(chart = chart)
+        }
         candleChart?.let { chart ->
             TouchTurnSessionCandlePriceChart(
                 chart = chart,
                 testTag = sessionCandleTestTag
             )
-        }
-        liveOrderChart?.let { chart ->
-            TouchTurnPipelineLiveOrderChart(chart = chart)
         }
     }
 }

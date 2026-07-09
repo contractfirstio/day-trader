@@ -36,6 +36,23 @@ class TradeLedgerFilterTest {
     }
 
     @Test
+    fun filterByColumnDates_limitsRowsToSelectedDates() {
+        val fills = listOf(
+            fill(execId = "day1", time = "2026-07-07"),
+            fill(execId = "day2", time = "2026-07-08"),
+            fill(execId = "day3", time = "2026-07-08"),
+        )
+        val columnFilters = TradeColumnFilters(
+            dates = TradeSetColumnFilter(
+                selected = setOf("2026-07-08"),
+                available = setOf("2026-07-07", "2026-07-08"),
+            )
+        )
+        val filtered = TradeLedgerFilter.filter(fills, TradeDateRange(), columnFilters)
+        assertEquals(listOf("day2", "day3"), filtered.map { it.execId })
+    }
+
+    @Test
     fun filterBySymbol_limitsRowsToMatchingSymbol() {
         val fills = listOf(
             fill(execId = "a", symbol = "1299", time = "2026-07-07"),

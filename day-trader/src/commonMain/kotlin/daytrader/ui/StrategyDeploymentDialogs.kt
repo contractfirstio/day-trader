@@ -305,14 +305,107 @@ internal fun InstrumentResolutionPanel(
     persistedCompanyName: String?,
     persistedCurrencyCode: String?,
     canEditMarket: Boolean,
-    onMarketSelected: (String) -> Unit
+    onMarketSelected: (String) -> Unit,
+    compact: Boolean = false,
+    tableLayout: Boolean = false,
+    tableCategory: DeploymentConfigCategory = DeploymentConfigCategory.All
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Market & currency", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+    val sectionSpacing = if (compact) 4.dp else 8.dp
+    val labelSize = if (compact) 10.sp else 12.sp
+    val bodySize = if (compact) 11.sp else 12.sp
+    val titleSize = if (compact) 12.sp else 14.sp
+    val sessionSize = if (compact) 12.sp else 13.sp
+    val chipSize = if (compact) 11.sp else 12.sp
+
+    if (tableLayout) {
+        val showIdentity = tableCategory == DeploymentConfigCategory.Instrument ||
+            tableCategory == DeploymentConfigCategory.All
+        val showMarketSession = tableCategory == DeploymentConfigCategory.MarketSession ||
+            tableCategory == DeploymentConfigCategory.All
         when {
-            resolving -> Text("Looking up instrument…", fontSize = 12.sp, color = TextSecondary)
+            resolving && (showIdentity || showMarketSession) -> ConfigTableRow(label = "Status") {
+                ConfigTableValueText("Looking up instrument…", color = TextSecondary)
+            }
+            resolved == null && selectedMarketZoneId == null && persistedCompanyName.isNullOrBlank() &&
+                showIdentity ->
+                ConfigTableRow(label = "Status") {
+                    ConfigTableValueText("Enter a symbol to resolve market and currency.", color = TextSecondary)
+                }
+            else -> {
+                val zoneId = selectedMarketZoneId ?: resolved?.marketZoneId
+                val currency = persistedCurrencyCode
+                    ?: resolved?.currencyCode
+                    ?: zoneId?.let { DeploymentMarket.currencyForZone(it) }
+                    ?: "—"
+                val session = zoneId?.let { DeploymentMarket.sessionForZone(it) }
+                val marketLabel = session?.let { DeploymentMarket.sessionDisplayLabel(it) } ?: "—"
+                val companyName = persistedCompanyName?.takeIf { it.isNotBlank() }
+                    ?: resolved?.companyName?.takeIf { it.isNotBlank() }
+                if (showIdentity) {
+                    companyName?.let { name ->
+                        ConfigTableRow(label = "Company") {
+                            ConfigTableValueText(name, emphasized = true)
+                        }
+                    }
+                    ConfigTableRow(label = "Venue") {
+                        ConfigTableValueText(
+                            resolved?.let { suggestion ->
+                                val prefix = when (suggestion.source) {
+                                    MarketSource.IB -> "From IB"
+                                    MarketSource.SYMBOL_INFERRED -> "Estimated"
+                                    MarketSource.USER -> "Your selection"
+                                    MarketSource.LEGACY_INFERRED -> "Inferred"
+                                }
+                                "$prefix: ${suggestion.venueLabel}"
+                            } ?: if (persistedCompanyName != null) {
+                                "Saved market: $marketLabel · $currency"
+                            } else {
+                                "Select market below."
+                            },
+                            color = TextSecondary
+                        )
+                    }
+                }
+                if (showMarketSession) {
+                    ConfigTableRow(label = "Session") {
+                        ConfigTableValueText("$marketLabel · $currency", emphasized = true)
+                    }
+                }
+            }
+        }
+        if (showMarketSession) {
+            ConfigTableRow(label = "Market zone", alignTop = true) {
+                Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
+                    RthMarketSessions.all.forEach { session ->
+                        val selected = selectedMarketZoneId == session.zoneId
+                        FilterChip(
+                            selected = selected,
+                            onClick = { if (canEditMarket) onMarketSelected(session.zoneId) },
+                            enabled = canEditMarket,
+                            label = {
+                                Text(
+                                    DeploymentMarket.sessionDisplayLabel(session),
+                                    fontSize = chipSize
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = BrandRed.copy(alpha = 0.35f),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(sectionSpacing)) {
+        Text("Market & currency", fontSize = labelSize, color = TextSecondary, fontWeight = FontWeight.Medium)
+        when {
+            resolving -> Text("Looking up instrument…", fontSize = bodySize, color = TextSecondary)
             resolved == null && selectedMarketZoneId == null && persistedCompanyName.isNullOrBlank() ->
-                Text("Enter a symbol to resolve market and currency.", fontSize = 12.sp, color = TextSecondary)
+                Text("Enter a symbol to resolve market and currency.", fontSize = bodySize, color = TextSecondary)
             else -> {
                 val zoneId = selectedMarketZoneId ?: resolved?.marketZoneId
                 val currency = persistedCurrencyCode
@@ -326,10 +419,12 @@ internal fun InstrumentResolutionPanel(
                 if (companyName != null) {
                     Text(
                         text = companyName,
-                        fontSize = 14.sp,
+                        fontSize = titleSize,
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
-                        lineHeight = 18.sp
+                        lineHeight = if (compact) 15.sp else 18.sp,
+                        maxLines = if (compact) 1 else Int.MAX_VALUE,
+                        overflow = if (compact) TextOverflow.Ellipsis else TextOverflow.Clip
                     )
                 }
                 Text(
@@ -346,19 +441,19 @@ internal fun InstrumentResolutionPanel(
                     } else {
                         "Select market below."
                     },
-                    fontSize = 12.sp,
+                    fontSize = bodySize,
                     color = TextSecondary,
-                    lineHeight = 15.sp
+                    lineHeight = if (compact) 14.sp else 15.sp
                 )
                 Text(
                     text = "Trading session: $marketLabel · $currency",
-                    fontSize = 13.sp,
+                    fontSize = sessionSize,
                     color = Color.White,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
             RthMarketSessions.all.forEach { session ->
                 val selected = selectedMarketZoneId == session.zoneId
                 FilterChip(
@@ -368,7 +463,7 @@ internal fun InstrumentResolutionPanel(
                     label = {
                         Text(
                             DeploymentMarket.sessionDisplayLabel(session),
-                            fontSize = 12.sp
+                            fontSize = chipSize
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
@@ -390,7 +485,10 @@ internal fun DeploymentMarketSection(
     canRelookupInstrument: Boolean = false,
     instrumentRelookupInProgress: Boolean = false,
     instrumentRelookupMessage: String? = null,
-    onRelookupInstrument: () -> Unit = {}
+    onRelookupInstrument: () -> Unit = {},
+    compact: Boolean = false,
+    tableLayout: Boolean = false,
+    category: DeploymentConfigCategory = DeploymentConfigCategory.All
 ) {
     var ibSuggestion by remember(deployment.id) { mutableStateOf<ResolvedInstrument?>(null) }
     var resolving by remember { mutableStateOf(false) }
@@ -421,54 +519,85 @@ internal fun DeploymentMarketSection(
     val session = DeploymentMarket.sessionForZone(effectiveZone)
     val mismatch = ibSuggestion?.let { it.marketZoneId != effectiveZone } == true
 
-    InstrumentResolutionPanel(
-        resolving = resolving && canEdit,
-        resolved = ibSuggestion,
-        selectedMarketZoneId = effectiveZone,
-        persistedCompanyName = deployment.companyName,
-        persistedCurrencyCode = effectiveCurrency,
-        canEditMarket = canEdit,
-        onMarketSelected = { zoneId ->
-            onUpdate {
-                it.copy(
-                    marketZoneId = zoneId,
-                    currencyCode = DeploymentMarket.currencyForZone(zoneId),
-                    marketSource = MarketSource.USER
-                )
+    val showInstrument = category == DeploymentConfigCategory.Instrument ||
+        category == DeploymentConfigCategory.All
+    val showMarketSession = category == DeploymentConfigCategory.MarketSession ||
+        category == DeploymentConfigCategory.All
+
+    if (showInstrument || showMarketSession) {
+        InstrumentResolutionPanel(
+            resolving = resolving && canEdit,
+            resolved = ibSuggestion,
+            selectedMarketZoneId = effectiveZone,
+            persistedCompanyName = deployment.companyName,
+            persistedCurrencyCode = effectiveCurrency,
+            canEditMarket = canEdit,
+            onMarketSelected = { zoneId ->
+                onUpdate {
+                    it.copy(
+                        marketZoneId = zoneId,
+                        currencyCode = DeploymentMarket.currencyForZone(zoneId),
+                        marketSource = MarketSource.USER
+                    )
+                }
+            },
+            compact = compact,
+            tableLayout = tableLayout,
+            tableCategory = when {
+                showInstrument && showMarketSession -> DeploymentConfigCategory.All
+                showInstrument -> DeploymentConfigCategory.Instrument
+                else -> DeploymentConfigCategory.MarketSession
             }
-        }
-    )
-    val suggestion = ibSuggestion
-    if (mismatch && suggestion != null) {
-        Text(
-            "IB suggests ${DeploymentMarket.sessionDisplayLabel(
-                DeploymentMarket.sessionForZone(suggestion.marketZoneId)
-            )} (${suggestion.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
-            fontSize = 12.sp,
-            color = LossRed,
-            lineHeight = 15.sp
         )
     }
-    deployment.instrument?.let { identity ->
-        InstrumentLotSizePanel(
-            listingLabel = daytrader.presentation.watchlist.WatchlistUiMapper.listingLabelForIdentity(identity),
-            orderSizeRules = identity.orderSizeRules(),
-            tickRuleLabel = InstrumentRelookup.tickRuleLabel(identity),
+    val suggestion = ibSuggestion
+    if (showMarketSession && mismatch && suggestion != null) {
+        if (tableLayout) {
+            ConfigTableRow(label = "IB hint", alignTop = true) {
+                ConfigTableValueText(
+                    "IB suggests ${DeploymentMarket.sessionDisplayLabel(
+                        DeploymentMarket.sessionForZone(suggestion.marketZoneId)
+                    )} (${suggestion.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
+                    color = LossRed
+                )
+            }
+        } else {
+            Text(
+                "IB suggests ${DeploymentMarket.sessionDisplayLabel(
+                    DeploymentMarket.sessionForZone(suggestion.marketZoneId)
+                )} (${suggestion.venueLabel}). This deployment uses ${DeploymentMarket.sessionDisplayLabel(session)}.",
+                fontSize = if (compact) 11.sp else 12.sp,
+                color = LossRed,
+                lineHeight = if (compact) 14.sp else 15.sp
+            )
+        }
+    }
+    if (showInstrument) {
+        deployment.instrument?.let { identity ->
+            InstrumentLotSizePanel(
+                listingLabel = daytrader.presentation.watchlist.WatchlistUiMapper.listingLabelForIdentity(identity),
+                orderSizeRules = identity.orderSizeRules(),
+                tickRuleLabel = InstrumentRelookup.tickRuleLabel(identity),
+                canRelookup = canRelookupInstrument,
+                relookupInProgress = instrumentRelookupInProgress,
+                relookupMessage = instrumentRelookupMessage,
+                onRelookup = onRelookupInstrument,
+                testTagPrefix = "DeploymentInstrument",
+                compact = compact,
+                tableLayout = tableLayout
+            )
+        } ?: InstrumentLotSizePanel(
+            listingLabel = null,
+            orderSizeRules = InstrumentOrderSizeRules.DEFAULT,
             canRelookup = canRelookupInstrument,
             relookupInProgress = instrumentRelookupInProgress,
             relookupMessage = instrumentRelookupMessage,
             onRelookup = onRelookupInstrument,
-            testTagPrefix = "DeploymentInstrument"
+            testTagPrefix = "DeploymentInstrument",
+            compact = compact,
+            tableLayout = tableLayout
         )
-    } ?: InstrumentLotSizePanel(
-        listingLabel = null,
-        orderSizeRules = InstrumentOrderSizeRules.DEFAULT,
-        canRelookup = canRelookupInstrument,
-        relookupInProgress = instrumentRelookupInProgress,
-        relookupMessage = instrumentRelookupMessage,
-        onRelookup = onRelookupInstrument,
-        testTagPrefix = "DeploymentInstrument"
-    )
+    }
 }
 
 @Composable
