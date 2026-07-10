@@ -100,6 +100,13 @@ sealed interface GatewayCommand {
         val purpose: String = "session_stop"
     ) : GatewayCommand
 
+    /** Tighten or replace the protective stop for OPEN_DEADLINE exit. */
+    data class TightenOpenDeadlineProtectiveStop(
+        val symbol: String,
+        val position: daytrader.gateway.AccountPosition,
+        val newStopPrice: Double
+    ) : GatewayCommand
+
     /** Cancel working orders and close any open position for [symbol] (session stop). */
     data class FlattenSymbolForSymbol(val symbol: String) : GatewayCommand
 

@@ -1593,6 +1593,16 @@ class BrokerEmulatorEngine(
     fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false) {
         if (!connected) return
         val norm = SymbolMarkets.normalizeSymbol(symbol)
+        if (!preserveStopLoss && SymbolMarkets.hasOpenPosition(norm, positions.map { it.toAccountPosition() })) {
+            orders.entries.toList().forEach { (_, order) ->
+                if (!SymbolMarkets.symbolsMatch(norm, order.symbol) || order.isTerminal()) return@forEach
+                val working = order.toWorkingOrder()
+                if (daytrader.data.SessionOrderClassification.isProtectiveStopLoss(working)) return@forEach
+                updateOrder(order.copy(status = "Cancelled"))
+            }
+            publishOrders()
+            return
+        }
         var cancelled = 0
         orders.entries.toList().forEach { (_, order) ->
             if (!SymbolMarkets.symbolsMatch(norm, order.symbol) || order.isTerminal()) return@forEach
@@ -1612,6 +1622,47 @@ class BrokerEmulatorEngine(
             EmulatorLog.sessionOrdersCancelled(norm, cancelled)
         }
         publishOrders()
+    }
+
+    fun tightenOpenDeadlineProtectiveStop(
+        symbol: String,
+        position: daytrader.gateway.AccountPosition,
+        newStopPrice: Double
+    ) {
+        if (!connected) return
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        val stops = orders.values.filter { order ->
+            SymbolMarkets.symbolsMatch(norm, order.symbol) &&
+                !order.isTerminal() &&
+                daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order.toWorkingOrder())
+        }
+        if (stops.isNotEmpty()) {
+            stops.forEach { stop ->
+                val updated = stop.copy(stopPrice = newStopPrice)
+                updateOrder(updated)
+                maybeFillStopOrder(updated)
+            }
+        } else {
+            val closeAction = if (position.quantity > 0) "SELL" else "BUY"
+            val qty = kotlin.math.abs(position.quantity)
+            val replacement = EmulatorOrder(
+                orderId = allocateOrderId(),
+                symbol = norm,
+                action = closeAction,
+                quantity = qty,
+                filled = 0,
+                remaining = qty,
+                orderType = "STP",
+                limitPrice = null,
+                stopPrice = newStopPrice,
+                status = "Submitted",
+                currency = position.currency
+            )
+            orders[replacement.orderId] = replacement
+            maybeFillStopOrder(replacement)
+        }
+        publishOrders()
+        publishPositions()
     }
 
     fun flattenSymbolForSymbol(symbol: String) {

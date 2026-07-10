@@ -226,6 +226,14 @@ class EmulatorBrokerAdapter(
                                 action = command.action
                             )
                         )
+                    is GatewayCommand.TightenOpenDeadlineProtectiveStop ->
+                        controlChannel.send(
+                            EmulatorControlMessage.TightenOpenDeadlineStop(
+                                symbol = command.symbol,
+                                position = command.position,
+                                newStopPrice = command.newStopPrice
+                            )
+                        )
                     is GatewayCommand.FlattenSymbolForSymbol ->
                         controlChannel.send(EmulatorControlMessage.FlattenSymbol(command.symbol))
                     GatewayCommand.RequestExecutions -> withEngine { engine.republishFills() }
@@ -372,6 +380,16 @@ class EmulatorBrokerAdapter(
                         )
                     }
                 }.onFailure { logControlMessageFailure("close_position", message.symbol, it) }
+            is EmulatorControlMessage.TightenOpenDeadlineStop ->
+                runCatching {
+                    withEngine {
+                        engine.tightenOpenDeadlineProtectiveStop(
+                            symbol = message.symbol,
+                            position = message.position,
+                            newStopPrice = message.newStopPrice
+                        )
+                    }
+                }.onFailure { logControlMessageFailure("tighten_open_deadline_stop", message.symbol, it) }
             is EmulatorControlMessage.FlattenSymbol ->
                 runCatching {
                     withEngine { engine.flattenSymbolForSymbol(message.symbol) }
@@ -527,6 +545,11 @@ class EmulatorBrokerAdapter(
             val symbol: String,
             val quantity: Int? = null,
             val action: String? = null
+        ) : EmulatorControlMessage
+        data class TightenOpenDeadlineStop(
+            val symbol: String,
+            val position: daytrader.gateway.AccountPosition,
+            val newStopPrice: Double
         ) : EmulatorControlMessage
         data class FlattenSymbol(val symbol: String) : EmulatorControlMessage
     }

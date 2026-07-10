@@ -35,6 +35,7 @@ class IbModeTestHarness(
         scope: CoroutineScope,
         nowEpochMillis: () -> Long = { E2ETestFixtures.BAR_CLOSE_EPOCH_MS },
         openDeadlineConfirmTimeoutMs: Long = daytrader.data.OpenDeadlineSessionExit.CONFIRM_TIMEOUT_MS,
+        openDeadlineMarketFallbackConfirmTimeoutMs: Long = openDeadlineConfirmTimeoutMs,
         openDeadlineFillDrainTimeoutMs: Long = daytrader.data.OpenDeadlineFillDrain.FILL_DRAIN_TIMEOUT_MS
     ): TouchTurnEngine {
         val marketData = BrokerGatewayMarketDataProvider(gateway)
@@ -48,6 +49,7 @@ class IbModeTestHarness(
             sessionGateway = gateway,
             executionGateway = gateway,
             openDeadlineConfirmTimeoutMs = openDeadlineConfirmTimeoutMs,
+            openDeadlineMarketFallbackConfirmTimeoutMs = openDeadlineMarketFallbackConfirmTimeoutMs,
             openDeadlineFillDrainTimeoutMs = openDeadlineFillDrainTimeoutMs
         )
     }

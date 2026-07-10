@@ -297,6 +297,14 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.CloseOpenPositionForSymbol(symbol, quantity, action, purpose))
     }
 
+    override fun tightenOpenDeadlineProtectiveStop(
+        symbol: String,
+        position: AccountPosition,
+        newStopPrice: Double
+    ) {
+        sendCommand(GatewayCommand.TightenOpenDeadlineProtectiveStop(symbol, position, newStopPrice))
+    }
+
     override fun flattenSymbolForSymbol(symbol: String) {
         sendCommand(GatewayCommand.FlattenSymbolForSymbol(symbol))
     }

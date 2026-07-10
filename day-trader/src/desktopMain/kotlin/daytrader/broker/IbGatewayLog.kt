@@ -129,6 +129,14 @@ internal object IbGatewayLog {
         info("Session stop — position close skipped for $symbol: $reason")
     }
 
+    fun openDeadlineStopTightened(symbol: String, orderId: Int, stopPrice: Double) {
+        info("Open deadline — tightened stop $symbol orderId=$orderId stop=$stopPrice")
+    }
+
+    fun openDeadlineStopPlaced(symbol: String, orderId: Int, stopPrice: Double) {
+        info("Open deadline — placed protective stop $symbol orderId=$orderId stop=$stopPrice")
+    }
+
     fun requestingPositions() {
         info("Requesting positions")
     }

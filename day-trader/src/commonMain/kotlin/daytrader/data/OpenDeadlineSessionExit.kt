@@ -1,32 +1,34 @@
 package daytrader.data
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.OpenDeadlineTightStopPrice
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerGateway
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * OPEN_DEADLINE exit: market-close the position, confirm flat, then cancel remaining orders.
- * If the close cannot be confirmed, non–stop-loss orders are cancelled but protective stops stay working.
- * When the broker drops protective stops during the first close attempt (IB bracket behaviour),
- * a recovery [BrokerGateway.flattenSymbolForSymbol] is attempted before giving up.
+ * OPEN_DEADLINE exit: cancel take-profit (keep stop), tighten the protective stop near market,
+ * confirm flat, then cancel remaining orders. Protective stops are never removed while the
+ * position is open. Market close is a last-resort fallback only.
  */
 object OpenDeadlineSessionExit {
     const val CONFIRM_TIMEOUT_MS = 30_000L
-    const val RECOVERY_CONFIRM_TIMEOUT_MS = 30_000L
+    const val MARKET_FALLBACK_CONFIRM_TIMEOUT_MS = 30_000L
     const val POLL_INTERVAL_MS = 250L
 
     sealed interface Result {
         data object NoOpenPosition : Result
         data object PositionConfirmedFlat : Result
-        /** Flat confirmed after [flattenSymbolForSymbol] when the first close left a naked position. */
-        data object PositionConfirmedFlatAfterRecovery : Result
+        /** Flat confirmed after a last-resort market close when the tightened stop did not fill in time. */
+        data object PositionConfirmedFlatAfterMarketFallback : Result
         data class CloseUnconfirmedStopLossRetained(
             val reason: String,
             val stopLossOrderCount: Int,
-            val recoveryFlattenAttempted: Boolean = false
+            val marketFallbackAttempted: Boolean = false
         ) : Result
     }
 
@@ -36,32 +38,60 @@ object OpenDeadlineSessionExit {
         knownPosition: AccountPosition,
         positions: StateFlow<List<AccountPosition>>,
         openOrders: StateFlow<List<WorkingOrder>>,
+        quote: LiveQuote? = null,
+        instrument: InstrumentIdentity? = null,
         confirmTimeoutMs: Long = CONFIRM_TIMEOUT_MS,
-        recoveryConfirmTimeoutMs: Long = RECOVERY_CONFIRM_TIMEOUT_MS,
+        marketFallbackConfirmTimeoutMs: Long = MARKET_FALLBACK_CONFIRM_TIMEOUT_MS,
         pollIntervalMs: Long = POLL_INTERVAL_MS
     ): Result {
         gateway.cancelOpenOrdersForSymbol(symbol, preserveStopLoss = true)
-        gateway.closeOpenPositionForSymbol(symbol, knownPosition, purpose = "open_deadline")
+
+        val targetStop = OpenDeadlineTightStopPrice.compute(
+            position = knownPosition,
+            quote = quote,
+            instrument = instrument,
+            symbol = symbol
+        )
+        if (targetStop != null) {
+            gateway.tightenOpenDeadlineProtectiveStop(
+                symbol = symbol,
+                position = knownPosition,
+                newStopPrice = targetStop
+            )
+        }
         refreshBrokerSnapshot(gateway)
 
         if (awaitPositionFlat(symbol, positions, confirmTimeoutMs, pollIntervalMs, gateway)) {
-            gateway.cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)
+            cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
             return Result.PositionConfirmedFlat
         }
 
-        val stopLossCountAfterFirstClose = protectiveStopLossCount(symbol, openOrders.value)
-        if (stopLossCountAfterFirstClose == 0) {
-            gateway.flattenSymbolForSymbol(symbol)
+        val stopMissing = protectiveStopLossCount(symbol, openOrders.value) == 0
+        if (stopMissing && targetStop != null) {
+            gateway.tightenOpenDeadlineProtectiveStop(
+                symbol = symbol,
+                position = knownPosition,
+                newStopPrice = targetStop
+            )
             refreshBrokerSnapshot(gateway)
-            if (awaitPositionFlat(symbol, positions, recoveryConfirmTimeoutMs, pollIntervalMs, gateway)) {
-                return Result.PositionConfirmedFlatAfterRecovery
+            if (awaitPositionFlat(symbol, positions, marketFallbackConfirmTimeoutMs, pollIntervalMs, gateway)) {
+                cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
+                return Result.PositionConfirmedFlat
             }
         }
 
+        gateway.closeOpenPositionForSymbol(symbol, knownPosition, purpose = "open_deadline_fallback")
+        refreshBrokerSnapshot(gateway)
+        val marketFallbackAttempted = true
+        if (awaitPositionFlat(symbol, positions, marketFallbackConfirmTimeoutMs, pollIntervalMs, gateway)) {
+            cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
+            return Result.PositionConfirmedFlatAfterMarketFallback
+        }
+
         return Result.CloseUnconfirmedStopLossRetained(
-            reason = "position_still_open_after_${confirmTimeoutMs}ms",
+            reason = "position_still_open_after_tight_stop_and_market_fallback",
             stopLossOrderCount = protectiveStopLossCount(symbol, openOrders.value),
-            recoveryFlattenAttempted = stopLossCountAfterFirstClose == 0
+            marketFallbackAttempted = marketFallbackAttempted
         )
     }
 
@@ -84,6 +114,15 @@ object OpenDeadlineSessionExit {
             delay(pollIntervalMs)
         }
         return !SymbolMarkets.hasOpenPosition(symbol, positions.value)
+    }
+
+    internal fun cancelRemainingOrdersWhenFlat(
+        gateway: BrokerGateway,
+        symbol: String,
+        positions: List<AccountPosition>
+    ) {
+        if (!OpenDeadlineProtectiveStopGuard.mayCancelProtectiveStops(symbol, positions)) return
+        gateway.cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)
     }
 
     private fun refreshBrokerSnapshot(gateway: BrokerGateway) {

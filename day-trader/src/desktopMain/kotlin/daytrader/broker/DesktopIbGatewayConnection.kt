@@ -39,6 +39,7 @@ import daytrader.domain.requiresDailyHistoricalBootstrap
 import daytrader.domain.TouchTurnSignalContext
 import daytrader.domain.InstrumentIdentity
 import daytrader.domain.InstrumentPriceIncrement
+import daytrader.domain.InstrumentPriceTick
 import daytrader.diagnostics.ExecutionGatewayLog
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
@@ -367,6 +368,15 @@ class DesktopIbGatewayConnection(
                                 quantity = command.quantity,
                                 action = command.action,
                                 purpose = command.purpose
+                            )
+                        }
+                    }
+                    is GatewayCommand.TightenOpenDeadlineProtectiveStop -> {
+                        if (!marketDataOnly) {
+                            tightenOpenDeadlineProtectiveStop(
+                                symbol = command.symbol,
+                                position = command.position,
+                                newStopPrice = command.newStopPrice
                             )
                         }
                     }
@@ -2551,6 +2561,23 @@ class DesktopIbGatewayConnection(
     private fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean = false) {
         if (!client.isConnected) return
         val allForSymbol = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+        if (!preserveStopLoss && openPositions.values.any { pos ->
+                SymbolMarkets.symbolsMatch(symbol, pos.symbol) && pos.quantity != 0
+            }) {
+            val toCancel = allForSymbol.filterNot { daytrader.data.SessionOrderClassification.isProtectiveStopLoss(it) }
+            if (toCancel.isEmpty()) return
+            val orderCancel = OrderCancel()
+            toCancel.forEach { working ->
+                openOrdersById.remove(working.orderId)
+                paced {
+                    if (!client.isConnected) return@paced
+                    client.cancelOrder(working.orderId, orderCancel)
+                }
+            }
+            publishOpenOrders()
+            IbGatewayLog.sessionOrdersCancelled(symbol, toCancel.map { it.orderId })
+            return
+        }
         val toCancel = if (preserveStopLoss) {
             allForSymbol.filterNot { daytrader.data.SessionOrderClassification.isProtectiveStopLoss(it) }
         } else {
@@ -2567,6 +2594,77 @@ class DesktopIbGatewayConnection(
         }
         publishOpenOrders()
         IbGatewayLog.sessionOrdersCancelled(symbol, toCancel.map { it.orderId })
+    }
+
+    private fun tightenOpenDeadlineProtectiveStop(
+        symbol: String,
+        position: AccountPosition,
+        newStopPrice: Double
+    ) {
+        if (!client.isConnected) return
+        val stops = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+            .filter { daytrader.data.SessionOrderClassification.isProtectiveStopLoss(it) }
+        val roundedStop = InstrumentPriceTick.roundForInstrument(newStopPrice, null, symbol)
+        if (stops.isNotEmpty()) {
+            val stop = stops.first()
+            val order = Order()
+            order.orderId(stop.orderId)
+            order.clientId(config.clientId)
+            order.action(stop.action)
+            order.orderType("STP")
+            order.totalQuantity(Decimal.get(stop.remaining.toLong()))
+            order.auxPrice(roundedStop)
+            order.tif(Types.TimeInForce.GTC)
+            order.transmit(true)
+            if (config.accountCode.isNotBlank()) {
+                order.account(config.accountCode)
+            }
+            val contract = IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(symbol))
+            paced {
+                if (!client.isConnected) return@paced
+                client.placeOrder(stop.orderId, contract, order)
+            }
+            openOrdersById[stop.orderId] = stop.copy(stopPrice = roundedStop)
+            publishOpenOrders()
+            IbGatewayLog.openDeadlineStopTightened(symbol, stop.orderId, roundedStop)
+            return
+        }
+        val closeQty = kotlin.math.abs(position.quantity)
+        if (closeQty == 0) return
+        val closeAction = if (position.quantity > 0) "SELL" else "BUY"
+        val orderId = allocateOrderIds(1) ?: return
+        val order = Order()
+        order.orderId(orderId)
+        order.clientId(config.clientId)
+        order.action(closeAction)
+        order.orderType("STP")
+        order.totalQuantity(Decimal.get(closeQty.toLong()))
+        order.auxPrice(roundedStop)
+        order.tif(Types.TimeInForce.GTC)
+        order.transmit(true)
+        if (config.accountCode.isNotBlank()) {
+            order.account(config.accountCode)
+        }
+        val contract = IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(symbol))
+        paced {
+            if (!client.isConnected) return@paced
+            client.placeOrder(orderId, contract, order)
+        }
+        openOrdersById[orderId] = WorkingOrder(
+            orderId = orderId,
+            symbol = SymbolMarkets.normalizeSymbol(symbol),
+            action = closeAction,
+            quantity = closeQty,
+            filled = 0,
+            remaining = closeQty,
+            orderType = "STP",
+            limitPrice = null,
+            stopPrice = roundedStop,
+            status = "Submitted",
+            currency = position.currency
+        )
+        publishOpenOrders()
+        IbGatewayLog.openDeadlineStopPlaced(symbol, orderId, roundedStop)
     }
 
     private fun flattenSymbolForSymbol(symbol: String) {

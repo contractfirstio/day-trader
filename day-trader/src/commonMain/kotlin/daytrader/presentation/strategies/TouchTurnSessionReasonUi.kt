@@ -259,9 +259,10 @@ object TouchTurnSessionReasonUi {
             )
         TouchTurnSessionStopTrigger.OPEN_DEADLINE -> TouchTurnSessionStatusUi(
             headline = "Session stopped — open deadline",
-            detail = "Maximum time after RTH open elapsed. The app market-closed the position and confirmed " +
-                "flat before ending the session. If the close could not be confirmed, GTC stop-loss orders " +
-                "were left working at the broker.",
+            detail = "Maximum time after RTH open elapsed. Take-profit was cancelled and the protective " +
+                "stop was tightened near market to exit. If the stop did not fill in time, a market close was " +
+                "attempted without removing the stop first. Protective stops are never cancelled while the " +
+                "position remains open.",
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionStopTrigger.PRE_MARKET_CLOSE -> TouchTurnSessionStatusUi(

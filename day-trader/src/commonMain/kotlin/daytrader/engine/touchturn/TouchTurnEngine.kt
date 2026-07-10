@@ -133,6 +133,8 @@ class TouchTurnEngine(
     private val liquidityBucketRepository: LiquidityBucketRepository? = null,
     private val replaySessionStopHook: ReplaySessionStopHook? = null,
     private val openDeadlineConfirmTimeoutMs: Long = OpenDeadlineSessionExit.CONFIRM_TIMEOUT_MS,
+    private val openDeadlineMarketFallbackConfirmTimeoutMs: Long =
+        OpenDeadlineSessionExit.MARKET_FALLBACK_CONFIRM_TIMEOUT_MS,
     private val openDeadlineFillDrainTimeoutMs: Long = OpenDeadlineFillDrain.FILL_DRAIN_TIMEOUT_MS
 ) : TouchTurnEnginePort {
     private val commandQueue = Channel<TouchTurnCommand>(Channel.UNLIMITED)
@@ -642,7 +644,11 @@ class TouchTurnEngine(
                     knownPosition = openDeadlinePosition,
                     positions = gateway.positions,
                     openOrders = gateway.openOrders,
-                    confirmTimeoutMs = openDeadlineConfirmTimeoutMs
+                    quote = gateway.quotes.value[instance.symbol]
+                        ?: gateway.quotes.value[instance.symbol.uppercase()],
+                    instrument = instance.instrument,
+                    confirmTimeoutMs = openDeadlineConfirmTimeoutMs,
+                    marketFallbackConfirmTimeoutMs = openDeadlineMarketFallbackConfirmTimeoutMs
                 )
                 OpenDeadlinePositionResolver.hadPositionOpenedMilestone(instance) -> {
                     val stopLossCount = SymbolMarkets.openOrdersForDeployment(instance, gateway.openOrders.value)
@@ -669,7 +675,7 @@ class TouchTurnEngine(
             }
             openDeadlineFillsForStop = when (exitResult) {
                 OpenDeadlineSessionExit.Result.PositionConfirmedFlat,
-                OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterRecovery -> OpenDeadlineFillDrain.awaitClosingFill(
+                OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterMarketFallback -> OpenDeadlineFillDrain.awaitClosingFill(
                     gateway = gateway,
                     instance = instance,
                     fillsSeenBefore = fillsSeenBeforeExit,
@@ -2171,15 +2177,15 @@ class TouchTurnEngine(
         when (result) {
             OpenDeadlineSessionExit.Result.NoOpenPosition -> mapOf("outcome" to "no_open_position")
             OpenDeadlineSessionExit.Result.PositionConfirmedFlat -> mapOf("outcome" to "position_confirmed_flat")
-            OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterRecovery -> mapOf(
+            OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterMarketFallback -> mapOf(
                 "outcome" to "position_confirmed_flat",
-                "recoveryFlatten" to "true"
+                "marketFallback" to "true"
             )
             is OpenDeadlineSessionExit.Result.CloseUnconfirmedStopLossRetained -> mapOf(
                 "outcome" to "close_unconfirmed_stop_loss_retained",
                 "reason" to result.reason,
                 "stopLossOrderCount" to result.stopLossOrderCount.toString(),
-                "recoveryFlattenAttempted" to result.recoveryFlattenAttempted.toString()
+                "marketFallbackAttempted" to result.marketFallbackAttempted.toString()
             )
         }
 }

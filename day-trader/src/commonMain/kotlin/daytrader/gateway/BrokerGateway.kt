@@ -118,6 +118,16 @@ interface BrokerGateway {
         purpose: String = "session_stop"
     )
 
+    /**
+     * OPEN_DEADLINE: tighten an existing protective stop to [newStopPrice], or place one when missing.
+     * Never cancels the stop while [position] is non-flat.
+     */
+    fun tightenOpenDeadlineProtectiveStop(
+        symbol: String,
+        position: AccountPosition,
+        newStopPrice: Double
+    ) = Unit
+
     /** Cancel open orders and close any position for [symbol] (session stop). */
     fun flattenSymbolForSymbol(symbol: String)
 

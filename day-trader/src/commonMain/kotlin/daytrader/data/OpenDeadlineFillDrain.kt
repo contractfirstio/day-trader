@@ -8,8 +8,9 @@ import daytrader.gateway.BrokerGateway
 import kotlinx.coroutines.delay
 
 /**
- * After OPEN_DEADLINE market-close, IB may report flat positions before executions arrive.
- * Poll [BrokerGateway.fills] briefly so [TouchTurnManualStopHandler] snapshots the exit fill.
+ * After OPEN_DEADLINE exit (tight stop or market fallback), IB may report flat positions before
+ * executions arrive. Poll [BrokerGateway.fills] briefly so [TouchTurnManualStopHandler] snapshots
+ * the exit fill.
  */
 object OpenDeadlineFillDrain {
     const val FILL_DRAIN_TIMEOUT_MS = 5_000L

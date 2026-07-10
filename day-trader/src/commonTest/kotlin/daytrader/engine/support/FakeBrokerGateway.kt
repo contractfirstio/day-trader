@@ -78,6 +78,8 @@ class FakeBrokerGateway(
     val cancelledOrderIds = mutableListOf<Int>()
     data class CancelCall(val symbol: String, val preserveStopLoss: Boolean)
     val cancelCalls = mutableListOf<CancelCall>()
+    data class TightenStopCall(val symbol: String, val newStopPrice: Double, val orderId: Int?)
+    val tightenStopCalls = mutableListOf<TightenStopCall>()
     val closedPositions = mutableListOf<AccountPosition>()
     var closeClearsPosition: Boolean = true
     /**
@@ -227,6 +229,7 @@ class FakeBrokerGateway(
         flattenedSymbols.clear()
         cancelledOrderIds.clear()
         cancelCalls.clear()
+        tightenStopCalls.clear()
         closedPositions.clear()
         closeClearsPosition = true
         homeMarketRegimeFetchZones.clear()
@@ -286,10 +289,94 @@ class FakeBrokerGateway(
 
     override fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean) {
         cancelCalls += CancelCall(symbol, preserveStopLoss)
+        if (!preserveStopLoss &&
+            daytrader.broker.SymbolMarkets.hasOpenPosition(symbol, _positions.value)
+        ) {
+            _openOrders.value = _openOrders.value.filterNot { order ->
+                daytrader.broker.SymbolMarkets.symbolsMatch(symbol, order.symbol) &&
+                    !daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order)
+            }
+            return
+        }
         val norm = symbol.uppercase()
         _openOrders.value = _openOrders.value.filterNot { order ->
             daytrader.broker.SymbolMarkets.symbolsMatch(norm, order.symbol) &&
                 (!preserveStopLoss || !daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order))
+        }
+    }
+
+    override fun tightenOpenDeadlineProtectiveStop(
+        symbol: String,
+        position: AccountPosition,
+        newStopPrice: Double
+    ) {
+        val norm = daytrader.broker.SymbolMarkets.normalizeSymbol(symbol)
+        val stops = _openOrders.value.filter { order ->
+            daytrader.broker.SymbolMarkets.symbolsMatch(norm, order.symbol) &&
+                daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order)
+        }
+        val updatedStop = if (stops.isNotEmpty()) {
+            val target = stops.first()
+            tightenStopCalls += TightenStopCall(symbol, newStopPrice, target.orderId)
+            target.copy(stopPrice = newStopPrice)
+        } else {
+            tightenStopCalls += TightenStopCall(symbol, newStopPrice, orderId = null)
+            val closeAction = if (position.quantity > 0) "SELL" else "BUY"
+            WorkingOrder(
+                orderId = 9_000 + tightenStopCalls.size,
+                symbol = norm,
+                action = closeAction,
+                quantity = kotlin.math.abs(position.quantity),
+                filled = 0,
+                remaining = kotlin.math.abs(position.quantity),
+                orderType = "STP",
+                limitPrice = null,
+                stopPrice = newStopPrice,
+                status = "Submitted",
+                currency = position.currency
+            )
+        }
+        _openOrders.value = _openOrders.value.filterNot { order ->
+            daytrader.broker.SymbolMarkets.symbolsMatch(norm, order.symbol) &&
+                daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order)
+        } + updatedStop
+        maybeFillTightenedStop(position, updatedStop)
+    }
+
+    private fun maybeFillTightenedStop(position: AccountPosition, stop: WorkingOrder) {
+        val quote = _quotes.value[position.symbol.uppercase()]
+            ?: _quotes.value[position.symbol]
+        val stopPrice = stop.stopPrice ?: return
+        if (!shouldFillTightenedStop(position, stopPrice, quote)) {
+            return
+        }
+        _openOrders.value = _openOrders.value.filterNot { it.orderId == stop.orderId }
+        _positions.value = _positions.value.filterNot {
+            daytrader.broker.SymbolMarkets.symbolsMatch(position.symbol, it.symbol)
+        }
+        pendingExitFill = synthesizedExitFill(position)
+    }
+
+    private fun shouldFillTightenedStop(
+        position: AccountPosition,
+        stopPrice: Double,
+        quote: daytrader.gateway.LiveQuote?
+    ): Boolean {
+        if (daytrader.domain.OpenDeadlineTightStopPrice.isImmediatelyMarketable(position, stopPrice, quote)) {
+            return true
+        }
+        if (quote == null) return false
+        val minTick = 0.01
+        return when {
+            position.quantity < 0 -> {
+                val ask = quote.ask?.takeIf { it.isFinite() && it > 0.0 } ?: return false
+                stopPrice - ask <= minTick
+            }
+            position.quantity > 0 -> {
+                val bid = quote.bid?.takeIf { it.isFinite() && it > 0.0 } ?: return false
+                bid - stopPrice <= minTick
+            }
+            else -> false
         }
     }
 

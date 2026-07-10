@@ -26,6 +26,7 @@ import daytrader.engine.TouchTurnCommand
 import daytrader.engine.support.InMemoryStrategyDeploymentRepository
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.BrokerFill
+import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +68,7 @@ class E2EOpenDeadlineIbTest {
                 scope = scope,
                 nowEpochMillis = { deadlineEpoch },
                 openDeadlineConfirmTimeoutMs = 500,
+                openDeadlineMarketFallbackConfirmTimeoutMs = 500,
                 openDeadlineFillDrainTimeoutMs = 100
             )
             engine.start()
@@ -92,18 +94,20 @@ class E2EOpenDeadlineIbTest {
             engine.setBacktestSyncCommands(true)
             engine.dispatchAndAwait(TouchTurnCommand.PollStopRules)
             engine.setBacktestSyncCommands(false)
-            delay(1_500)
+            delay(4_000)
 
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value[0].status)
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value[1].status)
 
             assertTrue(
-                harness.gateway.closedPositions.any { SymbolMarkets.symbolsMatch(FIRST_SYMBOL, it.symbol) },
-                "first symbol must be market-closed at OPEN_DEADLINE"
+                harness.gateway.closedPositions.any { SymbolMarkets.symbolsMatch(FIRST_SYMBOL, it.symbol) } ||
+                    harness.gateway.tightenStopCalls.any { SymbolMarkets.symbolsMatch(FIRST_SYMBOL, it.symbol) },
+                "first symbol must exit at OPEN_DEADLINE via tight stop or market fallback"
             )
             assertTrue(
-                harness.gateway.closedPositions.any { SymbolMarkets.symbolsMatch(SECOND_SYMBOL, it.symbol) },
-                "second symbol must still flatten when an earlier stop refresh wiped the shared position cache"
+                harness.gateway.closedPositions.any { SymbolMarkets.symbolsMatch(SECOND_SYMBOL, it.symbol) } ||
+                    harness.gateway.tightenStopCalls.any { SymbolMarkets.symbolsMatch(SECOND_SYMBOL, it.symbol) },
+                "second symbol must exit when an earlier stop refresh wiped the shared position cache"
             )
             assertTrue(
                 harness.gateway.positions.value.none { SymbolMarkets.symbolsMatch(SECOND_SYMBOL, it.symbol) },
@@ -129,7 +133,12 @@ class E2EOpenDeadlineIbTest {
             harness.start()
             val repository = InMemoryStrategyDeploymentRepository()
             repository.add(openDeadlineRunningDeployment())
-            engine = harness.createEngine(repository, scope)
+            engine = harness.createEngine(
+                repository = repository,
+                scope = scope,
+                openDeadlineConfirmTimeoutMs = 500,
+                openDeadlineMarketFallbackConfirmTimeoutMs = 500
+            )
             engine.start()
 
             harness.gateway.setPositions(listOf(shortPosition()))
@@ -155,9 +164,10 @@ class E2EOpenDeadlineIbTest {
             val deployment = repository.deployments.value.single()
             assertEquals(DeploymentStatus.STOPPED, deployment.status)
             assertTrue(harness.gateway.positions.value.none { it.symbol == E2ETestFixtures.SYMBOL })
+            assertTrue(harness.gateway.tightenStopCalls.isNotEmpty())
+            assertTrue(harness.gateway.flattenedSymbols.isEmpty())
             assertTrue(harness.gateway.cancelCalls.any { it.preserveStopLoss })
             assertTrue(harness.gateway.cancelCalls.any { !it.preserveStopLoss })
-            assertTrue(harness.gateway.closedPositions.isNotEmpty())
 
             val closed = deployment.sessionHistory.single { it.status == SessionStatus.CLOSED }
             assertEquals(TouchTurnSessionStopTrigger.OPEN_DEADLINE, closed.touchTurnRunRecord?.stopEvent?.stopTrigger)
@@ -291,9 +301,10 @@ class E2EOpenDeadlineIbTest {
             delay(50)
 
             assertTrue(
-                harness.gateway.closedPositions.isNotEmpty(),
-                "OPEN_DEADLINE must market-close from inferred fill qty when broker caches are empty"
+                harness.gateway.positions.value.none { it.symbol == E2ETestFixtures.SYMBOL },
+                "OPEN_DEADLINE must exit from inferred fill qty when broker caches are empty"
             )
+            assertTrue(harness.gateway.tightenStopCalls.isNotEmpty())
             assertTrue(harness.gateway.cancelCalls.any { it.preserveStopLoss })
             assertTrue(harness.gateway.cancelCalls.any { !it.preserveStopLoss })
 
@@ -310,7 +321,7 @@ class E2EOpenDeadlineIbTest {
 
     @E2EIbTest
     @Test
-    fun ibMode_openDeadlineStop_whenBrokerDropsStopLoss_recoversViaFlatten() = runBlocking {
+    fun ibMode_openDeadlineStop_whenBrokerDropsStopLoss_replacesStopWithoutFlatten() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var engine: daytrader.engine.TouchTurnEngine? = null
         val harness = IbModeTestHarness()
@@ -327,10 +338,10 @@ class E2EOpenDeadlineIbTest {
             engine.start()
 
             harness.gateway.setPositions(listOf(shortPosition(quantity = -16)))
-            harness.gateway.setOpenOrders(listOf(stopLossOrder(quantity = 16), takeProfitOrder(quantity = 16)))
-            harness.gateway.closeClearsPosition = true
-            harness.gateway.closeClearsPositionAfterAttempts = 2
-            harness.gateway.removeProtectiveStopsOnCloseAttempt = true
+            harness.gateway.setOpenOrders(listOf(takeProfitOrder(quantity = 16)))
+            harness.gateway.setQuotes(
+                mapOf(E2ETestFixtures.SYMBOL to LiveQuote(E2ETestFixtures.SYMBOL, bid = 149.0, ask = 149.05))
+            )
             delay(50)
 
             engine.setBacktestSyncCommands(true)
@@ -343,7 +354,8 @@ class E2EOpenDeadlineIbTest {
             )
             engine.setBacktestSyncCommands(false)
 
-            assertTrue(harness.gateway.flattenedSymbols.contains(E2ETestFixtures.SYMBOL))
+            assertTrue(harness.gateway.flattenedSymbols.isEmpty())
+            assertTrue(harness.gateway.tightenStopCalls.isNotEmpty())
             assertTrue(harness.gateway.positions.value.none { it.symbol == E2ETestFixtures.SYMBOL })
             assertEquals(DeploymentStatus.STOPPED, repository.deployments.value.single().status)
 
@@ -371,7 +383,8 @@ class E2EOpenDeadlineIbTest {
             engine = harness.createEngine(
                 repository = repository,
                 scope = scope,
-                openDeadlineConfirmTimeoutMs = 200
+                openDeadlineConfirmTimeoutMs = 200,
+                openDeadlineMarketFallbackConfirmTimeoutMs = 200
             )
             engine.start()
 
