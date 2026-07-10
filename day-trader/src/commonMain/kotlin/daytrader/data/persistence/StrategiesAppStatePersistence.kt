@@ -10,6 +10,8 @@ object StrategiesAppStatePersistence {
             selectedDeploymentId = document.selectedDeploymentId ?: document.selectedInstanceId,
             detailTab = parseDetailTab(document.detailTab),
             globalAutoStartEnabled = document.globalAutoStartEnabled,
+            autoLiquidityFlushEnabled = document.autoLiquidityFlushEnabled,
+            flushedLiquidityZoneDates = document.flushedLiquidityZoneDates,
             tradingPanelDismissedRecapSessionId = document.tradingPanelDismissedRecapSessionId,
         )
 
@@ -18,6 +20,8 @@ object StrategiesAppStatePersistence {
             selectedDeploymentId = state.selectedDeploymentId,
             detailTab = detailTabLabel(state.detailTab),
             globalAutoStartEnabled = state.globalAutoStartEnabled,
+            autoLiquidityFlushEnabled = state.autoLiquidityFlushEnabled,
+            flushedLiquidityZoneDates = state.flushedLiquidityZoneDates,
             tradingPanelDismissedRecapSessionId = state.tradingPanelDismissedRecapSessionId,
         )
 

@@ -4,10 +4,12 @@ import daytrader.broker.SymbolMarkets
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.StrategyDeploymentRepository
-import daytrader.domain.DeploymentStatus
 import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
+import daytrader.engine.liquidity.LiquidityAllocationApplyRequest
+import daytrader.engine.liquidity.LiquidityAllocationApplyResult
+import daytrader.engine.liquidity.LiquidityFlushCoordinator
 import daytrader.execution.ExecutionManager
 import daytrader.gateway.BrokerGateway
 import daytrader.gateway.LiveQuote
@@ -39,6 +41,11 @@ class LiquidityAllocatorViewModel(
     private val brokerGateway: BrokerGateway?,
     private val executionManager: ExecutionManager?,
     private val skipQuoteUiRefresh: () -> Boolean = { false },
+    private val flushCoordinator: LiquidityFlushCoordinator = LiquidityFlushCoordinator(
+        liquidityBucketRepository = liquidityBucketRepository,
+        executionManager = executionManager,
+        deploymentRepository = deploymentRepository,
+    ),
     scope: CoroutineScope = UiCoroutineScopes.forScreen(AppScreen.LIQUIDITY, "LiquidityAllocatorViewModel"),
 ) {
     private val scope = scope
@@ -215,79 +222,47 @@ class LiquidityAllocatorViewModel(
     }
 
     private suspend fun applyInternal(deploymentId: String, allocationDollars: Int) {
-        val execution = executionManager ?: run {
-            setApplyError(deploymentId, "Execution not available")
-            return
-        }
         val deployment = latestDeployments.find { it.id == deploymentId } ?: return
-        if (!deployment.isTouchTurn || deployment.status != DeploymentStatus.RUNNING) {
-            setApplyError(deploymentId, "Session no longer active")
-            return
-        }
-        val row = LiquidityAllocatorMapper.buildRowForDeployment(
-            deployment = deployment,
-            openOrders = latestOpenOrders,
-            quotes = latestQuotes,
-            selectedCurrency = selectedCurrency,
-            allocationDollars = allocationDollars,
-            sessionRollupCache = sessionRollupCache,
-        ) ?: run {
-            setApplyError(deploymentId, "Entry order no longer eligible")
-            return
-        }
-        val resizeRequest = LiquidityAllocatorMapper.buildResizeRequest(
-            deployment = deployment,
-            openOrders = latestOpenOrders,
-            newQuantity = row.previewQuantity
-        ) ?: run {
-            setApplyError(deploymentId, "Could not build resize request")
-            return
-        }
         applyingDeploymentIds.add(deploymentId)
         applyErrors.remove(deploymentId)
         publishUi()
 
         val sessionDate = deployment.touchTurnSession?.sessionDate ?: currentSessionDateIso()
-        val debitResult = liquidityBucketRepository.debitAllocation(
-            currencyCode = deployment.currencyCode,
-            sessionDate = sessionDate,
-            deploymentId = deploymentId,
-            symbol = deployment.symbol,
-            amount = allocationDollars
-        )
-        if (debitResult.isFailure) {
-            applyingDeploymentIds.remove(deploymentId)
-            setApplyError(deploymentId, debitResult.exceptionOrNull()?.message ?: "Debit failed")
-            return
-        }
-
-        val resizeResult = execution.resizeTouchTurnBracket(resizeRequest)
-        applyingDeploymentIds.remove(deploymentId)
-        if (resizeResult.isFailure) {
-            val refundResult = liquidityBucketRepository.refundAllocation(
-                currencyCode = deployment.currencyCode,
-                sessionDate = sessionDate,
+        val result = flushCoordinator.applyAllocation(
+            LiquidityAllocationApplyRequest(
                 deploymentId = deploymentId,
-                amount = allocationDollars,
-            )
-            val resizeMessage = resizeResult.exceptionOrNull()?.message ?: "Resize failed"
-            setApplyError(
+                allocationDollars = allocationDollars,
+                deployment = deployment,
+                openOrders = latestOpenOrders,
+                quotes = latestQuotes,
+                selectedCurrency = selectedCurrency,
+                sessionDate = sessionDate,
+            ),
+            sessionRollupCache = sessionRollupCache,
+        )
+        applyingDeploymentIds.remove(deploymentId)
+        when (result) {
+            is LiquidityAllocationApplyResult.Success -> {
+                allocations.remove(deploymentId)
+                applyErrors.remove(deploymentId)
+            }
+            is LiquidityAllocationApplyResult.Skipped -> setApplyError(
                 deploymentId,
-                if (refundResult.isFailure) {
-                    "$resizeMessage (liquidity refund failed: ${refundResult.exceptionOrNull()?.message ?: "unknown"})"
-                } else {
-                    resizeMessage
+                when (result.reason) {
+                    daytrader.engine.liquidity.LiquidityApplySkipReason.EXECUTION_NOT_AVAILABLE ->
+                        "Execution not available"
+                    daytrader.engine.liquidity.LiquidityApplySkipReason.SESSION_NOT_ACTIVE ->
+                        "Session no longer active"
+                    daytrader.engine.liquidity.LiquidityApplySkipReason.NOT_ELIGIBLE ->
+                        "Entry order no longer eligible"
+                    daytrader.engine.liquidity.LiquidityApplySkipReason.NO_ADDITIONAL_QUANTITY ->
+                        "Allocation too small for a board lot"
+                    daytrader.engine.liquidity.LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT ->
+                        "Allocation too small to increase size"
                 },
             )
-            return
+            is LiquidityAllocationApplyResult.Failed -> setApplyError(deploymentId, result.message)
         }
-
-        deploymentRepository.update(deploymentId) { current ->
-            current.withTouchTurnBracketQuantity(row.previewQuantity)
-        }
-        allocations.remove(deploymentId)
-        applyErrors.remove(deploymentId)
-        liquidityBucketRepository.flushPersistence()
         publishUi()
     }
 
@@ -299,7 +274,7 @@ class LiquidityAllocatorViewModel(
     private fun refreshQuotes(deployments: List<StrategyDeployment>) {
         val gateway = brokerGateway ?: return
         deployments
-            .filter { it.isTouchTurn && it.status == DeploymentStatus.RUNNING }
+            .filter { it.isTouchTurn && it.status == daytrader.domain.DeploymentStatus.RUNNING }
             .forEach { deployment ->
                 val norm = SymbolMarkets.normalizeSymbol(deployment.symbol)
                 if (latestQuotes[norm] == null) {
@@ -341,9 +316,4 @@ class LiquidityAllocatorViewModel(
     private companion object {
         const val QUOTE_UI_REFRESH_INTERVAL_MS = 100L
     }
-}
-
-private fun StrategyDeployment.withTouchTurnBracketQuantity(quantity: Int): StrategyDeployment {
-    val session = touchTurnSession ?: return this
-    return copy(touchTurnSession = session.copy(plannedQuantity = quantity))
 }

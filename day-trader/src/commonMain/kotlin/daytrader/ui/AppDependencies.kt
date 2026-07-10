@@ -46,6 +46,7 @@ import daytrader.presentation.positions.PositionsViewModel
 import daytrader.presentation.trades.TradesViewModel
 import daytrader.presentation.strategies.StrategiesViewModel
 import daytrader.execution.ExecutionManager
+import daytrader.engine.liquidity.LiquidityFlushCoordinator
 import daytrader.presentation.watchlist.WatchlistViewModel
 import daytrader.diagnostics.SessionTrace
 import daytrader.replay.BatchReplayRunner
@@ -209,6 +210,11 @@ fun rememberAppDependencies(
                 LoggingExecutionManager(baseExecution, executionGateway.brokerId)
             }
         }
+        val liquidityFlushCoordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = liquidityBucketRepository,
+            executionManager = executionManager,
+            deploymentRepository = strategyRepository,
+        )
         val touchTurnEngine: TouchTurnEnginePort? = sessionGateway?.let { session ->
             val executionGateway = brokerGateway ?: session
             val marketDataGateway = if (
@@ -238,6 +244,7 @@ fun rememberAppDependencies(
                 scope = engineScope,
                 brokerKind = brokerKind,
                 isGlobalAutoStartEnabled = { appStateRepository.state.value.globalAutoStartEnabled },
+                isAutoLiquidityFlushEnabled = { appStateRepository.state.value.autoLiquidityFlushEnabled },
                 nowEpochMillis = tradingClock::nowEpochMillis,
                 delayMillis = tradingClock::delayMillis,
                 onReplaySessionStarting = onReplaySessionStarting,
@@ -248,6 +255,8 @@ fun rememberAppDependencies(
                 sessionGateway = session,
                 executionGateway = executionGateway,
                 liquidityBucketRepository = liquidityBucketRepository,
+                liquidityFlushCoordinator = liquidityFlushCoordinator,
+                strategiesAppStateRepository = appStateRepository,
                 replaySessionStopHook = replaySessionStopHook
             )
             if (TouchTurnEngineConfig.shadowLogEnabled()) {
@@ -305,6 +314,7 @@ fun rememberAppDependencies(
             brokerGateway = brokerGateway ?: touchTurnSessionGateway,
             executionManager = executionManager,
             skipQuoteUiRefresh = ::replayTurboActive,
+            flushCoordinator = liquidityFlushCoordinator,
         )
         val watchlistViewModel = WatchlistViewModel(
             repository = watchlistRepository,

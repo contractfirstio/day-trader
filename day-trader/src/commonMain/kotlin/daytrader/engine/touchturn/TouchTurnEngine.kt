@@ -4,10 +4,17 @@ import daytrader.data.OpenDeadlineSessionExit
 import daytrader.data.OpenDeadlinePositionResolver
 import daytrader.data.OpenDeadlineFillDrain
 import daytrader.data.DeploymentSessionStopEvaluator
-import daytrader.data.LiquidityBucketRepository
+import daytrader.engine.liquidity.LiquidityFlushCoordinator
+import daytrader.engine.liquidity.LiquidityFlushRequest
+import daytrader.engine.liquidity.activeCurrenciesForDeployments
+import daytrader.engine.liquidity.deploymentsForZone
+import daytrader.domain.LiquidityBucketLogic
 import daytrader.replay.ReplaySessionStopHook
+import daytrader.data.AutoLiquidityFlushLogic
 import daytrader.data.MarketOpenAutoStartLogic
+import daytrader.data.LiquidityBucketRepository
 import daytrader.data.RunningBrokerReconciliation
+import daytrader.data.StrategiesAppStateRepository
 import daytrader.data.SessionStopOrderCleanup
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.data.TouchTurnManualStopHandler
@@ -120,6 +127,7 @@ class TouchTurnEngine(
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val uiEffects: TouchTurnUiEffects = NoOpTouchTurnUiEffects,
     private val isGlobalAutoStartEnabled: () -> Boolean = { true },
+    private val isAutoLiquidityFlushEnabled: () -> Boolean = { false },
     private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
     private val delayMillis: suspend (Long) -> Unit = { delay(it) },
     private val onReplaySessionStarting: ((StrategyDeployment, String) -> Unit)? = null,
@@ -131,6 +139,8 @@ class TouchTurnEngine(
     private val sessionGateway: BrokerGateway? = null,
     private val executionGateway: BrokerGateway? = null,
     private val liquidityBucketRepository: LiquidityBucketRepository? = null,
+    private val liquidityFlushCoordinator: LiquidityFlushCoordinator? = null,
+    private val strategiesAppStateRepository: StrategiesAppStateRepository? = null,
     private val replaySessionStopHook: ReplaySessionStopHook? = null,
     private val openDeadlineConfirmTimeoutMs: Long = OpenDeadlineSessionExit.CONFIRM_TIMEOUT_MS,
     private val openDeadlineMarketFallbackConfirmTimeoutMs: Long =
@@ -164,11 +174,13 @@ class TouchTurnEngine(
     private val brokerOpenOrders = MutableStateFlow<List<daytrader.gateway.WorkingOrder>>(emptyList())
     private val brokerFills = MutableStateFlow<List<daytrader.gateway.BrokerFill>>(emptyList())
     private var globalAutoStartEnabled = true
+    private var autoLiquidityFlushEnabled = false
     private val shutdownRequested = AtomicBoolean(false)
     private val backtestSyncCommands = AtomicBoolean(false)
     private var commandLoopJob: Job? = null
     private var stopRulesPollJob: Job? = null
     private var autoStartPollJob: Job? = null
+    private var autoLiquidityFlushPollJob: Job? = null
 
     override fun setBacktestSyncCommands(enabled: Boolean) {
         backtestSyncCommands.set(enabled)
@@ -224,6 +236,10 @@ class TouchTurnEngine(
         globalAutoStartEnabled = enabled
     }
 
+    override fun updateAutoLiquidityFlushEnabled(enabled: Boolean) {
+        autoLiquidityFlushEnabled = enabled
+    }
+
     override fun start() {
         if (shutdownRequested.get()) return
         if (commandLoopJob?.isActive == true) return
@@ -256,6 +272,7 @@ class TouchTurnEngine(
         cancelPerInstanceJobs()
         stopRulesPollJob?.cancel()
         autoStartPollJob?.cancel()
+        autoLiquidityFlushPollJob?.cancel()
         commandLoopJob?.cancel()
         commandQueue.close()
     }
@@ -493,6 +510,12 @@ class TouchTurnEngine(
                 dispatch(TouchTurnCommand.EvaluateAutoStart)
             }
         }
+        autoLiquidityFlushPollJob = scope.launch {
+            while (isActive) {
+                delayPollLoop(TouchTurnEngineConfig.AUTO_START_POLL_MS)
+                dispatch(TouchTurnCommand.EvaluateAutoLiquidityFlush)
+            }
+        }
     }
 
     private fun cancelPerInstanceJobs() {
@@ -521,6 +544,7 @@ class TouchTurnEngine(
             is TouchTurnCommand.PollLiquidity -> handlePollLiquidity(command.instanceId)
             TouchTurnCommand.PollStopRules -> handlePollStopRules()
             TouchTurnCommand.EvaluateAutoStart -> handleEvaluateAutoStart()
+            TouchTurnCommand.EvaluateAutoLiquidityFlush -> handleEvaluateAutoLiquidityFlush()
             is TouchTurnCommand.RetryBootstrap -> handleLoadFirstCandle(command.instanceId, command.sessionDate)
             is TouchTurnCommand.LoadFirstCandle -> handleLoadFirstCandle(command.instanceId, command.sessionDate)
             is TouchTurnCommand.PrepareSession -> handlePrepareSession(command.instanceId)
@@ -1958,6 +1982,68 @@ class TouchTurnEngine(
                 )
             }
         }
+    }
+
+    private fun handleEvaluateAutoLiquidityFlush() {
+        if (!isAutoLiquidityFlushEnabled() || !autoLiquidityFlushEnabled) return
+        val coordinator = liquidityFlushCoordinator ?: return
+        val appStateRepo = strategiesAppStateRepository ?: return
+        val now = nowEpochMillis()
+        val allDeployments = repository.deployments.value
+        val zones = allDeployments.map { DeploymentMarket.effectiveZoneId(it) }.toSet()
+        scope.launch {
+            for (zone in zones) {
+                val sessionDate = AutoLiquidityFlushLogic.sessionDateIfFlushDue(zone, now) ?: continue
+                val flushKey = AutoLiquidityFlushLogic.flushKey(zone, sessionDate)
+                if (appStateRepo.state.value.flushedLiquidityZoneDates.contains(flushKey)) continue
+                val zoneDeployments = deploymentsForZone(allDeployments, zone)
+                    .filter { it.status == DeploymentStatus.RUNNING && it.isTouchTurn }
+                val quotes = quotesForDeployments(zoneDeployments)
+                if (zoneDeployments.isNotEmpty()) {
+                    val currencies = activeCurrenciesForDeployments(zoneDeployments)
+                    for (currency in currencies.sorted()) {
+                        val currencyDeployments = zoneDeployments.filter {
+                            LiquidityBucketLogic.normalizeCurrency(it.currencyCode) == currency
+                        }
+                        val audit = coordinator.flush(
+                            LiquidityFlushRequest(
+                                currencyCode = currency,
+                                sessionDate = sessionDate,
+                                deployments = currencyDeployments,
+                                openOrders = brokerOpenOrders.value,
+                                quotes = quotes,
+                                enabled = true,
+                            )
+                        )
+                        SessionTrace.log(
+                            type = "auto_liquidity_flush_completed",
+                            details = mapOf(
+                                "zoneId" to zone,
+                                "sessionDate" to sessionDate,
+                                "currency" to currency,
+                                "startingPool" to audit.startingPoolAvailable.toString(),
+                                "remainingPool" to audit.remainingPoolAvailable.toString(),
+                                "totalDebited" to audit.totalDebited.toString(),
+                                "loopCount" to audit.loops.size.toString(),
+                            )
+                        )
+                    }
+                }
+                appStateRepo.update { state ->
+                    state.copy(flushedLiquidityZoneDates = state.flushedLiquidityZoneDates + flushKey)
+                }
+                appStateRepo.flushPersistence()
+            }
+        }
+    }
+
+    private fun quotesForDeployments(deployments: List<StrategyDeployment>): Map<String, LiveQuote> {
+        val gateway = marketDataBrokerGateway() ?: return emptyMap()
+        val snapshot = gateway.quotes.value
+        return deployments.mapNotNull { deployment ->
+            val normalized = SymbolMarkets.normalizeSymbol(deployment.symbol)
+            snapshot[normalized]?.let { normalized to it }
+        }.toMap()
     }
 
     private fun maybeReleaseLiveMarketData(deployment: StrategyDeployment) {

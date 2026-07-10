@@ -762,6 +762,12 @@ class StrategiesViewModel(
         (touchTurnEngine)?.updateGlobalAutoStartEnabled(enabled)
     }
 
+    fun onAutoLiquidityFlushEnabledChange(enabled: Boolean) {
+        UiActionLog.log(action = "toggle_auto_liquidity_flush", details = mapOf("enabled" to enabled.toString()))
+        appStateRepository.update { it.copy(autoLiquidityFlushEnabled = enabled) }
+        touchTurnEngine?.updateAutoLiquidityFlushEnabled(enabled)
+    }
+
     fun onSearchChange(query: String) {
         pendingSearchQuery = query
         _listState.update { it.copy(searchQuery = query) }
@@ -1814,6 +1820,7 @@ class StrategiesViewModel(
             deploymentFilter = ctx.state.deploymentFilter,
             strategyTypeFilter = ctx.state.strategyTypeFilter,
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
+            autoLiquidityFlushEnabled = ctx.state.autoLiquidityFlushEnabled,
             globalClosedSessionHistoryCount = globalClosedSessionHistoryCount,
             globalHasInProgressSessions = globalHasInProgressSessions,
             sortColumn = deploymentListSortColumn,
@@ -1831,6 +1838,7 @@ class StrategiesViewModel(
             tradingPanelShowsSessionRecap = ctx.showSessionRecap,
             tradingPanelRecapRunId = ctx.recapRunId,
             globalAutoStartEnabled = ctx.state.globalAutoStartEnabled,
+            autoLiquidityFlushEnabled = ctx.state.autoLiquidityFlushEnabled,
             deploymentCopyTargets = StrategyUiMapper.toCopyTargets(deployments),
             canRelookupInstrument = canRelookupInstrument(),
             instrumentRelookupInProgress = instrumentRelookupInProgress &&

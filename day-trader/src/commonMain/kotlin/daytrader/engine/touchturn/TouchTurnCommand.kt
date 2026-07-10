@@ -53,6 +53,8 @@ sealed interface TouchTurnCommand {
 
     data object EvaluateAutoStart : TouchTurnCommand
 
+    data object EvaluateAutoLiquidityFlush : TouchTurnCommand
+
     data class RetryBootstrap(val instanceId: String, val sessionDate: String) : TouchTurnCommand
 
     data class LoadFirstCandle(val instanceId: String, val sessionDate: String) : TouchTurnCommand

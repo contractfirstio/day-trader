@@ -306,5 +306,7 @@ data class StrategiesScreenDocument(
     val selectedInstanceId: String? = null,
     val detailTab: String = "configuration",
     val globalAutoStartEnabled: Boolean = true,
+    val autoLiquidityFlushEnabled: Boolean = false,
+    val flushedLiquidityZoneDates: Set<String> = emptySet(),
     val tradingPanelDismissedRecapSessionId: Map<String, String> = emptyMap(),
 )

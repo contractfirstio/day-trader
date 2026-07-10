@@ -125,3 +125,41 @@ fun GlobalAutoStartKillSwitchRail(
         )
     }
 }
+
+/** Compact vertical layout for auto liquidity flush in the navigation rail. */
+@Composable
+fun AutoLiquidityFlushSwitchRail(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(72.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Switch(
+            checked = enabled,
+            onCheckedChange = onEnabledChange,
+            modifier = Modifier.testTag("AutoLiquidityFlushSwitch"),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = GainGreen,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = BrandRed,
+            )
+        )
+        Text(
+            text = if (enabled) "Auto flush" else "Flush OFF",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) Color.White else TextSecondary,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2
+        )
+    }
+}

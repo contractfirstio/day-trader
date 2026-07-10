@@ -276,6 +276,11 @@ fun App(
                                     enabled = strategiesListState.globalAutoStartEnabled,
                                     onEnabledChange = dependencies.strategiesViewModel::onGlobalAutoStartEnabledChange
                                 )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                AutoLiquidityFlushSwitchRail(
+                                    enabled = strategiesListState.autoLiquidityFlushEnabled,
+                                    onEnabledChange = dependencies.strategiesViewModel::onAutoLiquidityFlushEnabledChange
+                                )
                             }
                         }
                     ) {

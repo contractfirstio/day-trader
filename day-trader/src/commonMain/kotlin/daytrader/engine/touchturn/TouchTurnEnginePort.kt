@@ -19,6 +19,7 @@ interface TouchTurnEnginePort {
     /** Stops command processing, polling loops, and per-session jobs (broker mode switch / app exit). */
     fun shutdown() {}
     fun updateGlobalAutoStartEnabled(enabled: Boolean) {}
+    fun updateAutoLiquidityFlushEnabled(enabled: Boolean) {}
     /** Clears per-instance tracking and broker snapshots when no session is running (replay boundaries). */
     fun resetSessionMemory(instanceId: String? = null) {}
     /**

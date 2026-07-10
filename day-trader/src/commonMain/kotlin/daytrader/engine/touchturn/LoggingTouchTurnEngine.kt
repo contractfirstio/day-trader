@@ -31,6 +31,9 @@ class LoggingTouchTurnEngine(
     override fun updateGlobalAutoStartEnabled(enabled: Boolean) =
         delegate.updateGlobalAutoStartEnabled(enabled)
 
+    override fun updateAutoLiquidityFlushEnabled(enabled: Boolean) =
+        delegate.updateAutoLiquidityFlushEnabled(enabled)
+
     override fun resetSessionMemory(instanceId: String?) =
         delegate.resetSessionMemory(instanceId)
 }

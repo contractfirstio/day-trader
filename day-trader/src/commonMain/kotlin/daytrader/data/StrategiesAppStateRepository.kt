@@ -27,6 +27,10 @@ data class StrategiesAppState(
     val detailTab: StrategyDetailTab = StrategyDetailTab.CONFIGURATION,
     /** Master switch: when false, no deployment auto-starts at market open. */
     val globalAutoStartEnabled: Boolean = true,
+    /** When true, no-trade liquidity is auto-redistributed at open + 16 min per market zone. */
+    val autoLiquidityFlushEnabled: Boolean = false,
+    /** Keys "${zoneId}:${sessionDate}" for completed auto flushes (restart idempotency). */
+    val flushedLiquidityZoneDates: Set<String> = emptySet(),
     /**
      * deploymentId → closed session run id hidden on the Trading tab.
      * A new closed run with a different id shows the recap again.

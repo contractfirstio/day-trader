@@ -73,6 +73,7 @@ data class StrategiesListUiState(
     val deploymentFilter: DeploymentFilter = DeploymentFilter.ALL,
     val strategyTypeFilter: StrategyType? = null,
     val globalAutoStartEnabled: Boolean = true,
+    val autoLiquidityFlushEnabled: Boolean = false,
     val globalClosedSessionHistoryCount: Int = 0,
     val globalHasInProgressSessions: Boolean = false,
     val sortColumn: DeploymentListSortColumn? = null,
@@ -92,6 +93,7 @@ data class StrategiesDetailUiState(
     val tradingPanelShowsSessionRecap: Boolean = false,
     val tradingPanelRecapRunId: String? = null,
     val globalAutoStartEnabled: Boolean = true,
+    val autoLiquidityFlushEnabled: Boolean = false,
     /** All deployments (id + market only) for copy-rules market targeting. */
     val deploymentCopyTargets: List<StrategyDeploymentCopyTarget> = emptyList(),
     val canRelookupInstrument: Boolean = false,
