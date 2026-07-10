@@ -1,5 +1,6 @@
 package daytrader.presentation.trades
 
+import daytrader.data.CurrencyRateProvider
 import daytrader.data.FillsRepository
 import daytrader.data.HistoricalTradeSync
 import daytrader.data.persistence.MergeFillsResult
@@ -21,6 +22,44 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
 
 class TradesViewModelTest {
+    @Test
+    fun mixedCurrencyAggregateNormalizesToHkdWithFxProvider() = runBlocking {
+        val repository = FakeFillsRepository(
+            listOf(
+                sampleFill(
+                    execId = "usd",
+                    symbol = "AAPL",
+                    time = "2026-07-07",
+                    currency = "USD",
+                    realizedPnL = 100.0,
+                ),
+                sampleFill(
+                    execId = "hkd",
+                    symbol = "0700",
+                    time = "2026-07-07",
+                    currency = "HKD",
+                    realizedPnL = 50.0,
+                ),
+            )
+        )
+        val viewModel = TradesViewModel(
+            repository = repository,
+            currencyRateProvider = FixedCurrencyRateProvider(mapOf("USD" to 7.8)),
+            tradingClock = fixedJulyClock(),
+        )
+        delay(50)
+        viewModel.onDatePresetSelected(TradeDatePreset.ALL)
+        repeat(20) {
+            delay(25)
+            val summary = viewModel.uiState.value.filterSummary
+            if (summary?.formattedRealizedPnL == "+HKD 830.00") {
+                assertEquals("Converted to HKD at spot FX", summary.pnlCurrencyNote)
+                return@runBlocking
+            }
+        }
+        assertEquals("+HKD 830.00", viewModel.uiState.value.filterSummary?.formattedRealizedPnL)
+    }
+
     @Test
     fun dateColumnFilterNarrowsRows() = runBlocking {
         val repository = FakeFillsRepository(
@@ -268,6 +307,7 @@ class TradesViewModelTest {
         execId: String,
         time: String,
         symbol: String = "AAPL",
+        currency: String = "USD",
         realizedPnL: Double? = null,
     ) = BrokerFill(
         execId = execId,
@@ -279,6 +319,7 @@ class TradesViewModelTest {
         quantity = 10,
         price = 150.0,
         time = time,
+        currency = currency,
         commission = 0.35,
         realizedPnL = realizedPnL
     )
@@ -313,4 +354,15 @@ private class FakeFillsRepository(
     }
 
     override fun flushPersistenceBlocking() = Unit
+}
+
+private class FixedCurrencyRateProvider(
+    private val rates: Map<String, Double>,
+) : CurrencyRateProvider {
+    override suspend fun ratesToTarget(fromCurrencies: Set<String>, toCurrency: String): Result<Map<String, Double>> =
+        Result.success(
+            fromCurrencies.associateWith { currency ->
+                if (currency == toCurrency) 1.0 else rates.getValue(currency)
+            }
+        )
 }

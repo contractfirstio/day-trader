@@ -14,6 +14,7 @@ data class TradeFilterSummaryUi(
     val formattedRealizedPnL: String,
     val formattedCommission: String,
     val isPositiveRealizedPnL: Boolean?,
+    val pnlCurrencyNote: String? = null,
 )
 
 enum class TradeSortColumn {

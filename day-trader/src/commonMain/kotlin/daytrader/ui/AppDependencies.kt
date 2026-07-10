@@ -61,6 +61,7 @@ import daytrader.platform.MutableTradingClock
 import daytrader.platform.TradingClock
 import daytrader.platform.WallClock
 import daytrader.platform.defaultMacroYieldDataProvider
+import daytrader.platform.defaultCurrencyRateProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -337,6 +338,7 @@ fun rememberAppDependencies(
                     touchTurnSessionGateway = touchTurnSessionGateway
                 ),
                 historicalTradeSync = historicalTradeSync,
+                currencyRateProvider = defaultCurrencyRateProvider(),
                 brokerKind = brokerKind,
                 tradingClock = tradingClock
             ),

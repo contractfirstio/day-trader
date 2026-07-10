@@ -27,6 +27,18 @@ class TradeMarketResolverTest {
         assertEquals("UK", TradeMarketResolver.shortLabel(fill))
     }
 
+    @Test
+    fun settlementCurrency_followsHkMarketForNumericSymbolEvenWhenFillCurrencyIsUsd() {
+        val fill = sampleFill(symbol = "0700", currency = "USD")
+        assertEquals("HKD", TradeMarketResolver.settlementCurrency(fill))
+    }
+
+    @Test
+    fun settlementCurrency_followsUsMarketForUsEquity() {
+        val fill = sampleFill(symbol = "AAPL", currency = "")
+        assertEquals("USD", TradeMarketResolver.settlementCurrency(fill))
+    }
+
     private fun sampleFill(symbol: String, currency: String) = BrokerFill(
         execId = "x",
         orderId = 1,

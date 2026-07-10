@@ -15,6 +15,9 @@ data class TradeLedgerSummary(
     val realizedPnL: Double?,
     val commission: Double?,
     val currencies: Set<String>,
+    val sourceCurrencies: Set<String> = currencies,
+    val normalizedToCurrency: String? = null,
+    val fxConversionComplete: Boolean = true,
 )
 
 object TradeLedgerFilter {
@@ -62,7 +65,7 @@ object TradeLedgerFilter {
         var hasCommission = false
         val currencies = mutableSetOf<String>()
         fills.forEach { fill ->
-            if (fill.currency.isNotBlank()) currencies += fill.currency
+            currencies += TradeMarketResolver.settlementCurrency(fill)
             fill.realizedPnL?.let {
                 realizedTotal += it
                 hasRealized = true
@@ -77,6 +80,13 @@ object TradeLedgerFilter {
             realizedPnL = realizedTotal.takeIf { hasRealized },
             commission = commissionTotal.takeIf { hasCommission },
             currencies = currencies,
+            sourceCurrencies = currencies,
         )
     }
+
+    fun summarizeNormalized(
+        fills: List<BrokerFill>,
+        targetCurrency: String,
+        ratesToTarget: Map<String, Double>,
+    ): TradeLedgerSummary = TradeLedgerFx.summarizeNormalized(fills, targetCurrency, ratesToTarget)
 }

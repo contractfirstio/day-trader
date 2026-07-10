@@ -19,6 +19,7 @@ object TradeUiMapper {
     fun toRowUi(fill: BrokerFill): TradeRowUi {
         val sideLabel = sideLabel(fill.side)
         val realized = fill.realizedPnL
+        val currency = TradeMarketResolver.settlementCurrency(fill)
         return TradeRowUi(
             execId = fill.execId,
             formattedTime = formatTradeDate(fill.time),
@@ -27,12 +28,12 @@ object TradeUiMapper {
             sideLabel = sideLabel,
             isBuySide = fill.side.equals("BOT", ignoreCase = true),
             quantityLabel = fill.quantity.toString(),
-            formattedPrice = Formatters.moneyPlain(fill.price, fill.currency),
+            formattedPrice = Formatters.moneyPlain(fill.price, currency),
             formattedCommission = fill.commission?.let {
-                Formatters.money(-it, fill.currency, showSign = true)
+                Formatters.money(-it, currency, showSign = true)
             },
             formattedRealizedPnL = realized?.let {
-                Formatters.money(it, fill.currency, showSign = true)
+                Formatters.money(it, currency, showSign = true)
             },
             isPositiveRealizedPnL = realized?.let { it >= 0 }
         )

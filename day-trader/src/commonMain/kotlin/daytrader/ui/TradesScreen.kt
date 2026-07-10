@@ -355,6 +355,14 @@ private fun TradesDateFilterBar(
                     fontSize = 12.sp
                 )
             }
+            it.pnlCurrencyNote?.let { note ->
+                Text(
+                    note,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
     }
 }

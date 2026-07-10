@@ -1,5 +1,6 @@
 package daytrader.presentation.trades
 
+import daytrader.data.CurrencyRateProvider
 import daytrader.data.FillsRepository
 import daytrader.data.HistoricalTradeSync
 import daytrader.diagnostics.TimestampedConsoleLog
@@ -34,6 +35,8 @@ class TradesViewModel(
     private val repository: FillsRepository,
     private val executionGateway: BrokerGateway? = null,
     private val historicalTradeSync: HistoricalTradeSync? = null,
+    private val currencyRateProvider: CurrencyRateProvider? = null,
+    private val aggregateCurrency: String = TradeLedgerFx.AGGREGATE_CURRENCY,
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val tradingClock: TradingClock = WallClock,
     private val syncTimeoutMs: Long = SYNC_TIMEOUT_MS,
@@ -50,6 +53,8 @@ class TradesViewModel(
     private var connectionState: GatewayConnectionState = GatewayConnectionState.Disconnected
     private var isSyncing = false
     private var syncMessage: String? = null
+    private var ratesToAggregate: Map<String, Double> = emptyMap()
+    private var ratesRequestKey: String? = null
 
     private val _uiState = MutableStateFlow(TradesUiState())
     val uiState: StateFlow<TradesUiState> = _uiState.asStateFlow()
@@ -241,7 +246,8 @@ class TradesViewModel(
             val dateFiltered = dateFilteredFills()
             columnFilters = columnFilters.reconcileFrom(dateFiltered, columnFilters)
             val filtered = filteredFills()
-            val summary = TradeLedgerFilter.summarize(filtered)
+            val summary = buildSummary(filtered)
+            scheduleRatesRefresh(filtered)
             val comparator = when (sortColumn) {
                 TradeSortColumn.TIME -> compareBy<BrokerFill> { TradeUiMapper.parseFillDate(it.time) ?: java.time.LocalDate.MIN }
                     .thenBy { it.execId }
@@ -290,6 +296,36 @@ class TradesViewModel(
         }
     }
 
+    private fun buildSummary(filtered: List<BrokerFill>): TradeLedgerSummary =
+        if (currencyRateProvider != null) {
+            TradeLedgerFilter.summarizeNormalized(filtered, aggregateCurrency, ratesToAggregate)
+        } else {
+            TradeLedgerFilter.summarize(filtered)
+        }
+
+    private fun scheduleRatesRefresh(filtered: List<BrokerFill>) {
+        val provider = currencyRateProvider ?: return
+        val needed = TradeLedgerFx.currenciesNeedingRates(filtered, aggregateCurrency)
+        if (needed.isEmpty()) {
+            if (ratesToAggregate.isNotEmpty()) {
+                ratesToAggregate = emptyMap()
+                ratesRequestKey = null
+            }
+            return
+        }
+        val requestKey = needed.sorted().joinToString(",")
+        if (requestKey == ratesRequestKey && needed.all { ratesToAggregate.containsKey(it) }) return
+        ratesRequestKey = requestKey
+        scope.launchUiAction(AppScreen.TRADES, "refreshFxRates") {
+            provider.ratesToTarget(needed, aggregateCurrency)
+                .onSuccess { rates ->
+                    if (ratesRequestKey != requestKey) return@onSuccess
+                    ratesToAggregate = rates
+                    emitUiState()
+                }
+        }
+    }
+
     companion object {
         const val RECENT_TRADES_DAYS = 30L
         private val FILTER_DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE
@@ -313,24 +349,38 @@ class TradesViewModel(
             summary: TradeLedgerSummary,
             columnFilters: TradeColumnFilters = TradeColumnFilters(),
         ): TradeFilterSummaryUi {
-            val currency = summary.currencies.singleOrNull().orEmpty().ifBlank { "USD" }
-            val mixedCurrency = summary.currencies.size > 1
+            val currency = summary.normalizedToCurrency
+                ?: summary.currencies.singleOrNull().orEmpty().ifBlank { "USD" }
+            val mixedCurrency = summary.normalizedToCurrency == null && summary.currencies.size > 1
             val pnl = summary.realizedPnL
             val commission = summary.commission
             val filterSuffix = activeColumnFilterSuffix(columnFilters)
+            val pnlCurrencyNote = when {
+                summary.normalizedToCurrency != null && !summary.fxConversionComplete ->
+                    "Converting to HKD…"
+                summary.normalizedToCurrency != null &&
+                    summary.sourceCurrencies.size > 1 ->
+                    "Converted to HKD at spot FX"
+                else -> null
+            }
             return TradeFilterSummaryUi(
                 tradeCountLabel = "${summary.tradeCount} trade${if (summary.tradeCount == 1) "" else "s"}$filterSuffix",
                 formattedRealizedPnL = when {
                     pnl == null -> "—"
+                    summary.normalizedToCurrency != null ->
+                        Formatters.money(pnl, summary.normalizedToCurrency, showSign = true)
                     mixedCurrency -> "${Formatters.money(pnl, currency, showSign = true)} (mixed)"
                     else -> Formatters.money(pnl, currency, showSign = true)
                 },
                 formattedCommission = when {
                     commission == null -> "—"
+                    summary.normalizedToCurrency != null ->
+                        Formatters.money(commission, summary.normalizedToCurrency)
                     mixedCurrency -> "${Formatters.money(commission, currency)} (mixed)"
                     else -> Formatters.money(commission, currency)
                 },
                 isPositiveRealizedPnL = pnl?.let { it >= 0 },
+                pnlCurrencyNote = pnlCurrencyNote,
             )
         }
 

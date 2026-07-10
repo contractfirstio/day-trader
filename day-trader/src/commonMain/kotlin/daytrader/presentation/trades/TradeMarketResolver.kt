@@ -1,6 +1,7 @@
 package daytrader.presentation.trades
 
 import daytrader.broker.SymbolMarkets
+import daytrader.domain.DeploymentMarket
 import daytrader.domain.RthMarketSessions
 import daytrader.gateway.BrokerFill
 
@@ -12,6 +13,10 @@ object TradeMarketResolver {
         fill.currency.equals("GBP", ignoreCase = true) -> RthMarketSessions.EUR.zoneId
         else -> RthMarketSessions.US.zoneId
     }
+
+    /** Settlement currency for P&L — derived from HK / US / UK market, not raw IB fill currency. */
+    fun settlementCurrency(fill: BrokerFill): String =
+        DeploymentMarket.currencyForZone(zoneId(fill))
 
     fun shortLabel(zoneId: String): String = when (zoneId) {
         RthMarketSessions.HK.zoneId -> "HK"
