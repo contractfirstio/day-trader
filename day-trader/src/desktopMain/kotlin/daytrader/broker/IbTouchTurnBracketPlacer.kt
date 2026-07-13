@@ -10,6 +10,7 @@ import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.domain.TouchTurnAdjustableStop
 import daytrader.domain.InstrumentPriceTick
 
 /**
@@ -222,13 +223,16 @@ internal object IbTouchTurnBracketPlacer {
         permId: Long? = null,
     ): Order {
         val triggerPrice = stopLoss.trailTriggerPrice!!
+        val armStopPrice = stopLoss.trailArmStopPrice ?: stopLoss.price
         val roundedStop = InstrumentPriceTick.roundForInstrument(stopLoss.price, plan.instrument, plan.symbol)
         val roundedTrigger = InstrumentPriceTick.roundForInstrument(triggerPrice, plan.instrument, plan.symbol)
-        val roundedArmStop = InstrumentPriceTick.roundForInstrument(
-            stopLoss.trailArmStopPrice ?: stopLoss.price,
-            plan.instrument,
-            plan.symbol
-        )
+        val roundedArmStop = InstrumentPriceTick.roundForInstrument(armStopPrice, plan.instrument, plan.symbol)
+        // IB TRAIL offset so conversion at [roundedTrigger] leaves the stop at [roundedArmStop].
+        // Amount must be > 0 — IB rejects 0 with "invalid adjusted trailing amount".
+        val rawTrailAmount = TouchTurnAdjustableStop.nominalTrailAmount(roundedTrigger, roundedArmStop)
+        val minTick = InstrumentPriceTick.resolveMinTick(plan.instrument, plan.symbol)
+        val trailAmount = InstrumentPriceTick.roundToMinTick(rawTrailAmount, minTick)
+            .coerceAtLeast(minTick)
         val order = Order()
         order.orderId(orderId)
         permId?.takeIf { it > 0L }?.let { order.permId(it) }
@@ -245,7 +249,7 @@ internal object IbTouchTurnBracketPlacer {
         order.adjustedOrderType(OrderType.TRAIL)
         order.adjustedStopPrice(roundedArmStop)
         order.adjustableTrailingUnit(TRAIL_UNIT_NOMINAL_AMOUNT)
-        order.adjustedTrailingAmount(0.0)
+        order.adjustedTrailingAmount(trailAmount)
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }

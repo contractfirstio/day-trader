@@ -23,7 +23,12 @@ class TouchTurnRuleExplanationMapperTest {
             verboseExplanations = true,
             requireLivePriceChecks = false
         )
-        assertEquals(TouchTurnRuleConfig.toggleDefinitions.size, checks.size)
+        val checkKeys = checks.map { it.key }.toSet()
+        TouchTurnRuleConfig.toggleDefinitions.forEach { def ->
+            assertTrue(def.key in checkKeys, "missing toggle check: ${def.key}")
+        }
+        assertTrue("greenLiquidityBarAction" in checkKeys)
+        assertTrue("redLiquidityBarAction" in checkKeys)
     }
 
     @Test

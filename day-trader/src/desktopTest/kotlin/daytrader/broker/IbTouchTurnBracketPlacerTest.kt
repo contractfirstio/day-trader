@@ -5,11 +5,15 @@ import com.ib.client.DefaultEWrapper
 import com.ib.client.EClientSocket
 import com.ib.client.OrderType
 import com.ib.client.Types
+import daytrader.domain.FirstCandleColor
 import daytrader.domain.TouchTurnBracketOrderIds
+import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnOrderPlan
 import daytrader.domain.TouchTurnOrderDefaults
+import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderRole
 import daytrader.domain.TouchTurnPlannedOrder
+import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnTradeSide
 import daytrader.e2e.support.E2EBracketHelper
 import kotlin.test.Test
@@ -123,10 +127,17 @@ class IbTouchTurnBracketPlacerTest {
 
     @Test
     fun build_trailingStopPlan_emitsAdjustableStopLegWithTransmit() {
+        val plan = E2EBracketHelper.trailingLiquidityPlan()
+        val stopLoss = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        val expectedTrailAmount = daytrader.domain.TouchTurnAdjustableStop.nominalTrailAmount(
+            stopLoss.trailTriggerPrice!!,
+            stopLoss.trailArmStopPrice!!
+        )
+
         val submission = IbTouchTurnBracketPlacer.build(
             client = TestEClientSocket(connected = true),
             config = config,
-            plan = E2EBracketHelper.trailingLiquidityPlan(),
+            plan = plan,
             allocateOrderIds = { count ->
                 assertEquals(4, count)
                 600
@@ -139,6 +150,45 @@ class IbTouchTurnBracketPlacerTest {
         assertTrue(submission.adjustableStop!!.transmit())
         assertEquals(OrderType.TRAIL, submission.adjustableStop!!.adjustedOrderType())
         assertEquals(602, submission.adjustableStop!!.parentId())
+        // IB rejects adjustedTrailingAmount <= 0 ("invalid adjusted trailing amount").
+        assertTrue(expectedTrailAmount > 0.0, "fixture must yield a positive trail amount")
+        assertEquals(expectedTrailAmount, submission.adjustableStop!!.adjustedTrailingAmount(), 0.0001)
+        assertEquals(0, submission.adjustableStop!!.adjustableTrailingUnit())
+        assertEquals(stopLoss.trailArmStopPrice!!, submission.adjustableStop!!.adjustedStopPrice(), 0.0001)
+        assertEquals(stopLoss.trailTriggerPrice!!, submission.adjustableStop!!.triggerPrice(), 0.0001)
+    }
+
+    @Test
+    fun build_sessionPlanWithTrailingEnabled_sendsPositiveIbTrailAmount() {
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = "AAPL",
+            setup = TouchTurnBracketSetup(
+                range = 10.0,
+                rangeThreshold = 0.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.GREEN,
+                side = TouchTurnTradeSide.LONG,
+                entry = 100.0,
+                stopLoss = 95.0,
+                takeProfit = 110.0
+            ),
+            maxDollars = 1000,
+            rules = TouchTurnRuleConfig.DEFAULT
+        )!!
+        assertTrue(TouchTurnRuleConfig.DEFAULT.enables.adjustableTrailingStop)
+
+        val submission = IbTouchTurnBracketPlacer.build(
+            client = TestEClientSocket(connected = true),
+            config = config,
+            plan = plan,
+            allocateOrderIds = { 700 },
+        )
+        assertNotNull(submission)
+        val adjustable = assertNotNull(submission.adjustableStop)
+        assertEquals(5.0, adjustable.adjustedTrailingAmount(), 0.0001)
+        assertEquals(105.0, adjustable.triggerPrice(), 0.0001)
+        assertEquals(100.0, adjustable.adjustedStopPrice(), 0.0001)
+        assertEquals(OrderType.TRAIL, adjustable.adjustedOrderType())
     }
 
     @Test

@@ -8,7 +8,13 @@ data class TouchTurnAdjustableStopParams(
     val triggerPrice: Double,
     /** Stop price when trailing arms — between entry and initial stop per [armFractionOfEntryToStop]. */
     val armStopPrice: Double
-)
+) {
+    /**
+     * Nominal IB [adjustedTrailingAmount] so that conversion at [triggerPrice] leaves the stop
+     * at [armStopPrice]. Must be positive — IB rejects 0 ("invalid adjusted trailing amount").
+     */
+    val trailAmount: Double get() = TouchTurnAdjustableStop.nominalTrailAmount(triggerPrice, armStopPrice)
+}
 
 object TouchTurnAdjustableStop {
     /**
@@ -27,6 +33,10 @@ object TouchTurnAdjustableStop {
         val offset = armFractionOfEntryToStop * entryToStop
         return if (entry > stopLoss) entry - offset else entry + offset
     }
+
+    /** IB TRAIL offset: |trigger − armStop|. */
+    fun nominalTrailAmount(triggerPrice: Double, armStopPrice: Double): Double =
+        abs(triggerPrice - armStopPrice)
 
     fun validate(
         entry: Double,
@@ -52,6 +62,12 @@ object TouchTurnAdjustableStop {
         if (entryToTp < 0.0 && entry - 1e-9 > stopLoss) {
             return "When trailing activates, entry must be on the favorable side of the initial fixed stop " +
                 "(long: entry above stop; short: entry below stop)."
+        }
+        val triggerPrice = entry + triggerFraction * entryToTp
+        val armStopPrice = computeArmStopPrice(entry, stopLoss, armFractionOfEntryToStop)
+        if (nominalTrailAmount(triggerPrice, armStopPrice) < 1e-9) {
+            return "Trail amount must be positive (trigger and arm stop cannot be the same price). " +
+                "Increase the trail-arm fraction of entry-to-take-profit, or move the arm stop away from entry."
         }
         return null
     }

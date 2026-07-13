@@ -369,8 +369,9 @@ data class TouchTurnRuleConfig(
                 key = "trailingStopTriggerFractionOfEntryToTp",
                 label = "Trail arm (fraction to TP)",
                 description = "When adjustable trailing is enabled, price must reach entry plus this fraction of " +
-                    "the entry-to-take-profit distance before the stop moves to the arm level and begins trailing. " +
-                    "Default 0.5 = halfway to target. Must be between 0 and 1.",
+                    "the entry-to-take-profit distance before the stop converts to an IB trail at the arm level. " +
+                    "Default 0.5 = halfway to target. Must leave a positive distance from the arm stop " +
+                    "(IB rejects a zero trail amount).",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.POST_ENTRY,
                 subGroup = TouchTurnRuleFieldSubGroup.TRAILING_WHEN_ON,

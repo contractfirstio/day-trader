@@ -19,12 +19,48 @@ class TouchTurnTrailingStopConfigTest {
         takeProfit = 110.0
     )
 
+    private fun shortSetup() = TouchTurnBracketSetup(
+        range = 10.0,
+        rangeThreshold = 2.0,
+        isLiquidityCandle = true,
+        candleColor = FirstCandleColor.RED,
+        side = TouchTurnTradeSide.SHORT,
+        entry = 100.0,
+        stopLoss = 105.0,
+        takeProfit = 90.0
+    )
+
     @Test
     fun buildOrderPlan_defaultTrailing_matchesHalfTpAndArmsAtEntry() {
         val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", longSetup(), maxDollars = 1000)!!
         val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
         assertEquals(105.0, stop.trailTriggerPrice!!, 0.001)
         assertEquals(100.0, stop.trailArmStopPrice!!, 0.001)
+        // IB adjustedTrailingAmount must equal |trigger − arm|; defaults must stay positive.
+        assertEquals(
+            5.0,
+            TouchTurnAdjustableStop.nominalTrailAmount(
+                stop.trailTriggerPrice!!,
+                stop.trailArmStopPrice!!
+            ),
+            0.001
+        )
+    }
+
+    @Test
+    fun buildOrderPlan_sessionTrailingOn_short_hasPositiveIbTrailAmount() {
+        val plan = TouchTurnOrderPlanner.buildOrderPlan("AAPL", shortSetup(), maxDollars = 1000)!!
+        val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        assertEquals(95.0, stop.trailTriggerPrice!!, 0.001)
+        assertEquals(100.0, stop.trailArmStopPrice!!, 0.001)
+        assertEquals(
+            5.0,
+            TouchTurnAdjustableStop.nominalTrailAmount(
+                stop.trailTriggerPrice!!,
+                stop.trailArmStopPrice!!
+            ),
+            0.001
+        )
     }
 
     @Test
@@ -40,6 +76,14 @@ class TouchTurnTrailingStopConfigTest {
         )!!
         val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
         assertEquals(97.5, stop.trailArmStopPrice!!, 0.001)
+        assertEquals(
+            7.5,
+            TouchTurnAdjustableStop.nominalTrailAmount(
+                stop.trailTriggerPrice!!,
+                stop.trailArmStopPrice!!
+            ),
+            0.001
+        )
     }
 
     @Test
@@ -102,6 +146,28 @@ class TouchTurnTrailingStopConfigTest {
             )
         )
         assertNull(TouchTurnRuleConfig.DEFAULT.trailingStopValidationError())
+    }
+
+    @Test
+    fun validate_rejectsZeroTrailAmountWhenTriggerAndArmCollide() {
+        val error = TouchTurnAdjustableStop.validate(
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0,
+            triggerFraction = 0.0,
+            armFractionOfEntryToStop = 0.0
+        )
+        assertNotNull(error)
+        assertTrue(error.contains("trail amount", ignoreCase = true))
+        assertNull(
+            TouchTurnAdjustableStop.compute(
+                entry = 100.0,
+                stopLoss = 95.0,
+                takeProfit = 110.0,
+                triggerFraction = 0.0,
+                armFractionOfEntryToStop = 0.0
+            )
+        )
     }
 
     @Test
@@ -176,5 +242,14 @@ class TouchTurnTrailingStopConfigTest {
         assertNotNull(params)
         assertEquals(102.5, params.triggerPrice, 0.001)
         assertEquals(97.5, params.armStopPrice, 0.001)
+        assertEquals(5.0, params.trailAmount, 0.001)
+    }
+
+    @Test
+    fun computeAdjustableStop_paramsExposePositiveTrailAmountForSessionDefaults() {
+        val params = TouchTurnRuleConfig.DEFAULT.computeAdjustableStop(100.0, 95.0, 110.0)
+        assertNotNull(params)
+        assertEquals(5.0, params.trailAmount, 0.001)
+        assertTrue(params.trailAmount > 0.0)
     }
 }

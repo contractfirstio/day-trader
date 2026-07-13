@@ -2574,7 +2574,13 @@ class DesktopIbGatewayConnection(
             val armStop = stopLeg.trailArmStopPrice
             if (trigger != null && armStop != null) {
                 stopTrailParamsByOrderId[submission.stopLossOrderId] =
-                    StopTrailParams(triggerPrice = trigger, trailAmount = 0.0)
+                    StopTrailParams(
+                        triggerPrice = trigger,
+                        trailAmount = daytrader.domain.TouchTurnAdjustableStop.nominalTrailAmount(
+                            trigger,
+                            armStop
+                        )
+                    )
             }
         }
         val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
