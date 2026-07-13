@@ -25,7 +25,10 @@ import daytrader.data.SessionMarketDataCapture
 import daytrader.data.TouchTurnManualStopHandler
 import daytrader.data.WatchlistRepository
 import daytrader.data.WatchlistStrategyLinkSync
+import daytrader.engine.liquidity.TouchTurnBracketAmendResult
+import daytrader.engine.liquidity.TouchTurnBracketResizer
 import daytrader.engine.TouchTurnCommand
+import daytrader.execution.ExecutionManager
 import daytrader.engine.TouchTurnEngineConfig
 import daytrader.engine.TouchTurnEnginePort
 import daytrader.engine.TouchTurnEvent
@@ -33,6 +36,7 @@ import daytrader.domain.TouchTurnSessionContext
 import daytrader.domain.TouchTurnSessionStartedBy
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnTrailingStopWarnings
+import daytrader.domain.BracketAmendTarget
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
 import daytrader.domain.StrategyType
@@ -108,6 +112,7 @@ class StrategiesViewModel(
     touchTurnSessionGateway: BrokerGateway? = null,
     private val brokerKind: BrokerKind = BrokerKind.EMULATOR,
     private val touchTurnEngine: TouchTurnEnginePort? = null,
+    private val executionManager: ExecutionManager? = null,
     ensureLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val releaseLiveMarketData: ((String, InstrumentIdentity?) -> Unit)? = null,
     private val onDeploymentCreated: ((String) -> Unit)? = null,
@@ -340,6 +345,13 @@ class StrategiesViewModel(
     private var brokerOpenOrders: List<WorkingOrder> = emptyList()
     private var brokerDeploymentIndex: BrokerDeploymentIndex = BrokerDeploymentIndex.EMPTY
     private val sessionRollupCache = SessionRollupCache()
+    private val bracketResizer = TouchTurnBracketResizer(
+        executionManager = executionManager,
+        deploymentRepository = repository,
+        watchlistRepository = watchlistRepository,
+    )
+    private val bracketAmendErrors = mutableMapOf<String, String>()
+    private val bracketAmendingKeys = mutableSetOf<String>()
     private val closedSessionFingerprintsByDeployment = mutableMapOf<String, Long>()
     private val lastBrokerOpenOrdersFingerprintByDeployment = mutableMapOf<String, String>()
     private var brokerFills: List<BrokerFill> = emptyList()
@@ -1508,6 +1520,51 @@ class StrategiesViewModel(
         }
     }
 
+    fun onAmendBracket(target: BracketAmendTarget, targetQuantityText: String) {
+        val targetQuantity = targetQuantityText.filter { it.isDigit() }.toIntOrNull() ?: return
+        val amendKey = target.amendKey
+        scope.launchUiAction(AppScreen.STRATEGIES, "amendBracket") {
+            if (target is BracketAmendTarget.Deployment) {
+                val deployment = repository.deployments.value.find { it.id == target.deploymentId }
+                    ?: return@launchUiAction
+                UiActionLog.forDeployment(
+                    deployment = deployment,
+                    action = "amend_bracket",
+                    details = mapOf(
+                        "targetQuantity" to targetQuantity.toString(),
+                    ),
+                )
+            }
+            bracketAmendingKeys.add(amendKey)
+            bracketAmendErrors.remove(amendKey)
+            emitUiState(UiRefreshScope.BrokerSnapshot)
+
+            val openOrders = when (target) {
+                is BracketAmendTarget.Deployment -> {
+                    repository.deployments.value.find { it.id == target.deploymentId }
+                        ?.let { brokerDeploymentIndex.openOrders(it) }
+                        .orEmpty()
+                }
+                is BracketAmendTarget.WatchlistPlan -> brokerOpenOrders
+                is BracketAmendTarget.OpenBracket -> brokerOpenOrders
+            }
+            val result = bracketResizer.amend(
+                target = target,
+                openOrders = openOrders,
+                targetQuantity = targetQuantity,
+            )
+            bracketAmendingKeys.remove(amendKey)
+            when (result) {
+                is TouchTurnBracketAmendResult.Success -> bracketAmendErrors.remove(amendKey)
+                is TouchTurnBracketAmendResult.Skipped ->
+                    bracketAmendErrors[amendKey] = result.reason
+                is TouchTurnBracketAmendResult.Failed ->
+                    bracketAmendErrors[amendKey] = result.message
+            }
+            emitUiState(UiRefreshScope.BrokerSnapshot)
+        }
+    }
+
     fun onDuplicateSelected() {
         val selected = deployments.find { it.id == appState.selectedDeploymentId } ?: return
         val copy = duplicateStrategyDeployment(selected)
@@ -1893,6 +1950,7 @@ class StrategiesViewModel(
                 liveBroker = buildLiveBroker(ctx, snapshot),
                 liveSessionTrades = buildLiveSessionTrades(ctx),
                 touchTurnOrderLifecycle = snapshot?.recapAwareLifecycle,
+                touchTurnBracketAmend = buildTouchTurnBracketAmend(ctx),
                 touchTurnLiveOrderChart = charts.liveOrder,
                 touchTurnFormingBarPriceChart = charts.formingBar,
                 touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
@@ -1937,6 +1995,7 @@ class StrategiesViewModel(
             touchTurnFormingBarPriceChart = charts.formingBar,
             touchTurnPipelineGraph = buildTouchTurnPipelineGraph(ctx),
             touchTurnOrderLifecycle = snapshot?.recapAwareLifecycle,
+            touchTurnBracketAmend = buildTouchTurnBracketAmend(ctx),
             tradingPanelShowsLiveMarketQuotes = snapshot?.showsLiveMarketQuotes == true,
             sessionMarketDataCapture = buildSessionMarketDataCapture(selected),
         )
@@ -2115,6 +2174,16 @@ class StrategiesViewModel(
             liveFills = brokerFills,
             brokerPosition = brokerDeploymentIndex.openPosition(instance),
             recapRunId = ctx.recapRunId,
+        )
+    }
+
+    private fun buildTouchTurnBracketAmend(ctx: EmitContext): TouchTurnBracketAmendUiState? {
+        val selected = ctx.selected ?: return null
+        return TouchTurnBracketAmendUiMapper.resolve(
+            deployment = selected,
+            openOrders = brokerDeploymentIndex.openOrders(selected),
+            isApplying = BracketAmendTarget.Deployment(selected.id).amendKey in bracketAmendingKeys,
+            error = bracketAmendErrors[BracketAmendTarget.Deployment(selected.id).amendKey],
         )
     }
 

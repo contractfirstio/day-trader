@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import daytrader.domain.OhlcBar
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -55,6 +57,7 @@ import daytrader.domain.StrategyType
 import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.LiquidityCandleEvaluation
+import daytrader.domain.BracketAmendTarget
 import daytrader.domain.TouchTurnBracketSetup
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnLogic
@@ -249,6 +252,7 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         touchTurnFormingBarPriceChart = liveState.touchTurnFormingBarPriceChart,
         touchTurnPipelineGraph = liveState.touchTurnPipelineGraph,
         touchTurnOrderLifecycle = liveState.touchTurnOrderLifecycle,
+        touchTurnBracketAmend = liveState.touchTurnBracketAmend,
         touchTurnPrepare = detailState.touchTurnPrepare,
         tradingPanelShowsSessionRecap = detailState.tradingPanelShowsSessionRecap,
         tradingPanelRecapRunId = detailState.tradingPanelRecapRunId,
@@ -273,6 +277,7 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         onDeleteSessionHistory = viewModel::onDeleteSessionHistory,
         onDeleteAllSessionHistory = viewModel::onDeleteAllSessionHistory,
         onAdjustStop = viewModel::onAdjustStop,
+        onAmendBracket = viewModel::onAmendBracket,
         onClosePosition = viewModel::onClosePosition,
         onDuplicate = viewModel::onDuplicateSelected,
         onDelete = viewModel::onDeleteSelected,
@@ -294,6 +299,7 @@ private fun StrategyDeploymentDetailPanel(
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
+    touchTurnBracketAmend: TouchTurnBracketAmendUiState?,
     touchTurnPrepare: TouchTurnPrepareUiState?,
     tradingPanelShowsSessionRecap: Boolean,
     tradingPanelRecapRunId: String?,
@@ -318,6 +324,7 @@ private fun StrategyDeploymentDetailPanel(
     onDeleteSessionHistory: (String, String) -> Unit,
     onDeleteAllSessionHistory: (String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
+    onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -344,6 +351,7 @@ private fun StrategyDeploymentDetailPanel(
                 touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                 touchTurnPipelineGraph = touchTurnPipelineGraph,
                 touchTurnOrderLifecycle = touchTurnOrderLifecycle,
+                touchTurnBracketAmend = touchTurnBracketAmend,
                 touchTurnPrepare = touchTurnPrepare,
                 tradingPanelShowsSessionRecap = tradingPanelShowsSessionRecap,
                 tradingPanelRecapRunId = tradingPanelRecapRunId,
@@ -372,6 +380,7 @@ private fun StrategyDeploymentDetailPanel(
                 onDeleteSessionHistory = onDeleteSessionHistory,
                 onDeleteAllSessionHistory = onDeleteAllSessionHistory,
                 onAdjustStop = onAdjustStop,
+                onAmendBracket = onAmendBracket,
                 onClosePosition = onClosePosition,
                 onDuplicate = onDuplicate,
                 onDelete = onDelete
@@ -506,6 +515,7 @@ private fun StrategyDeploymentDetail(
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
+    touchTurnBracketAmend: TouchTurnBracketAmendUiState?,
     touchTurnPrepare: TouchTurnPrepareUiState?,
     tradingPanelShowsSessionRecap: Boolean,
     tradingPanelRecapRunId: String?,
@@ -530,6 +540,7 @@ private fun StrategyDeploymentDetail(
     onDeleteSessionHistory: (String, String) -> Unit,
     onDeleteAllSessionHistory: (String) -> Unit,
     onAdjustStop: (String, String) -> Unit,
+    onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit
@@ -686,10 +697,12 @@ private fun StrategyDeploymentDetail(
                         touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                         touchTurnPipelineGraph = touchTurnPipelineGraph,
                         touchTurnOrderLifecycle = touchTurnOrderLifecycle,
+                        touchTurnBracketAmend = touchTurnBracketAmend,
                         showSessionRecap = tradingPanelShowsSessionRecap,
                         tradingPanelRecapRunId = tradingPanelRecapRunId,
                         onResetTradingPanel = onResetTradingPanel,
                         onAdjustStop = onAdjustStop,
+                        onAmendBracket = onAmendBracket,
                         onClosePosition = onClosePosition
                     )
                     StrategyDetailTab.SESSION_HISTORY -> Unit
@@ -2002,7 +2015,9 @@ private fun TouchTurnLivePipelineDetailHost(
     touchTurnLiveOrderChart: TouchTurnLiveOrderChartUiState?,
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     orderLifecycle: TouchTurnOrderLifecycleUi?,
+    touchTurnBracketAmend: TouchTurnBracketAmendUiState?,
     onAdjustStop: (String, String) -> Unit,
+    onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
@@ -2073,6 +2088,13 @@ private fun TouchTurnLivePipelineDetailHost(
                         fontSize = 11.sp,
                         color = TextSecondary
                     )
+                    touchTurnBracketAmend?.let { amend ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TouchTurnBracketAmendPanel(
+                            amend = amend,
+                            onApply = { targetQty -> onAmendBracket(amend.target, targetQty) },
+                        )
+                    }
                     lifecycle.statusMessage?.let { message ->
                         Text(
                             message,
@@ -2192,10 +2214,12 @@ private fun LiveTab(
     touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState?,
     touchTurnPipelineGraph: TouchTurnPipelineGraph?,
     touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi?,
+    touchTurnBracketAmend: TouchTurnBracketAmendUiState?,
     showSessionRecap: Boolean,
     tradingPanelRecapRunId: String?,
     onResetTradingPanel: () -> Unit,
     onAdjustStop: (String, String) -> Unit,
+    onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit
 ) {
     val inActiveTrade = liveExecution?.state == ExecutionState.FILLED && liveExecution.showPanel
@@ -2345,7 +2369,9 @@ private fun LiveTab(
                 touchTurnLiveOrderChart = touchTurnLiveOrderChart,
                 touchTurnFormingBarPriceChart = touchTurnFormingBarPriceChart,
                 orderLifecycle = orderLifecycle,
+                touchTurnBracketAmend = touchTurnBracketAmend,
                 onAdjustStop = onAdjustStop,
+                onAmendBracket = onAmendBracket,
                 onClosePosition = onClosePosition
             )
         } else if (isRunning) {
@@ -2913,6 +2939,86 @@ private fun LiveExecutionPanel(
                 )
                 Text("Watching for next signal.", fontSize = 11.sp, color = TextSecondary)
             }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnBracketAmendPanel(
+    amend: TouchTurnBracketAmendUiState,
+    onApply: (String) -> Unit,
+) {
+    var targetText by remember(amend.currentQuantity) {
+        mutableStateOf((amend.currentQuantity + 1).toString())
+    }
+    val parsedTarget = targetText.filter { it.isDigit() }.toIntOrNull()
+    val isValid = parsedTarget != null && parsedTarget > amend.currentQuantity
+
+    TouchTurnPanelGroup(
+        title = "Amend bracket (test)",
+        testTag = "TouchTurnBracketAmendPanel",
+        compact = true,
+    ) {
+        Text(
+            "Current qty ${amend.currentQuantity} · entry ${amend.entryPriceLabel} ${amend.currencyCode}",
+            fontSize = 11.sp,
+            color = TextSecondary,
+        )
+        Text(
+            "Sends an IB placeOrder modify for all bracket legs — no liquidity pool debit.",
+            fontSize = 10.sp,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = targetText,
+                onValueChange = { targetText = it.filter { ch -> ch.isDigit() } },
+                label = { Text("Target qty", fontSize = 11.sp) },
+                singleLine = true,
+                enabled = !amend.isApplying,
+                modifier = Modifier.weight(1f).testTag("TouchTurnBracketAmendTargetQty"),
+                textStyle = TextStyle(fontSize = 13.sp, color = Color.White),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = TableHeaderBg,
+                    unfocusedContainerColor = TableHeaderBg,
+                    focusedBorderColor = GainGreen,
+                    unfocusedBorderColor = TableHeaderBg,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                ),
+                shape = RoundedCornerShape(6.dp),
+            )
+            if (amend.isApplying) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = GainGreen,
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Button(
+                    onClick = { onApply(targetText) },
+                    enabled = isValid,
+                    colors = ButtonDefaults.buttonColors(containerColor = GainGreen, contentColor = Color.Black),
+                    modifier = Modifier.testTag("TouchTurnBracketAmendApply"),
+                ) {
+                    Text("Amend", fontSize = 12.sp)
+                }
+            }
+        }
+        amend.error?.let { error ->
+            Text(
+                error,
+                fontSize = 11.sp,
+                color = LossRed,
+                modifier = Modifier.padding(top = 6.dp).testTag("TouchTurnBracketAmendError"),
+            )
         }
     }
 }

@@ -3,7 +3,6 @@ package daytrader.engine.liquidity
 data class LiquidityFlushLoopAudit(
     val loopIndex: Int,
     val debited: Map<String, Int> = emptyMap(),
-    val skippedProximity: Set<String> = emptySet(),
     val skippedLot: Set<String> = emptySet(),
     val skippedNotEligible: Set<String> = emptySet(),
     val failedResize: Map<String, String> = emptyMap(),

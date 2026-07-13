@@ -1,6 +1,7 @@
 package daytrader.presentation.orders
 
 import daytrader.presentation.positions.SortDirection
+import daytrader.presentation.strategies.TouchTurnBracketAmendUiState
 
 enum class OrderSortColumn {
     SYMBOL,
@@ -41,7 +42,8 @@ data class OrderSymbolGroupUi(
     val symbolKey: String,
     val displaySymbol: String,
     val orders: List<OpenOrderRowUi>,
-    val isExpanded: Boolean
+    val isExpanded: Boolean,
+    val bracketAmend: TouchTurnBracketAmendUiState? = null,
 ) {
     val isGrouped: Boolean get() = orders.size > 1
 }
@@ -53,5 +55,8 @@ data class OrdersUiState(
     val sortDirection: SortDirection = SortDirection.ASCENDING,
     val brokerLabel: String = "Broker",
     val canCancelOrders: Boolean = false,
-    val cancelMessage: String? = null
+    val canAmendBrackets: Boolean = false,
+    val cancelMessage: String? = null,
+    val amendDialogSymbolKey: String? = null,
+    val amendFeedbackMessage: String? = null,
 )

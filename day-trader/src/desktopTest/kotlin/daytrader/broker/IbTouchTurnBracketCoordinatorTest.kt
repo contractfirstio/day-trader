@@ -49,6 +49,76 @@ class IbTouchTurnBracketCoordinatorTest {
     }
 
     @Test
+    fun modifyTransmitted_completesAfterDeferredAckWithoutCallbacks() = runTest {
+        val harness = Harness(this, brokerAckTimeoutMs = 5_000L)
+        harness.begin(ackMode = IbTouchTurnBracketCoordinator.AckMode.RESIZE, quantity = 200)
+        harness.coordinator.onModifyTransmitted(submission.parentOrderId)
+
+        assertTrue(harness.successes.isEmpty())
+        advanceTimeBy(1_501)
+        assertEquals(1, harness.successes.size)
+    }
+
+    @Test
+    fun verifyOpenOrders_completesWhenEntryLegMatchesTarget() = runTest {
+        val harness = Harness(this)
+        harness.begin(ackMode = IbTouchTurnBracketCoordinator.AckMode.RESIZE, quantity = 200)
+        harness.onBracketTransmitted()
+
+        harness.coordinator.verifyOpenOrders(
+            mapOf(
+                submission.parentOrderId to workingOrder(submission.parentOrderId, quantity = 200),
+                submission.takeProfitOrderId to workingOrder(submission.takeProfitOrderId, quantity = 100),
+            )
+        )
+
+        assertEquals(1, harness.successes.size)
+    }
+
+    private fun workingOrder(orderId: Int, quantity: Int) = daytrader.gateway.WorkingOrder(
+        orderId = orderId,
+        symbol = "1211",
+        action = "BUY",
+        quantity = quantity,
+        filled = 0,
+        remaining = quantity,
+        orderType = "LMT",
+        limitPrice = 50.0,
+        stopPrice = null,
+        status = "Submitted",
+        currency = "HKD",
+    )
+
+    @Test
+    fun resizeParentOpenOrder_atTargetQuantity_emitsSuccess() = runTest {
+        val harness = Harness(this)
+        harness.begin(ackMode = IbTouchTurnBracketCoordinator.AckMode.RESIZE, quantity = 200)
+        harness.onBracketTransmitted()
+
+        harness.onOpenOrder(
+            orderId = submission.parentOrderId,
+            isWorking = true,
+            totalQuantity = 200,
+            remainingQuantity = 200,
+        )
+
+        assertEquals(1, harness.successes.size)
+    }
+
+    @Test
+    fun resizeChildOrderStatus_ignoresStaleQuantityUntilTarget() = runTest {
+        val harness = Harness(this)
+        harness.begin(ackMode = IbTouchTurnBracketCoordinator.AckMode.RESIZE, quantity = 200)
+        harness.onBracketTransmitted()
+
+        harness.onOrderStatus(submission.stopLossOrderId, status = "Submitted", remaining = 100)
+        assertTrue(harness.successes.isEmpty())
+
+        harness.onOrderStatus(submission.stopLossOrderId, status = "Submitted", remaining = 200)
+        assertEquals(1, harness.successes.size)
+    }
+
+    @Test
     fun childOrderStatusSubmitted_emitsSuccess() = runTest {
         val harness = Harness(this)
         harness.begin()
@@ -128,7 +198,7 @@ class IbTouchTurnBracketCoordinatorTest {
         private val testScope: TestScope,
         brokerAckTimeoutMs: Long = 5_000L,
     ) {
-        private val coordinator = IbTouchTurnBracketCoordinator(
+        val coordinator = IbTouchTurnBracketCoordinator(
             scope = testScope,
             brokerAckTimeoutMs = brokerAckTimeoutMs
         )
@@ -136,10 +206,18 @@ class IbTouchTurnBracketCoordinatorTest {
         val successes = mutableListOf<IbTouchTurnBracketCoordinator.Pending>()
         val failures = mutableListOf<Pair<IbTouchTurnBracketCoordinator.Pending, String>>()
 
-        fun begin() {
+        fun begin(
+            ackMode: IbTouchTurnBracketCoordinator.AckMode = IbTouchTurnBracketCoordinator.AckMode.PLACEMENT,
+            quantity: Int = plan.quantity,
+        ) {
+            val resizePlan = plan.copy(
+                quantity = quantity,
+                orders = plan.orders.map { it.copy(quantity = quantity) },
+            )
             coordinator.begin(
-                plan = plan,
+                plan = resizePlan,
                 submission = submission,
+                ackMode = ackMode,
                 onSuccess = { pending -> successes += pending },
                 onFailure = { pending, reason -> failures += pending to reason },
             )
@@ -149,15 +227,30 @@ class IbTouchTurnBracketCoordinatorTest {
             coordinator.onBracketTransmitted(submission.parentOrderId)
         }
 
-        fun onOpenOrder(orderId: Int, isWorking: Boolean) {
-            coordinator.onOpenOrder(orderId = orderId, isWorking = isWorking)
+        fun onModifyTransmitted() {
+            coordinator.onModifyTransmitted(submission.parentOrderId)
         }
 
-        fun onOrderStatus(orderId: Int, status: String, remaining: Int) {
+        fun onOpenOrder(
+            orderId: Int,
+            isWorking: Boolean,
+            totalQuantity: Int = 0,
+            remainingQuantity: Int = 0,
+        ) {
+            coordinator.onOpenOrder(
+                orderId = orderId,
+                isWorking = isWorking,
+                totalQuantity = totalQuantity,
+                remainingQuantity = remainingQuantity,
+            )
+        }
+
+        fun onOrderStatus(orderId: Int, status: String, remaining: Int, total: Int = remaining) {
             coordinator.onOrderStatus(
                 orderId = orderId,
                 status = status,
                 remainingQuantity = remaining,
+                totalQuantity = total,
             )
         }
 

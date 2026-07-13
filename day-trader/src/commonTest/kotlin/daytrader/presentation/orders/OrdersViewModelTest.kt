@@ -2,10 +2,17 @@ package daytrader.presentation.orders
 
 import daytrader.data.OpenOrderRepository
 import daytrader.engine.support.FakeBrokerGateway
+import daytrader.domain.BracketAmendTarget
+import daytrader.engine.support.InMemoryStrategyDeploymentRepository
+import daytrader.engine.support.InMemoryWatchlistRepository
+import daytrader.e2e.support.E2ELiquidityAllocatorHelper
+import daytrader.execution.BrokerGatewayExecutionManager
 import daytrader.gateway.BrokerId
 import daytrader.gateway.WorkingOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -201,6 +208,95 @@ class OrdersViewModelTest {
             viewModel.uiState.value.cancelMessage
         )
         assertTrue(gateway.cancelledOrderIds.isEmpty())
+    }
+
+    @Test
+    fun bracketAmend_exposesEligibleGroupAndResizes() = runBlocking {
+        val orders = E2ELiquidityAllocatorHelper.bracketOpenOrders()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        gateway.setOpenOrders(orders)
+        val deploymentRepository = InMemoryStrategyDeploymentRepository()
+        val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment()
+        deploymentRepository.add(deployment)
+        val repository = FakeOpenOrderRepository(orders)
+        val viewModel = OrdersViewModel(
+            repository = repository,
+            deploymentRepository = deploymentRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            executionGateway = gateway,
+        )
+        delay(50)
+
+        val group = viewModel.uiState.value.groups.single()
+        assertNotNull(group.bracketAmend)
+        assertTrue(viewModel.uiState.value.canAmendBrackets)
+
+        viewModel.onAmendBracketClick(group.symbolKey)
+        delay(25)
+        assertEquals(group.symbolKey, viewModel.uiState.value.amendDialogSymbolKey)
+
+        viewModel.onAmendBracket(group.bracketAmend!!.target, "10")
+        delay(100)
+
+        assertEquals(10, deploymentRepository.deployments.value.single().touchTurnSession?.plannedQuantity)
+        assertEquals(1, gateway.bracketResizeRequests.size)
+        assertEquals(group.symbolKey, viewModel.uiState.value.amendDialogSymbolKey)
+        assertNotNull(viewModel.uiState.value.amendFeedbackMessage)
+        assertTrue(viewModel.uiState.value.groups.single().bracketAmend?.successMessage != null)
+    }
+
+    @Test
+    fun bracketAmend_watchlistPlanWithoutRunningSession() = runBlocking {
+        val orders = E2ELiquidityAllocatorHelper.bracketOpenOrders()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        gateway.setOpenOrders(orders)
+        val deploymentRepository = InMemoryStrategyDeploymentRepository()
+        val watchlistRepository = InMemoryWatchlistRepository()
+        val entry = daytrader.domain.newWatchlistEntry(
+            symbol = "AAPL",
+            marketZoneId = "America/New_York",
+            currencyCode = "USD",
+            companyName = "Apple",
+            instrument = null,
+        ).copy(
+            id = "entry-1",
+            tradePlans = listOf(
+                daytrader.domain.WatchlistTradePlan(
+                    id = "plan-a",
+                    label = "Plan A",
+                    side = daytrader.domain.TradeSide.LONG,
+                    entryPrice = 100.0,
+                    stopPrice = 99.0,
+                    targetPrice = 101.0,
+                    investmentAmount = 500.0,
+                    orderPlacedAtEpochMs = 1L,
+                    placedOrderIds = listOf(1_000, 1_001, 1_002),
+                )
+            )
+        )
+        watchlistRepository.updateWatchlist(watchlistRepository.watchlists.value.single().id) {
+            it.copy(entries = listOf(entry))
+        }
+        val repository = FakeOpenOrderRepository(orders)
+        val viewModel = OrdersViewModel(
+            repository = repository,
+            watchlistRepository = watchlistRepository,
+            deploymentRepository = deploymentRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            executionGateway = gateway,
+        )
+        delay(50)
+
+        val amend = viewModel.uiState.value.groups.single().bracketAmend
+        assertNotNull(amend)
+        assertTrue(amend.target is BracketAmendTarget.WatchlistPlan)
+
+        viewModel.onAmendBracket(amend.target, "10")
+        delay(100)
+
+        assertEquals(1, gateway.bracketResizeRequests.size)
+        val updatedPlan = watchlistRepository.watchlists.value.single().entries.single().tradePlans.single()
+        assertEquals(1_000.0, updatedPlan.investmentAmount)
     }
 
     @Test

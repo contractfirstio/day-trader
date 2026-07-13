@@ -13,6 +13,15 @@ import daytrader.presentation.liquidity.LiquidityAllocatorMapper
 import daytrader.presentation.strategies.SessionRollupCache
 import kotlin.math.roundToInt
 
+/**
+ * Debits the liquidity pool and upsizes a working Touch Turn bracket at the broker.
+ *
+ * Bracket resize uses [TouchTurnBracketResizer] — the same path as manual Orders/Strategies
+ * amends — so IB template copy, transmit-on-modify, and deferred ack behavior apply here too.
+ * Preview sizing uses [LiquidityAllocatorMapper.effectiveEntryQuantity] (session + broker);
+ * the broker upsize baseline is validated separately via [LiquidityAllocatorMapper.brokerEntryQuantity].
+ */
+
 enum class LiquidityApplySkipReason {
     EXECUTION_NOT_AVAILABLE,
     SESSION_NOT_ACTIVE,
@@ -41,7 +50,7 @@ sealed interface LiquidityAllocationApplyResult {
 
 data class LiquidityAllocationApplyRequest(
     val deploymentId: String,
-    val allocationDollars: Int,
+    val additionalQuantity: Int,
     val deployment: StrategyDeployment,
     val openOrders: List<WorkingOrder>,
     val quotes: Map<String, LiveQuote>,
@@ -58,11 +67,18 @@ class LiquidityAllocationApplier(
     private val executionManager: ExecutionManager?,
     private val deploymentRepository: StrategyDeploymentRepository,
 ) {
+    private val bracketResizer = TouchTurnBracketResizer(
+        executionManager = executionManager,
+        deploymentRepository = deploymentRepository,
+    )
+
     suspend fun apply(request: LiquidityAllocationApplyRequest): LiquidityAllocationApplyResult {
-        val execution = executionManager ?: return LiquidityAllocationApplyResult.Skipped(
-            deploymentId = request.deploymentId,
-            reason = LiquidityApplySkipReason.EXECUTION_NOT_AVAILABLE,
-        )
+        if (executionManager == null) {
+            return LiquidityAllocationApplyResult.Skipped(
+                deploymentId = request.deploymentId,
+                reason = LiquidityApplySkipReason.EXECUTION_NOT_AVAILABLE,
+            )
+        }
         val deployment = request.deployment
         if (!deployment.isTouchTurn || deployment.status != DeploymentStatus.RUNNING) {
             return LiquidityAllocationApplyResult.Skipped(
@@ -75,7 +91,7 @@ class LiquidityAllocationApplier(
             openOrders = request.openOrders,
             quotes = request.quotes,
             selectedCurrency = request.selectedCurrency,
-            allocationDollars = request.allocationDollars,
+            allocationAdditionalQty = request.additionalQuantity,
             sessionRollupCache = request.sessionRollupCache,
         ) ?: return LiquidityAllocationApplyResult.Skipped(
             deploymentId = request.deploymentId,
@@ -94,14 +110,19 @@ class LiquidityAllocationApplier(
                 reason = LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT,
             )
         }
-        val resizeRequest = LiquidityAllocatorMapper.buildResizeRequest(
-            deployment = deployment,
-            openOrders = request.openOrders,
-            newQuantity = row.previewQuantity,
-        ) ?: return LiquidityAllocationApplyResult.Failed(
-            deploymentId = request.deploymentId,
-            message = "Could not build resize request",
-        )
+        val symbolOrders = SymbolMarkets.openOrdersForDeployment(deployment, request.openOrders)
+        val entryOrder = symbolOrders.firstOrNull { it.parentOrderId == 0 && it.remaining > 0 }
+            ?: return LiquidityAllocationApplyResult.Skipped(
+                deploymentId = request.deploymentId,
+                reason = LiquidityApplySkipReason.NOT_ELIGIBLE,
+            )
+        val brokerQty = LiquidityAllocatorMapper.brokerEntryQuantity(entryOrder)
+        if (row.previewQuantity <= brokerQty) {
+            return LiquidityAllocationApplyResult.Skipped(
+                deploymentId = request.deploymentId,
+                reason = LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT,
+            )
+        }
 
         val effectiveNotional = effectiveAllocationNotional(additionalQty, row.entryPrice)
         val debitResult = liquidityBucketRepository.debitAllocation(
@@ -118,33 +139,46 @@ class LiquidityAllocationApplier(
             )
         }
 
-        val resizeResult = execution.resizeTouchTurnBracket(resizeRequest)
-        if (resizeResult.isFailure) {
-            liquidityBucketRepository.refundAllocation(
-                currencyCode = deployment.currencyCode,
-                sessionDate = request.sessionDate,
+        return when (
+            val amendResult = bracketResizer.amend(
                 deploymentId = request.deploymentId,
-                amount = effectiveNotional,
+                deployment = deployment,
+                openOrders = request.openOrders,
+                targetQuantity = row.previewQuantity,
             )
-            return LiquidityAllocationApplyResult.Failed(
-                deploymentId = request.deploymentId,
-                message = resizeResult.exceptionOrNull()?.message ?: "Resize failed",
-            )
+        ) {
+            is TouchTurnBracketAmendResult.Success -> {
+                liquidityBucketRepository.flushPersistence()
+                LiquidityAllocationApplyResult.Success(
+                    deploymentId = request.deploymentId,
+                    debitedAmount = effectiveNotional,
+                    newQuantity = amendResult.newQuantity,
+                )
+            }
+            is TouchTurnBracketAmendResult.Skipped -> {
+                liquidityBucketRepository.refundAllocation(
+                    currencyCode = deployment.currencyCode,
+                    sessionDate = request.sessionDate,
+                    deploymentId = request.deploymentId,
+                    amount = effectiveNotional,
+                )
+                LiquidityAllocationApplyResult.Failed(
+                    deploymentId = request.deploymentId,
+                    message = amendResult.reason,
+                )
+            }
+            is TouchTurnBracketAmendResult.Failed -> {
+                liquidityBucketRepository.refundAllocation(
+                    currencyCode = deployment.currencyCode,
+                    sessionDate = request.sessionDate,
+                    deploymentId = request.deploymentId,
+                    amount = effectiveNotional,
+                )
+                LiquidityAllocationApplyResult.Failed(
+                    deploymentId = request.deploymentId,
+                    message = amendResult.message,
+                )
+            }
         }
-
-        deploymentRepository.update(request.deploymentId) { current ->
-            current.withTouchTurnBracketQuantity(row.previewQuantity)
-        }
-        liquidityBucketRepository.flushPersistence()
-        return LiquidityAllocationApplyResult.Success(
-            deploymentId = request.deploymentId,
-            debitedAmount = effectiveNotional,
-            newQuantity = row.previewQuantity,
-        )
     }
-}
-
-private fun StrategyDeployment.withTouchTurnBracketQuantity(quantity: Int): StrategyDeployment {
-    val session = touchTurnSession ?: return this
-    return copy(touchTurnSession = session.copy(plannedQuantity = quantity))
 }

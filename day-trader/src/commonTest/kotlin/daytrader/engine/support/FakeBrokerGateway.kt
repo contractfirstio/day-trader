@@ -284,8 +284,28 @@ class FakeBrokerGateway(
         )
     }
 
-    override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> =
-        bracketResizeResult
+    val bracketResizeRequests = mutableListOf<TouchTurnBracketResizeRequest>()
+    var updateOpenOrdersOnBracketResize: Boolean = true
+
+    override suspend fun resizeTouchTurnBracket(request: TouchTurnBracketResizeRequest): Result<Unit> {
+        bracketResizeRequests.add(request)
+        val result = bracketResizeResult
+        if (result.isSuccess && updateOpenOrdersOnBracketResize) {
+            val newQty = request.plan.quantity
+            val bracketIds = request.orderIds.allIds.toSet()
+            _openOrders.value = _openOrders.value.map { order ->
+                if (order.orderId in bracketIds) {
+                    order.copy(
+                        quantity = newQty,
+                        remaining = (newQty - order.filled).coerceAtLeast(0),
+                    )
+                } else {
+                    order
+                }
+            }
+        }
+        return result
+    }
 
     override fun cancelOpenOrdersForSymbol(symbol: String, preserveStopLoss: Boolean) {
         cancelCalls += CancelCall(symbol, preserveStopLoss)

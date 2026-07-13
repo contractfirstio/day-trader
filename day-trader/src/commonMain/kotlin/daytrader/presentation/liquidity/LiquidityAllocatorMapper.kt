@@ -26,7 +26,9 @@ import daytrader.gateway.WorkingOrder
 import daytrader.presentation.Formatters
 import daytrader.presentation.strategies.SessionRollupCache
 import daytrader.presentation.strategies.TouchTurnQuoteStripFormat
+import daytrader.engine.liquidity.effectiveAllocationNotional
 import kotlin.math.abs
+import kotlin.math.max
 
 object LiquidityAllocatorMapper {
     fun buildUiState(
@@ -46,7 +48,6 @@ object LiquidityAllocatorMapper {
             LiquidityBucketLogic.bucketForCurrency(bucketState, currency),
             sessionDate
         )
-        val allocatedTotal = allocations.values.sum()
         val rows = buildRows(
             deployments = deployments,
             openOrders = openOrders,
@@ -57,14 +58,15 @@ object LiquidityAllocatorMapper {
             applyErrors = applyErrors,
             sessionRollupCache = sessionRollupCache,
         )
+        val committedTotal = rows.sumOf { it.committedNotional }
         val currencyOptions = buildCurrencyOptions(deployments, bucketState, sessionDate)
         return LiquidityAllocatorUiState(
             sessionDate = sessionDate,
             selectedCurrency = currency,
             currencyOptions = currencyOptions,
             availableLiquidity = bucket.available,
-            allocatedPending = allocatedTotal,
-            remainingLiquidity = (bucket.available - allocatedTotal).coerceAtLeast(0),
+            committedNotional = committedTotal,
+            remainingLiquidity = bucket.available - committedTotal,
             creditCount = bucket.credits.size,
             canClearLiquidity = bucket.available > 0 || bucket.credits.isNotEmpty(),
             rows = rows,
@@ -89,7 +91,7 @@ object LiquidityAllocatorMapper {
                 openOrders = openOrders,
                 quotes = quotes,
                 currency = currency,
-                allocationDollars = allocations[deployment.id] ?: 0,
+                allocationAdditionalQty = allocations[deployment.id] ?: 0,
                 isApplying = deployment.id in applyingDeploymentIds,
                 applyError = applyErrors[deployment.id],
                 sessionRollupCache = sessionRollupCache,
@@ -102,7 +104,7 @@ object LiquidityAllocatorMapper {
         openOrders: List<WorkingOrder>,
         quotes: Map<String, LiveQuote>,
         selectedCurrency: String,
-        allocationDollars: Int,
+        allocationAdditionalQty: Int = 0,
         sessionRollupCache: SessionRollupCache? = null,
     ): LiquidityAllocatorRowUi? {
         val currency = LiquidityBucketLogic.normalizeCurrency(selectedCurrency)
@@ -111,9 +113,43 @@ object LiquidityAllocatorMapper {
             openOrders = openOrders,
             quotes = quotes,
             currency = currency,
-            allocationDollars = allocationDollars,
+            allocationAdditionalQty = allocationAdditionalQty,
             isApplying = false,
             applyError = null,
+            sessionRollupCache = sessionRollupCache,
+        )
+    }
+
+    fun buildRowForDeploymentFromDollars(
+        deployment: StrategyDeployment,
+        openOrders: List<WorkingOrder>,
+        quotes: Map<String, LiveQuote>,
+        selectedCurrency: String,
+        allocationDollars: Int,
+        sessionRollupCache: SessionRollupCache? = null,
+    ): LiquidityAllocatorRowUi? {
+        val row = buildRowForDeployment(
+            deployment = deployment,
+            openOrders = openOrders,
+            quotes = quotes,
+            selectedCurrency = selectedCurrency,
+            allocationAdditionalQty = 0,
+            sessionRollupCache = sessionRollupCache,
+        ) ?: return null
+        if (allocationDollars <= 0) return row
+        val orderSizeRules = deployment.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val additionalQty = TouchTurnOrderPlanner.suggestedAdditionalQuantity(
+            maxDollars = allocationDollars,
+            entryPrice = row.entryPrice,
+            orderSizeRules = orderSizeRules,
+            currentQuantity = row.currentQuantity,
+        ) ?: 0
+        return buildRowForDeployment(
+            deployment = deployment,
+            openOrders = openOrders,
+            quotes = quotes,
+            selectedCurrency = selectedCurrency,
+            allocationAdditionalQty = additionalQty,
             sessionRollupCache = sessionRollupCache,
         )
     }
@@ -141,7 +177,7 @@ object LiquidityAllocatorMapper {
         openOrders: List<WorkingOrder>,
         quotes: Map<String, LiveQuote>,
         currency: String,
-        allocationDollars: Int,
+        allocationAdditionalQty: Int,
         isApplying: Boolean,
         applyError: String?,
         sessionRollupCache: SessionRollupCache? = null,
@@ -181,17 +217,25 @@ object LiquidityAllocatorMapper {
             closedSessions = closedSessions,
             asOfSessionDate = session.sessionDate,
         ) ?: closedSessions.rollupsForConfiguration(session.sessionDate, deployment)
-        val additionalQty = if (allocationDollars > 0) {
-            TouchTurnOrderPlanner.suggestedQuantity(
-                maxDollars = allocationDollars,
-                entryPrice = bracket.entry,
-                orderSizeRules = deployment.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
-            ) ?: 0
-        } else {
-            0
+        val orderSizeRules = deployment.instrument?.orderSizeRules() ?: InstrumentOrderSizeRules.DEFAULT
+        val currentQty = effectiveEntryQuantity(entryOrder, session.plannedQuantity)
+        val additionalQty = when (
+            val snap = orderSizeRules.snapAdditionalQuantityDown(
+                rawAdditional = allocationAdditionalQty,
+                currentQuantity = currentQty,
+            )
+        ) {
+            is daytrader.domain.SnapOrderSizeResult.Ok -> snap.quantity
+            is daytrader.domain.SnapOrderSizeResult.BelowMinimum -> 0
         }
-        val previewQty = entryOrder.quantity + additionalQty
+        val previewQty = currentQty + additionalQty
+        val committedNotional = effectiveAllocationNotional(additionalQty, bracket.entry)
         val riskPerShare = abs(bracket.entry - bracket.stopLoss)
+        val allocationStepLabel = if (orderSizeRules.isUnitLot()) {
+            "shares"
+        } else {
+            "steps of ${orderSizeRules.orderSizeIncrement}"
+        }
 
         return LiquidityAllocatorRowUi(
             deploymentId = deployment.id,
@@ -202,8 +246,12 @@ object LiquidityAllocatorMapper {
             sideLabel = TouchTurnLogic.tradeSideLabel(bracket.side),
             entryPrice = bracket.entry,
             entryPriceLabel = Formatters.price(bracket.entry),
-            currentQuantity = entryOrder.quantity,
-            allocationDollars = allocationDollars,
+            currentQuantity = currentQty,
+            allocationAdditionalQty = additionalQty,
+            orderSizeIncrement = orderSizeRules.orderSizeIncrement,
+            allocationStepLabel = allocationStepLabel,
+            committedNotional = committedNotional,
+            committedNotionalLabel = Formatters.money(committedNotional.toDouble(), currency),
             previewQuantity = previewQty,
             previewNotionalLabel = Formatters.money(bracket.entry * previewQty, currency),
             previewRiskAtStopLabel = Formatters.money(riskPerShare * previewQty, currency),
@@ -240,21 +288,60 @@ object LiquidityAllocatorMapper {
         )
     }
 
+    /** Working entry quantity shown in UI and used for upsize-only amend validation. */
+    fun brokerEntryQuantity(entryOrder: WorkingOrder): Int =
+        if (entryOrder.filled > 0) {
+            entryOrder.quantity
+        } else {
+            entryOrder.remaining.coerceAtLeast(entryOrder.quantity)
+        }
+
+    /** Base qty for allocation preview: max of broker entry leg and last successful planned resize. */
+    fun effectiveEntryQuantity(entryOrder: WorkingOrder, plannedQuantity: Int?): Int {
+        val planned = plannedQuantity ?: 0
+        return max(brokerEntryQuantity(entryOrder), planned)
+    }
+
+    fun openOrdersWithBracketQuantity(
+        openOrders: List<WorkingOrder>,
+        deployment: StrategyDeployment,
+        newQuantity: Int,
+    ): List<WorkingOrder> {
+        val orderIds = resolveBracketOrderIds(deployment, openOrders) ?: return openOrders
+        val bracketIds = orderIds.allIds.toSet()
+        return openOrders.map { order ->
+            if (order.orderId !in bracketIds) {
+                order
+            } else {
+                order.copy(
+                    quantity = newQuantity,
+                    remaining = (newQuantity - order.filled).coerceAtLeast(0),
+                )
+            }
+        }
+    }
+
     fun resolveBracketOrderIds(
         deployment: StrategyDeployment,
         openOrders: List<WorkingOrder>
     ): TouchTurnBracketOrderIds? {
         deployment.touchTurnSession?.bracketOrderIds?.let { return it }
         val symbolOrders = SymbolMarkets.openOrdersForDeployment(deployment, openOrders)
-        val entry = symbolOrders.firstOrNull { it.parentOrderId == 0 } ?: return null
-        val children = symbolOrders.filter { it.parentOrderId == entry.orderId }
-        val takeProfit = children.firstOrNull { it.orderType.equals("LMT", ignoreCase = true) }
-        val stop = children.firstOrNull {
+        return resolveBracketOrderIdsFromOrders(symbolOrders)
+    }
+
+    fun resolveBracketOrderIdsFromOrders(orders: List<WorkingOrder>): TouchTurnBracketOrderIds? {
+        val entry = orders.firstOrNull { it.parentOrderId == 0 } ?: return null
+        val directChildren = orders.filter { it.parentOrderId == entry.orderId }
+        val takeProfit = directChildren.firstOrNull { it.orderType.equals("LMT", ignoreCase = true) }
+        val stop = directChildren.firstOrNull {
             it.orderType.equals("STP", ignoreCase = true) ||
                 it.orderType.equals("TRAIL", ignoreCase = true)
-        } ?: children.firstOrNull { it.orderId != takeProfit?.orderId }
+        } ?: directChildren.firstOrNull { it.orderId != takeProfit?.orderId }
         if (takeProfit == null || stop == null) return null
-        val adjustable = children.firstOrNull { it.isTrailAdjustment }
+        val adjustable = orders.firstOrNull { order ->
+            order.isTrailAdjustment && order.parentOrderId == stop.orderId
+        } ?: directChildren.firstOrNull { it.isTrailAdjustment }
         return TouchTurnBracketOrderIds(
             parentOrderId = entry.orderId,
             takeProfitOrderId = takeProfit.orderId,

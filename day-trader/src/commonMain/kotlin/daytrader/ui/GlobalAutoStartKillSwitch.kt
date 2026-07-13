@@ -126,7 +126,7 @@ fun GlobalAutoStartKillSwitchRail(
     }
 }
 
-/** Compact vertical layout for auto liquidity flush in the navigation rail. */
+/** Compact vertical layout for auto no-trade pool redistribution in the navigation rail. */
 @Composable
 fun AutoLiquidityFlushSwitchRail(
     enabled: Boolean,
@@ -152,7 +152,11 @@ fun AutoLiquidityFlushSwitchRail(
             )
         )
         Text(
-            text = if (enabled) "Auto flush" else "Flush OFF",
+            text = if (enabled) {
+                "Auto pool\nredistribute"
+            } else {
+                "Manual pool\nonly"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = if (enabled) Color.White else TextSecondary,
             fontWeight = FontWeight.SemiBold,

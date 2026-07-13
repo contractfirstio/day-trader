@@ -5,6 +5,8 @@ import daytrader.data.LiquidityBucketRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.domain.LiquidityBucketLogic
+import daytrader.domain.InstrumentOrderSizeRules
+import daytrader.domain.orderSizeRules
 import daytrader.domain.StrategyDeployment
 import daytrader.domain.isTouchTurn
 import daytrader.engine.liquidity.LiquidityAllocationApplyRequest
@@ -53,6 +55,7 @@ class LiquidityAllocatorViewModel(
     val uiState: StateFlow<LiquidityAllocatorUiState> = _uiState.asStateFlow()
 
     private var selectedCurrency = "USD"
+    /** Pending additional share count per deployment. */
     private val allocations = mutableMapOf<String, Int>()
     private val applyingDeploymentIds = mutableSetOf<String>()
     private val applyErrors = mutableMapOf<String, String>()
@@ -103,8 +106,8 @@ class LiquidityAllocatorViewModel(
         publishUi()
     }
 
-    fun onAllocationChanged(deploymentId: String, dollars: Int) {
-        val sanitized = dollars.coerceAtLeast(0)
+    fun onAllocationChanged(deploymentId: String, additionalQuantity: Int) {
+        val sanitized = additionalQuantity.coerceAtLeast(0)
         if (sanitized == 0) {
             allocations.remove(deploymentId)
         } else {
@@ -116,22 +119,19 @@ class LiquidityAllocatorViewModel(
 
     fun distributeEvenly() {
         val context = distributionContext() ?: return
-        val perRow = context.available / context.rows.size
-        val remainder = context.available % context.rows.size
         applyDistribution(
-            context.rows.mapIndexed { index, row ->
-                row.deploymentId to (perRow + if (index == 0) remainder else 0)
-            }.toMap()
+            distributeAdditionalQuantityEvenlyInLots(
+                rows = lotRows(context.rows),
+                available = context.available,
+            )
         )
     }
 
     fun distributeByWinRate() {
         val context = distributionContext() ?: return
         applyDistribution(
-            distributeLiquidityByBayesianWinRate(
-                rows = context.rows.map { row ->
-                    row.deploymentId to (row.winDays to row.lossDays)
-                },
+            distributeAdditionalQuantityByBayesianWinRateInLots(
+                rows = lotRows(context.rows),
                 available = context.available,
             )
         )
@@ -141,6 +141,20 @@ class LiquidityAllocatorViewModel(
         val available: Int,
         val rows: List<LiquidityAllocatorRowUi>,
     )
+
+    private fun lotRows(rows: List<LiquidityAllocatorRowUi>): List<LiquidityLotAllocationRow> =
+        rows.mapNotNull { row ->
+            val deployment = latestDeployments.find { it.id == row.deploymentId } ?: return@mapNotNull null
+            LiquidityLotAllocationRow(
+                deploymentId = row.deploymentId,
+                winDays = row.winDays,
+                lossDays = row.lossDays,
+                entryPrice = row.entryPrice,
+                orderSizeRules = deployment.instrument?.orderSizeRules()
+                    ?: InstrumentOrderSizeRules.DEFAULT,
+                currentQuantity = row.currentQuantity,
+            )
+        }
 
     private fun distributionContext(): DistributionContext? {
         val sessionDate = currentSessionDateIso()
@@ -162,8 +176,8 @@ class LiquidityAllocatorViewModel(
 
     private fun applyDistribution(distribution: Map<String, Int>) {
         allocations.clear()
-        distribution.forEach { (deploymentId, amount) ->
-            if (amount > 0) allocations[deploymentId] = amount
+        distribution.forEach { (deploymentId, additionalQty) ->
+            if (additionalQty > 0) allocations[deploymentId] = additionalQty
         }
         applyErrors.clear()
         publishUi()
@@ -179,8 +193,8 @@ class LiquidityAllocatorViewModel(
         val pending = allocations.filterValues { it > 0 }
         if (pending.isEmpty()) return
         scope.launchUiAction(AppScreen.LIQUIDITY, "applyAll") {
-            pending.forEach { (deploymentId, amount) ->
-                applyInternal(deploymentId, amount)
+            pending.forEach { (deploymentId, additionalQty) ->
+                applyInternal(deploymentId, additionalQty)
             }
         }
     }
@@ -221,7 +235,7 @@ class LiquidityAllocatorViewModel(
         }
     }
 
-    private suspend fun applyInternal(deploymentId: String, allocationDollars: Int) {
+    private suspend fun applyInternal(deploymentId: String, additionalQuantity: Int) {
         val deployment = latestDeployments.find { it.id == deploymentId } ?: return
         applyingDeploymentIds.add(deploymentId)
         applyErrors.remove(deploymentId)
@@ -231,7 +245,7 @@ class LiquidityAllocatorViewModel(
         val result = flushCoordinator.applyAllocation(
             LiquidityAllocationApplyRequest(
                 deploymentId = deploymentId,
-                allocationDollars = allocationDollars,
+                additionalQuantity = additionalQuantity,
                 deployment = deployment,
                 openOrders = latestOpenOrders,
                 quotes = latestQuotes,
@@ -256,9 +270,9 @@ class LiquidityAllocatorViewModel(
                     daytrader.engine.liquidity.LiquidityApplySkipReason.NOT_ELIGIBLE ->
                         "Entry order no longer eligible"
                     daytrader.engine.liquidity.LiquidityApplySkipReason.NO_ADDITIONAL_QUANTITY ->
-                        "Allocation too small for a board lot"
+                        "Quantity too small for a board lot"
                     daytrader.engine.liquidity.LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT ->
-                        "Allocation too small to increase size"
+                        "Quantity too small to increase size"
                 },
             )
             is LiquidityAllocationApplyResult.Failed -> setApplyError(deploymentId, result.message)

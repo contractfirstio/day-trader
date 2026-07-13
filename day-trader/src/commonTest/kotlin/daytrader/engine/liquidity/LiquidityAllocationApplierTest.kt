@@ -46,11 +46,10 @@ class LiquidityAllocationApplierTest {
             executionManager = BrokerGatewayExecutionManager(gateway),
             deploymentRepository = repository,
         )
-        val allocationDollars = 250
         val result = applier.apply(
             LiquidityAllocationApplyRequest(
                 deploymentId = E2ETestFixtures.DEPLOYMENT_ID,
-                allocationDollars = allocationDollars,
+                additionalQuantity = 2,
                 deployment = deployment,
                 openOrders = gateway.openOrders.value,
                 quotes = gateway.quotes.value,
@@ -105,7 +104,7 @@ class LiquidityAllocationApplierTest {
         val result = applier.apply(
             LiquidityAllocationApplyRequest(
                 deploymentId = E2ETestFixtures.DEPLOYMENT_ID,
-                allocationDollars = 200,
+                additionalQuantity = 2,
                 deployment = deployment,
                 openOrders = gateway.openOrders.value,
                 quotes = gateway.quotes.value,
@@ -119,5 +118,126 @@ class LiquidityAllocationApplierTest {
             LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
             sessionDate,
         ).available)
+    }
+
+    @Test
+    fun applier_usesSharedBracketResizerWhenBrokerQtyLagsPlannedQuantity() = runBlocking {
+        val sessionDate = currentSessionDateIso()
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditUsdBucket(bucketRepository, amount = 1_000, sessionDate = sessionDate)
+
+        gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
+        gateway.setQuotes(
+            mapOf(
+                "AAPL" to LiveQuote(
+                    symbol = "AAPL",
+                    bid = 99.0,
+                    ask = 99.5,
+                    last = 99.25,
+                    quoteEpochMillis = 0L,
+                )
+            )
+        )
+
+        val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+            val session = dep.touchTurnSession ?: return@let dep
+            dep.copy(
+                touchTurnSession = session.copy(
+                    sessionDate = sessionDate,
+                    plannedQuantity = 10,
+                ),
+            )
+        }
+        repository.add(deployment)
+
+        val applier = LiquidityAllocationApplier(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val result = applier.apply(
+            LiquidityAllocationApplyRequest(
+                deploymentId = E2ETestFixtures.DEPLOYMENT_ID,
+                additionalQuantity = 2,
+                deployment = deployment,
+                openOrders = gateway.openOrders.value,
+                quotes = gateway.quotes.value,
+                selectedCurrency = "USD",
+                sessionDate = sessionDate,
+            )
+        )
+
+        val success = assertIs<LiquidityAllocationApplyResult.Success>(result)
+        assertTrue(
+            success.newQuantity > 5,
+            "Should upsize from broker qty 5 even when plannedQuantity is 10",
+        )
+        assertEquals(1, gateway.bracketResizeRequests.size)
+        assertEquals(success.newQuantity, gateway.bracketResizeRequests.single().plan.quantity)
+        assertEquals(
+            success.newQuantity,
+            repository.deployments.value.single().touchTurnSession?.plannedQuantity,
+        )
+    }
+
+    @Test
+    fun applier_skipsWithoutDebitWhenPreviewDoesNotExceedBrokerQty() = runBlocking {
+        val sessionDate = currentSessionDateIso()
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditUsdBucket(bucketRepository, amount = 500, sessionDate = sessionDate)
+
+        val openOrders = E2ELiquidityAllocatorHelper.bracketOpenOrders()
+        gateway.setOpenOrders(openOrders)
+        gateway.setQuotes(
+            mapOf(
+                "AAPL" to LiveQuote(
+                    symbol = "AAPL",
+                    bid = 99.0,
+                    ask = 99.5,
+                    last = 99.25,
+                    quoteEpochMillis = 0L,
+                )
+            )
+        )
+
+        val brokerQty = openOrders.first { it.parentOrderId == 0 }.remaining
+        val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+            val session = dep.touchTurnSession ?: return@let dep
+            dep.copy(
+                touchTurnSession = session.copy(
+                    sessionDate = sessionDate,
+                    plannedQuantity = brokerQty,
+                ),
+            )
+        }
+        repository.add(deployment)
+
+        val applier = LiquidityAllocationApplier(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val result = applier.apply(
+            LiquidityAllocationApplyRequest(
+                deploymentId = E2ETestFixtures.DEPLOYMENT_ID,
+                additionalQuantity = 0,
+                deployment = deployment,
+                openOrders = gateway.openOrders.value,
+                quotes = gateway.quotes.value,
+                selectedCurrency = "USD",
+                sessionDate = sessionDate,
+            )
+        )
+        assertIs<LiquidityAllocationApplyResult.Skipped>(result)
+        assertEquals(LiquidityApplySkipReason.NO_ADDITIONAL_QUANTITY, result.reason)
+        assertEquals(500, LiquidityBucketLogic.rollBucketForDate(
+            LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+            sessionDate,
+        ).available)
+        assertTrue(gateway.bracketResizeRequests.isEmpty())
     }
 }

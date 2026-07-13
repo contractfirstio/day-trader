@@ -1,7 +1,9 @@
 package daytrader.presentation.liquidity
 
+import daytrader.domain.InstrumentOrderSizeRules
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class LiquidityAllocationLogicTest {
     @Test
@@ -71,6 +73,114 @@ class LiquidityAllocationLogicTest {
             distributeLiquidityByBayesianWinRate(
                 rows = listOf("a" to (1 to 0)),
                 available = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_usUnitLot_matchesDollarDistribution() {
+        val rules = InstrumentOrderSizeRules.DEFAULT
+        val rows = listOf(
+            LiquidityLotAllocationRow(
+                deploymentId = "strong",
+                winDays = 8,
+                lossDays = 2,
+                entryPrice = 10.0,
+                orderSizeRules = rules,
+                currentQuantity = 5,
+            ),
+            LiquidityLotAllocationRow(
+                deploymentId = "unknown",
+                winDays = 0,
+                lossDays = 0,
+                entryPrice = 10.0,
+                orderSizeRules = rules,
+                currentQuantity = 5,
+            ),
+        )
+        val dollarDistribution = distributeLiquidityByBayesianWinRate(
+            rows = rows.map { it.deploymentId to (it.winDays to it.lossDays) },
+            available = 100,
+        )
+        val lotDistribution = distributeLiquidityByBayesianWinRateInLots(rows, available = 100)
+        assertEquals(dollarDistribution, lotDistribution)
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_hkBoardLot_favorsHigherWinRateWhenOnlyOneLotFits() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        val distribution = distributeLiquidityByBayesianWinRateInLots(
+            rows = listOf(
+                LiquidityLotAllocationRow(
+                    deploymentId = "strong",
+                    winDays = 8,
+                    lossDays = 2,
+                    entryPrice = 100.0,
+                    orderSizeRules = rules,
+                    currentQuantity = 1_000,
+                ),
+                LiquidityLotAllocationRow(
+                    deploymentId = "weak",
+                    winDays = 0,
+                    lossDays = 0,
+                    entryPrice = 100.0,
+                    orderSizeRules = rules,
+                    currentQuantity = 1_000,
+                ),
+            ),
+            available = 150_000,
+        )
+
+        assertEquals(mapOf("strong" to 100_000), distribution)
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_hkBoardLot_splitsWholeLotsByWinRate() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        val distribution = distributeLiquidityByBayesianWinRateInLots(
+            rows = listOf(
+                LiquidityLotAllocationRow(
+                    deploymentId = "strong",
+                    winDays = 8,
+                    lossDays = 2,
+                    entryPrice = 100.0,
+                    orderSizeRules = rules,
+                    currentQuantity = 1_000,
+                ),
+                LiquidityLotAllocationRow(
+                    deploymentId = "weak",
+                    winDays = 0,
+                    lossDays = 0,
+                    entryPrice = 100.0,
+                    orderSizeRules = rules,
+                    currentQuantity = 1_000,
+                ),
+            ),
+            available = 500_000,
+        )
+
+        assertEquals(500_000, distribution.values.sum())
+        assertEquals(300_000, distribution.getValue("strong"))
+        assertEquals(200_000, distribution.getValue("weak"))
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_excludesSymbolsWhenPoolCannotFundOneLot() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        assertEquals(
+            emptyMap(),
+            distributeLiquidityByBayesianWinRateInLots(
+                rows = listOf(
+                    LiquidityLotAllocationRow(
+                        deploymentId = "hk",
+                        winDays = 1,
+                        lossDays = 0,
+                        entryPrice = 100.0,
+                        orderSizeRules = rules,
+                        currentQuantity = 1_000,
+                    ),
+                ),
+                available = 500,
             ),
         )
     }

@@ -104,8 +104,8 @@ class E2ELiquidityAllocatorIntegrationTest {
             )
             delay(50)
 
-            val allocationDollars = 200
-            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, allocationDollars)
+            val additionalQty = 2
+            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, additionalQty)
             viewModel.applyRow(E2ETestFixtures.DEPLOYMENT_ID)
             delay(100)
 
@@ -121,7 +121,7 @@ class E2ELiquidityAllocatorIntegrationTest {
             assertEquals(800, available)
 
             val row = viewModel.uiState.value.rows.singleOrNull()
-            assertTrue(row == null || row.allocationDollars == 0)
+            assertTrue(row == null || row.allocationAdditionalQty == 0)
         } finally {
             scope.cancel()
         }
@@ -188,7 +188,7 @@ class E2ELiquidityAllocatorIntegrationTest {
 
             val state = viewModel.uiState.value
             assertEquals(2, state.rows.size)
-            assertEquals(availableLiquidity, state.allocatedPending)
+            assertEquals(100, state.committedNotional)
             assertEquals(0, state.remainingLiquidity)
 
             val strongRow = state.rows.single { it.deploymentId == "dep-strong" }
@@ -197,8 +197,8 @@ class E2ELiquidityAllocatorIntegrationTest {
             assertEquals(2, strongRow.lossDays)
             assertEquals(0, unknownRow.winDays)
             assertEquals(0, unknownRow.lossDays)
-            assertEquals(60, strongRow.allocationDollars)
-            assertEquals(40, unknownRow.allocationDollars)
+            assertEquals(1, strongRow.allocationAdditionalQty)
+            assertEquals(0, unknownRow.allocationAdditionalQty)
         } finally {
             scope.cancel()
         }
@@ -238,7 +238,7 @@ class E2ELiquidityAllocatorIntegrationTest {
             )
             delay(50)
 
-            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 200)
+            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 5)
             viewModel.applyRow(E2ETestFixtures.DEPLOYMENT_ID)
             delay(100)
 
@@ -293,7 +293,7 @@ class E2ELiquidityAllocatorIntegrationTest {
             )
             delay(50)
 
-            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 200)
+            viewModel.onAllocationChanged(E2ETestFixtures.DEPLOYMENT_ID, 5)
             viewModel.applyRow(E2ETestFixtures.DEPLOYMENT_ID)
             delay(150)
 

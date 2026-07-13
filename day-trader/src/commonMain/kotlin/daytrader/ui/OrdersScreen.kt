@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -17,7 +18,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,8 +33,11 @@ import daytrader.presentation.orders.OrderSortColumn
 import daytrader.presentation.orders.OrderSymbolGroupUi
 import daytrader.presentation.orders.OrdersViewModel
 import daytrader.presentation.positions.SortDirection
+import daytrader.domain.BracketAmendTarget
+import daytrader.presentation.strategies.TouchTurnBracketAmendUiState
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
+import daytrader.ui.theme.LossRed
 import daytrader.ui.theme.SurfaceDark
 import daytrader.ui.theme.TableHeaderBg
 import daytrader.ui.theme.TextSecondary
@@ -44,6 +50,19 @@ fun OrdersScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val symbolCount = uiState.groups.size
+    val showActionsColumn = uiState.canCancelOrders || uiState.canAmendBrackets
+    val amendDialogGroup = uiState.amendDialogSymbolKey?.let { key ->
+        uiState.groups.firstOrNull { it.symbolKey == key }
+    }
+    val amendDialog = amendDialogGroup?.bracketAmend
+
+    amendDialog?.let { amend ->
+        TouchTurnBracketAmendDialog(
+            amend = amend,
+            onDismiss = viewModel::onDismissAmendDialog,
+            onApply = { targetQty -> viewModel.onAmendBracket(amend.target, targetQty) },
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
@@ -78,6 +97,28 @@ fun OrdersScreen(
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
+        uiState.amendFeedbackMessage?.let { message ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    message,
+                    fontSize = 12.sp,
+                    color = GainGreen,
+                    modifier = Modifier.weight(1f).testTag("OrdersBracketAmendFeedback"),
+                )
+                TextButton(
+                    onClick = viewModel::onDismissAmendFeedback,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                ) {
+                    Text("Dismiss", fontSize = 11.sp, color = TextSecondary)
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -90,7 +131,7 @@ fun OrdersScreen(
             OrdersTableHeader(
                 activeSortColumn = uiState.sortColumn,
                 sortDirection = uiState.sortDirection,
-                showCancelColumn = uiState.canCancelOrders,
+                showActionsColumn = showActionsColumn,
                 onHeaderClick = viewModel::onHeaderClick
             )
 
@@ -113,8 +154,9 @@ fun OrdersScreen(
                             if (group.isGrouped) {
                                 OrdersGroupSummaryRow(
                                     group = group,
-                                    showCancelColumn = uiState.canCancelOrders,
-                                    onClick = { viewModel.onSymbolGroupClick(group.symbolKey) }
+                                    showActionsColumn = showActionsColumn,
+                                    onClick = { viewModel.onSymbolGroupClick(group.symbolKey) },
+                                    onAmendClick = { viewModel.onAmendBracketClick(group.symbolKey) },
                                 )
                                 if (group.isExpanded) {
                                     group.orders.forEachIndexed { orderIndex, order ->
@@ -127,7 +169,7 @@ fun OrdersScreen(
                                         }
                                         OrdersDetailRow(
                                             row = order,
-                                            showCancelColumn = uiState.canCancelOrders,
+                                            showActionsColumn = showActionsColumn,
                                             onCancel = { viewModel.onCancelOrder(order.orderId) },
                                             modifier = Modifier.padding(start = 20.dp)
                                         )
@@ -136,8 +178,10 @@ fun OrdersScreen(
                             } else {
                                 OrdersTableRow(
                                     row = group.orders.single(),
-                                    showCancelColumn = uiState.canCancelOrders,
-                                    onCancel = { viewModel.onCancelOrder(group.orders.single().orderId) }
+                                    showActionsColumn = showActionsColumn,
+                                    onCancel = { viewModel.onCancelOrder(group.orders.single().orderId) },
+                                    bracketAmend = group.bracketAmend,
+                                    onAmendClick = { viewModel.onAmendBracketClick(group.symbolKey) },
                                 )
                             }
                             if (groupIndex < uiState.groups.lastIndex) {
@@ -176,7 +220,7 @@ private fun emptyOrdersMessage(
 private fun OrdersTableHeader(
     activeSortColumn: OrderSortColumn,
     sortDirection: SortDirection,
-    showCancelColumn: Boolean,
+    showActionsColumn: Boolean,
     onHeaderClick: (OrderSortColumn) -> Unit
 ) {
     Row(
@@ -195,10 +239,10 @@ private fun OrdersTableHeader(
         OrdersHeaderCell("Price", OrderSortColumn.PRICE, activeSortColumn, sortDirection, Modifier.weight(0.85f), onHeaderClick)
         OrdersHeaderCell("Status", OrderSortColumn.STATUS, activeSortColumn, sortDirection, Modifier.weight(0.9f), onHeaderClick)
         OrdersHeaderCell("Order #", OrderSortColumn.ORDER_ID, activeSortColumn, sortDirection, Modifier.weight(0.65f), onHeaderClick)
-        if (showCancelColumn) {
+        if (showActionsColumn) {
             Text(
                 text = "",
-                modifier = Modifier.width(56.dp),
+                modifier = Modifier.width(64.dp),
                 fontSize = 11.sp
             )
         }
@@ -248,8 +292,9 @@ private fun RowScope.OrdersHeaderCell(
 @Composable
 private fun OrdersGroupSummaryRow(
     group: OrderSymbolGroupUi,
-    showCancelColumn: Boolean,
-    onClick: () -> Unit
+    showActionsColumn: Boolean,
+    onClick: () -> Unit,
+    onAmendClick: () -> Unit,
 ) {
     val summary = OpenOrderUiMapper.collapsedSummary(group)
     Row(
@@ -298,8 +343,12 @@ private fun OrdersGroupSummaryRow(
             fontSize = 12.sp,
             maxLines = 1
         )
-        if (showCancelColumn) {
-            Spacer(modifier = Modifier.width(56.dp))
+        if (showActionsColumn) {
+            OrdersAmendCell(
+                bracketAmend = group.bracketAmend,
+                onAmendClick = onAmendClick,
+                modifier = Modifier.width(64.dp),
+            )
         }
     }
 }
@@ -307,21 +356,27 @@ private fun OrdersGroupSummaryRow(
 @Composable
 private fun OrdersTableRow(
     row: OpenOrderRowUi,
-    showCancelColumn: Boolean,
-    onCancel: () -> Unit
+    showActionsColumn: Boolean,
+    onCancel: () -> Unit,
+    bracketAmend: TouchTurnBracketAmendUiState? = null,
+    onAmendClick: (() -> Unit)? = null,
 ) {
     OrdersDetailRow(
         row = row,
-        showCancelColumn = showCancelColumn,
-        onCancel = onCancel
+        showActionsColumn = showActionsColumn,
+        onCancel = onCancel,
+        bracketAmend = bracketAmend,
+        onAmendClick = onAmendClick,
     )
 }
 
 @Composable
 private fun OrdersDetailRow(
     row: OpenOrderRowUi,
-    showCancelColumn: Boolean,
+    showActionsColumn: Boolean,
     onCancel: () -> Unit,
+    bracketAmend: TouchTurnBracketAmendUiState? = null,
+    onAmendClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -343,14 +398,119 @@ private fun OrdersDetailRow(
         Text(row.priceLabel.ifBlank { "—" }, Modifier.weight(0.85f), color = Color.White, fontSize = 13.sp, maxLines = 1)
         Text(row.status, Modifier.weight(0.9f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
         Text(row.orderId.toString(), Modifier.weight(0.65f), color = TextSecondary, fontSize = 13.sp, maxLines = 1)
-        if (showCancelColumn) {
-            OrdersCancelCell(
-                row = row,
-                onCancel = onCancel,
-                modifier = Modifier.width(56.dp)
-            )
+        if (showActionsColumn) {
+            if (bracketAmend != null && onAmendClick != null) {
+                OrdersAmendCell(
+                    bracketAmend = bracketAmend,
+                    onAmendClick = onAmendClick,
+                    modifier = Modifier.width(64.dp),
+                )
+            } else {
+                OrdersCancelCell(
+                    row = row,
+                    onCancel = onCancel,
+                    modifier = Modifier.width(64.dp)
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun OrdersAmendCell(
+    bracketAmend: TouchTurnBracketAmendUiState?,
+    onAmendClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.CenterEnd) {
+        when {
+            bracketAmend == null -> Unit
+            bracketAmend.isApplying -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = TextSecondary
+                )
+            }
+            else -> {
+                TextButton(
+                    onClick = onAmendClick,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    modifier = Modifier.testTag("AmendBracketButton-${bracketAmend.amendKey}")
+                ) {
+                    Text("Amend", color = GainGreen, fontSize = 11.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnBracketAmendDialog(
+    amend: TouchTurnBracketAmendUiState,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit,
+) {
+    var targetText by remember(amend.currentQuantity) {
+        mutableStateOf((amend.currentQuantity + 1).toString())
+    }
+    val parsedTarget = targetText.filter { it.isDigit() }.toIntOrNull()
+    val isValid = parsedTarget != null && parsedTarget > amend.currentQuantity
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Amend bracket (test)", fontWeight = FontWeight.SemiBold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Current qty ${amend.currentQuantity} · entry ${amend.entryPriceLabel} ${amend.currencyCode}",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                )
+                Text(
+                    "Sends an IB placeOrder modify for all bracket legs — no liquidity pool debit.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                )
+                OutlinedTextField(
+                    value = targetText,
+                    onValueChange = { targetText = it.filter { ch -> ch.isDigit() } },
+                    label = { Text("Target qty") },
+                    singleLine = true,
+                    enabled = !amend.isApplying,
+                    modifier = Modifier.fillMaxWidth().testTag("OrdersBracketAmendTargetQty"),
+                    textStyle = TextStyle(fontSize = 14.sp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                amend.error?.let { error ->
+                    Text(error, fontSize = 12.sp, color = LossRed, modifier = Modifier.testTag("OrdersBracketAmendError"))
+                }
+                amend.successMessage?.let { success ->
+                    Text(success, fontSize = 12.sp, color = GainGreen, modifier = Modifier.testTag("OrdersBracketAmendSuccess"))
+                }
+            }
+        },
+        confirmButton = {
+            if (amend.isApplying) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                Button(
+                    onClick = { onApply(targetText) },
+                    enabled = isValid,
+                    modifier = Modifier.testTag("OrdersBracketAmendApply"),
+                ) {
+                    Text("Amend")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !amend.isApplying) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable

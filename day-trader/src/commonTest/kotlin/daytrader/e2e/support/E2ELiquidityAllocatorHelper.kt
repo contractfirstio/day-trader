@@ -6,6 +6,7 @@ import daytrader.domain.StrategyDeployment
 import daytrader.domain.StrategySession
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.currentConfigurationFingerprint
+import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
@@ -26,7 +27,14 @@ object E2ELiquidityAllocatorHelper {
                 sessionHistory = winLossSessionHistory(deployment, winDays, lossDays),
             )
         }
-        return deployment.withOrdersPlacedForSession(plan = plan)
+        return deployment.withOrdersPlacedForSession(
+            plan = plan,
+            bracketOrderIds = TouchTurnBracketOrderIds(
+                parentOrderId = 1_000,
+                takeProfitOrderId = 1_001,
+                stopLossOrderId = 1_002,
+            ),
+        )
     }
 
     fun winLossSessionHistory(

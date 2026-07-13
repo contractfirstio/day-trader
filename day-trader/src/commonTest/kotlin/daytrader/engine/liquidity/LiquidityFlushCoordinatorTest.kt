@@ -2,6 +2,10 @@ package daytrader.engine.liquidity
 
 import daytrader.domain.AUTO_LIQUIDITY_FLUSH_MAX_LOOPS
 import daytrader.domain.LiquidityBucketLogic
+import daytrader.domain.InstrumentIdentity
+import daytrader.domain.TouchTurnBracketOrderIds
+import daytrader.domain.withOrdersPlacedForSession
+import daytrader.e2e.support.E2EBracketHelper
 import daytrader.e2e.support.E2ELiquidityAllocatorHelper
 import daytrader.e2e.support.E2ETestFixtures
 import daytrader.e2e.support.InMemoryLiquidityBucketRepository
@@ -75,7 +79,7 @@ class LiquidityFlushCoordinatorTest {
     }
 
     @Test
-    fun flush_skipsWhenPriceTooCloseToEntry() = runBlocking {
+    fun flush_resizesWhenPriceTouchable() = runBlocking {
         val sessionDate = "2026-06-04"
         val repository = InMemoryStrategyDeploymentRepository()
         val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
@@ -106,19 +110,17 @@ class LiquidityFlushCoordinatorTest {
             )
         )
 
-        assertEquals(0, audit.totalDebited)
-        assertTrue(audit.loops.any { E2ETestFixtures.DEPLOYMENT_ID in it.skippedProximity })
-        assertEquals(
-            500,
+        assertTrue(audit.totalDebited > 0)
+        assertTrue(
             LiquidityBucketLogic.rollBucketForDate(
                 LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
                 sessionDate,
-            ).available,
+            ).available < 500,
         )
     }
 
     @Test
-    fun flush_loopsMaxThreeTimes() = runBlocking {
+    fun flush_resizesWithoutLiveQuote_whenOpenOrdersExist() = runBlocking {
         val sessionDate = "2026-06-04"
         val repository = InMemoryStrategyDeploymentRepository()
         val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
@@ -126,7 +128,7 @@ class LiquidityFlushCoordinatorTest {
         E2ELiquidityAllocatorHelper.creditUsdBucket(bucketRepository, amount = 500, sessionDate = sessionDate)
 
         gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
-        gateway.setQuotes(mapOf("AAPL" to E2ELiquidityAllocatorHelper.touchableQuote()))
+        gateway.setQuotes(emptyMap())
 
         val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
             dep.copy(touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate))
@@ -144,13 +146,144 @@ class LiquidityFlushCoordinatorTest {
                 sessionDate = sessionDate,
                 deployments = listOf(deployment),
                 openOrders = gateway.openOrders.value,
-                quotes = gateway.quotes.value,
+                quotes = emptyMap(),
                 enabled = true,
             )
         )
 
-        assertEquals(AUTO_LIQUIDITY_FLUSH_MAX_LOOPS, audit.loops.size)
+        assertTrue(audit.totalDebited > 0)
+    }
+
+    @Test
+    fun flush_skipsWhenPoolCannotFundBoardLot() = runBlocking {
+        val sessionDate = "2026-06-04"
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditCurrencyBucket(
+            repository = bucketRepository,
+            currencyCode = "HKD",
+            amount = 500,
+            sessionDate = sessionDate,
+        )
+
+        val hkInstrument = InstrumentIdentity(
+            symbol = "939",
+            exchange = "SEHK",
+            primaryExch = "SEHK",
+            currency = "HKD",
+            minOrderSize = 1_000,
+            orderSizeIncrement = 1_000,
+        )
+        gateway.setOpenOrders(
+            E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "939", orderIdBase = 1_000).map {
+                it.copy(currency = "HKD")
+            },
+        )
+        gateway.setQuotes(emptyMap())
+
+        val plan = E2EBracketHelper.liquidityPlan(symbol = "939")
+        val deployment = E2ETestFixtures.runningDeployment(symbol = "939", sessionDate = sessionDate)
+            .copy(
+                id = "dep-hk",
+                currencyCode = "HKD",
+                instrument = hkInstrument,
+            )
+            .withOrdersPlacedForSession(
+                plan = plan,
+                bracketOrderIds = TouchTurnBracketOrderIds(
+                    parentOrderId = 1_000,
+                    takeProfitOrderId = 1_001,
+                    stopLossOrderId = 1_002,
+                ),
+            )
+        repository.add(deployment)
+
+        val coordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val audit = coordinator.flush(
+            LiquidityFlushRequest(
+                currencyCode = "HKD",
+                sessionDate = sessionDate,
+                deployments = listOf(deployment),
+                openOrders = gateway.openOrders.value,
+                quotes = emptyMap(),
+                enabled = true,
+            )
+        )
+
+        assertEquals(0, audit.loops.size)
+        assertEquals(0, audit.totalDebited)
         assertEquals(500, audit.remainingPoolAvailable)
+    }
+
+    @Test
+    fun flush_allocatesWholeHkBoardLotWhenPoolCanFundIt() = runBlocking {
+        val sessionDate = "2026-06-04"
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditCurrencyBucket(
+            repository = bucketRepository,
+            currencyCode = "HKD",
+            amount = 150_000,
+            sessionDate = sessionDate,
+        )
+
+        val hkInstrument = InstrumentIdentity(
+            symbol = "939",
+            exchange = "SEHK",
+            primaryExch = "SEHK",
+            currency = "HKD",
+            minOrderSize = 1_000,
+            orderSizeIncrement = 1_000,
+        )
+        gateway.setOpenOrders(
+            E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "939", orderIdBase = 1_000).map {
+                it.copy(currency = "HKD", quantity = 1_000, remaining = 1_000)
+            },
+        )
+        gateway.setQuotes(emptyMap())
+
+        val plan = E2EBracketHelper.liquidityPlan(symbol = "939")
+        val deployment = E2ETestFixtures.runningDeployment(symbol = "939", sessionDate = sessionDate)
+            .copy(
+                id = "dep-hk",
+                currencyCode = "HKD",
+                instrument = hkInstrument,
+            )
+            .withOrdersPlacedForSession(
+                plan = plan,
+                bracketOrderIds = TouchTurnBracketOrderIds(
+                    parentOrderId = 1_000,
+                    takeProfitOrderId = 1_001,
+                    stopLossOrderId = 1_002,
+                ),
+            )
+        repository.add(deployment)
+
+        val coordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val audit = coordinator.flush(
+            LiquidityFlushRequest(
+                currencyCode = "HKD",
+                sessionDate = sessionDate,
+                deployments = listOf(deployment),
+                openOrders = gateway.openOrders.value,
+                quotes = emptyMap(),
+                enabled = true,
+            )
+        )
+
+        assertEquals(100_000, audit.totalDebited)
+        assertEquals(50_000, audit.remainingPoolAvailable)
+        assertEquals(2_000, repository.deployments.value.single().touchTurnSession?.plannedQuantity)
     }
 
     @Test
@@ -216,7 +349,7 @@ class LiquidityFlushCoordinatorTest {
                 coordinator.applyAllocation(
                     LiquidityAllocationApplyRequest(
                         deploymentId = E2ETestFixtures.DEPLOYMENT_ID,
-                        allocationDollars = 100,
+                        additionalQuantity = 1,
                         deployment = repository.deployments.value.single(),
                         openOrders = gateway.openOrders.value,
                         quotes = gateway.quotes.value,
@@ -244,5 +377,70 @@ class LiquidityFlushCoordinatorTest {
         ).available
         assertTrue(remaining >= 0)
         assertTrue(remaining <= starting)
+    }
+
+    @Test
+    fun flush_secondLoop_doesNotDownsizeAfterFirstSuccessfulApply() = runBlocking {
+        val sessionDate = "2026-06-04"
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditUsdBucket(bucketRepository, amount = 500, sessionDate = sessionDate)
+
+        gateway.setOpenOrders(
+            E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "AAPL", orderIdBase = 2_000) +
+                E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "MSFT", orderIdBase = 1_000)
+        )
+        val safeQuote = { symbol: String ->
+            LiveQuote(symbol = symbol, bid = 99.0, ask = 99.5, last = 99.25, quoteEpochMillis = 0L)
+        }
+        gateway.setQuotes(
+            mapOf(
+                "AAPL" to E2ELiquidityAllocatorHelper.touchableQuote(symbol = "AAPL"),
+                "MSFT" to safeQuote("MSFT"),
+            )
+        )
+
+        val strong = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment(
+            symbol = "MSFT",
+            deploymentId = "dep-strong",
+            winDays = 8,
+            lossDays = 2,
+        ).let { dep ->
+            dep.copy(touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate))
+        }
+        val touchable = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment(
+            symbol = "AAPL",
+            deploymentId = "dep-touchable",
+        ).let { dep ->
+            dep.copy(touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate))
+        }
+        repository.add(strong)
+        repository.add(touchable)
+
+        val coordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        coordinator.flush(
+            LiquidityFlushRequest(
+                currencyCode = "USD",
+                sessionDate = sessionDate,
+                deployments = repository.deployments.value,
+                openOrders = gateway.openOrders.value,
+                quotes = gateway.quotes.value,
+                enabled = true,
+            )
+        )
+
+        val strongResizes = gateway.bracketResizeRequests.filter { it.symbol.equals("MSFT", ignoreCase = true) }
+        assertTrue(strongResizes.size >= 2, "MSFT should resize in at least loop 1 and loop 2")
+        strongResizes.zipWithNext { earlier, later ->
+            assertTrue(
+                later.plan.quantity > earlier.plan.quantity,
+                "each resize must upsize from updated quantity, not downsize from stale snapshot",
+            )
+        }
     }
 }

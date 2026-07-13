@@ -38,6 +38,28 @@ data class InstrumentOrderSizeRules(
         return SnapOrderSizeResult.Ok(minOrderSize + steps * orderSizeIncrement)
     }
 
+    /** Share count for one upsize step on a working order that already meets the minimum lot. */
+    fun additionalLotShares(currentQuantity: Int): Int =
+        if (currentQuantity >= minOrderSize) orderSizeIncrement else minOrderSize
+
+    /** Notional for one upsize lot at [entryPrice] given [currentQuantity] on the working order. */
+    fun additionalLotNotional(entryPrice: Double, currentQuantity: Int): Int {
+        if (entryPrice <= 0.0) return 0
+        return kotlin.math.ceil(additionalLotShares(currentQuantity) * entryPrice).toInt().coerceAtLeast(1)
+    }
+
+    /** Floor [rawAdditional] to a valid upsize step for a working order at [currentQuantity]. */
+    fun snapAdditionalQuantityDown(rawAdditional: Int, currentQuantity: Int): SnapOrderSizeResult {
+        if (rawAdditional <= 0) {
+            return SnapOrderSizeResult.BelowMinimum(minimum = additionalLotShares(currentQuantity))
+        }
+        val snapped = (rawAdditional / orderSizeIncrement) * orderSizeIncrement
+        if (snapped <= 0) {
+            return SnapOrderSizeResult.BelowMinimum(minimum = additionalLotShares(currentQuantity))
+        }
+        return SnapOrderSizeResult.Ok(snapped)
+    }
+
     companion object {
         val DEFAULT = InstrumentOrderSizeRules()
 

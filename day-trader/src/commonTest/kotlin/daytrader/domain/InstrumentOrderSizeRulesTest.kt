@@ -86,6 +86,40 @@ class InstrumentOrderSizeRulesTest {
     }
 
     @Test
+    fun additionalLotNotional_usesIncrementForWorkingOrders() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        assertEquals(100_000, rules.additionalLotNotional(entryPrice = 100.0, currentQuantity = 5_000))
+    }
+
+    @Test
+    fun additionalLotNotional_usesMinimumForEmptyPosition() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        assertEquals(100_000, rules.additionalLotNotional(entryPrice = 100.0, currentQuantity = 0))
+    }
+
+    @Test
+    fun suggestedAdditionalQuantity_usesIncrementStepForWorkingHkOrder() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 1_000, orderSizeIncrement = 1_000)
+        assertEquals(
+            1_000,
+            TouchTurnOrderPlanner.suggestedAdditionalQuantity(
+                maxDollars = 150_000,
+                entryPrice = 100.0,
+                orderSizeRules = rules,
+                currentQuantity = 5_000,
+            ),
+        )
+        assertNull(
+            TouchTurnOrderPlanner.suggestedAdditionalQuantity(
+                maxDollars = 50_000,
+                entryPrice = 100.0,
+                orderSizeRules = rules,
+                currentQuantity = 5_000,
+            ),
+        )
+    }
+
+    @Test
     fun instrumentIdentity_orderSizeRules_reflectsFields() {
         val identity = InstrumentIdentity(
             symbol = "939",

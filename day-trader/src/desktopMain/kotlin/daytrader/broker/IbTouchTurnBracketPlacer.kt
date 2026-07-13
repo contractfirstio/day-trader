@@ -89,7 +89,9 @@ internal object IbTouchTurnBracketPlacer {
     fun buildResize(
         config: IbGatewayConfig,
         plan: TouchTurnOrderPlan,
-        orderIds: TouchTurnBracketOrderIds
+        orderIds: TouchTurnBracketOrderIds,
+        permIdsByOrderId: Map<Int, Long> = emptyMap(),
+        contractOverride: Contract? = null,
     ): IbTouchTurnBracketSubmission? {
         val entry = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.ENTRY }
         val takeProfit = plan.orders.firstOrNull { it.role == TouchTurnOrderRole.TAKE_PROFIT }
@@ -102,8 +104,15 @@ internal object IbTouchTurnBracketPlacer {
             IbGatewayLog.touchTurnBracketSkipped("Invalid resize quantity")
             return null
         }
+        val missingPermId = orderIds.allIds.firstOrNull { orderId ->
+            (permIdsByOrderId[orderId] ?: 0L) <= 0L
+        }
+        if (missingPermId != null) {
+            IbGatewayLog.touchTurnBracketSkipped("Missing permId for order $missingPermId")
+            return null
+        }
         val symbol = SymbolMarkets.normalizeSymbol(plan.symbol)
-        val contract = contractFor(plan, symbol)
+        val contract = contractOverride ?: contractFor(plan, symbol)
         val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
             stopLoss.trailArmStopPrice != null &&
             orderIds.adjustableStopOrderId != null
@@ -114,7 +123,8 @@ internal object IbTouchTurnBracketPlacer {
                 stopLoss = stopLoss,
                 orderId = adjId,
                 stopLossOrderId = orderIds.stopLossOrderId,
-                transmit = false
+                transmit = false,
+                permId = permIdsByOrderId[adjId],
             )
         }
         return IbTouchTurnBracketSubmission(
@@ -124,14 +134,23 @@ internal object IbTouchTurnBracketPlacer {
             takeProfitOrderId = orderIds.takeProfitOrderId,
             stopLossOrderId = orderIds.stopLossOrderId,
             adjustableStopOrderId = orderIds.adjustableStopOrderId,
-            parent = buildOrder(config, plan, entry, orderIds.parentOrderId, parentOrderId = 0, transmit = false),
+            parent = buildOrder(
+                config,
+                plan,
+                entry,
+                orderIds.parentOrderId,
+                parentOrderId = 0,
+                transmit = true,
+                permId = permIdsByOrderId[orderIds.parentOrderId],
+            ),
             takeProfit = buildOrder(
                 config,
                 plan,
                 takeProfit,
                 orderIds.takeProfitOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = false
+                transmit = true,
+                permId = permIdsByOrderId[orderIds.takeProfitOrderId],
             ),
             stopLoss = buildOrder(
                 config,
@@ -139,7 +158,8 @@ internal object IbTouchTurnBracketPlacer {
                 stopLoss,
                 orderIds.stopLossOrderId,
                 parentOrderId = orderIds.parentOrderId,
-                transmit = !hasAdjustableStop
+                transmit = true,
+                permId = permIdsByOrderId[orderIds.stopLossOrderId],
             ),
             adjustableStop = adjustableStop?.let { order ->
                 order.transmit(true)
@@ -163,10 +183,12 @@ internal object IbTouchTurnBracketPlacer {
         planned: TouchTurnPlannedOrder,
         orderId: Int,
         parentOrderId: Int,
-        transmit: Boolean
+        transmit: Boolean,
+        permId: Long? = null,
     ): Order {
         val order = Order()
         order.orderId(orderId)
+        permId?.takeIf { it > 0L }?.let { order.permId(it) }
         order.clientId(config.clientId)
         order.action(planned.action)
         order.orderType(planned.orderType)
@@ -196,7 +218,8 @@ internal object IbTouchTurnBracketPlacer {
         stopLoss: TouchTurnPlannedOrder,
         orderId: Int,
         stopLossOrderId: Int,
-        transmit: Boolean
+        transmit: Boolean,
+        permId: Long? = null,
     ): Order {
         val triggerPrice = stopLoss.trailTriggerPrice!!
         val roundedStop = InstrumentPriceTick.roundForInstrument(stopLoss.price, plan.instrument, plan.symbol)
@@ -208,6 +231,7 @@ internal object IbTouchTurnBracketPlacer {
         )
         val order = Order()
         order.orderId(orderId)
+        permId?.takeIf { it > 0L }?.let { order.permId(it) }
         order.clientId(config.clientId)
         order.action(stopLoss.action)
         order.orderType("STP")

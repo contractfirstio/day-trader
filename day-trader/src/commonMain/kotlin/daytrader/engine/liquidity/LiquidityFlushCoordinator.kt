@@ -1,17 +1,18 @@
 package daytrader.engine.liquidity
 
-import daytrader.broker.SymbolMarkets
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.StrategyDeploymentRepository
 import daytrader.domain.AUTO_LIQUIDITY_FLUSH_MAX_LOOPS
 import daytrader.domain.DeploymentMarket
 import daytrader.domain.LiquidityBucketLogic
-import daytrader.domain.LiquidityEntryProximityGuard
+import daytrader.domain.InstrumentOrderSizeRules
+import daytrader.domain.orderSizeRules
 import daytrader.execution.ExecutionManager
 import daytrader.gateway.LiveQuote
 import daytrader.gateway.WorkingOrder
 import daytrader.presentation.liquidity.LiquidityAllocatorMapper
-import daytrader.presentation.liquidity.distributeLiquidityByBayesianWinRate
+import daytrader.presentation.liquidity.distributeLiquidityByBayesianWinRateInLots
+import daytrader.presentation.liquidity.LiquidityLotAllocationRow
 import daytrader.presentation.strategies.SessionRollupCache
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.Mutex
@@ -76,38 +77,52 @@ class LiquidityFlushCoordinator(
         }
 
         val loopAudits = mutableListOf<LiquidityFlushLoopAudit>()
+        var openOrdersSnapshot = request.openOrders
         repeat(AUTO_LIQUIDITY_FLUSH_MAX_LOOPS) { index ->
             val loopIndex = index + 1
             val available = poolAvailable(currency, request.sessionDate)
             if (available <= 0) return@repeat
 
-            val eligibleRows = eligibleRowsWithQuotes(
-                deployments = request.deployments,
-                openOrders = request.openOrders,
+            val deploymentsSnapshot = deploymentRepository.deployments.value
+                .filter { dep -> request.deployments.any { it.id == dep.id } }
+
+            val eligibleRows = eligibleRows(
+                deployments = deploymentsSnapshot,
+                openOrders = openOrdersSnapshot,
                 quotes = request.quotes,
                 currency = currency,
             )
             if (eligibleRows.isEmpty()) return@repeat
 
-            val distribution = distributeLiquidityByBayesianWinRate(
-                rows = eligibleRows.map { row ->
-                    row.deploymentId to (row.winDays to row.lossDays)
+            val distribution = distributeLiquidityByBayesianWinRateInLots(
+                rows = eligibleRows.mapNotNull { row ->
+                    val deployment = deploymentsSnapshot.find { it.id == row.deploymentId } ?: return@mapNotNull null
+                    LiquidityLotAllocationRow(
+                        deploymentId = row.deploymentId,
+                        winDays = row.winDays,
+                        lossDays = row.lossDays,
+                        entryPrice = row.entryPrice,
+                        orderSizeRules = deployment.instrument?.orderSizeRules()
+                            ?: InstrumentOrderSizeRules.DEFAULT,
+                        currentQuantity = row.currentQuantity,
+                    )
                 },
                 available = available,
             )
             if (distribution.isEmpty()) return@repeat
 
             val debited = mutableMapOf<String, Int>()
-            val skippedProximity = mutableSetOf<String>()
             val skippedLot = mutableSetOf<String>()
             val skippedNotEligible = mutableSetOf<String>()
             val failedResize = mutableMapOf<String, String>()
 
             for ((deploymentId, dollarWeight) in distribution.toSortedMap()) {
-                val deployment = request.deployments.find { it.id == deploymentId } ?: continue
-                val freshOrders = request.openOrders
+                val deployment = deploymentRepository.deployments.value.find { it.id == deploymentId }
+                    ?: deploymentsSnapshot.find { it.id == deploymentId }
+                    ?: continue
+                val freshOrders = openOrdersSnapshot
                 val freshQuotes = request.quotes
-                val row = LiquidityAllocatorMapper.buildRowForDeployment(
+                val row = LiquidityAllocatorMapper.buildRowForDeploymentFromDollars(
                     deployment = deployment,
                     openOrders = freshOrders,
                     quotes = freshQuotes,
@@ -123,14 +138,10 @@ class LiquidityFlushCoordinator(
                     skippedLot.add(deploymentId)
                     continue
                 }
-                if (LiquidityEntryProximityGuard.shouldSkipResize(row.entryTouchable)) {
-                    skippedProximity.add(deploymentId)
-                    continue
-                }
                 val applyResult = applier.apply(
                     LiquidityAllocationApplyRequest(
                         deploymentId = deploymentId,
-                        allocationDollars = dollarWeight,
+                        additionalQuantity = additionalQty,
                         deployment = deployment,
                         openOrders = freshOrders,
                         quotes = freshQuotes,
@@ -139,8 +150,16 @@ class LiquidityFlushCoordinator(
                     )
                 )
                 when (applyResult) {
-                    is LiquidityAllocationApplyResult.Success ->
+                    is LiquidityAllocationApplyResult.Success -> {
                         debited[deploymentId] = applyResult.debitedAmount
+                        openOrdersSnapshot = LiquidityAllocatorMapper.openOrdersWithBracketQuantity(
+                            openOrders = openOrdersSnapshot,
+                            deployment = deploymentRepository.deployments.value
+                                .find { it.id == deploymentId }
+                                ?: deployment,
+                            newQuantity = applyResult.newQuantity,
+                        )
+                    }
                     is LiquidityAllocationApplyResult.Skipped -> when (applyResult.reason) {
                         LiquidityApplySkipReason.NO_ADDITIONAL_QUANTITY,
                         LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT ->
@@ -159,7 +178,6 @@ class LiquidityFlushCoordinator(
             loopAudits += LiquidityFlushLoopAudit(
                 loopIndex = loopIndex,
                 debited = debited.toMap(),
-                skippedProximity = skippedProximity.toSet(),
                 skippedLot = skippedLot.toSet(),
                 skippedNotEligible = skippedNotEligible.toSet(),
                 failedResize = failedResize.toMap(),
@@ -176,7 +194,7 @@ class LiquidityFlushCoordinator(
         )
     }
 
-    private fun eligibleRowsWithQuotes(
+    private fun eligibleRows(
         deployments: List<daytrader.domain.StrategyDeployment>,
         openOrders: List<WorkingOrder>,
         quotes: Map<String, LiveQuote>,
@@ -186,10 +204,7 @@ class LiquidityFlushCoordinator(
         openOrders = openOrders,
         quotes = quotes,
         selectedCurrency = currency,
-    ).filter { row ->
-        val quote = quotes[SymbolMarkets.normalizeSymbol(row.symbol)]
-        quote?.bid != null && quote.ask != null
-    }
+    )
 
     private fun poolAvailable(currency: String, sessionDate: String): Int {
         val bucket = LiquidityBucketLogic.rollBucketForDate(

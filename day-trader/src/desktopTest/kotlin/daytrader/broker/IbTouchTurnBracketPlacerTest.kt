@@ -149,16 +149,34 @@ class IbTouchTurnBracketPlacerTest {
             stopLossOrderId = 702,
             adjustableStopOrderId = null,
         )
+        val permIds = mapOf(700 to 10L, 701 to 11L, 702 to 12L)
         val submission = IbTouchTurnBracketPlacer.buildResize(
             config = config,
             plan = E2EBracketHelper.liquidityPlan(entry = 100.5, stopLoss = 99.5, takeProfit = 101.5),
             orderIds = orderIds,
+            permIdsByOrderId = permIds,
         )
         assertNotNull(submission)
         assertEquals(orderIds.parentOrderId, submission.parentOrderId)
         assertEquals(orderIds.takeProfitOrderId, submission.takeProfitOrderId)
         assertEquals(orderIds.stopLossOrderId, submission.stopLossOrderId)
+        assertEquals(10L, submission.parent.permId())
+        assertEquals(11L, submission.takeProfit.permId())
+        assertEquals(12L, submission.stopLoss.permId())
+        assertTrue(submission.parent.transmit())
+        assertTrue(submission.takeProfit.transmit())
         assertTrue(submission.stopLoss.transmit())
+    }
+
+    @Test
+    fun buildResize_missingPermId_returnsNull() {
+        val submission = IbTouchTurnBracketPlacer.buildResize(
+            config = config,
+            plan = E2EBracketHelper.liquidityPlan(),
+            orderIds = TouchTurnBracketOrderIds(700, 701, 702, null),
+            permIdsByOrderId = emptyMap(),
+        )
+        assertNull(submission)
     }
 
     @Test

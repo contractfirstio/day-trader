@@ -52,6 +52,16 @@ data class WatchlistTradePlan(
         )
 }
 
+fun WatchlistTradePlan.withAmendedQuantity(newQuantity: Int): WatchlistTradePlan {
+    val entry = entryPrice ?: return this
+    val stop = stopPrice ?: return this
+    val newInvestment = when (sizingMode) {
+        PlanSizingMode.NOTIONAL -> entry * newQuantity
+        PlanSizingMode.RISK_BUDGET -> abs(entry - stop) * newQuantity
+    }
+    return copy(investmentAmount = newInvestment)
+}
+
 data class WatchlistPlanOutcome(
     val quantity: Int? = null,
     val notionalAtEntry: Double? = null,

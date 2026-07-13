@@ -96,14 +96,14 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
         BucketSummaryCard(
             currencyCode = uiState.selectedCurrency,
             available = uiState.availableLiquidity,
-            allocated = uiState.allocatedPending,
+            committed = uiState.committedNotional,
             remaining = uiState.remainingLiquidity,
             creditCount = uiState.creditCount,
             onDistributeEvenly = viewModel::distributeEvenly,
             onDistributeByWinRate = viewModel::distributeByWinRate,
             onApplyAll = viewModel::applyAll,
             onClearLiquidity = viewModel::clearSelectedCurrencyLiquidity,
-            canApply = uiState.allocatedPending > 0 && uiState.rows.isNotEmpty(),
+            canApply = uiState.committedNotional > 0 && uiState.rows.isNotEmpty(),
             canClear = uiState.canClearLiquidity,
         )
 
@@ -133,8 +133,8 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
                 items(uiState.rows, key = { it.deploymentId }) { row ->
                     AllocatorRowCard(
                         row = row,
-                        onAllocationChanged = { dollars ->
-                            viewModel.onAllocationChanged(row.deploymentId, dollars)
+                        onAllocationChanged = { additionalQty ->
+                            viewModel.onAllocationChanged(row.deploymentId, additionalQty)
                         },
                         onApply = { viewModel.applyRow(row.deploymentId) }
                     )
@@ -149,7 +149,7 @@ fun LiquidityAllocatorScreen(viewModel: LiquidityAllocatorViewModel) {
 private fun BucketSummaryCard(
     currencyCode: String,
     available: Int,
-    allocated: Int,
+    committed: Int,
     remaining: Int,
     creditCount: Int,
     onDistributeEvenly: () -> Unit,
@@ -168,7 +168,7 @@ private fun BucketSummaryCard(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             SummaryMetric("Available", Formatters.maxAtRisk(available), currencyCode)
-            SummaryMetric("Allocated", Formatters.maxAtRisk(allocated), currencyCode)
+            SummaryMetric("Committed", Formatters.maxAtRisk(committed), currencyCode)
             SummaryMetric("Remaining", Formatters.maxAtRisk(remaining), currencyCode)
         }
         Text(
@@ -302,17 +302,25 @@ private fun AllocatorRowCard(
             fontSize = 11.sp,
             color = TextSecondary
         )
+        if (row.allocationAdditionalQty > 0) {
+            Text(
+                "Commits ${row.committedNotionalLabel} from pool",
+                fontSize = 11.sp,
+                color = GainGreen,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = if (row.allocationDollars == 0) "" else row.allocationDollars.toString(),
+                value = if (row.allocationAdditionalQty == 0) "" else row.allocationAdditionalQty.toString(),
                 onValueChange = { text ->
                     val parsed = text.filter { it.isDigit() }.toIntOrNull() ?: 0
                     onAllocationChanged(parsed)
                 },
-                label = { Text("Add ${row.currencyCode}", fontSize = 11.sp) },
+                label = { Text("Add ${row.allocationStepLabel}", fontSize = 11.sp) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 singleLine = true,
                 modifier = Modifier.weight(1f),
@@ -333,7 +341,7 @@ private fun AllocatorRowCard(
             } else {
                 Button(
                     onClick = onApply,
-                    enabled = row.allocationDollars > 0,
+                    enabled = row.allocationAdditionalQty > 0,
                     colors = ButtonDefaults.buttonColors(containerColor = GainGreen, contentColor = Color.Black)
                 ) {
                     Text("Apply", fontSize = 12.sp)

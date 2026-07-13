@@ -109,6 +109,7 @@ data class StrategiesLiveUiState(
     val touchTurnFormingBarPriceChart: TouchTurnLiveOrderChartUiState? = null,
     val touchTurnPipelineGraph: TouchTurnPipelineGraph? = null,
     val touchTurnOrderLifecycle: TouchTurnOrderLifecycleUi? = null,
+    val touchTurnBracketAmend: TouchTurnBracketAmendUiState? = null,
     val tradingPanelShowsLiveMarketQuotes: Boolean = false,
     val sessionMarketDataCapture: SessionMarketDataCaptureUi? = null,
 )

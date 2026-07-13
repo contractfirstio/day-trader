@@ -227,6 +227,120 @@ class DesktopIbGatewayConnectionBracketTest {
     }
 
     @Test
+    fun resizeTouchTurnBracket_openOrderAtTargetQuantity_acksWithoutOrderStatus() = runBlocking {
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            harness.connection.nextValidId(500)
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 100)
+
+            val orderIds = TouchTurnBracketOrderIds(500, 501, 502, null)
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 12L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = orderIds,
+                        plan = planWithQuantity(threeLegLiquidityPlan(), quantity = 200),
+                    ),
+                )
+            )
+            delay(500)
+
+            val contract = Contract().also {
+                it.symbol(E2ETestFixtures.SYMBOL)
+                it.secType("STK")
+                it.exchange("SMART")
+                it.currency("USD")
+            }
+            val entry = Order().also {
+                it.orderId(500)
+                it.permId(1_500L)
+                it.action("BUY")
+                it.orderType("LMT")
+                it.totalQuantity(Decimal.get(200))
+                it.filledQuantity(Decimal.ZERO)
+                it.lmtPrice(100.0)
+                it.transmit(false)
+            }
+            harness.connection.openOrder(500, contract, entry, submittedOrderState())
+
+            val event = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized
+            } as GatewayEvent.TouchTurnBracketResized
+
+            assertEquals(12L, event.requestId)
+            assertTrue(event.result.isSuccess)
+            assertEquals(200, event.result.getOrNull())
+        }
+    }
+
+    @Test
+    fun resizeTouchTurnBracket_staleChildQuantity_doesNotAckUntilTargetQuantity() = runBlocking {
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            harness.connection.nextValidId(500)
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 5)
+
+            val orderIds = TouchTurnBracketOrderIds(500, 501, 502, null)
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 11L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = orderIds,
+                        plan = planWithQuantity(threeLegLiquidityPlan(), quantity = 10),
+                    ),
+                )
+            )
+            delay(500)
+
+            harness.connection.orderStatus(
+                orderId = 501,
+                status = "Submitted",
+                filled = Decimal.ZERO,
+                remaining = Decimal.get(5),
+                avgFillPrice = 0.0,
+                permId = 1_501L,
+                parentId = 500,
+                lastFillPrice = 0.0,
+                clientId = config.clientId,
+                whyHeld = "",
+                mktCapPrice = 0.0,
+            )
+            delay(200)
+            assertTrue(
+                harness.queues.inbound.none { it is GatewayEvent.TouchTurnBracketResized },
+                "Stale child quantity must not ack resize",
+            )
+
+            harness.connection.orderStatus(
+                orderId = 501,
+                status = "Submitted",
+                filled = Decimal.ZERO,
+                remaining = Decimal.get(10),
+                avgFillPrice = 0.0,
+                permId = 1_501L,
+                parentId = 500,
+                lastFillPrice = 0.0,
+                clientId = config.clientId,
+                whyHeld = "",
+                mktCapPrice = 0.0,
+            )
+
+            val event = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized
+            } as GatewayEvent.TouchTurnBracketResized
+            assertTrue(event.result.isSuccess)
+        }
+    }
+
+    @Test
     fun resizeTouchTurnBracket_orderError_emitsFailure() = runBlocking {
         withHarness { harness ->
             harness.recordingClient.connected = true
@@ -286,6 +400,7 @@ class DesktopIbGatewayConnectionBracketTest {
         }
         val entry = Order().also {
             it.orderId(orderIdBase)
+            it.permId(1_000L + orderIdBase)
             it.action("BUY")
             it.orderType("LMT")
             it.totalQuantity(Decimal.get(quantity.toLong()))
@@ -295,6 +410,7 @@ class DesktopIbGatewayConnectionBracketTest {
         }
         val takeProfit = Order().also {
             it.orderId(orderIdBase + 1)
+            it.permId(1_001L + orderIdBase)
             it.parentId(orderIdBase)
             it.action("SELL")
             it.orderType("LMT")
@@ -304,6 +420,7 @@ class DesktopIbGatewayConnectionBracketTest {
         }
         val stopLoss = Order().also {
             it.orderId(orderIdBase + 2)
+            it.permId(1_002L + orderIdBase)
             it.parentId(orderIdBase)
             it.action("SELL")
             it.orderType("STP")

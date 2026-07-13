@@ -113,6 +113,24 @@ object TouchTurnOrderPlanner {
         else -> null
     }
 
+    /**
+     * Additional shares to add to an existing working entry from [maxDollars], snapped to lot steps.
+     * Uses [orderSizeIncrement] once [currentQuantity] already satisfies [minOrderSize].
+     */
+    fun suggestedAdditionalQuantity(
+        maxDollars: Int,
+        entryPrice: Double,
+        orderSizeRules: InstrumentOrderSizeRules,
+        currentQuantity: Int,
+    ): Int? {
+        if (maxDollars <= 0 || entryPrice <= 0.0) return null
+        val lotShares = orderSizeRules.additionalLotShares(currentQuantity)
+        val raw = (maxDollars / entryPrice).toInt()
+        if (raw < lotShares) return null
+        val increment = orderSizeRules.orderSizeIncrement
+        return (raw / increment) * increment
+    }
+
     private fun formatPrice(price: Double): String =
         if (price == price.toLong().toDouble()) price.toLong().toString() else "%.4f".format(price)
 

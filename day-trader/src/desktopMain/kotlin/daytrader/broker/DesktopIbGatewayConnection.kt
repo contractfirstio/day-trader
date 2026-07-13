@@ -124,6 +124,10 @@ class DesktopIbGatewayConnection(
 
     private val openPositions = ConcurrentHashMap<String, OpenPosition>()
     private val openOrdersById = ConcurrentHashMap<Int, WorkingOrder>()
+    /** Live IB contract per open order — used for in-place bracket modifies. */
+    private val orderContractById = ConcurrentHashMap<Int, Contract>()
+    /** Live IB order templates per open order — used for in-place bracket modifies. */
+    private val ibOrderTemplateById = ConcurrentHashMap<Int, Order>()
     private val fillsByExecId = ConcurrentHashMap<String, BrokerFill>()
     /** Maps fill [BrokerFill.orderId] to bracket parent order id (0 = entry/parent leg). */
     private val orderParentByOrderId = ConcurrentHashMap<Int, Int>()
@@ -847,10 +851,18 @@ class DesktopIbGatewayConnection(
 
     override fun openOrder(orderId: Int, contract: Contract, order: Order, orderState: OrderState) {
         try {
+            ibOrderTemplateById[orderId] = IbOrderModifySupport.copyTemplate(order)
             val status = orderStatusLabel(orderState)
             val isWorking = isWorkingOpenOrder(status, order)
+            val totalQuantity = decimalToInt(order.totalQuantity())
+            val remainingQuantity = remainingQuantity(order)
             applyOpenOrder(orderId, contract, order, orderState)
-            notifyTouchTurnBracketOpenOrder(orderId, isWorking)
+            notifyTouchTurnBracketOpenOrder(
+                orderId = orderId,
+                isWorking = isWorking,
+                totalQuantity = totalQuantity,
+                remainingQuantity = remainingQuantity,
+            )
         } catch (e: Exception) {
             logCallbackFailure("openOrder", e)
         }
@@ -2267,6 +2279,8 @@ class DesktopIbGatewayConnection(
         openPositions.clear()
         emit(GatewayEvent.PositionsSnapshot(emptyList()))
         openOrdersById.clear()
+        orderContractById.clear()
+        ibOrderTemplateById.clear()
         emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
         fillsByExecId.clear()
         orderParentByOrderId.clear()
@@ -2283,11 +2297,15 @@ class DesktopIbGatewayConnection(
         publishDebounceJob = null
     }
 
-    private fun requestOpenOrders() {
+    private fun requestOpenOrders(clearCache: Boolean = true) {
         if (!client.isConnected) return
         openOrdersLoadFinished = false
-        openOrdersById.clear()
-        emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        if (clearCache) {
+            openOrdersById.clear()
+            orderContractById.clear()
+            ibOrderTemplateById.clear()
+            emit(GatewayEvent.OpenOrdersSnapshot(emptyList()))
+        }
         paced {
             if (!client.isConnected) return@paced
             IbGatewayLog.requestingOpenOrders()
@@ -2299,17 +2317,23 @@ class DesktopIbGatewayConnection(
         val status = orderStatusLabel(orderState)
         if (isTerminalOrderStatus(status)) {
             openOrdersById.remove(orderId)
+            orderContractById.remove(orderId)
+            ibOrderTemplateById.remove(orderId)
             return
         }
         val remaining = remainingQuantity(order)
         if (remaining <= 0) {
             openOrdersById.remove(orderId)
+            orderContractById.remove(orderId)
+            ibOrderTemplateById.remove(orderId)
             return
         }
         val working = toWorkingOrder(orderId, contract, order, orderState)
         trackOrderParent(orderId, working.parentOrderId)
         openOrdersById[orderId] = working
+        orderContractById[orderId] = IbContractMapper.clone(contract)
         publishOpenOrders()
+        afterOpenOrdersUpdated()
     }
 
     private fun applyOrderStatus(
@@ -2327,30 +2351,44 @@ class DesktopIbGatewayConnection(
 
         if (isTerminalOrderStatus(status)) {
             openOrdersById.remove(orderId)
+            orderContractById.remove(orderId)
+            ibOrderTemplateById.remove(orderId)
             publishOpenOrders()
+            afterOpenOrdersUpdated()
             return
         }
         val existing = openOrdersById[orderId] ?: return
         val remainingQty = decimalToInt(remaining)
         if (remainingQty <= 0) {
             openOrdersById.remove(orderId)
+            orderContractById.remove(orderId)
+            ibOrderTemplateById.remove(orderId)
             publishOpenOrders()
+            afterOpenOrdersUpdated()
             return
         }
+        val filledQty = decimalToInt(filled)
         openOrdersById[orderId] = existing.copy(
             status = status,
-            filled = decimalToInt(filled),
+            filled = filledQty,
             remaining = remainingQty,
+            quantity = filledQty + remainingQty,
             permId = permId.takeIf { it > 0 } ?: existing.permId,
             parentOrderId = resolvedParent
         )
         publishOpenOrders()
+        afterOpenOrdersUpdated()
+    }
+
+    private fun afterOpenOrdersUpdated() {
+        touchTurnBracketCoordinator.verifyOpenOrders(openOrdersById)
     }
 
     private fun finishOpenOrdersLoad() {
         if (openOrdersLoadFinished) return
         openOrdersLoadFinished = true
         publishOpenOrders()
+        afterOpenOrdersUpdated()
         IbGatewayLog.openOrdersLoadComplete(openOrdersById.size)
     }
 
@@ -2368,28 +2406,51 @@ class DesktopIbGatewayConnection(
             emitTouchTurnBracketResizeFailure(requestId, fillFailure)
             return
         }
-        val submission = IbTouchTurnBracketPlacer.buildResize(
-            config = config,
-            plan = request.plan,
-            orderIds = request.orderIds
-        ) ?: run {
+        val permIds = permIdsForBracket(request.orderIds)
+        val contractOverride = orderContractById[request.orderIds.parentOrderId]?.let { IbContractMapper.clone(it) }
+        val templates = request.orderIds.allIds.associateWith { ibOrderTemplateById[it] }
+        val symbol = SymbolMarkets.normalizeSymbol(request.symbol)
+        val submission = if (request.orderIds.allIds.all { templates[it] != null }) {
+            IbOrderModifySupport.buildResizeSubmission(
+                symbol = symbol,
+                contract = contractOverride ?: IbContractMapper.contractForSymbol(symbol, request.instrument),
+                orderIds = request.orderIds,
+                templatesByOrderId = templates.filterValues { it != null }.mapValues { it.value!! },
+                targetQuantity = request.plan.quantity,
+            )
+        } else {
+            IbTouchTurnBracketPlacer.buildResize(
+                config = config,
+                plan = request.plan,
+                orderIds = request.orderIds,
+                permIdsByOrderId = permIds,
+                contractOverride = contractOverride,
+            )
+        } ?: run {
             emitTouchTurnBracketResizeFailure(requestId, "bracket_resize_build_failed")
             return
         }
         touchTurnBracketCoordinator.begin(
             plan = request.plan,
             submission = submission,
+            ackMode = IbTouchTurnBracketCoordinator.AckMode.RESIZE,
             onSuccess = { pending ->
                 emitTouchTurnBracketResizeSuccess(requestId, pending.plan.quantity, submission)
             },
-            onFailure = { _, reason ->
-                emitTouchTurnBracketResizeFailure(requestId, reason)
+            onFailure = { pending, reason ->
+                if (reason == "bracket_ack_timeout" &&
+                    bracketLegsAtTargetQuantity(pending.submission, request.plan.quantity)
+                ) {
+                    emitTouchTurnBracketResizeSuccess(requestId, request.plan.quantity, submission)
+                } else {
+                    emitTouchTurnBracketResizeFailure(requestId, reason)
+                }
             },
         )
-        paced {
+        pacedPriority {
             if (!client.isConnected) {
                 touchTurnBracketCoordinator.failPending(submission.parentOrderId, "not_connected")
-                return@paced
+                return@pacedPriority
             }
             client.placeOrder(submission.parentOrderId, submission.contract, submission.parent)
             client.placeOrder(submission.takeProfitOrderId, submission.contract, submission.takeProfit)
@@ -2397,7 +2458,48 @@ class DesktopIbGatewayConnection(
             submission.adjustableStop?.let { adjustable ->
                 client.placeOrder(submission.adjustableStopOrderId!!, submission.contract, adjustable)
             }
-            touchTurnBracketCoordinator.onBracketTransmitted(submission.parentOrderId)
+            applyOptimisticBracketResize(submission, request.plan.quantity)
+            touchTurnBracketCoordinator.onModifyTransmitted(submission.parentOrderId)
+            scheduleResizeOpenOrderRefresh(submission.parentOrderId)
+        }
+    }
+
+    private fun applyOptimisticBracketResize(
+        submission: IbTouchTurnBracketSubmission,
+        targetQuantity: Int,
+    ) {
+        val orderIds = buildList {
+            add(submission.parentOrderId)
+            add(submission.takeProfitOrderId)
+            add(submission.stopLossOrderId)
+            submission.adjustableStopOrderId?.let { add(it) }
+        }
+        orderIds.forEach { orderId ->
+            openOrdersById[orderId]?.let { working ->
+                val remaining = (targetQuantity - working.filled).coerceAtLeast(0)
+                openOrdersById[orderId] = working.copy(
+                    quantity = working.filled + remaining,
+                    remaining = remaining,
+                )
+            }
+        }
+        publishOpenOrders()
+    }
+
+    private fun bracketLegsAtTargetQuantity(
+        submission: IbTouchTurnBracketSubmission,
+        targetQuantity: Int,
+    ): Boolean {
+        val entry = openOrdersById[submission.parentOrderId] ?: return false
+        return entry.remaining == targetQuantity ||
+            (entry.filled == 0 && entry.quantity == targetQuantity)
+    }
+
+    private fun scheduleResizeOpenOrderRefresh(parentOrderId: Int) {
+        scope.launch {
+            delay(RESIZE_OPEN_ORDER_REFRESH_MS)
+            if (!touchTurnBracketCoordinator.hasPending(parentOrderId)) return@launch
+            requestOpenOrders(clearCache = false)
         }
     }
 
@@ -2408,9 +2510,13 @@ class DesktopIbGatewayConnection(
             val open = openOrdersById[orderId] ?: return@forEach
             if (open.filled > 0) return "entry_already_filled"
             if (open.remaining <= 0) return "entry_not_working"
+            if (open.permId <= 0L) return "bracket_resize_missing_perm_id"
         }
         return null
     }
+
+    private fun permIdsForBracket(orderIds: daytrader.domain.TouchTurnBracketOrderIds): Map<Int, Long> =
+        orderIds.allIds.associateWith { orderId -> openOrdersById[orderId]?.permId ?: 0L }
 
     private fun emitTouchTurnBracketResizeSuccess(
         requestId: Long,
@@ -2422,6 +2528,7 @@ class DesktopIbGatewayConnection(
             quantity,
             submission.parentOrderId
         )
+        requestOpenOrders()
         scheduleExecutionsRefresh()
         emit(
             GatewayEvent.TouchTurnBracketResized(
@@ -2494,16 +2601,28 @@ class DesktopIbGatewayConnection(
         }
     }
 
-    private fun notifyTouchTurnBracketOpenOrder(orderId: Int, isWorking: Boolean) {
-        touchTurnBracketCoordinator.onOpenOrder(orderId = orderId, isWorking = isWorking)
+    private fun notifyTouchTurnBracketOpenOrder(
+        orderId: Int,
+        isWorking: Boolean,
+        totalQuantity: Int,
+        remainingQuantity: Int,
+    ) {
+        touchTurnBracketCoordinator.onOpenOrder(
+            orderId = orderId,
+            isWorking = isWorking,
+            totalQuantity = totalQuantity,
+            remainingQuantity = remainingQuantity,
+        )
     }
 
     private fun notifyTouchTurnBracketOrderStatus(orderId: Int, status: String, remaining: Decimal) {
         val remainingQty = decimalToInt(remaining)
+        val totalQty = openOrdersById[orderId]?.quantity ?: remainingQty
         touchTurnBracketCoordinator.onOrderStatus(
             orderId = orderId,
             status = status,
             remainingQuantity = remainingQty,
+            totalQuantity = totalQty,
         )
     }
 
@@ -3520,6 +3639,7 @@ class DesktopIbGatewayConnection(
     )
 
     private companion object {
+        const val RESIZE_OPEN_ORDER_REFRESH_MS = 2_000L
         const val MKT_DATA_REQ_ID_START = 10_000
         const val CONTRACT_DETAILS_REQ_ID_START = 20_000
         const val INSTRUMENT_RESOLVE_REQ_ID_START = 25_000

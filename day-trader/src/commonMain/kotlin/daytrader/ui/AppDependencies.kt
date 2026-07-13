@@ -299,6 +299,7 @@ fun rememberAppDependencies(
             touchTurnSessionGateway = touchTurnSessionGateway,
             brokerKind = brokerKind,
             touchTurnEngine = touchTurnEngine,
+            executionManager = executionManager,
             ensureLiveMarketData = ensureLiveMarketData,
             releaseLiveMarketData = releaseLiveMarketData,
             onDeploymentCreated = watchlistStrategyCreateBridge::onDeploymentCreated,
@@ -337,6 +338,8 @@ fun rememberAppDependencies(
             ordersViewModel = OrdersViewModel(
                 repository = openOrderRepository,
                 watchlistRepository = watchlistRepository,
+                deploymentRepository = strategyRepository,
+                executionManager = executionManager,
                 executionGateway = brokerGateway ?: touchTurnSessionGateway,
                 brokerKind = brokerKind
             ),

@@ -23,11 +23,20 @@ internal class IbTouchTurnBracketCoordinator(
     private val scope: CoroutineScope,
     private val brokerAckTimeoutMs: Long = brokerAckTimeoutMsFromEnv(),
 ) {
+    enum class AckMode {
+        /** New bracket — child [openOrder] or [orderStatus] is enough. */
+        PLACEMENT,
+        /** Modify existing legs — any leg [openOrder]/[orderStatus] at [Pending.plan] quantity. */
+        RESIZE,
+    }
+
     internal data class Pending(
         val plan: TouchTurnOrderPlan,
         val submission: IbTouchTurnBracketSubmission,
+        val ackMode: AckMode,
         var bracketTransmitted: Boolean,
         var timeoutJob: Job?,
+        var modifyAckJob: Job?,
         val onSuccess: (Pending) -> Unit,
         val onFailure: (Pending, String) -> Unit,
     ) {
@@ -46,6 +55,7 @@ internal class IbTouchTurnBracketCoordinator(
     fun begin(
         plan: TouchTurnOrderPlan,
         submission: IbTouchTurnBracketSubmission,
+        ackMode: AckMode = AckMode.PLACEMENT,
         onSuccess: (Pending) -> Unit,
         onFailure: (Pending, String) -> Unit,
     ) {
@@ -54,11 +64,27 @@ internal class IbTouchTurnBracketCoordinator(
         pendingByParentId[parentId] = Pending(
             plan = plan,
             submission = submission,
+            ackMode = ackMode,
             bracketTransmitted = false,
             timeoutJob = null,
+            modifyAckJob = null,
             onSuccess = onSuccess,
             onFailure = onFailure,
         )
+    }
+
+    /** After modify [placeOrder] calls — IB often acks via openOrder, not orderStatus. */
+    fun onModifyTransmitted(parentOrderId: Int) {
+        onBracketTransmitted(parentOrderId)
+        val pending = pendingByParentId[parentOrderId] ?: return
+        if (pending.ackMode != AckMode.RESIZE) return
+        pending.modifyAckJob?.cancel()
+        pending.modifyAckJob = scope.launch {
+            delay(modifyTransmitAckMsFromEnv())
+            if (pendingByParentId.containsKey(parentOrderId)) {
+                complete(parentOrderId)
+            }
+        }
     }
 
     /** Starts the broker-ack wait after every bracket leg has been [EClientSocket.placeOrder]'d. */
@@ -83,10 +109,27 @@ internal class IbTouchTurnBracketCoordinator(
         )
     }
 
-    fun onOpenOrder(orderId: Int, isWorking: Boolean) {
+    fun onOpenOrder(
+        orderId: Int,
+        isWorking: Boolean,
+        totalQuantity: Int = 0,
+        remainingQuantity: Int = 0,
+    ) {
         val parentId = orderIdToParentId[orderId] ?: return
         val pending = pendingByParentId[parentId] ?: return
         if (!pending.bracketTransmitted) return
+        if (pending.ackMode == AckMode.RESIZE) {
+            if (!isWorking) {
+                if (orderId == parentId) {
+                    fail(parentId, "parent_order_not_working")
+                }
+                return
+            }
+            if (reportsTargetQuantity(totalQuantity, remainingQuantity, pending.plan.quantity)) {
+                complete(parentId)
+            }
+            return
+        }
         if (!isWorking) {
             if (orderId == parentId) {
                 fail(parentId, "parent_order_not_working")
@@ -101,17 +144,27 @@ internal class IbTouchTurnBracketCoordinator(
         orderId: Int,
         status: String,
         remainingQuantity: Int,
+        totalQuantity: Int = remainingQuantity,
     ) {
         if (!isAcknowledgementStatus(status, remainingQuantity)) return
         val parentId = orderIdToParentId[orderId] ?: return
         val pending = pendingByParentId[parentId] ?: return
         if (!pending.bracketTransmitted) return
-        if (orderId == parentId) return
-        complete(parentId)
+        when (pending.ackMode) {
+            AckMode.PLACEMENT -> {
+                if (orderId == parentId) return
+                complete(parentId)
+            }
+            AckMode.RESIZE -> {
+                if (!reportsTargetQuantity(totalQuantity, remainingQuantity, pending.plan.quantity)) return
+                complete(parentId)
+            }
+        }
     }
 
     fun onOrderError(orderId: Int, message: String) {
         val parentId = orderIdToParentId[orderId] ?: return
+        pendingByParentId[parentId]?.modifyAckJob?.cancel()
         fail(parentId, "ib_order_error:${message.ifBlank { "unknown" }}")
     }
 
@@ -126,9 +179,31 @@ internal class IbTouchTurnBracketCoordinator(
         }
     }
 
+    fun verifyOpenOrders(openOrdersById: Map<Int, daytrader.gateway.WorkingOrder>) {
+        pendingByParentId.keys.toList().forEach { parentId ->
+            val pending = pendingByParentId[parentId] ?: return@forEach
+            if (pending.ackMode != AckMode.RESIZE || !pending.bracketTransmitted) return@forEach
+            if (entryLegAtTargetQuantity(pending, openOrdersById)) {
+                complete(parentId)
+            }
+        }
+    }
+
+    fun hasPending(parentOrderId: Int): Boolean = pendingByParentId.containsKey(parentOrderId)
+
+    private fun entryLegAtTargetQuantity(
+        pending: Pending,
+        openOrdersById: Map<Int, daytrader.gateway.WorkingOrder>,
+    ): Boolean {
+        val target = pending.plan.quantity
+        val entry = openOrdersById[pending.submission.parentOrderId] ?: return false
+        return entry.remaining == target || (entry.filled == 0 && entry.quantity == target)
+    }
+
     private fun complete(parentId: Int) {
         val pending = pendingByParentId.remove(parentId) ?: return
         pending.timeoutJob?.cancel()
+        pending.modifyAckJob?.cancel()
         unregisterOrderIds(pending.submission)
         pending.onSuccess(pending)
     }
@@ -136,6 +211,7 @@ internal class IbTouchTurnBracketCoordinator(
     private fun fail(parentId: Int, reason: String) {
         val pending = pendingByParentId.remove(parentId) ?: return
         pending.timeoutJob?.cancel()
+        pending.modifyAckJob?.cancel()
         unregisterOrderIds(pending.submission)
         IbGatewayLog.touchTurnBracketFailed(pending.submission.symbol, reason)
         pending.onFailure(pending, reason)
@@ -156,6 +232,9 @@ internal class IbTouchTurnBracketCoordinator(
     }
 
     companion object {
+        fun reportsTargetQuantity(totalQuantity: Int, remainingQuantity: Int, targetQuantity: Int): Boolean =
+            remainingQuantity == targetQuantity || totalQuantity == targetQuantity
+
         fun isAcknowledgementStatus(status: String, remainingQuantity: Int): Boolean {
             if (isTerminalOrderStatus(status)) return false
             if (remainingQuantity > 0) return true
@@ -174,5 +253,9 @@ internal class IbTouchTurnBracketCoordinator(
         private fun brokerAckTimeoutMsFromEnv(): Long =
             System.getenv("DAY_TRADER_IB_BRACKET_PARENT_TIMEOUT_MS")?.toLongOrNull()?.coerceAtLeast(500L)
                 ?: 15_000L
+
+        private fun modifyTransmitAckMsFromEnv(): Long =
+            System.getenv("DAY_TRADER_IB_BRACKET_MODIFY_ACK_MS")?.toLongOrNull()?.coerceAtLeast(250L)
+                ?: 1_500L
     }
 }
