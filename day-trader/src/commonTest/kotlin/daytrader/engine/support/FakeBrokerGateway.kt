@@ -402,7 +402,9 @@ class FakeBrokerGateway(
 
     override fun closeOpenPositionForSymbol(symbol: String, position: AccountPosition?, purpose: String) {
         position?.let { closedPositions += it }
-        if (removeProtectiveStopsOnCloseAttempt) {
+        val dropProtectiveStops =
+            removeProtectiveStopsOnCloseAttempt || purpose == "open_deadline_fallback"
+        if (dropProtectiveStops) {
             _openOrders.value = _openOrders.value.filterNot { order ->
                 daytrader.broker.SymbolMarkets.symbolsMatch(symbol, order.symbol) &&
                     daytrader.data.SessionOrderClassification.isProtectiveStopLoss(order)

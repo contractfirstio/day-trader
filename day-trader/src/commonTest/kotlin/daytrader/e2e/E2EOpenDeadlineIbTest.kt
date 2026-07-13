@@ -1,6 +1,7 @@
 package daytrader.e2e
 
 import daytrader.broker.SymbolMarkets
+import daytrader.data.SessionOrderClassification
 import daytrader.domain.DeploymentStatus
 import daytrader.domain.SessionStatus
 import daytrader.domain.StrategyDeployment
@@ -370,6 +371,124 @@ class E2EOpenDeadlineIbTest {
         }
     }
 
+    /**
+     * Regression for F session-3f4deedbb5fb0a07: shared position-cache wipe during batch
+     * OPEN_DEADLINE must not cancel the protective stop as "flat" without a market close.
+     */
+    @E2EIbTest
+    @Test
+    fun ibMode_openDeadlineStop_refreshWipeWhileStopOpen_marketClosesInsteadOfNakedFlat() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var engine: daytrader.engine.TouchTurnEngine? = null
+        val harness = IbModeTestHarness()
+        try {
+            harness.start()
+            val repository = InMemoryStrategyDeploymentRepository()
+            repository.add(openDeadlineRunningDeployment())
+            engine = harness.createEngine(
+                repository = repository,
+                scope = scope,
+                openDeadlineConfirmTimeoutMs = 200,
+                openDeadlineMarketFallbackConfirmTimeoutMs = 200,
+                openDeadlineFillDrainTimeoutMs = 100
+            )
+            engine.start()
+
+            harness.gateway.setPositions(listOf(shortPosition()))
+            harness.gateway.setOpenOrders(listOf(stopLossOrder(), takeProfitOrder()))
+            harness.gateway.refreshPositionsClearsAllPositions = true
+            harness.gateway.closeClearsPosition = true
+            harness.gateway.synthesizeExitFillOnClose = true
+            delay(50)
+
+            engine.setBacktestSyncCommands(true)
+            engine.dispatchAndAwait(
+                TouchTurnCommand.StopSession(
+                    instanceId = E2ETestFixtures.DEPLOYMENT_ID,
+                    trigger = TouchTurnSessionStopTrigger.OPEN_DEADLINE,
+                    brokerPositionAtDecision = shortPosition()
+                )
+            )
+            engine.setBacktestSyncCommands(false)
+            delay(50)
+
+            assertTrue(
+                harness.gateway.closedPositions.any { SymbolMarkets.symbolsMatch(E2ETestFixtures.SYMBOL, it.symbol) },
+                "OPEN_DEADLINE must market-close when position cache wipe leaves protective stop working"
+            )
+            assertTrue(
+                harness.gateway.cancelCalls.any { it.preserveStopLoss },
+                "must cancel TP while preserving SL first"
+            )
+            val closed = repository.deployments.value.single()
+                .sessionHistory
+                .single { it.status == SessionStatus.CLOSED }
+            assertEquals(TouchTurnSessionStopTrigger.OPEN_DEADLINE, closed.touchTurnRunRecord?.stopEvent?.stopTrigger)
+            assertTrue(closed.sessionTrades.hasClosingFill(), "session must record the exit fill after market close")
+        } finally {
+            engine.shutdownEngine()
+            harness.shutdown()
+            scope.cancel()
+        }
+    }
+
+    /**
+     * Regression for COIN session-50b76edb44905955: first market close ignored under pacing —
+     * OPEN_DEADLINE must retry until flat.
+     */
+    @E2EIbTest
+    @Test
+    fun ibMode_openDeadlineStop_retriesMarketCloseWhenFirstAttemptDoesNotFlatten() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var engine: daytrader.engine.TouchTurnEngine? = null
+        val harness = IbModeTestHarness()
+        try {
+            harness.start()
+            val repository = InMemoryStrategyDeploymentRepository()
+            repository.add(openDeadlineRunningDeployment())
+            engine = harness.createEngine(
+                repository = repository,
+                scope = scope,
+                openDeadlineConfirmTimeoutMs = 100,
+                openDeadlineMarketFallbackConfirmTimeoutMs = 800,
+                openDeadlineFillDrainTimeoutMs = 100
+            )
+            engine.start()
+
+            harness.gateway.setPositions(listOf(shortPosition()))
+            harness.gateway.setOpenOrders(listOf(stopLossOrder(), takeProfitOrder()))
+            harness.gateway.closeClearsPosition = true
+            harness.gateway.closeClearsPositionAfterAttempts = 2
+            harness.gateway.synthesizeExitFillOnClose = true
+            delay(50)
+
+            engine.setBacktestSyncCommands(true)
+            engine.dispatchAndAwait(
+                TouchTurnCommand.StopSession(
+                    instanceId = E2ETestFixtures.DEPLOYMENT_ID,
+                    trigger = TouchTurnSessionStopTrigger.OPEN_DEADLINE,
+                    brokerPositionAtDecision = shortPosition()
+                )
+            )
+            engine.setBacktestSyncCommands(false)
+            delay(50)
+
+            assertTrue(
+                harness.gateway.closedPositions.size >= 2,
+                "must retry open_deadline_fallback market close when first attempt fails"
+            )
+            assertTrue(harness.gateway.positions.value.none { it.symbol == E2ETestFixtures.SYMBOL })
+            val closed = repository.deployments.value.single()
+                .sessionHistory
+                .single { it.status == SessionStatus.CLOSED }
+            assertTrue(closed.sessionTrades.hasClosingFill())
+        } finally {
+            engine.shutdownEngine()
+            harness.shutdown()
+            scope.cancel()
+        }
+    }
+
     @E2EIbTest
     @Test
     fun ibMode_openDeadlineStop_whenCloseUnconfirmed_retainsStopLossAtBroker() = runBlocking {
@@ -403,7 +522,10 @@ class E2EOpenDeadlineIbTest {
             engine.setBacktestSyncCommands(false)
 
             assertTrue(harness.gateway.positions.value.any { it.symbol == E2ETestFixtures.SYMBOL })
-            assertEquals(listOf(1001), harness.gateway.openOrders.value.map { it.orderId })
+            assertTrue(
+                harness.gateway.openOrders.value.any { SessionOrderClassification.isProtectiveStopLoss(it) },
+                "must retain or re-arm protective stop when market close stays unconfirmed"
+            )
             assertTrue(harness.gateway.cancelCalls.all { it.preserveStopLoss })
 
             val closed = repository.deployments.value.single()

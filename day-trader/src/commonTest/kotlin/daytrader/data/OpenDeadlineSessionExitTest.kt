@@ -108,7 +108,10 @@ class OpenDeadlineSessionExitTest {
 
         assertEquals(1, result.stopLossOrderCount)
         assertTrue(result.marketFallbackAttempted)
-        assertEquals(listOf(1001), gateway.openOrders.value.map { it.orderId })
+        assertTrue(
+            gateway.openOrders.value.any { SessionOrderClassification.isProtectiveStopLoss(it) },
+            "must retain or re-arm a protective stop when market close fails"
+        )
         assertTrue(gateway.cancelCalls.all { it.preserveStopLoss })
         assertTrue(gateway.flattenedSymbols.isEmpty())
     }
@@ -136,6 +139,86 @@ class OpenDeadlineSessionExitTest {
         assertTrue(gateway.positions.value.any { it.symbol == "AAPL" })
         assertTrue(gateway.openOrders.value.any { SessionOrderClassification.isProtectiveStopLoss(it) })
         assertTrue(gateway.cancelCalls.none { !it.preserveStopLoss })
+    }
+
+    /**
+     * COIN session-50b76edb44905955 (2026-07-13): single MKT fallback under batch pacing never
+     * cleared the short; session retained STP@158.85. Must re-issue market close while still open.
+     */
+    @Test
+    fun execute_marketFallback_retriesCloseWhenFirstAttemptDoesNotFlatten() = runBlocking {
+        val gateway = FakeBrokerGateway()
+        gateway.setPositions(listOf(shortPosition()))
+        gateway.setOpenOrders(listOf(stopLoss("AAPL", 1001), takeProfit("AAPL", 1002)))
+        gateway.closeClearsPosition = true
+        gateway.closeClearsPositionAfterAttempts = 2
+        gateway.removeProtectiveStopsOnCloseAttempt = true
+
+        val result = OpenDeadlineSessionExit.execute(
+            gateway = gateway,
+            symbol = "AAPL",
+            knownPosition = shortPosition(),
+            positions = gateway.positions,
+            openOrders = gateway.openOrders,
+            confirmTimeoutMs = 50,
+            marketFallbackConfirmTimeoutMs = 400,
+            pollIntervalMs = 25,
+            marketFallbackRetryIntervalMs = 80
+        )
+
+        assertEquals(
+            OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterMarketFallback,
+            result,
+            "must retry market close until flat when the first attempt is ignored"
+        )
+        assertTrue(
+            gateway.closedPositions.size >= 2,
+            "expected repeated open_deadline_fallback market closes, got ${gateway.closedPositions.size}"
+        )
+        assertTrue(gateway.positions.value.none { it.symbol == "AAPL" })
+    }
+
+    /**
+     * F session-3f4deedbb5fb0a07 (2026-07-13): concurrent OPEN_DEADLINE refresh wiped the position
+     * cache while STP still worked; exit claimed flat and cancelled the stop with no market close /
+     * exit fill. Must fall through to market fallback instead of cancelling protection.
+     */
+    @Test
+    fun execute_refreshWipeWhileStopStillOpen_mustMarketCloseNotCancelStopEarly() = runBlocking {
+        val gateway = FakeBrokerGateway()
+        gateway.setPositions(listOf(shortPosition()))
+        gateway.setOpenOrders(listOf(stopLoss("AAPL", 1001), takeProfit("AAPL", 1002)))
+        gateway.refreshPositionsClearsAllPositions = true
+        gateway.closeClearsPosition = true
+
+        val result = OpenDeadlineSessionExit.execute(
+            gateway = gateway,
+            symbol = "AAPL",
+            knownPosition = shortPosition(),
+            positions = gateway.positions,
+            openOrders = gateway.openOrders,
+            confirmTimeoutMs = 100,
+            marketFallbackConfirmTimeoutMs = 100,
+            pollIntervalMs = 25
+        )
+
+        assertEquals(
+            OpenDeadlineSessionExit.Result.PositionConfirmedFlatAfterMarketFallback,
+            result,
+            "cache wipe with protective stop still open must not count as pre-market flat"
+        )
+        assertTrue(gateway.closedPositions.isNotEmpty(), "must market-close after rejecting false flat")
+        val cancelWithoutPreserve = gateway.cancelCalls.filter { !it.preserveStopLoss }
+        assertTrue(
+            cancelWithoutPreserve.isNotEmpty(),
+            "may cancel remaining orders only after market fallback confirms flat"
+        )
+        assertTrue(
+            gateway.closedPositions.isNotEmpty() &&
+                gateway.cancelCalls.indexOfFirst { !it.preserveStopLoss } >
+                gateway.cancelCalls.indexOfFirst { it.preserveStopLoss },
+            "TP cancel (preserve SL) must precede any cancel that drops the protective stop"
+        )
     }
 
     private fun shortPosition() = AccountPosition(

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 object OpenDeadlineSessionExit {
     const val CONFIRM_TIMEOUT_MS = 30_000L
     const val MARKET_FALLBACK_CONFIRM_TIMEOUT_MS = 30_000L
+    /** Re-issue market close while still open (COIN session-50b76edb44905955 pacing miss). */
+    const val MARKET_FALLBACK_RETRY_INTERVAL_MS = 5_000L
     const val POLL_INTERVAL_MS = 250L
 
     sealed interface Result {
@@ -42,7 +44,8 @@ object OpenDeadlineSessionExit {
         instrument: InstrumentIdentity? = null,
         confirmTimeoutMs: Long = CONFIRM_TIMEOUT_MS,
         marketFallbackConfirmTimeoutMs: Long = MARKET_FALLBACK_CONFIRM_TIMEOUT_MS,
-        pollIntervalMs: Long = POLL_INTERVAL_MS
+        pollIntervalMs: Long = POLL_INTERVAL_MS,
+        marketFallbackRetryIntervalMs: Long = MARKET_FALLBACK_RETRY_INTERVAL_MS
     ): Result {
         gateway.cancelOpenOrdersForSymbol(symbol, preserveStopLoss = true)
 
@@ -61,7 +64,16 @@ object OpenDeadlineSessionExit {
         }
         refreshBrokerSnapshot(gateway)
 
-        if (awaitPositionFlat(symbol, positions, confirmTimeoutMs, pollIntervalMs, gateway)) {
+        if (awaitPositionFlat(
+                symbol = symbol,
+                positions = positions,
+                openOrders = openOrders,
+                timeoutMs = confirmTimeoutMs,
+                pollIntervalMs = pollIntervalMs,
+                gateway = gateway,
+                marketFallbackAttempted = false
+            )
+        ) {
             cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
             return Result.PositionConfirmedFlat
         }
@@ -74,7 +86,16 @@ object OpenDeadlineSessionExit {
                 newStopPrice = targetStop
             )
             refreshBrokerSnapshot(gateway)
-            if (awaitPositionFlat(symbol, positions, marketFallbackConfirmTimeoutMs, pollIntervalMs, gateway)) {
+            if (awaitPositionFlat(
+                    symbol = symbol,
+                    positions = positions,
+                    openOrders = openOrders,
+                    timeoutMs = marketFallbackConfirmTimeoutMs,
+                    pollIntervalMs = pollIntervalMs,
+                    gateway = gateway,
+                    marketFallbackAttempted = false
+                )
+            ) {
                 cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
                 return Result.PositionConfirmedFlat
             }
@@ -83,9 +104,29 @@ object OpenDeadlineSessionExit {
         gateway.closeOpenPositionForSymbol(symbol, knownPosition, purpose = "open_deadline_fallback")
         refreshBrokerSnapshot(gateway)
         val marketFallbackAttempted = true
-        if (awaitPositionFlat(symbol, positions, marketFallbackConfirmTimeoutMs, pollIntervalMs, gateway)) {
+        if (awaitPositionFlatWithMarketRetries(
+                gateway = gateway,
+                symbol = symbol,
+                knownPosition = knownPosition,
+                positions = positions,
+                openOrders = openOrders,
+                timeoutMs = marketFallbackConfirmTimeoutMs,
+                pollIntervalMs = pollIntervalMs,
+                retryIntervalMs = marketFallbackRetryIntervalMs
+            )
+        ) {
             cancelRemainingOrdersWhenFlat(gateway, symbol, positions.value)
             return Result.PositionConfirmedFlatAfterMarketFallback
+        }
+
+        // Market close failed — ensure a protective stop remains (may have been dropped for the MKT).
+        if (targetStop != null && protectiveStopLossCount(symbol, openOrders.value) == 0) {
+            gateway.tightenOpenDeadlineProtectiveStop(
+                symbol = symbol,
+                position = knownPosition,
+                newStopPrice = targetStop
+            )
+            refreshBrokerSnapshot(gateway)
         }
 
         return Result.CloseUnconfirmedStopLossRetained(
@@ -95,17 +136,76 @@ object OpenDeadlineSessionExit {
         )
     }
 
+    /**
+     * After the first market-close, keep polling and re-issue MKT every [retryIntervalMs] until flat
+     * or [timeoutMs] elapses. Matches COIN 2026-07-13 where a single paced placeOrder never filled.
+     */
+    private suspend fun awaitPositionFlatWithMarketRetries(
+        gateway: BrokerGateway,
+        symbol: String,
+        knownPosition: AccountPosition,
+        positions: StateFlow<List<AccountPosition>>,
+        openOrders: StateFlow<List<WorkingOrder>>,
+        timeoutMs: Long,
+        pollIntervalMs: Long,
+        retryIntervalMs: Long
+    ): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val effectiveRetryMs = retryIntervalMs
+            .coerceAtMost((timeoutMs / 3).coerceAtLeast(1L))
+            .coerceAtLeast(pollIntervalMs)
+        var nextCloseAt = System.currentTimeMillis() + effectiveRetryMs
+        while (System.currentTimeMillis() < deadline) {
+            if (isDurableFlat(symbol, positions.value, openOrders.value, marketFallbackAttempted = true)) {
+                return true
+            }
+            val now = System.currentTimeMillis()
+            if (now >= nextCloseAt) {
+                gateway.closeOpenPositionForSymbol(symbol, knownPosition, purpose = "open_deadline_fallback")
+                nextCloseAt = now + effectiveRetryMs
+            }
+            refreshBrokerSnapshot(gateway)
+            delay(pollIntervalMs)
+        }
+        return isDurableFlat(symbol, positions.value, openOrders.value, marketFallbackAttempted = true)
+    }
+
+    /**
+     * True when the broker no longer shows an open position for [symbol].
+     *
+     * Before market fallback, an empty position cache **with** a working protective stop is treated
+     * as inconclusive (shared-cache wipe during batch OPEN_DEADLINE). Confirming that as flat would
+     * cancel the stop and leave a naked position — F session-3f4deedbb5fb0a07 on 2026-07-13.
+     */
+    internal fun isDurableFlat(
+        symbol: String,
+        positions: List<AccountPosition>,
+        openOrders: List<WorkingOrder>,
+        marketFallbackAttempted: Boolean
+    ): Boolean {
+        if (SymbolMarkets.hasOpenPosition(symbol, positions)) return false
+        if (!marketFallbackAttempted && protectiveStopLossCount(symbol, openOrders) > 0) {
+            return false
+        }
+        return true
+    }
+
     internal suspend fun awaitPositionFlat(
         symbol: String,
         positions: StateFlow<List<AccountPosition>>,
         timeoutMs: Long,
         pollIntervalMs: Long,
         gateway: BrokerGateway? = null,
-        onPoll: () -> Unit = {}
+        onPoll: () -> Unit = {},
+        openOrders: StateFlow<List<WorkingOrder>>? = null,
+        marketFallbackAttempted: Boolean = true
     ): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
-            if (!SymbolMarkets.hasOpenPosition(symbol, positions.value)) return true
+            val orders = openOrders?.value.orEmpty()
+            if (isDurableFlat(symbol, positions.value, orders, marketFallbackAttempted)) {
+                return true
+            }
             if (gateway != null) {
                 refreshBrokerSnapshot(gateway)
             } else {
@@ -113,7 +213,8 @@ object OpenDeadlineSessionExit {
             }
             delay(pollIntervalMs)
         }
-        return !SymbolMarkets.hasOpenPosition(symbol, positions.value)
+        val orders = openOrders?.value.orEmpty()
+        return isDurableFlat(symbol, positions.value, orders, marketFallbackAttempted)
     }
 
     internal fun cancelRemainingOrdersWhenFlat(

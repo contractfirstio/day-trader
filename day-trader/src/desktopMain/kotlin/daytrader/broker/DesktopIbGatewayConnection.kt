@@ -2815,6 +2815,11 @@ class DesktopIbGatewayConnection(
             logSessionPositionCloseSkipped(symbol, "Cannot infer close action", purpose)
             return
         }
+        // OPEN_DEADLINE market fallback: drop working buy/sell STP so MKT is not racing the same
+        // cover (COIN 2026-07-13 left STP@158.85 while MKT 841 never confirmed).
+        if (purpose == "open_deadline_fallback") {
+            forceCancelProtectiveStopsForSymbol(symbol)
+        }
         val orderId = allocateOrderIds(1) ?: run {
             logSessionPositionCloseSkipped(symbol, "Order id not ready", purpose)
             return
@@ -2856,6 +2861,24 @@ class DesktopIbGatewayConnection(
             quantity = closeQty,
             purpose = purpose
         )
+    }
+
+    /** Cancels protective stops even while a position is open (deadline market-close only). */
+    private fun forceCancelProtectiveStopsForSymbol(symbol: String) {
+        if (!client.isConnected) return
+        val stops = SymbolMarkets.openOrdersForSymbol(symbol, openOrdersById.values.toList())
+            .filter { daytrader.data.SessionOrderClassification.isProtectiveStopLoss(it) }
+        if (stops.isEmpty()) return
+        val orderCancel = OrderCancel()
+        stops.forEach { working ->
+            openOrdersById.remove(working.orderId)
+            paced {
+                if (!client.isConnected) return@paced
+                client.cancelOrder(working.orderId, orderCancel)
+            }
+        }
+        publishOpenOrders()
+        IbGatewayLog.sessionOrdersCancelled(symbol, stops.map { it.orderId })
     }
 
     private fun logSessionPositionCloseSkipped(symbol: String, reason: String, purpose: String) {
