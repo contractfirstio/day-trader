@@ -182,6 +182,176 @@ class E2EAutoLiquidityFlushTest {
         }
     }
 
+    @Test
+    fun engine_evaluateAutoLiquidityFlush_usesPersistedSwitchWithoutEngineMirrorToggle() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val sessionDate = "2026-06-04"
+        val zoneId = RthMarketSessions.US.zoneId
+        val now = flushEpochMillis(sessionDate, zoneId)
+        val traces = mutableListOf<Pair<String, Map<String, String>>>()
+        daytrader.diagnostics.SessionTrace.testListener = { type, details ->
+            traces += type to details
+        }
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+            val bucketRepository = InMemoryLiquidityBucketRepository()
+            val appStateRepository = InMemoryStrategiesAppStateRepository()
+            E2ELiquidityAllocatorHelper.creditUsdBucket(
+                bucketRepository,
+                amount = 500,
+                sessionDate = sessionDate,
+            )
+
+            gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
+            gateway.setQuotes(
+                mapOf(
+                    "AAPL" to LiveQuote(
+                        symbol = "AAPL",
+                        bid = 99.0,
+                        ask = 99.5,
+                        last = 99.25,
+                        quoteEpochMillis = now,
+                    )
+                )
+            )
+
+            val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+                dep.copy(touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate))
+            }
+            repository.add(deployment)
+            // Persisted ON only — do not call updateAutoLiquidityFlushEnabled (US restart bug).
+            appStateRepository.update { it.copy(autoLiquidityFlushEnabled = true) }
+
+            val coordinator = LiquidityFlushCoordinator(
+                liquidityBucketRepository = bucketRepository,
+                executionManager = BrokerGatewayExecutionManager(gateway),
+                deploymentRepository = repository,
+            )
+            val engine = TouchTurnEngine(
+                marketData = BrokerGatewayMarketDataProvider(gateway),
+                execution = BrokerGatewayExecutionManager(gateway),
+                repository = repository,
+                scope = scope,
+                brokerKind = BrokerKind.EMULATOR,
+                isAutoLiquidityFlushEnabled = { appStateRepository.state.value.autoLiquidityFlushEnabled },
+                nowEpochMillis = { now },
+                sessionGateway = gateway,
+                executionGateway = gateway,
+                liquidityBucketRepository = bucketRepository,
+                liquidityFlushCoordinator = coordinator,
+                strategiesAppStateRepository = appStateRepository,
+            )
+            engine.start()
+
+            engine.dispatch(TouchTurnCommand.EvaluateAutoLiquidityFlush)
+            delay(200)
+
+            val available = LiquidityBucketLogic.rollBucketForDate(
+                LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+                sessionDate,
+            ).available
+            assertTrue(available < 500)
+            assertTrue(
+                appStateRepository.state.value.flushedLiquidityZoneDates.contains(
+                    AutoLiquidityFlushLogic.flushKey(zoneId, sessionDate)
+                )
+            )
+            assertTrue(traces.any { it.first == "auto_liquidity_flush_started" })
+            assertTrue(traces.any { it.first == "auto_liquidity_flush_completed" })
+            assertEquals("true", traces.last { it.first == "auto_liquidity_flush_completed" }.second["markedFlushed"])
+        } finally {
+            daytrader.diagnostics.SessionTrace.testListener = null
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun engine_autoLiquidityFlush_doesNotMarkZoneWhenAllResizesFail() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val sessionDate = "2026-06-04"
+        val zoneId = RthMarketSessions.US.zoneId
+        val now = flushEpochMillis(sessionDate, zoneId)
+        val traces = mutableListOf<Pair<String, Map<String, String>>>()
+        daytrader.diagnostics.SessionTrace.testListener = { type, details ->
+            traces += type to details
+        }
+        try {
+            val repository = InMemoryStrategyDeploymentRepository()
+            val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+            gateway.bracketResizeResult = Result.failure(IllegalStateException("resize_failed_for_test"))
+            val bucketRepository = InMemoryLiquidityBucketRepository()
+            val appStateRepository = InMemoryStrategiesAppStateRepository()
+            E2ELiquidityAllocatorHelper.creditUsdBucket(
+                bucketRepository,
+                amount = 500,
+                sessionDate = sessionDate,
+            )
+
+            gateway.setOpenOrders(E2ELiquidityAllocatorHelper.bracketOpenOrders())
+            gateway.setQuotes(
+                mapOf(
+                    "AAPL" to LiveQuote(
+                        symbol = "AAPL",
+                        bid = 99.0,
+                        ask = 99.5,
+                        last = 99.25,
+                        quoteEpochMillis = now,
+                    )
+                )
+            )
+
+            val deployment = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment().let { dep ->
+                dep.copy(touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate))
+            }
+            repository.add(deployment)
+            appStateRepository.update { it.copy(autoLiquidityFlushEnabled = true) }
+
+            val coordinator = LiquidityFlushCoordinator(
+                liquidityBucketRepository = bucketRepository,
+                executionManager = BrokerGatewayExecutionManager(gateway),
+                deploymentRepository = repository,
+            )
+            val engine = TouchTurnEngine(
+                marketData = BrokerGatewayMarketDataProvider(gateway),
+                execution = BrokerGatewayExecutionManager(gateway),
+                repository = repository,
+                scope = scope,
+                brokerKind = BrokerKind.EMULATOR,
+                isAutoLiquidityFlushEnabled = { appStateRepository.state.value.autoLiquidityFlushEnabled },
+                nowEpochMillis = { now },
+                sessionGateway = gateway,
+                executionGateway = gateway,
+                liquidityBucketRepository = bucketRepository,
+                liquidityFlushCoordinator = coordinator,
+                strategiesAppStateRepository = appStateRepository,
+            )
+            engine.start()
+
+            engine.dispatch(TouchTurnCommand.EvaluateAutoLiquidityFlush)
+            delay(200)
+
+            assertEquals(500, LiquidityBucketLogic.rollBucketForDate(
+                LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
+                sessionDate,
+            ).available)
+            assertEquals(emptySet(), appStateRepository.state.value.flushedLiquidityZoneDates)
+            assertTrue(traces.any { it.first == "auto_liquidity_flush_deferred_retry" })
+            assertEquals(
+                "false",
+                traces.last { it.first == "auto_liquidity_flush_completed" }.second["markedFlushed"],
+            )
+            assertTrue(
+                traces.last { it.first == "auto_liquidity_flush_completed" }.second["failedResize"]
+                    .orEmpty()
+                    .isNotEmpty(),
+            )
+        } finally {
+            daytrader.diagnostics.SessionTrace.testListener = null
+            scope.cancel()
+        }
+    }
+
     private fun flushEpochMillis(sessionDate: String, zoneId: String): Long {
         val open = TouchTurnLogic.marketOpenEpochMillis(sessionDate, zoneId, null)!!
         return open + AUTO_LIQUIDITY_FLUSH_OFFSET_MS + 1

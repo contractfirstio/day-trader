@@ -101,4 +101,24 @@ class ExecutionGatewayLogTest {
         assertEquals("session_position_close_filled", captured.single().first)
         assertEquals("flatten", captured.single().third["purpose"])
     }
+
+    @Test
+    fun touchTurnBracketResized_emitsGatewayEvent() {
+        ExecutionGatewayLog.testListener = { type, symbol, details ->
+            captured += Triple(type, symbol, details)
+        }
+
+        ExecutionGatewayLog.touchTurnBracketResized(
+            brokerId = BrokerId.INTERACTIVE_BROKERS,
+            symbol = "AMZN",
+            quantity = 21,
+            parentOrderId = 782,
+            success = true,
+        )
+
+        assertEquals("touch_turn_bracket_resized", captured.single().first)
+        assertEquals("AMZN", captured.single().second)
+        assertEquals("21", captured.single().third["quantity"])
+        assertEquals("true", captured.single().third["success"])
+    }
 }

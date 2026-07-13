@@ -74,6 +74,7 @@ class QueuedBrokerGateway(
     private val pendingSpyRegime = mutableMapOf<Long, CompletableDeferred<Result<SpyRegimeSnapshot>>>()
     private val pendingHomeMarketRegime = mutableMapOf<Long, CompletableDeferred<Result<MacroRegimeSnapshot>>>()
     private val pendingBracketResize = mutableMapOf<Long, CompletableDeferred<Result<Unit>>>()
+    private val pendingBracketResizeRequests = mutableMapOf<Long, TouchTurnBracketResizeRequest>()
 
     @Volatile
     private var pauseInboundProcessing = initialPauseInboundProcessing
@@ -192,6 +193,7 @@ class QueuedBrokerGateway(
         pendingHomeMarketRegime.clear()
         pendingBracketResize.values.forEach { it.cancel(cancelled) }
         pendingBracketResize.clear()
+        pendingBracketResizeRequests.clear()
     }
 
     override suspend fun fetchFirstFifteenMinuteCandle(
@@ -218,11 +220,22 @@ class QueuedBrokerGateway(
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<Unit>>()
         pendingBracketResize[requestId] = deferred
+        pendingBracketResizeRequests[requestId] = request
         sendCommand(GatewayCommand.ResizeTouchTurnBracket(requestId, request))
         return try {
             withTimeout(BRACKET_RESIZE_TIMEOUT_MS) { deferred.await() }
         } catch (e: Exception) {
             pendingBracketResize.remove(requestId)
+            pendingBracketResizeRequests.remove(requestId)?.let { timedOut ->
+                ExecutionGatewayLog.touchTurnBracketResized(
+                    brokerId = brokerId,
+                    symbol = timedOut.symbol,
+                    quantity = timedOut.plan.quantity,
+                    parentOrderId = timedOut.orderIds.parentOrderId,
+                    success = false,
+                    error = e.message ?: e::class.simpleName,
+                )
+            }
             Result.failure(e)
         }
     }
@@ -475,6 +488,15 @@ class QueuedBrokerGateway(
                 pendingHomeMarketRegime.remove(event.requestId)?.complete(event.result)
             }
             is GatewayEvent.TouchTurnBracketResized -> {
+                val request = pendingBracketResizeRequests.remove(event.requestId)
+                ExecutionGatewayLog.touchTurnBracketResized(
+                    brokerId = brokerId,
+                    symbol = request?.symbol ?: "unknown",
+                    quantity = event.result.getOrNull() ?: request?.plan?.quantity,
+                    parentOrderId = request?.orderIds?.parentOrderId,
+                    success = event.result.isSuccess,
+                    error = event.result.exceptionOrNull()?.message,
+                )
                 pendingBracketResize.remove(event.requestId)?.complete(event.result.map { Unit })
             }
             GatewayEvent.InboundShutdown -> Unit

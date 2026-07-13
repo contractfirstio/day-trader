@@ -4,6 +4,7 @@ import daytrader.broker.SymbolMarkets
 import daytrader.data.LiquidityBucketRepository
 import daytrader.data.OpenOrderRepository
 import daytrader.data.StrategyDeploymentRepository
+import daytrader.diagnostics.UiActionLog
 import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.InstrumentOrderSizeRules
 import daytrader.domain.orderSizeRules
@@ -242,6 +243,15 @@ class LiquidityAllocatorViewModel(
         publishUi()
 
         val sessionDate = deployment.touchTurnSession?.sessionDate ?: currentSessionDateIso()
+        UiActionLog.forDeployment(
+            deployment = deployment,
+            action = "manual_liquidity_apply",
+            details = mapOf(
+                "additionalQuantity" to additionalQuantity.toString(),
+                "currency" to selectedCurrency,
+                "sessionDate" to sessionDate,
+            ),
+        )
         val result = flushCoordinator.applyAllocation(
             LiquidityAllocationApplyRequest(
                 deploymentId = deploymentId,
@@ -257,12 +267,19 @@ class LiquidityAllocatorViewModel(
         applyingDeploymentIds.remove(deploymentId)
         when (result) {
             is LiquidityAllocationApplyResult.Success -> {
+                UiActionLog.forDeployment(
+                    deployment = deployment,
+                    action = "manual_liquidity_apply_succeeded",
+                    details = mapOf(
+                        "debitedAmount" to result.debitedAmount.toString(),
+                        "newQuantity" to result.newQuantity.toString(),
+                    ),
+                )
                 allocations.remove(deploymentId)
                 applyErrors.remove(deploymentId)
             }
-            is LiquidityAllocationApplyResult.Skipped -> setApplyError(
-                deploymentId,
-                when (result.reason) {
+            is LiquidityAllocationApplyResult.Skipped -> {
+                val message = when (result.reason) {
                     daytrader.engine.liquidity.LiquidityApplySkipReason.EXECUTION_NOT_AVAILABLE ->
                         "Execution not available"
                     daytrader.engine.liquidity.LiquidityApplySkipReason.SESSION_NOT_ACTIVE ->
@@ -273,9 +290,22 @@ class LiquidityAllocatorViewModel(
                         "Quantity too small for a board lot"
                     daytrader.engine.liquidity.LiquidityApplySkipReason.PREVIEW_NOT_GREATER_THAN_CURRENT ->
                         "Quantity too small to increase size"
-                },
-            )
-            is LiquidityAllocationApplyResult.Failed -> setApplyError(deploymentId, result.message)
+                }
+                UiActionLog.forDeployment(
+                    deployment = deployment,
+                    action = "manual_liquidity_apply_skipped",
+                    details = mapOf("reason" to result.reason.name, "message" to message),
+                )
+                setApplyError(deploymentId, message)
+            }
+            is LiquidityAllocationApplyResult.Failed -> {
+                UiActionLog.forDeployment(
+                    deployment = deployment,
+                    action = "manual_liquidity_apply_failed",
+                    details = mapOf("message" to result.message),
+                )
+                setApplyError(deploymentId, result.message)
+            }
         }
         publishUi()
     }

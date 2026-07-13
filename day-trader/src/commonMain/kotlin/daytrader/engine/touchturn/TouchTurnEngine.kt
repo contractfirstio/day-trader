@@ -243,6 +243,9 @@ class TouchTurnEngine(
     override fun start() {
         if (shutdownRequested.get()) return
         if (commandLoopJob?.isActive == true) return
+        // Persist toggle survives restart; mirror syncs so UI and engine cannot diverge.
+        autoLiquidityFlushEnabled = isAutoLiquidityFlushEnabled()
+        globalAutoStartEnabled = isGlobalAutoStartEnabled()
         commandLoopJob = scope.launch {
             for (command in commandQueue) {
                 if (TouchTurnEngineConfig.shadowLogEnabled()) {
@@ -1985,7 +1988,8 @@ class TouchTurnEngine(
     }
 
     private fun handleEvaluateAutoLiquidityFlush() {
-        if (!isAutoLiquidityFlushEnabled() || !autoLiquidityFlushEnabled) return
+        // Prefer live app-state (survives restart). Engine mirror is updated on start()/toggle.
+        if (!isAutoLiquidityFlushEnabled() && !autoLiquidityFlushEnabled) return
         val coordinator = liquidityFlushCoordinator ?: return
         val appStateRepo = strategiesAppStateRepository ?: return
         val now = nowEpochMillis()
@@ -1999,36 +2003,88 @@ class TouchTurnEngine(
                 val zoneDeployments = deploymentsForZone(allDeployments, zone)
                     .filter { it.status == DeploymentStatus.RUNNING && it.isTouchTurn }
                 val quotes = quotesForDeployments(zoneDeployments)
-                if (zoneDeployments.isNotEmpty()) {
+                var markZone = true
+                if (zoneDeployments.isEmpty()) {
+                    SessionTrace.log(
+                        type = "auto_liquidity_flush_skipped",
+                        details = mapOf(
+                            "zoneId" to zone,
+                            "sessionDate" to sessionDate,
+                            "reason" to "no_running_touch_turn_deployments",
+                            "markedFlushed" to "true",
+                        ),
+                    )
+                } else {
                     val currencies = activeCurrenciesForDeployments(zoneDeployments)
                     for (currency in currencies.sorted()) {
                         val currencyDeployments = zoneDeployments.filter {
                             LiquidityBucketLogic.normalizeCurrency(it.currencyCode) == currency
                         }
-                        val audit = coordinator.flush(
-                            LiquidityFlushRequest(
-                                currencyCode = currency,
-                                sessionDate = sessionDate,
-                                deployments = currencyDeployments,
-                                openOrders = brokerOpenOrders.value,
-                                quotes = quotes,
-                                enabled = true,
-                            )
-                        )
                         SessionTrace.log(
-                            type = "auto_liquidity_flush_completed",
+                            type = "auto_liquidity_flush_started",
                             details = mapOf(
                                 "zoneId" to zone,
                                 "sessionDate" to sessionDate,
                                 "currency" to currency,
-                                "startingPool" to audit.startingPoolAvailable.toString(),
-                                "remainingPool" to audit.remainingPoolAvailable.toString(),
-                                "totalDebited" to audit.totalDebited.toString(),
-                                "loopCount" to audit.loops.size.toString(),
-                            )
+                                "runningDeploymentCount" to currencyDeployments.size.toString(),
+                                "openOrderCount" to brokerOpenOrders.value.size.toString(),
+                                "quoteCount" to quotes.size.toString(),
+                            ),
                         )
+                        val flushResult = runCatching {
+                            coordinator.flush(
+                                LiquidityFlushRequest(
+                                    currencyCode = currency,
+                                    sessionDate = sessionDate,
+                                    deployments = currencyDeployments,
+                                    openOrders = brokerOpenOrders.value,
+                                    quotes = quotes,
+                                    enabled = true,
+                                )
+                            )
+                        }
+                        val audit = flushResult.getOrNull()
+                        if (audit == null) {
+                            val error = flushResult.exceptionOrNull()
+                            SessionTrace.log(
+                                type = "auto_liquidity_flush_failed",
+                                details = mapOf(
+                                    "zoneId" to zone,
+                                    "sessionDate" to sessionDate,
+                                    "currency" to currency,
+                                    "error" to (error?.message ?: error?.let { it::class.simpleName }.orEmpty()),
+                                    "markedFlushed" to "false",
+                                ),
+                            )
+                            markZone = false
+                        } else {
+                            val shouldMark = audit.shouldMarkZoneFlushed()
+                            if (!shouldMark) markZone = false
+                            SessionTrace.log(
+                                type = "auto_liquidity_flush_completed",
+                                details = audit.toTraceDetails(zoneId = zone, markedFlushed = shouldMark),
+                            )
+                            if (!shouldMark) {
+                                SessionTrace.log(
+                                    type = "auto_liquidity_flush_deferred_retry",
+                                    details = mapOf(
+                                        "zoneId" to zone,
+                                        "sessionDate" to sessionDate,
+                                        "currency" to currency,
+                                        "reason" to "resize_failures_with_pool_remaining",
+                                        "failedResize" to audit.loops
+                                            .flatMap { loop ->
+                                                loop.failedResize.map { (id, reason) -> "$id=$reason" }
+                                            }
+                                            .joinToString(";"),
+                                        "remainingPool" to audit.remainingPoolAvailable.toString(),
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
+                if (!markZone) continue
                 appStateRepo.update { state ->
                     state.copy(flushedLiquidityZoneDates = state.flushedLiquidityZoneDates + flushKey)
                 }

@@ -43,6 +43,9 @@ import kotlinx.serialization.serializer
 object SessionTrace {
     private val json = Json { encodeDefaults = false }
 
+    /** Test hook — captures events without requiring on-disk session paths. */
+    internal var testListener: ((type: String, details: Map<String, String>) -> Unit)? = null
+
     fun log(
         type: String,
         deploymentId: String? = null,
@@ -66,6 +69,7 @@ object SessionTrace {
                 data = data
             )
         )
+        testListener?.invoke(type, details)
         val path = resolveTracePath(deploymentId, sessionId) ?: return
         DiagnosticJsonlWriter.appendLine(path, line)
     }

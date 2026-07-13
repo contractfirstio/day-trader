@@ -92,7 +92,14 @@ class LiquidityFlushCoordinator(
                 quotes = request.quotes,
                 currency = currency,
             )
-            if (eligibleRows.isEmpty()) return@repeat
+            if (eligibleRows.isEmpty()) {
+                loopAudits += LiquidityFlushLoopAudit(
+                    loopIndex = loopIndex,
+                    eligibleCount = 0,
+                    distributionCount = 0,
+                )
+                return@repeat
+            }
 
             val distribution = distributeLiquidityByBayesianWinRateInLots(
                 rows = eligibleRows.mapNotNull { row ->
@@ -109,7 +116,14 @@ class LiquidityFlushCoordinator(
                 },
                 available = available,
             )
-            if (distribution.isEmpty()) return@repeat
+            if (distribution.isEmpty()) {
+                loopAudits += LiquidityFlushLoopAudit(
+                    loopIndex = loopIndex,
+                    eligibleCount = eligibleRows.size,
+                    distributionCount = 0,
+                )
+                return@repeat
+            }
 
             val debited = mutableMapOf<String, Int>()
             val skippedLot = mutableSetOf<String>()
@@ -177,6 +191,8 @@ class LiquidityFlushCoordinator(
 
             loopAudits += LiquidityFlushLoopAudit(
                 loopIndex = loopIndex,
+                eligibleCount = eligibleRows.size,
+                distributionCount = distribution.size,
                 debited = debited.toMap(),
                 skippedLot = skippedLot.toSet(),
                 skippedNotEligible = skippedNotEligible.toSet(),

@@ -59,6 +59,28 @@ object ExecutionGatewayLog {
         )
     }
 
+    fun touchTurnBracketResized(
+        brokerId: BrokerId,
+        symbol: String,
+        quantity: Int?,
+        parentOrderId: Int?,
+        success: Boolean,
+        error: String? = null,
+    ) {
+        if (!enabled) return
+        event(
+            type = "touch_turn_bracket_resized",
+            brokerId = brokerId,
+            symbol = symbol,
+            details = buildMap {
+                put("success", success.toString())
+                quantity?.let { put("quantity", it.toString()) }
+                parentOrderId?.let { put("parentOrderId", it.toString()) }
+                error?.let { put("error", it) }
+            }
+        )
+    }
+
     fun sessionPositionClosePlaced(
         brokerId: BrokerId,
         symbol: String,

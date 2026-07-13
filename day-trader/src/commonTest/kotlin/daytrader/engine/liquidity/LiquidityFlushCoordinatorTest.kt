@@ -215,9 +215,11 @@ class LiquidityFlushCoordinatorTest {
             )
         )
 
-        assertEquals(0, audit.loops.size)
         assertEquals(0, audit.totalDebited)
         assertEquals(500, audit.remainingPoolAvailable)
+        assertTrue(audit.loops.isNotEmpty())
+        assertTrue(audit.loops.all { it.distributionCount == 0 })
+        assertTrue(audit.shouldMarkZoneFlushed())
     }
 
     @Test
