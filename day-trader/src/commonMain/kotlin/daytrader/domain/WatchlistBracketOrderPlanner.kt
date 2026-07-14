@@ -114,7 +114,8 @@ object WatchlistBracketOrderPlanner {
                         price = stopPrice,
                         timeInForce = TouchTurnOrderDefaults.timeInForceFor(STOP_LOSS),
                         trailTriggerPrice = adjustableStop?.triggerPrice,
-                        trailArmStopPrice = adjustableStop?.armStopPrice
+                        trailArmStopPrice = adjustableStop?.armStopPrice,
+                        attachAdjustableAtPlacement = adjustableStop != null
                     )
                 )
             )

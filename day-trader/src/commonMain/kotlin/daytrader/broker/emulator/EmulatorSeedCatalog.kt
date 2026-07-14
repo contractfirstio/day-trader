@@ -207,7 +207,12 @@ internal data class EmulatorOrder(
     /** Best bid (long) or ask (short) since trailing armed. */
     val trailExtremePrice: Double? = null,
     /** Stop price when trailing first arms (entry). */
-    val trailArmStopPrice: Double? = null
+    val trailArmStopPrice: Double? = null,
+    /** Epoch after which trailing may arm; null with [trailActivateAfterMinutes]=0 means no time gate. */
+    val trailActivateAfterEpochMs: Long? = null,
+    /** When > 0 and [trailActivateAfterEpochMs] is null, stamp epoch from entry fill + this many minutes. */
+    val trailActivateAfterMinutes: Int = 0,
+    val trailRequirePriceTrigger: Boolean = true
 ) {
     fun toWorkingOrder(): daytrader.gateway.WorkingOrder = daytrader.gateway.WorkingOrder(
         orderId = orderId,

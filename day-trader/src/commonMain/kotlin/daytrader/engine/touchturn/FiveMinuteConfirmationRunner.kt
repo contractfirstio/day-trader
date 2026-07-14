@@ -12,6 +12,7 @@ import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderSizingResult
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.effectiveTouchTurnRules
 import daytrader.domain.orderSizeRules
 import daytrader.domain.withFiveMinuteConfirmationConfirmed
@@ -283,7 +284,15 @@ internal class FiveMinuteConfirmationRunner(
             currencyCode = afterSession.currencyCode,
             instrument = deploymentInstrument,
             rules = rules
-        ) ?: run {
+        )
+            ?.withTrailingActivationSchedule(
+                rules = rules,
+                sessionOpenEpochMs = TouchTurnSessionStopLogic.sessionOpenEpochMillis(
+                    afterConfirm,
+                    afterSession.sessionDate
+                )
+            )
+            ?: run {
             onFinished(instanceId)
             return
         }

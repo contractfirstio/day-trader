@@ -22,6 +22,19 @@ class StrategyConfigurationSnapshotTest {
     }
 
     @Test
+    fun fingerprint_changesWhenTrailingActivationGatesChange() {
+        val baseline = StrategyConfigurationSnapshot(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            maxDollars = 500,
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT
+        )
+        val delayed = baseline.copy(
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(trailingActivateAfterMinutes = 80)
+        )
+        assertNotEquals(baseline.fingerprint(), delayed.fingerprint())
+    }
+
+    @Test
     fun fingerprint_hasVersionPrefix() {
         val fingerprint = snapshot().fingerprint()
         assertEquals(true, fingerprint.startsWith(StrategyConfigurationSnapshot.FINGERPRINT_PREFIX))

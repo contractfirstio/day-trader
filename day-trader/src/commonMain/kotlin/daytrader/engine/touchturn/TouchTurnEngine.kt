@@ -39,6 +39,7 @@ import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.TouchTurnOrderSizingResult
 import daytrader.domain.TouchTurnSessionOutcome
 import daytrader.domain.TouchTurnSessionStartedBy
+import daytrader.domain.TouchTurnSessionStopLogic
 import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnCandleStatus
 import daytrader.domain.TouchTurnCandleLog
@@ -153,14 +154,14 @@ class TouchTurnEngine(
 
     private val stuckFormingLogged = mutableSetOf<String>()
     private val liquidityJobs = ConcurrentHashMap<String, Job>()
-    private val liquidityEvalJobs = mutableMapOf<String, Job>()
+    private val liquidityEvalJobs = ConcurrentHashMap<String, Job>()
     private val fiveMinuteConfirmationJobs = ConcurrentHashMap<String, Job>()
     private val closedBarRefetchJobs = ConcurrentHashMap<String, Job>()
     private val loadJobs = ConcurrentHashMap<String, Job>()
     private val prepareJobs = ConcurrentHashMap<String, Job>()
     private val replayLiquidityRetryJobs = ConcurrentHashMap<String, Job>()
-    private val tracedFillExecIdsByInstance = mutableMapOf<String, MutableSet<String>>()
-    private val lastLoggedAutoStopCheck = mutableMapOf<String, AutoStopCheckSnapshot>()
+    private val tracedFillExecIdsByInstance = ConcurrentHashMap<String, MutableSet<String>>()
+    private val lastLoggedAutoStopCheck = ConcurrentHashMap<String, AutoStopCheckSnapshot>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
 
     private data class PendingBracketPlacement(
@@ -1802,7 +1803,11 @@ class TouchTurnEngine(
             setup = setup,
             openingBarClose = session.candle?.close,
             brokerGateway = executionGw,
-            rules = rules
+            rules = rules,
+            sessionOpenEpochMs = TouchTurnSessionStopLogic.sessionOpenEpochMillis(
+                instance,
+                session.sessionDate
+            )
         )
         if (bracketSubmitRequested) {
             SessionTrace.bracketSubmitRequested(

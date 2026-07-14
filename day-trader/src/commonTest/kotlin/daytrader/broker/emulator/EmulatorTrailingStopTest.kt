@@ -207,4 +207,121 @@ class EmulatorTrailingStopTest {
         assertNotNull(stop.trailTriggerPrice)
         assertNotNull(stop.trailArmStopPrice)
     }
+
+    @Test
+    fun trailingStop_delayedActivation_ignoresPriceUntilEpoch() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
+                bracketExitSpreadWidenFactor = 1.0
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0
+        )
+        val rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+            trailingActivateAfterMinutes = 80,
+            trailingRequirePriceTrigger = true
+        )
+        val futureEpoch = System.currentTimeMillis() + 60 * 60_000L
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 1000,
+            rules = rules
+        )!!.withTrailingActivationSchedule(
+            rules = rules,
+            sessionOpenEpochMs = futureEpoch - 80 * 60_000L
+        )
+        // Force activation still in the future relative to now.
+        val stopLeg = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        val deferredPlan = plan.copy(
+            orders = plan.orders.map { leg ->
+                if (leg.role != TouchTurnOrderRole.STOP_LOSS) leg
+                else stopLeg.copy(trailActivateAfterEpochMs = futureEpoch)
+            }
+        )
+        engine.placeTouchTurnBracket(deferredPlan)
+
+        engine.ingestLiveQuote(
+            "AAPL",
+            LiveQuote(symbol = "AAPL", bid = 106.0, ask = 106.2, last = 106.1),
+            priorClose = null
+        )
+        engine.runMarketTick()
+        val stillStp = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>()
+            .lastOrNull()
+            ?.orders
+            ?.any { it.orderType.equals("STP", ignoreCase = true) && it.stopPrice != null }
+            ?: false
+        assertTrue(stillStp, "stop should remain STP before activation epoch")
+        val trailEarly = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>()
+            .flatMap { it.orders }
+            .any { it.orderType.equals("TRAIL", ignoreCase = true) }
+        assertTrue(!trailEarly, "should not arm TRAIL before activation epoch")
+    }
+
+    @Test
+    fun trailingStop_timeOnly_armsWithoutPriceTrigger() = runBlocking {
+        val events = mutableListOf<GatewayEvent>()
+        val engine = BrokerEmulatorEngine(
+            config = BrokerEmulatorConfig.forLiveIbMarketData().copy(
+                connectDelayMs = 1,
+                simulateOrderProgress = false,
+                touchTurnEntryFillImmediately = true,
+                bracketExitSpreadWidenFactor = 1.0
+            ),
+            emit = { events.add(it) }
+        )
+        engine.handleConnect()
+        engine.finishConnect()
+
+        val setup = TouchTurnBracketSetup(
+            range = 10.0,
+            rangeThreshold = 0.5,
+            isLiquidityCandle = true,
+            candleColor = FirstCandleColor.RED,
+            side = TouchTurnTradeSide.LONG,
+            entry = 100.0,
+            stopLoss = 95.0,
+            takeProfit = 110.0
+        )
+        val rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+            trailingActivateAfterMinutes = 0,
+            trailingRequirePriceTrigger = false
+        )
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            "AAPL",
+            setup,
+            maxDollars = 1000,
+            rules = rules
+        )!!.withTrailingActivationSchedule(rules)
+        engine.placeTouchTurnBracket(plan)
+
+        // Price still below trigger (105) — time-only should arm anyway.
+        engine.ingestLiveQuote(
+            "AAPL",
+            LiveQuote(symbol = "AAPL", bid = 101.0, ask = 101.2, last = 101.1),
+            priorClose = null
+        )
+        engine.runMarketTick()
+        val sawTrail = events.filterIsInstance<GatewayEvent.OpenOrdersSnapshot>()
+            .flatMap { it.orders }
+            .any { it.orderType.equals("TRAIL", ignoreCase = true) }
+        assertTrue(sawTrail, "expected TRAIL arm without price trigger when requirePriceTrigger=false")
+    }
 }

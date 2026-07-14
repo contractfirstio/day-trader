@@ -1238,13 +1238,19 @@ class BrokerEmulatorEngine(
     private fun advanceTrailingStop(order: EmulatorOrder): EmulatorOrder? {
         val trigger = order.trailTriggerPrice ?: return null
         val quote = quoteBook.quoteOrNull(order.symbol) ?: return null
+        val now = System.currentTimeMillis()
+        val activationEpoch = order.trailActivateAfterEpochMs
+        if (order.trailActivateAfterMinutes > 0) {
+            if (activationEpoch == null) return order
+            if (now < activationEpoch) return order
+        }
         if (!order.trailingArmed) {
             val crossed = when (order.action.uppercase()) {
                 "SELL" -> quote.bid >= trigger
                 "BUY" -> quote.ask <= trigger
                 else -> false
             }
-            if (!crossed) return order
+            if (order.trailRequirePriceTrigger && !crossed) return order
             val armStop = order.trailArmStopPrice ?: return order
             val armReference = when (order.action.uppercase()) {
                 "SELL" -> quote.bid
@@ -1280,6 +1286,21 @@ class BrokerEmulatorEngine(
             }
             else -> order
         }
+    }
+
+    private fun stampTrailingActivationOnEntryFill(entryOrderId: Int) {
+        val fillEpoch = System.currentTimeMillis()
+        orders.values
+            .filter { it.parentId == entryOrderId && it.trailTriggerPrice != null }
+            .forEach { stop ->
+                if (stop.trailActivateAfterEpochMs != null) return@forEach
+                if (stop.trailActivateAfterMinutes <= 0) return@forEach
+                updateOrder(
+                    stop.copy(
+                        trailActivateAfterEpochMs = fillEpoch + stop.trailActivateAfterMinutes * 60_000L
+                    )
+                )
+            }
     }
 
     private fun isOrderActiveForFill(order: EmulatorOrder): Boolean {
@@ -1375,7 +1396,10 @@ class BrokerEmulatorEngine(
         currency = currency,
         parentId = parentId,
         trailTriggerPrice = planned.trailTriggerPrice,
-        trailArmStopPrice = planned.trailArmStopPrice
+        trailArmStopPrice = planned.trailArmStopPrice,
+        trailActivateAfterEpochMs = planned.trailActivateAfterEpochMs,
+        trailActivateAfterMinutes = planned.trailActivateAfterMinutes,
+        trailRequirePriceTrigger = planned.trailRequirePriceTrigger
     )
 
     private fun refreshPositionMarks() {
@@ -1484,6 +1508,7 @@ class BrokerEmulatorEngine(
         if (remaining <= 0 && current.parentId == 0) {
             val norm = SymbolMarkets.normalizeSymbol(current.symbol)
             activateChildOrders(current.orderId)
+            stampTrailingActivationOnEntryFill(current.orderId)
             pendingBracketWalks.remove(norm)?.let { walk ->
                 walk.ticksElapsed = 0
                 bracketPriceWalks[norm] = walk

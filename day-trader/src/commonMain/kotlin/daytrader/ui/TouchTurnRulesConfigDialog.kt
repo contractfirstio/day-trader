@@ -50,6 +50,7 @@ import daytrader.domain.TouchTurnRuleFieldDefinition
 import daytrader.domain.TouchTurnRuleFieldKind
 import daytrader.domain.TouchTurnRuleFieldSubGroup
 import daytrader.domain.TouchTurnRuleToggleDefinition
+import daytrader.domain.TouchTurnTrailingActivateClockBase
 import daytrader.ui.theme.BrandRed
 import daytrader.ui.theme.DarkBackground
 import daytrader.ui.theme.GainGreen
@@ -195,7 +196,8 @@ fun TouchTurnRulesConfigDialog(
                                 val invertTradeSide = toggleValues["invertTradeSide"] == true
                                 for (field in TouchTurnRuleConfig.visibleFieldDefinitions(
                                     invertTradeSide,
-                                    toggleValues
+                                    toggleValues,
+                                    fieldValues
                                 )) {
                                     val raw = fieldValues[field.key].orEmpty()
                                     val next = TouchTurnRuleConfig.withFieldValue(updated, field.key, raw)
@@ -238,7 +240,8 @@ private fun TouchTurnRuleCategorySection(
     val fieldGroups = TouchTurnRuleConfig.fieldGroupsForCategory(
         category = category,
         invertTradeSide = invertTradeSide,
-        toggleValues = toggleValues
+        toggleValues = toggleValues,
+        fieldValues = fieldValues
     )
 
     Column(
@@ -598,6 +601,24 @@ private fun TouchTurnRuleFieldEditor(
         )
         return
     }
+    if (field.kind == TouchTurnRuleFieldKind.TRAILING_ACTIVATE_CLOCK_BASE) {
+        TouchTurnTrailingActivateClockBaseEditor(
+            field = field,
+            value = value,
+            enabled = enabled,
+            onValueChange = onValueChange
+        )
+        return
+    }
+    if (field.kind == TouchTurnRuleFieldKind.BOOLEAN) {
+        TouchTurnBooleanFieldEditor(
+            field = field,
+            value = value,
+            enabled = enabled,
+            onValueChange = onValueChange
+        )
+        return
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -646,14 +667,93 @@ private fun TouchTurnRuleFieldEditor(
                         TouchTurnRuleFieldKind.OPTIONAL_RATIO -> "0.60"
                         TouchTurnRuleFieldKind.PRICE -> "0"
                         TouchTurnRuleFieldKind.INTEGER -> "14"
+                        TouchTurnRuleFieldKind.NON_NEGATIVE_INTEGER -> "0"
                         TouchTurnRuleFieldKind.MILLISECONDS -> "3000"
                         TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE -> "OFF"
+                        TouchTurnRuleFieldKind.TRAILING_ACTIVATE_CLOCK_BASE -> "SESSION_OPEN"
+                        TouchTurnRuleFieldKind.BOOLEAN -> "true"
                     },
                     color = TextSecondary,
                     fontSize = 11.sp
                 )
             }
         )
+    }
+}
+
+@Composable
+private fun TouchTurnBooleanFieldEditor(
+    field: TouchTurnRuleFieldDefinition,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit
+) {
+    val checked = value.equals("true", ignoreCase = true)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnRuleFieldGroup-${field.key}"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            field.label,
+            fontSize = 11.sp,
+            color = Color.White,
+            modifier = Modifier.weight(1f)
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = { onValueChange(it.toString()) },
+            enabled = enabled,
+            modifier = Modifier
+                .scale(0.85f)
+                .testTag("TouchTurnRuleField-${field.key}"),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = Color(0xFF3D8B5A),
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = TableHeaderBg
+            )
+        )
+    }
+}
+
+@Composable
+private fun TouchTurnTrailingActivateClockBaseEditor(
+    field: TouchTurnRuleFieldDefinition,
+    value: String,
+    enabled: Boolean,
+    onValueChange: (String) -> Unit
+) {
+    val options = TouchTurnTrailingActivateClockBase.entries.map { it.name }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("TouchTurnRuleFieldGroup-${field.key}"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(field.label, fontSize = 11.sp, color = Color.White)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEach { option ->
+                val selected = value == option
+                OutlinedButton(
+                    onClick = { if (enabled) onValueChange(option) },
+                    enabled = enabled,
+                    modifier = Modifier.testTag("TouchTurnRuleField-${field.key}-$option"),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (selected) Color.White else TextSecondary
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (selected) Color(0xFF3D8B5A) else TableHeaderBg
+                    ),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(option, fontSize = 10.sp)
+                }
+            }
+        }
     }
 }
 

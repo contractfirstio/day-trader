@@ -40,36 +40,17 @@ object TradeUiMapper {
     }
 
     fun parseFillTime(raw: String): LocalDateTime? {
-        parseFillDate(raw)?.let { return it.atStartOfDay() }
         if (raw.isBlank()) return null
         val trimmed = raw.trim()
-        return try {
-            LocalDateTime.parse(trimmed, isoFormatter)
-        } catch (_: DateTimeParseException) {
-            try {
-                LocalDateTime.parse(trimmed, isoFractionFormatter)
-            } catch (_: DateTimeParseException) {
-                try {
-                    LocalDateTime.parse(trimmed, ibTimeFormatter)
-                } catch (_: DateTimeParseException) {
-                    null
-                }
-            }
-        }
+        parseDateTime(trimmed)?.let { return it }
+        return parseDateOnly(trimmed)?.atStartOfDay()
     }
 
     fun parseFillDate(raw: String): LocalDate? {
         if (raw.isBlank()) return null
         val trimmed = raw.trim()
-        return try {
-            LocalDate.parse(trimmed, isoDateFormatter)
-        } catch (_: DateTimeParseException) {
-            try {
-                LocalDate.parse(trimmed.take(8), ibDateFormatter)
-            } catch (_: DateTimeParseException) {
-                parseFillTime(trimmed)?.toLocalDate()
-            }
-        }
+        parseDateOnly(trimmed)?.let { return it }
+        return parseDateTime(trimmed)?.toLocalDate()
     }
 
     fun sideLabel(side: String): String = when (side.uppercase()) {
@@ -90,4 +71,30 @@ object TradeUiMapper {
         parseFillDate(raw)?.let { return it.format(displayDateFormatter) }
         return raw
     }
+
+    private fun parseDateOnly(trimmed: String): LocalDate? =
+        try {
+            LocalDate.parse(trimmed, isoDateFormatter)
+        } catch (_: DateTimeParseException) {
+            try {
+                LocalDate.parse(trimmed.take(8), ibDateFormatter)
+            } catch (_: DateTimeParseException) {
+                null
+            }
+        }
+
+    private fun parseDateTime(trimmed: String): LocalDateTime? =
+        try {
+            LocalDateTime.parse(trimmed, isoFormatter)
+        } catch (_: DateTimeParseException) {
+            try {
+                LocalDateTime.parse(trimmed, isoFractionFormatter)
+            } catch (_: DateTimeParseException) {
+                try {
+                    LocalDateTime.parse(trimmed, ibTimeFormatter)
+                } catch (_: DateTimeParseException) {
+                    null
+                }
+            }
+        }
 }

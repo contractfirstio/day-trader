@@ -30,7 +30,9 @@ object TouchTurnOrderLog {
         setup: TouchTurnBracketSetup?,
         openingBarClose: Double? = null,
         brokerGateway: BrokerGateway? = null,
-        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT,
+        sessionOpenEpochMs: Long? = null,
+        entryFillEpochMs: Long? = null
     ): Boolean {
         if (setup == null || !TouchTurnLogic.setupActionableForEntry(setup, rules)) return false
         val plan = TouchTurnOrderPlanner.buildOrderPlan(
@@ -42,6 +44,11 @@ object TouchTurnOrderLog {
             openingBarClose = openingBarClose,
             rules = rules
         )
+            ?.withTrailingActivationSchedule(
+                rules = rules,
+                sessionOpenEpochMs = sessionOpenEpochMs,
+                entryFillEpochMs = entryFillEpochMs
+            )
             ?: return false
         logPlannedBracket(instanceId, sessionDate, maxDollars, setup, plan, brokerGateway)
         return true

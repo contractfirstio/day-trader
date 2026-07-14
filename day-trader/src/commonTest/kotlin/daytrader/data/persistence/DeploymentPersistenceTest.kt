@@ -6,6 +6,7 @@ import daytrader.domain.MarketSource
 import daytrader.domain.StrategyType
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
+import daytrader.domain.TouchTurnTrailingActivateClockBase
 import daytrader.domain.withNewConfigurableRulesDisabled
 import daytrader.domain.defaultStrategyDeployment
 import kotlin.test.Test
@@ -145,6 +146,27 @@ class DeploymentPersistenceTest {
         val record = DeploymentPersistence.toRecord(original).configuration.touchTurnRules
         assertEquals(false, record?.enableOpenDeadline)
         assertEquals(90, record?.stopAfterOpenMinutes)
+    }
+
+    @Test
+    fun configurationRoundTrip_persistsTrailingActivationGates() {
+        val original = defaultStrategyDeployment(
+            strategyType = StrategyType.TOUCH_AND_TURN_SCALPER,
+            symbol = "AAPL",
+            maxDollars = 500
+        ).copy(
+            touchTurnRules = TouchTurnRuleConfig.DEFAULT.copy(
+                trailingActivateAfterMinutes = 80,
+                trailingActivateClockBase = TouchTurnTrailingActivateClockBase.FILL,
+                trailingRequirePriceTrigger = false
+            )
+        )
+
+        val restored = DeploymentPersistence.toDomain(DeploymentPersistence.toRecord(original))
+
+        assertEquals(80, restored.touchTurnRules.trailingActivateAfterMinutes)
+        assertEquals(TouchTurnTrailingActivateClockBase.FILL, restored.touchTurnRules.trailingActivateClockBase)
+        assertEquals(false, restored.touchTurnRules.trailingRequirePriceTrigger)
     }
 
     @Test

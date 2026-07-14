@@ -236,6 +236,7 @@ class EmulatorBrokerAdapter(
                         )
                     is GatewayCommand.FlattenSymbolForSymbol ->
                         controlChannel.send(EmulatorControlMessage.FlattenSymbol(command.symbol))
+                    is GatewayCommand.TryAttachDeferredTrailingStops -> Unit
                     GatewayCommand.RequestExecutions -> withEngine { engine.republishFills() }
                     GatewayCommand.RequestPositions -> withEngine { engine.republishPositions() }
                 }

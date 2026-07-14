@@ -462,6 +462,18 @@ object TouchTurnRuleExplanationMapper {
                     "arm stop at ${rules.trailingStopArmFractionOfEntryToStop}× entry-to-stop toward initial stop; " +
                     "then ratchets 1:1 with further favorable price."
             )
+            when {
+                rules.trailingActivateAfterMinutes > 0 -> add(
+                    "Activation delay: ${rules.trailingActivateAfterMinutes}m after " +
+                        "${rules.trailingActivateClockBase.name.lowercase().replace('_', ' ')}" +
+                        if (rules.trailingRequirePriceTrigger) " (price trigger still required)."
+                        else " (arms when the clock opens)."
+                )
+                !rules.trailingRequirePriceTrigger -> add(
+                    "Price trigger not required — trailing arms as soon as the position is live."
+                )
+                else -> Unit
+            }
             validationError?.let { add("Configuration invalid: $it") }
             params?.let {
                 val armNote = if (rules.trailingStopArmFractionOfEntryToStop > 0.0) {

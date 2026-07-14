@@ -131,6 +131,12 @@ interface BrokerGateway {
     /** Cancel open orders and close any position for [symbol] (session stop). */
     fun flattenSymbolForSymbol(symbol: String)
 
+    /**
+     * Attach deferred adjustable trailing stops that became time-eligible.
+     * No-op when the adapter has no pending deferred trails (emulator self-gates).
+     */
+    fun tryAttachDeferredTrailingStops(nowEpochMs: Long = System.currentTimeMillis()) = Unit
+
     /** Ask the broker adapter to reload execution reports into [fills]. */
     fun refreshFills()
 

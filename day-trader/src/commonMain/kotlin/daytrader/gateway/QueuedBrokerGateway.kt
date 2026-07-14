@@ -322,6 +322,10 @@ class QueuedBrokerGateway(
         sendCommand(GatewayCommand.FlattenSymbolForSymbol(symbol))
     }
 
+    override fun tryAttachDeferredTrailingStops(nowEpochMs: Long) {
+        sendCommand(GatewayCommand.TryAttachDeferredTrailingStops(nowEpochMs))
+    }
+
     override fun refreshFills() {
         sendCommand(GatewayCommand.RequestExecutions)
     }

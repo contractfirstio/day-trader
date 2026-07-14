@@ -59,6 +59,13 @@ object TouchTurnDefaults {
     const val TRAILING_STOP_TRIGGER_FRACTION_OF_ENTRY_TO_TP = 0.5
     /** When trailing arms, place stop this fraction of the way from entry toward the initial stop. 0 = at entry. */
     const val TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP = 0.0
+    /**
+     * Minutes to wait before trailing may activate (0 = no clock delay).
+     * Interpreted relative to [TouchTurnRuleConfig.trailingActivateClockBase].
+     */
+    const val TRAILING_ACTIVATE_AFTER_MINUTES = 0
+    /** When true, trailing still needs the price trigger after any clock delay. */
+    const val TRAILING_REQUIRE_PRICE_TRIGGER = true
     const val RTH_SESSION_OPEN_HOUR = 9
     const val RTH_SESSION_OPEN_MINUTE = 30
     /** 5m hammer: body must be at most this fraction of bar range. */

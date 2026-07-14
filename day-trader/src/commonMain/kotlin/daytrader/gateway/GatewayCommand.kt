@@ -110,6 +110,9 @@ sealed interface GatewayCommand {
     /** Cancel working orders and close any open position for [symbol] (session stop). */
     data class FlattenSymbolForSymbol(val symbol: String) : GatewayCommand
 
+    /** Attempt to attach time-eligible deferred adjustable trailing stops (IB). */
+    data class TryAttachDeferredTrailingStops(val nowEpochMs: Long) : GatewayCommand
+
     /** Reload executions/fills from the broker (IB: [reqExecutions]). */
     data object RequestExecutions : GatewayCommand
 

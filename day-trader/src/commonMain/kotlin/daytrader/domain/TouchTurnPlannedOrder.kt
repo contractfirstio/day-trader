@@ -36,7 +36,23 @@ data class TouchTurnPlannedOrder(
     /** Price at which IB converts the stop to TRAIL (adjustable stop, Option A). */
     val trailTriggerPrice: Double? = null,
     /** Stop price when trailing arms; null when trailing disabled. */
-    val trailArmStopPrice: Double? = null
+    val trailArmStopPrice: Double? = null,
+    /**
+     * When true, IB places the adjustable STP→TRAIL child with the initial bracket.
+     * When false, trail prices are retained for charts / deferred attach / emulator gates.
+     */
+    val attachAdjustableAtPlacement: Boolean = true,
+    /**
+     * Epoch after which trailing may arm (null = no time gate, or unknown until entry fill).
+     */
+    val trailActivateAfterEpochMs: Long? = null,
+    /**
+     * Minutes to apply from entry fill when [trailActivateAfterEpochMs] is still unknown at place
+     * ([TouchTurnTrailingActivateClockBase.FILL]).
+     */
+    val trailActivateAfterMinutes: Int = 0,
+    /** When false, arm trailing as soon as the time gate opens (ignore price trigger). */
+    val trailRequirePriceTrigger: Boolean = true
 )
 
 @Serializable
@@ -49,7 +65,38 @@ data class TouchTurnOrderPlan(
     val orders: List<TouchTurnPlannedOrder>,
     /** First 15m bar close — emulator seeds live price here before walking to the entry limit. */
     val openingBarClose: Double? = null
-)
+) {
+    /**
+     * Stamps trailing activation schedule onto the stop leg from [rules] and known clocks.
+     * Call before placing so IB deferral and emulator gates share the same epoch.
+     */
+    fun withTrailingActivationSchedule(
+        rules: TouchTurnRuleConfig,
+        sessionOpenEpochMs: Long? = null,
+        entryFillEpochMs: Long? = null
+    ): TouchTurnOrderPlan {
+        if (!rules.enables.adjustableTrailingStop) return this
+        val clockBase = TouchTurnTrailingActivation.clockBaseEpochMs(
+            rules = rules,
+            sessionOpenEpochMs = sessionOpenEpochMs,
+            entryFillEpochMs = entryFillEpochMs
+        )
+        val activationEpoch = clockBase?.let { TouchTurnTrailingActivation.activationEpochMs(rules, it) }
+        val attachAtPlacement = TouchTurnTrailingActivation.attachAdjustableAtPlacement(rules)
+        return copy(
+            orders = orders.map { leg ->
+                if (leg.role != TouchTurnOrderRole.STOP_LOSS) return@map leg
+                if (leg.trailTriggerPrice == null || leg.trailArmStopPrice == null) return@map leg
+                leg.copy(
+                    attachAdjustableAtPlacement = attachAtPlacement,
+                    trailActivateAfterEpochMs = activationEpoch,
+                    trailActivateAfterMinutes = rules.trailingActivateAfterMinutes,
+                    trailRequirePriceTrigger = rules.trailingRequirePriceTrigger
+                )
+            }
+        )
+    }
+}
 
 sealed interface TouchTurnOrderSizingResult {
     data class Ok(val quantity: Int, val rawQuantity: Int) : TouchTurnOrderSizingResult
@@ -195,7 +242,11 @@ object TouchTurnOrderPlanner {
                     price = setup.stopLoss,
                     timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.STOP_LOSS),
                     trailTriggerPrice = adjustableStop?.triggerPrice,
-                    trailArmStopPrice = adjustableStop?.armStopPrice
+                    trailArmStopPrice = adjustableStop?.armStopPrice,
+                    attachAdjustableAtPlacement = adjustableStop != null &&
+                        TouchTurnTrailingActivation.attachAdjustableAtPlacement(rules),
+                    trailActivateAfterMinutes = rules.trailingActivateAfterMinutes,
+                    trailRequirePriceTrigger = rules.trailingRequirePriceTrigger
                 )
             )
         )
@@ -270,7 +321,11 @@ object TouchTurnOrderPlanner {
                     price = confirmationSetup.stopLoss,
                     timeInForce = TouchTurnOrderDefaults.timeInForceFor(TouchTurnOrderRole.STOP_LOSS),
                     trailTriggerPrice = adjustableStop?.triggerPrice,
-                    trailArmStopPrice = adjustableStop?.armStopPrice
+                    trailArmStopPrice = adjustableStop?.armStopPrice,
+                    attachAdjustableAtPlacement = adjustableStop != null &&
+                        TouchTurnTrailingActivation.attachAdjustableAtPlacement(rules),
+                    trailActivateAfterMinutes = rules.trailingActivateAfterMinutes,
+                    trailRequirePriceTrigger = rules.trailingRequirePriceTrigger
                 )
             )
         )

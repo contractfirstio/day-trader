@@ -48,7 +48,9 @@ internal object IbTouchTurnBracketPlacer {
             return null
         }
 
-        val hasAdjustableStop = stopLoss.trailTriggerPrice != null && stopLoss.trailArmStopPrice != null
+        val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
+            stopLoss.trailArmStopPrice != null &&
+            stopLoss.attachAdjustableAtPlacement
         val legCount = if (hasAdjustableStop) ADJUSTABLE_STOP_LEG_COUNT else BRACKET_LEG_COUNT
         val parentOrderId = allocateOrderIds(legCount) ?: run {
             IbGatewayLog.touchTurnBracketSkipped("Order id not ready (await nextValidId)")
@@ -116,8 +118,10 @@ internal object IbTouchTurnBracketPlacer {
         val contract = contractOverride ?: contractFor(plan, symbol)
         val hasAdjustableStop = stopLoss.trailTriggerPrice != null &&
             stopLoss.trailArmStopPrice != null &&
+            stopLoss.attachAdjustableAtPlacement &&
             orderIds.adjustableStopOrderId != null
         val adjustableStop = orderIds.adjustableStopOrderId?.let { adjId ->
+            if (!hasAdjustableStop) return@let null
             buildAdjustableStopOrder(
                 config = config,
                 plan = plan,
@@ -176,6 +180,34 @@ internal object IbTouchTurnBracketPlacer {
             contract.currency(currency)
         }
         return contract
+    }
+
+    /**
+     * Builds only the adjustable STP→TRAIL child attached to an existing stop (deferred activation).
+     * When [stopLoss.trailRequirePriceTrigger] is false, [triggerPriceOverride] should already be
+     * market-crossed so IB converts immediately; otherwise use the planned trail trigger.
+     */
+    fun buildDeferredAdjustableStop(
+        config: IbGatewayConfig,
+        plan: TouchTurnOrderPlan,
+        stopLoss: TouchTurnPlannedOrder,
+        adjustableStopOrderId: Int,
+        stopLossOrderId: Int,
+        triggerPriceOverride: Double? = null,
+    ): Order {
+        val effectiveStop = if (triggerPriceOverride != null) {
+            stopLoss.copy(trailTriggerPrice = triggerPriceOverride)
+        } else {
+            stopLoss
+        }
+        return buildAdjustableStopOrder(
+            config = config,
+            plan = plan,
+            stopLoss = effectiveStop,
+            orderId = adjustableStopOrderId,
+            stopLossOrderId = stopLossOrderId,
+            transmit = true
+        )
     }
 
     private fun buildOrder(

@@ -133,10 +133,20 @@ class DesktopIbGatewayConnection(
     private val orderParentByOrderId = ConcurrentHashMap<Int, Int>()
     private val trailAdjustmentOrderIds = ConcurrentHashMap.newKeySet<Int>()
     private val stopTrailParamsByOrderId = ConcurrentHashMap<Int, StopTrailParams>()
+    private val pendingDeferredTrailsByStopOrderId = ConcurrentHashMap<Int, PendingDeferredTrail>()
+    @Volatile
+    private var deferredTrailAttachJob: Job? = null
 
     private data class StopTrailParams(
         val triggerPrice: Double,
         val trailAmount: Double
+    )
+
+    private data class PendingDeferredTrail(
+        val plan: daytrader.domain.TouchTurnOrderPlan,
+        val stopLoss: daytrader.domain.TouchTurnPlannedOrder,
+        val activateAfterEpochMs: Long?,
+        val contract: Contract
     )
 
     private data class SessionCloseOrderMeta(
@@ -387,6 +397,11 @@ class DesktopIbGatewayConnection(
                     is GatewayCommand.FlattenSymbolForSymbol -> {
                         if (!marketDataOnly) {
                             flattenSymbolForSymbol(command.symbol)
+                        }
+                    }
+                    is GatewayCommand.TryAttachDeferredTrailingStops -> {
+                        if (!marketDataOnly) {
+                            tryAttachDeferredTrailingStops(command.nowEpochMs)
                         }
                     }
                     GatewayCommand.RequestExecutions -> scheduleExecutionsRefresh()
@@ -2287,6 +2302,9 @@ class DesktopIbGatewayConnection(
         sessionCloseOrdersById.clear()
         trailAdjustmentOrderIds.clear()
         stopTrailParamsByOrderId.clear()
+        pendingDeferredTrailsByStopOrderId.clear()
+        deferredTrailAttachJob?.cancel()
+        deferredTrailAttachJob = null
         emit(GatewayEvent.FillsSnapshot(emptyList()))
         emit(GatewayEvent.QuotesSnapshot(emptyMap()))
         openOrdersLoadFinished = false
@@ -2581,6 +2599,15 @@ class DesktopIbGatewayConnection(
                             armStop
                         )
                     )
+                if (!stopLeg.attachAdjustableAtPlacement && submission.adjustableStop == null) {
+                    pendingDeferredTrailsByStopOrderId[submission.stopLossOrderId] = PendingDeferredTrail(
+                        plan = plan,
+                        stopLoss = stopLeg,
+                        activateAfterEpochMs = stopLeg.trailActivateAfterEpochMs,
+                        contract = submission.contract
+                    )
+                    ensureDeferredTrailAttachLoop()
+                }
             }
         }
         val onFailure = { pending: IbTouchTurnBracketCoordinator.Pending, reason: String ->
@@ -2791,6 +2818,99 @@ class DesktopIbGatewayConnection(
         publishOpenOrders()
         IbGatewayLog.openDeadlineStopPlaced(symbol, orderId, roundedStop)
     }
+
+    private fun ensureDeferredTrailAttachLoop() {
+        if (deferredTrailAttachJob?.isActive == true) return
+        deferredTrailAttachJob = scope.launch {
+            while (pendingDeferredTrailsByStopOrderId.isNotEmpty() && client.isConnected) {
+                tryAttachDeferredTrailingStops(System.currentTimeMillis())
+                delay(5_000L)
+            }
+        }
+    }
+
+    private fun tryAttachDeferredTrailingStops(nowEpochMs: Long) {
+        if (!client.isConnected) return
+        val pending = pendingDeferredTrailsByStopOrderId.entries.toList()
+        for ((stopOrderId, deferred) in pending) {
+            val stopWorking = openOrdersById[stopOrderId]
+            if (stopWorking == null || stopWorking.isTerminalStatus()) {
+                pendingDeferredTrailsByStopOrderId.remove(stopOrderId)
+                continue
+            }
+            val activateEpoch = when {
+                deferred.activateAfterEpochMs != null -> deferred.activateAfterEpochMs
+                deferred.stopLoss.trailActivateAfterMinutes > 0 ->
+                    resolveFillActivationEpoch(stopOrderId, deferred, nowEpochMs) ?: continue
+                else -> null
+            }
+            if (activateEpoch != null && nowEpochMs < activateEpoch) continue
+            val triggerOverride = if (!deferred.stopLoss.trailRequirePriceTrigger) {
+                immediateTrailTriggerPrice(deferred.stopLoss.action, deferred.plan.symbol)
+            } else {
+                null
+            }
+            val adjId = allocateOrderIds(1) ?: continue
+            val adjustable = IbTouchTurnBracketPlacer.buildDeferredAdjustableStop(
+                config = config,
+                plan = deferred.plan,
+                stopLoss = deferred.stopLoss,
+                adjustableStopOrderId = adjId,
+                stopLossOrderId = stopOrderId,
+                triggerPriceOverride = triggerOverride
+            )
+            trailAdjustmentOrderIds.add(adjId)
+            orderParentByOrderId[adjId] = stopOrderId
+            val trigger = triggerOverride ?: deferred.stopLoss.trailTriggerPrice
+            val arm = deferred.stopLoss.trailArmStopPrice
+            if (trigger != null && arm != null) {
+                stopTrailParamsByOrderId[stopOrderId] = StopTrailParams(
+                    triggerPrice = trigger,
+                    trailAmount = daytrader.domain.TouchTurnAdjustableStop.nominalTrailAmount(trigger, arm)
+                )
+            }
+            pacedPriority {
+                if (!client.isConnected) return@pacedPriority
+                client.placeOrder(adjId, deferred.contract, adjustable)
+            }
+            pendingDeferredTrailsByStopOrderId.remove(stopOrderId)
+            IbGatewayLog.info(
+                "Deferred trail attached symbol=${deferred.plan.symbol} stopId=$stopOrderId adjId=$adjId"
+            )
+        }
+    }
+
+    private fun resolveFillActivationEpoch(
+        stopOrderId: Int,
+        deferred: PendingDeferredTrail,
+        nowEpochMs: Long
+    ): Long? {
+        val parentFilled = openOrdersById.values.any { order ->
+            SymbolMarkets.symbolsMatch(order.symbol, deferred.plan.symbol) &&
+                order.parentOrderId == 0 &&
+                order.status.equals("Filled", ignoreCase = true)
+        }
+        if (!parentFilled) return null
+        val epoch = nowEpochMs + deferred.stopLoss.trailActivateAfterMinutes * 60_000L
+        pendingDeferredTrailsByStopOrderId[stopOrderId] =
+            deferred.copy(activateAfterEpochMs = epoch)
+        return epoch
+    }
+
+    private fun immediateTrailTriggerPrice(stopAction: String, symbol: String): Double? {
+        val norm = SymbolMarkets.normalizeSymbol(symbol)
+        return when (stopAction.uppercase()) {
+            "SELL" -> bidPrices[norm]?.let { it - 0.01 } ?: 0.01
+            "BUY" -> askPrices[norm]?.let { it + 0.01 } ?: 1_000_000.0
+            else -> null
+        }
+    }
+
+    private fun WorkingOrder.isTerminalStatus(): Boolean =
+        status.equals("Filled", ignoreCase = true) ||
+            status.equals("Cancelled", ignoreCase = true) ||
+            status.equals("Inactive", ignoreCase = true) ||
+            status.equals("ApiCancelled", ignoreCase = true)
 
     private fun flattenSymbolForSymbol(symbol: String) {
         cancelOpenOrdersForSymbol(symbol, preserveStopLoss = false)

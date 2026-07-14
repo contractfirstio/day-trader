@@ -126,6 +126,42 @@ class IbTouchTurnBracketPlacerTest {
     }
 
     @Test
+    fun build_deferredTrailingPlan_placesFixedStopOnly() {
+        val plan = TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = "AAPL",
+            setup = TouchTurnBracketSetup(
+                range = 10.0,
+                rangeThreshold = 0.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.GREEN,
+                side = TouchTurnTradeSide.LONG,
+                entry = 100.0,
+                stopLoss = 95.0,
+                takeProfit = 110.0
+            ),
+            maxDollars = 1000,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(trailingActivateAfterMinutes = 80)
+        )!!
+        val stop = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }
+        assertFalse(stop.attachAdjustableAtPlacement)
+        assertNotNull(stop.trailTriggerPrice)
+
+        val submission = IbTouchTurnBracketPlacer.build(
+            client = TestEClientSocket(connected = true),
+            config = config,
+            plan = plan,
+            allocateOrderIds = { count ->
+                assertEquals(3, count)
+                800
+            },
+        )
+        assertNotNull(submission)
+        assertNull(submission.adjustableStop)
+        assertNull(submission.adjustableStopOrderId)
+        assertTrue(submission.stopLoss.transmit())
+    }
+
+    @Test
     fun build_trailingStopPlan_emitsAdjustableStopLegWithTransmit() {
         val plan = E2EBracketHelper.trailingLiquidityPlan()
         val stopLoss = plan.orders.first { it.role == TouchTurnOrderRole.STOP_LOSS }

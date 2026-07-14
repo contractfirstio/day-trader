@@ -84,6 +84,19 @@ data class TouchTurnRuleConfig(
     val trailingStopArmFractionOfEntryToStop: Double =
         TouchTurnDefaults.TRAILING_STOP_ARM_FRACTION_OF_ENTRY_TO_STOP,
     /**
+     * Minutes after [trailingActivateClockBase] before trailing may activate.
+     * 0 = no clock delay (today's immediate path when [trailingRequirePriceTrigger] is also true).
+     */
+    val trailingActivateAfterMinutes: Int = TouchTurnDefaults.TRAILING_ACTIVATE_AFTER_MINUTES,
+    /** Clock for [trailingActivateAfterMinutes]: RTH open or entry fill. */
+    val trailingActivateClockBase: TouchTurnTrailingActivateClockBase =
+        TouchTurnTrailingActivateClockBase.SESSION_OPEN,
+    /**
+     * When true, trailing arms only after the price trigger (and any clock delay).
+     * When false, trailing arms as soon as the clock gate opens (or immediately if minutes is 0).
+     */
+    val trailingRequirePriceTrigger: Boolean = TouchTurnDefaults.TRAILING_REQUIRE_PRICE_TRIGGER,
+    /**
      * Minimum projected gross profit (|take-profit − entry| × quantity) before any bracket is
      * submitted. In the symbol's trading currency; 0 disables the gate.
      */
@@ -371,12 +384,13 @@ data class TouchTurnRuleConfig(
                 description = "When adjustable trailing is enabled, price must reach entry plus this fraction of " +
                     "the entry-to-take-profit distance before the stop converts to an IB trail at the arm level. " +
                     "Default 0.5 = halfway to target. Must leave a positive distance from the arm stop " +
-                    "(IB rejects a zero trail amount).",
+                    "(IB rejects a zero trail amount). Hidden when \"Require price trigger\" is off.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.POST_ENTRY,
-                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_WHEN_ON,
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_ARM_LEVELS,
                 defaultable = true,
-                visibleWhenToggleKey = "adjustableTrailingStop"
+                visibleWhenToggleKey = "adjustableTrailingStop",
+                visibleWhenBooleanFieldKey = "trailingRequirePriceTrigger"
             ),
             TouchTurnRuleFieldDefinition(
                 key = "trailingStopArmFractionOfEntryToStop",
@@ -386,7 +400,40 @@ data class TouchTurnRuleConfig(
                     "stop. 1 = unchanged at the initial stop. Must be between 0 and 1.",
                 kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.POST_ENTRY,
-                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_WHEN_ON,
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_ARM_LEVELS,
+                defaultable = true,
+                visibleWhenToggleKey = "adjustableTrailingStop"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "trailingActivateAfterMinutes",
+                label = "Trail activate after (minutes)",
+                description = "Wait this many minutes after the chosen clock (RTH open or entry fill) before " +
+                    "trailing may activate. 0 = no clock delay. Combined with \"require price trigger\" this covers " +
+                    "immediate price-only trailing, delayed eligibility, or time-activated trailing.",
+                kind = TouchTurnRuleFieldKind.NON_NEGATIVE_INTEGER,
+                category = TouchTurnRuleCategory.POST_ENTRY,
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_ACTIVATION,
+                defaultable = true,
+                visibleWhenToggleKey = "adjustableTrailingStop"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "trailingActivateClockBase",
+                label = "Trail activate clock",
+                description = "SESSION_OPEN = minutes after regular-hours open. FILL = minutes after the entry fills.",
+                kind = TouchTurnRuleFieldKind.TRAILING_ACTIVATE_CLOCK_BASE,
+                category = TouchTurnRuleCategory.POST_ENTRY,
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_ACTIVATION,
+                defaultable = true,
+                visibleWhenToggleKey = "adjustableTrailingStop"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "trailingRequirePriceTrigger",
+                label = "Require price trigger",
+                description = "When on (default), trailing still waits for the trail-arm price after any clock delay. " +
+                    "When off, trailing becomes active as soon as the clock gate opens (or immediately if minutes is 0).",
+                kind = TouchTurnRuleFieldKind.BOOLEAN,
+                category = TouchTurnRuleCategory.POST_ENTRY,
+                subGroup = TouchTurnRuleFieldSubGroup.TRAILING_ACTIVATION,
                 defaultable = true,
                 visibleWhenToggleKey = "adjustableTrailingStop"
             ),
@@ -410,10 +457,11 @@ data class TouchTurnRuleConfig(
         fun fieldsForCategoryDisplay(
             category: TouchTurnRuleCategory,
             invertTradeSide: Boolean = false,
-            toggleValues: Map<String, Boolean> = emptyMap()
+            toggleValues: Map<String, Boolean> = emptyMap(),
+            fieldValues: Map<String, String> = emptyMap()
         ): List<TouchTurnRuleFieldDefinition> =
             fieldsForCategory(category)
-                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
+                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues, fieldValues) }
                 .sortedWith(
                     compareByDescending<TouchTurnRuleFieldDefinition> { it.defaultable }.thenBy { it.label }
                 )
@@ -421,10 +469,11 @@ data class TouchTurnRuleConfig(
         fun fieldGroupsForCategory(
             category: TouchTurnRuleCategory,
             invertTradeSide: Boolean,
-            toggleValues: Map<String, Boolean>
+            toggleValues: Map<String, Boolean>,
+            fieldValues: Map<String, String> = emptyMap()
         ): List<TouchTurnRuleFieldGroup> {
             val visible = fieldsForCategory(category)
-                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
+                .filter { it.isVisibleForConfig(invertTradeSide, toggleValues, fieldValues) }
             if (visible.isEmpty()) return emptyList()
             return when (category) {
                 TouchTurnRuleCategory.TRIGGERS -> listOfNotNull(
@@ -454,9 +503,10 @@ data class TouchTurnRuleConfig(
 
         fun visibleFieldDefinitions(
             invertTradeSide: Boolean,
-            toggleValues: Map<String, Boolean> = emptyMap()
+            toggleValues: Map<String, Boolean> = emptyMap(),
+            fieldValues: Map<String, String> = emptyMap()
         ): List<TouchTurnRuleFieldDefinition> =
-            fieldDefinitions.filter { it.isVisibleForConfig(invertTradeSide, toggleValues) }
+            fieldDefinitions.filter { it.isVisibleForConfig(invertTradeSide, toggleValues, fieldValues) }
 
         fun invertLinkedFieldDefinitions(invertTradeSide: Boolean): List<TouchTurnRuleFieldDefinition> =
             fieldsForCategoryDisplay(TouchTurnRuleCategory.EXECUTION, invertTradeSide = invertTradeSide)
@@ -493,6 +543,9 @@ data class TouchTurnRuleConfig(
                 config.trailingStopTriggerFractionOfEntryToTp.toString()
             "trailingStopArmFractionOfEntryToStop" ->
                 config.trailingStopArmFractionOfEntryToStop.toString()
+            "trailingActivateAfterMinutes" -> config.trailingActivateAfterMinutes.toString()
+            "trailingActivateClockBase" -> config.trailingActivateClockBase.name
+            "trailingRequirePriceTrigger" -> config.trailingRequirePriceTrigger.toString()
             "minGrossProfit" -> config.minGrossProfit.toString()
             "closedBarRefetchSettleMs" -> config.closedBarRefetchSettleMs.toString()
             "greenSkipClosePositionBelow" -> config.greenSkipClosePositionBelow?.toString().orEmpty()
@@ -511,6 +564,9 @@ data class TouchTurnRuleConfig(
         private fun parseClosePositionTriggerMode(raw: String): TouchTurnClosePositionTriggerMode? =
             runCatching { TouchTurnClosePositionTriggerMode.valueOf(raw.trim()) }.getOrNull()
 
+        private fun parseTrailingActivateClockBase(raw: String): TouchTurnTrailingActivateClockBase? =
+            runCatching { TouchTurnTrailingActivateClockBase.valueOf(raw.trim()) }.getOrNull()
+
         private fun withClosePositionTriggerActionField(
             config: TouchTurnRuleConfig,
             key: String,
@@ -526,6 +582,12 @@ data class TouchTurnRuleConfig(
                 "redLiquidityBarAction" -> config.copy(redLiquidityBarAction = mode)
                 else -> null
             }
+        }
+
+        private fun parseBooleanField(raw: String): Boolean? = when (raw.trim().lowercase()) {
+            "true", "1", "yes", "on" -> true
+            "false", "0", "no", "off" -> false
+            else -> null
         }
 
         private fun parseOptionalClosePositionThreshold(raw: String): Double? {
@@ -566,6 +628,19 @@ data class TouchTurnRuleConfig(
                 ?.let { return withOptionalClosePositionField(config, key, raw) }
             fieldDefinitions.firstOrNull { it.key == key && it.kind == TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE }
                 ?.let { return withClosePositionTriggerActionField(config, key, raw) }
+            fieldDefinitions.firstOrNull { it.key == key && it.kind == TouchTurnRuleFieldKind.TRAILING_ACTIVATE_CLOCK_BASE }
+                ?.let {
+                    val base = parseTrailingActivateClockBase(raw) ?: return null
+                    return config.copy(trailingActivateClockBase = base)
+                }
+            fieldDefinitions.firstOrNull { it.key == key && it.kind == TouchTurnRuleFieldKind.BOOLEAN }
+                ?.let {
+                    val value = parseBooleanField(raw) ?: return null
+                    return when (key) {
+                        "trailingRequirePriceTrigger" -> config.copy(trailingRequirePriceTrigger = value)
+                        else -> null
+                    }
+                }
             return when (fieldDefinitions.firstOrNull { it.key == key }?.kind) {
                 TouchTurnRuleFieldKind.INTEGER -> {
                     val intValue = raw.trim().toIntOrNull() ?: return null
@@ -573,6 +648,14 @@ data class TouchTurnRuleConfig(
                     when (key) {
                         "dailyAtrLookbackPeriods" -> config.copy(dailyAtrLookbackPeriods = intValue)
                         "stopAfterOpenMinutes" -> config.copy(stopAfterOpenMinutes = intValue)
+                        else -> null
+                    }
+                }
+                TouchTurnRuleFieldKind.NON_NEGATIVE_INTEGER -> {
+                    val intValue = raw.trim().toIntOrNull() ?: return null
+                    if (intValue < 0) return null
+                    when (key) {
+                        "trailingActivateAfterMinutes" -> config.copy(trailingActivateAfterMinutes = intValue)
                         else -> null
                     }
                 }
@@ -715,7 +798,10 @@ enum class TouchTurnRuleFieldSubGroup(val label: String) {
     REVERSAL_ENTRY("Reversal / default entry"),
     INVERT_ENTRY("When inverse is on"),
     TAKE_PROFIT_AND_RISK("Take profit & risk"),
-    TRAILING_WHEN_ON("When trailing is on"),
+    /** Activation clock / price gate — shown directly under the trailing toggle. */
+    TRAILING_ACTIVATION("Activation"),
+    /** Trail arm fractions — separate panel below activation, away from the master toggle. */
+    TRAILING_ARM_LEVELS("Trail arm levels"),
     DEADLINE_WHEN_ON("When deadline is on"),
 }
 
@@ -732,8 +818,12 @@ enum class TouchTurnRuleFieldKind {
     OPTIONAL_RATIO,
     PRICE,
     INTEGER,
+    /** Integer ≥ 0 (allows zero; unlike [INTEGER] which rejects ≤ 0). */
+    NON_NEGATIVE_INTEGER,
     MILLISECONDS,
-    CLOSE_POSITION_TRIGGER_MODE
+    CLOSE_POSITION_TRIGGER_MODE,
+    TRAILING_ACTIVATE_CLOCK_BASE,
+    BOOLEAN
 }
 
 @Serializable
@@ -749,7 +839,12 @@ data class TouchTurnRuleFieldDefinition(
     /** When non-null, field is shown only when [invertTradeSide] matches this value. */
     val visibleWhenInvertTradeSide: Boolean? = null,
     /** When non-null, field is shown only when the named toggle is enabled. */
-    val visibleWhenToggleKey: String? = null
+    val visibleWhenToggleKey: String? = null,
+    /**
+     * When non-null, field is shown only when that boolean rule field is true
+     * (parsed from live dialog [fieldValues], e.g. [trailingRequirePriceTrigger]).
+     */
+    val visibleWhenBooleanFieldKey: String? = null
 )
 
 fun TouchTurnRuleFieldDefinition.isVisibleForInvertTradeSide(invertTradeSide: Boolean): Boolean =
@@ -758,10 +853,23 @@ fun TouchTurnRuleFieldDefinition.isVisibleForInvertTradeSide(invertTradeSide: Bo
 fun TouchTurnRuleFieldDefinition.isVisibleForToggle(toggleValues: Map<String, Boolean>): Boolean =
     visibleWhenToggleKey?.let { toggleValues[it] == true } != false
 
+fun TouchTurnRuleFieldDefinition.isVisibleForBooleanField(fieldValues: Map<String, String>): Boolean {
+    val key = visibleWhenBooleanFieldKey ?: return true
+    val raw = fieldValues[key] ?: return true // missing draft → keep visible (defaults on)
+    return raw.equals("true", ignoreCase = true) ||
+        raw.equals("1", ignoreCase = true) ||
+        raw.equals("yes", ignoreCase = true) ||
+        raw.equals("on", ignoreCase = true)
+}
+
 fun TouchTurnRuleFieldDefinition.isVisibleForConfig(
     invertTradeSide: Boolean,
-    toggleValues: Map<String, Boolean>
-): Boolean = isVisibleForInvertTradeSide(invertTradeSide) && isVisibleForToggle(toggleValues)
+    toggleValues: Map<String, Boolean>,
+    fieldValues: Map<String, String> = emptyMap()
+): Boolean =
+    isVisibleForInvertTradeSide(invertTradeSide) &&
+        isVisibleForToggle(toggleValues) &&
+        isVisibleForBooleanField(fieldValues)
 
 fun StrategyDeployment.effectiveTouchTurnRules(): TouchTurnRuleConfig =
     touchTurnSession?.rules ?: touchTurnRules

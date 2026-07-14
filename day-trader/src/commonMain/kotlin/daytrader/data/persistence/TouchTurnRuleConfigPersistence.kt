@@ -3,6 +3,7 @@ package daytrader.data.persistence
 import daytrader.domain.TouchTurnClosePositionTriggerMode
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
+import daytrader.domain.TouchTurnTrailingActivateClockBase
 
 object TouchTurnRuleConfigPersistence {
     fun toDomain(record: TouchTurnRuleConfigRecord?): TouchTurnRuleConfig =
@@ -21,6 +22,9 @@ object TouchTurnRuleConfigPersistence {
                 stopAfterOpenMinutes = it.stopAfterOpenMinutes,
                 trailingStopTriggerFractionOfEntryToTp = it.trailingStopTriggerFractionOfEntryToTp,
                 trailingStopArmFractionOfEntryToStop = it.trailingStopArmFractionOfEntryToStop,
+                trailingActivateAfterMinutes = it.trailingActivateAfterMinutes,
+                trailingActivateClockBase = parseTrailingActivateClockBase(it.trailingActivateClockBase),
+                trailingRequirePriceTrigger = it.trailingRequirePriceTrigger,
                 enables = TouchTurnRuleEnables(
                     liquidityRangeDailyAtr = it.enableLiquidityRangeDailyAtr,
                     closePositionGate = it.enableClosePositionGate,
@@ -49,6 +53,10 @@ object TouchTurnRuleConfigPersistence {
     private fun parseClosePositionTriggerMode(raw: String): TouchTurnClosePositionTriggerMode =
         runCatching { TouchTurnClosePositionTriggerMode.valueOf(raw) }
             .getOrDefault(TouchTurnClosePositionTriggerMode.OFF)
+
+    private fun parseTrailingActivateClockBase(raw: String): TouchTurnTrailingActivateClockBase =
+        runCatching { TouchTurnTrailingActivateClockBase.valueOf(raw) }
+            .getOrDefault(TouchTurnTrailingActivateClockBase.SESSION_OPEN)
 
     private fun migrateLegacyBarShapeTriggers(
         config: TouchTurnRuleConfig,
@@ -103,6 +111,9 @@ object TouchTurnRuleConfigPersistence {
             stopAfterOpenMinutes = config.stopAfterOpenMinutes,
             trailingStopTriggerFractionOfEntryToTp = config.trailingStopTriggerFractionOfEntryToTp,
             trailingStopArmFractionOfEntryToStop = config.trailingStopArmFractionOfEntryToStop,
+            trailingActivateAfterMinutes = config.trailingActivateAfterMinutes,
+            trailingActivateClockBase = config.trailingActivateClockBase.name,
+            trailingRequirePriceTrigger = config.trailingRequirePriceTrigger,
             enableLiquidityRangeDailyAtr = config.enables.liquidityRangeDailyAtr,
             enableClosePositionGate = config.enables.closePositionGate,
             enableOpenDeadline = config.enables.openDeadline,
