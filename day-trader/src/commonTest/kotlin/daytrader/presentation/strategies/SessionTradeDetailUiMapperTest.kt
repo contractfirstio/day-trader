@@ -59,6 +59,27 @@ class SessionTradeDetailUiMapperTest {
 
         assertNotNull(summary)
         assertTrue(summary!!.contains("net"))
+        assertTrue(summary.contains("\$10,000.00 invested"))
+    }
+
+    @Test
+    fun fromSessionTrades_includesInvestedEntryNotional_openAndClosed() {
+        val openTrades = listOf(
+            trade(parentOrderId = 0, orderId = 1, price = 25.0, commission = 0.35, realizedPnL = 0.0, quantity = 200),
+        )
+        val openUi = SessionTradeDetailUiMapper.fromSessionTrades(openTrades)
+        assertNotNull(openUi)
+        assertEquals(5_000.0, openUi.investedNotional)
+        assertEquals("\$5,000.00", openUi.formattedInvested)
+
+        val closedTrades = listOf(
+            trade(parentOrderId = 0, orderId = 1, price = 100.0, commission = 0.35, realizedPnL = 0.0),
+            trade(parentOrderId = 1, orderId = 2, price = 105.0, commission = 0.35, realizedPnL = 499.30),
+        )
+        val closedUi = SessionTradeDetailUiMapper.fromSessionTrades(closedTrades)
+        assertNotNull(closedUi)
+        assertEquals(10_000.0, closedUi.investedNotional)
+        assertEquals("\$10,000.00", closedUi.formattedInvested)
     }
 
     private fun trade(
@@ -67,13 +88,14 @@ class SessionTradeDetailUiMapperTest {
         price: Double,
         commission: Double?,
         realizedPnL: Double?,
+        quantity: Int = 100,
     ) = SessionTrade(
         execId = "exec-$orderId",
         orderId = orderId,
         permId = orderId.toLong(),
         parentOrderId = parentOrderId,
         side = if (parentOrderId == 0) "BUY" else "SELL",
-        quantity = 100,
+        quantity = quantity,
         price = price,
         currency = "USD",
         time = "2026-05-25T10:00:00",

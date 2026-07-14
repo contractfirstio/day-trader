@@ -51,6 +51,11 @@ object StrategyUiMapper {
         } else {
             null
         }
+        val investedNotional = DeploymentInvestedNotional.resolve(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            brokerPosition = brokerPosition,
+        )
         val currency = brokerPosition?.currency
             ?: instance.instrument?.currency
             ?: SymbolMarkets.currencyCode(instance.symbol)
@@ -97,6 +102,7 @@ object StrategyUiMapper {
             isPositivePositionPnL = positionPnL?.let { it >= 0 },
             maxProfit = positionOutcome?.maxProfit,
             stopOutcome = positionOutcome?.stopOutcome,
+            investedNotional = investedNotional,
             currencyCode = currency,
             stopOutcomeIsMinWin = positionOutcome?.stopIsMinWin == true
         )
@@ -123,6 +129,11 @@ object StrategyUiMapper {
         } else {
             null
         }
+        val investedNotional = DeploymentInvestedNotional.resolve(
+            instance = instance,
+            hasOpenPosition = hasOpenPosition,
+            brokerPosition = brokerPosition,
+        )
         val currency = brokerPosition?.currency
             ?: instance.instrument?.currency
             ?: SymbolMarkets.currencyCode(instance.symbol)
@@ -147,6 +158,7 @@ object StrategyUiMapper {
             isPositivePositionPnL = positionPnL?.let { it >= 0 },
             maxProfit = positionOutcome?.maxProfit,
             stopOutcome = positionOutcome?.stopOutcome,
+            investedNotional = investedNotional,
             currencyCode = currency,
             stopOutcomeIsMinWin = positionOutcome?.stopIsMinWin == true
         )

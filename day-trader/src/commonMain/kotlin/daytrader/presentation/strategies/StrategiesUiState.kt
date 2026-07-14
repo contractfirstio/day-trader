@@ -48,7 +48,9 @@ data class StrategyDeploymentRowUi(
     val isPositivePositionPnL: Boolean? = null,
     val maxProfit: Double? = null,
     val stopOutcome: Double? = null,
-    /** Currency for [positionPnL], [maxProfit], and [stopOutcome] display. */
+    /** Entry notional for the open session (qty × entry fill); null when flat. */
+    val investedNotional: Double? = null,
+    /** Currency for [positionPnL], [maxProfit], [stopOutcome], and [investedNotional] display. */
     val currencyCode: String,
     /** When true, [stopOutcome] is a guaranteed minimum win (trailing stop past entry). */
     val stopOutcomeIsMinWin: Boolean = false

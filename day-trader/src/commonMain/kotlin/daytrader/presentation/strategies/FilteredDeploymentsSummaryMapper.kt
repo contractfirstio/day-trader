@@ -21,6 +21,7 @@ data class FilteredDeploymentsSummaryUi(
     val showLiveBand: Boolean,
     val formattedUnrealized: String,
     val isPositiveUnrealized: Boolean? = null,
+    val formattedInvested: String? = null,
     val formattedMaxProfit: String? = null,
     val formattedStopOutcome: String? = null,
     val stopOutcomeIsMinWin: Boolean = false,
@@ -53,6 +54,7 @@ object FilteredDeploymentsSummaryMapper {
         if (instances.isEmpty()) return null
         val runningCount = instances.count { it.status == DeploymentStatus.RUNNING }
         val unrealizedByCurrency = mutableMapOf<String, Double>()
+        val investedByCurrency = mutableMapOf<String, Double>()
         val maxProfitByCurrency = mutableMapOf<String, Double>()
         val stopOutcomeByCurrency = mutableMapOf<String, Double>()
         var openPositionCount = 0
@@ -69,6 +71,13 @@ object FilteredDeploymentsSummaryMapper {
             val unrealized = unrealizedPnL(instance, brokerPosition) ?: return@forEach
             hasLiveMetrics = true
             unrealizedByCurrency.addAmount(currency, unrealized)
+            DeploymentInvestedNotional.resolve(
+                instance = instance,
+                hasOpenPosition = true,
+                brokerPosition = brokerPosition,
+            )?.let { invested ->
+                investedByCurrency.addAmount(currency, invested)
+            }
             DeploymentPositionOutcomeCalculator.resolve(
                 instance,
                 brokerPosition,
@@ -102,6 +111,9 @@ object FilteredDeploymentsSummaryMapper {
             showLiveBand = hasLiveMetrics,
             formattedUnrealized = formatMoneyTotals(unrealizedByCurrency),
             isPositiveUnrealized = singleCurrencySign(unrealizedByCurrency),
+            formattedInvested = investedByCurrency
+                .takeIf { it.isNotEmpty() }
+                ?.let { formatAbsoluteMoneyTotals(it) },
             formattedMaxProfit = maxProfitByCurrency
                 .takeIf { it.isNotEmpty() }
                 ?.let { formatMoneyTotals(it) },
@@ -154,6 +166,13 @@ object FilteredDeploymentsSummaryMapper {
                     Formatters.money(amount, currency, showSign = true)
                 }
         }
+
+    private fun formatAbsoluteMoneyTotals(totals: Map<String, Double>): String =
+        totals.entries
+            .sortedBy { it.key }
+            .joinToString(" · ") { (currency, amount) ->
+                Formatters.money(amount, currency)
+            }
 
     private fun singleCurrencySign(totals: Map<String, Double>): Boolean? =
         when {

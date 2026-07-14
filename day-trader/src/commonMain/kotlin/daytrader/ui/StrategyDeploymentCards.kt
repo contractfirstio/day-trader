@@ -382,6 +382,13 @@ internal fun FilteredDeploymentsSummaryPanel(
                         if (it) GainGreen else LossRed
                     } ?: Color.White
                 )
+                summary.formattedInvested?.let { invested ->
+                    CompactInstanceStat(
+                        label = "Invested",
+                        value = invested,
+                        valueColor = Color.White
+                    )
+                }
                 summary.formattedMaxProfit?.let { maxProfit ->
                     CompactInstanceStat(
                         label = "Max profit",
@@ -598,7 +605,10 @@ internal fun StrategyDeploymentCard(
             }
             Spacer(modifier = Modifier.height(4.dp))
             if (row.hasOpenPosition &&
-                (row.positionPnL != null || row.maxProfit != null || row.stopOutcome != null)
+                (row.positionPnL != null ||
+                    row.investedNotional != null ||
+                    row.maxProfit != null ||
+                    row.stopOutcome != null)
             ) {
                 DeploymentCardMetricBand(
                     title = "Live",
@@ -613,6 +623,13 @@ internal fun StrategyDeploymentCard(
                             label = "Unrealized",
                             value = Formatters.money(positionPnL, row.currencyCode, showSign = true),
                             valueColor = if (row.isPositivePositionPnL == true) GainGreen else LossRed
+                        )
+                    }
+                    row.investedNotional?.let { invested ->
+                        CompactInstanceStat(
+                            label = "Invested",
+                            value = Formatters.money(invested, row.currencyCode),
+                            valueColor = Color.White
                         )
                     }
                     row.maxProfit?.let { maxProfit ->

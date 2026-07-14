@@ -376,7 +376,19 @@ private fun TradeDetailPriceStrip(detail: SessionTradeDetailUiState, testTagPref
                 )
             }
         }
-        if (!detail.isOpen && detail.formattedExitPrice == null && detail.formattedEntryPrice != null) {
+        detail.formattedInvested?.let { invested ->
+            TradeMetricCell(
+                "Invested",
+                invested,
+                Modifier.weight(1f),
+                testTag = "${testTagPrefix}Invested"
+            )
+        }
+        if (!detail.isOpen &&
+            detail.formattedExitPrice == null &&
+            detail.formattedEntryPrice != null &&
+            detail.formattedInvested == null
+        ) {
             detail.formattedRealizedPnL.let { pnl ->
                 TradeMetricCell(
                     "P&L",

@@ -115,6 +115,117 @@ class FilteredDeploymentsSummaryMapperTest {
         assertTrue(summary.showLiveBand)
         assertEquals(1, summary.openPositionCount)
         assertEquals("+$50.00", summary.formattedUnrealized)
+        assertEquals("$1,000.00", summary.formattedInvested)
+    }
+
+    @Test
+    fun build_aggregatesLiveInvestedFromBrokerAvgCostWhenLiveFlat() {
+        val running = deployment(
+            id = "a",
+            status = DeploymentStatus.RUNNING,
+            live = ActiveExecution.flat(),
+        )
+        val positions = listOf(
+            AccountPosition(
+                account = "DU1",
+                symbol = "TSLA",
+                companyName = "Tesla",
+                quantity = -80,
+                avgPrice = 12.5,
+                marketPrice = 12.0,
+                priorClose = 13.0,
+                totalUnrealizedPnL = 40.0,
+                currency = "USD",
+            )
+        )
+        val summary = FilteredDeploymentsSummaryMapper.build(
+            instances = listOf(running),
+            sessionDate = sessionDate,
+            brokerPositions = positions,
+            brokerOpenOrders = emptyList(),
+        )
+        assertNotNull(summary)
+        // abs(80) * 12.5 = 1,000 — emulator/IB Touch Turn leave live FLAT
+        assertEquals("$1,000.00", summary.formattedInvested)
+    }
+
+    @Test
+    fun build_aggregatesLiveInvestedFromSessionEntryFills() {
+        val running = deployment(
+            id = "a",
+            status = DeploymentStatus.RUNNING,
+            live = ActiveExecution(
+                state = ExecutionState.FILLED,
+                side = TradeSide.LONG,
+                quantity = 10,
+                entryPrice = 100.0,
+                stopPrice = 95.0,
+                targetPrice = 110.0,
+            ),
+            sessions = listOf(
+                StrategySession(
+                    id = "live",
+                    date = sessionDate,
+                    startedAt = "${sessionDate}T09:30:00",
+                    stoppedAt = "",
+                    pnl = 0.0,
+                    trades = 0,
+                    maxAtRisk = 1000,
+                    status = SessionStatus.IN_PROGRESS,
+                    positionOpened = true,
+                    sessionTrades = listOf(
+                        daytrader.domain.SessionTrade(
+                            execId = "e1",
+                            orderId = 1,
+                            permId = 1L,
+                            parentOrderId = 0,
+                            side = "BUY",
+                            quantity = 40,
+                            price = 10.0,
+                            time = "${sessionDate}T09:35:00",
+                            currency = "USD",
+                            commission = 0.35,
+                            realizedPnL = 0.0,
+                        ),
+                        daytrader.domain.SessionTrade(
+                            execId = "e2",
+                            orderId = 1,
+                            permId = 1L,
+                            parentOrderId = 0,
+                            side = "BUY",
+                            quantity = 60,
+                            price = 12.0,
+                            time = "${sessionDate}T09:36:00",
+                            currency = "USD",
+                            commission = 0.35,
+                            realizedPnL = 0.0,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val positions = listOf(
+            AccountPosition(
+                account = "DU1",
+                symbol = "TSLA",
+                companyName = "Tesla",
+                quantity = 100,
+                avgPrice = 11.2,
+                marketPrice = 12.0,
+                priorClose = 11.0,
+                totalUnrealizedPnL = 80.0,
+                currency = "USD",
+            )
+        )
+        val summary = FilteredDeploymentsSummaryMapper.build(
+            instances = listOf(running),
+            sessionDate = sessionDate,
+            brokerPositions = positions,
+            brokerOpenOrders = emptyList(),
+        )
+        assertNotNull(summary)
+        // 40*10 + 60*12 = 1,120 (session fills preferred over live qty*entry)
+        assertEquals("$1,120.00", summary.formattedInvested)
     }
 
     @Test

@@ -6,6 +6,7 @@ import daytrader.domain.SessionTradeDetails
 import daytrader.domain.SessionTradeDetailsBuilder
 import daytrader.domain.sessionCommissionTotal
 import daytrader.domain.sessionDisplayPnL
+import daytrader.domain.sessionEntryNotional
 import daytrader.domain.sessionGrossPricePnL
 import daytrader.broker.SessionTradePnL
 import daytrader.presentation.Formatters
@@ -45,6 +46,9 @@ data class SessionTradeDetailUiState(
     val formattedNetPnL: String?,
     val netPnL: Double?,
     val isPositiveNetPnL: Boolean?,
+    /** Entry notional invested: entry qty × fill price (sum of partial entry fills). */
+    val investedNotional: Double?,
+    val formattedInvested: String?,
     val fills: List<SessionTradeFillUi>,
     val emptyMessage: String?,
 ) {
@@ -71,6 +75,7 @@ object SessionTradeDetailUiMapper {
             details.realizedPnL
         }
         val sessionTotal = SessionTradePnL.totalSessionPnL(trades, unrealizedPnL)
+        val invested = trades.sessionEntryNotional().takeIf { it > 0.0 }
         val headline = buildString {
             append(details.quantity)
             append(" @ ")
@@ -114,6 +119,8 @@ object SessionTradeDetailUiMapper {
             formattedNetPnL = netPnL?.let { Formatters.money(it, currency, showSign = true) },
             netPnL = netPnL,
             isPositiveNetPnL = netPnL?.let { it >= 0 },
+            investedNotional = invested,
+            formattedInvested = invested?.let { Formatters.money(it, currency) },
             fills = fills,
             emptyMessage = null
         )
@@ -183,6 +190,7 @@ object SessionTradeDetailUiMapper {
         val details = SessionTradeDetailsBuilder.build(trades) ?: return null to null
         val currency = details.currency
         val side = details.sideLabel
+        val invested = trades.sessionEntryNotional().takeIf { it > 0.0 }
         val summary = when {
             details.exitPrice != null -> buildString {
                 append(side)
@@ -192,13 +200,28 @@ object SessionTradeDetailUiMapper {
                 append(Formatters.moneyPlain(details.entryPrice ?: 0.0, currency))
                 append(" → ")
                 append(Formatters.moneyPlain(details.exitPrice, currency))
+                invested?.let {
+                    append(" · ")
+                    append(Formatters.money(it, currency))
+                    append(" invested")
+                }
                 if (trades.isNotEmpty() && trades.all { it.commission != null } && !details.isOpen) {
                     append(" · ")
                     append(Formatters.money(trades.sessionDisplayPnL(), currency, showSign = true))
                     append(" net")
                 }
             }
-            details.isOpen -> "$side ${details.quantity} · open"
+            details.isOpen -> buildString {
+                append(side)
+                append(" ")
+                append(details.quantity)
+                append(" · open")
+                invested?.let {
+                    append(" · ")
+                    append(Formatters.money(it, currency))
+                    append(" invested")
+                }
+            }
             else -> "$side ${details.quantity}"
         }
         return side to summary

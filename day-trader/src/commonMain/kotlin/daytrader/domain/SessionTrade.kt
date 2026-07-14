@@ -46,6 +46,18 @@ fun List<SessionTrade>.hasCompleteCommissionData(): Boolean =
 /** Session P&L for display and rollups — [sessionRealizedPnL] (IB net when closed). */
 fun List<SessionTrade>.sessionDisplayPnL(): Double = sessionRealizedPnL()
 
+/**
+ * Capital put to work on the entry leg: sum of entry-fill qty × price.
+ * Uses the first parent (entry) order; partial entry fills are included.
+ * Exit / OPEN_DEADLINE closes with a different order id are excluded even when
+ * [SessionTrade.parentOrderId] is 0.
+ */
+fun List<SessionTrade>.sessionEntryNotional(): Double {
+    val entryOrderId = firstOrNull { it.parentOrderId == 0 }?.orderId ?: return 0.0
+    return filter { it.parentOrderId == 0 && it.orderId == entryOrderId }
+        .sumOf { it.quantity * it.price }
+}
+
 fun List<SessionTrade>.dedupeByExecId(): List<SessionTrade> {
     val seen = LinkedHashSet<String>()
     return filter { trade -> seen.add(trade.execId) }
