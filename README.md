@@ -26,7 +26,7 @@ For each deployment you can:
 - **Deploy** a strategy (symbol + max dollars at risk)
 - **Start / end** sessions (tracks session history rows)
 - **Filter** by active/stopped, strategy type, and search text
-- **Duplicate** or **delete** the selected deployment
+- **Delete** the selected deployment
 - View three detail tabs:
   - **Config** — symbol (fixed after create) and max at risk (editable when stopped)
   - **Trading** — demo fill with entry/stop/target, risk/upside/unrealized stats, stop adjustment, exit position

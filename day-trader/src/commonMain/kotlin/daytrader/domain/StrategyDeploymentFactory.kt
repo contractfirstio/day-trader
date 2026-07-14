@@ -39,13 +39,3 @@ fun defaultStrategyDeployment(
             ?: TouchTurnRuleConfig.DEFAULT
     )
 }
-
-fun duplicateStrategyDeployment(source: StrategyDeployment): StrategyDeployment = source.copy(
-    id = newStrategyDeploymentId(),
-    status = DeploymentStatus.STOPPED,
-    sessionHistory = emptyList(),
-    live = ActiveExecution.flat(),
-    touchTurnSession = null,
-    touchTurnPrepare = null,
-    lastAutoStartSessionDate = null
-)

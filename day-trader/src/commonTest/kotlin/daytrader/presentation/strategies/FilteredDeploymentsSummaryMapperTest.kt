@@ -79,6 +79,50 @@ class FilteredDeploymentsSummaryMapperTest {
     }
 
     @Test
+    fun build_aggregatesRealizedPnLForCurrentSessionDateAcrossFilteredDeployments() {
+        val a = deployment(
+            id = "a",
+            sessions = listOf(
+                closedSession(
+                    id = "prior",
+                    date = "2026-06-13",
+                    pnl = 50.0,
+                    stoppedAt = "2026-06-13T10:00:00",
+                ),
+                closedSession(
+                    id = "today-a",
+                    date = sessionDate,
+                    pnl = -10.0,
+                    stoppedAt = "2026-06-14T10:00:00",
+                ),
+            )
+        )
+        val b = deployment(
+            id = "b",
+            symbol = "AAPL",
+            sessions = listOf(
+                closedSession(
+                    id = "today-b",
+                    date = sessionDate,
+                    pnl = 20.0,
+                    stoppedAt = "2026-06-14T11:00:00",
+                ),
+            )
+        )
+        val summary = FilteredDeploymentsSummaryMapper.build(
+            instances = listOf(a, b),
+            sessionDate = sessionDate,
+            brokerPositions = emptyList(),
+            brokerOpenOrders = emptyList(),
+        )
+        assertNotNull(summary)
+        // Prior-day +$50 excluded; today = -10 + 20
+        assertEquals("+$10.00", summary.formattedSessionPnL)
+        assertEquals(true, summary.isPositiveSessionPnL)
+        assertEquals("+$60.00", summary.formattedNetPnL)
+    }
+
+    @Test
     fun build_aggregatesLiveUnrealizedForOpenPositions() {
         val running = deployment(
             id = "a",
@@ -307,10 +351,11 @@ class FilteredDeploymentsSummaryMapperTest {
         id: String,
         pnl: Double,
         stoppedAt: String,
+        date: String = sessionDate,
     ) = StrategySession(
         id = id,
-        date = sessionDate,
-        startedAt = "${sessionDate}T09:30:00",
+        date = date,
+        startedAt = "${date}T09:30:00",
         stoppedAt = stoppedAt,
         pnl = pnl,
         trades = 1,

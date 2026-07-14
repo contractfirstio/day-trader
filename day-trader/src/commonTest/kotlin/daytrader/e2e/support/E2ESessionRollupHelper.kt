@@ -20,6 +20,7 @@ object E2ESessionRollupHelper {
         val formattedWinRate: String,
         val formattedNoTradeRate: String,
         val formattedNetPnL: String,
+        val formattedSessionPnL: String,
         val formattedRollup30d: String,
         val formattedSummaryWinRate: String = formattedWinRate,
         val formattedSummaryNoTradeRate: String = formattedNoTradeRate,
@@ -52,27 +53,31 @@ object E2ESessionRollupHelper {
         val configRollup = closedSessions.rollupsForConfiguration(sessionDate, deployment)
         val summaryConfigRollup = configurationRollupsForDeployments(allDeployments, sessionDate)
         val netPnLByCurrency = mutableMapOf<String, Double>()
+        val sessionPnLByCurrency = mutableMapOf<String, Double>()
         allDeployments.forEach { instance ->
             val instanceCurrency = instance.instrument?.currency
                 ?: SymbolMarkets.currencyCode(instance.symbol)
-            val closedPnL = instance.sessionHistory
-                .filter { it.status == SessionStatus.CLOSED }
-                .sumOf { it.effectivePnL() }
-            netPnLByCurrency.merge(instanceCurrency, closedPnL, Double::plus)
-        }
-        val formattedNetPnL = when {
-            netPnLByCurrency.isEmpty() -> "—"
-            else -> netPnLByCurrency.entries
-                .sortedBy { it.key }
-                .joinToString(" · ") { (code, amount) ->
-                    Formatters.money(amount, code, showSign = true)
+            var netPnL = 0.0
+            var sessionPnL = 0.0
+            instance.sessionHistory.forEach { session ->
+                if (session.status != SessionStatus.CLOSED) return@forEach
+                val pnl = session.effectivePnL()
+                netPnL += pnl
+                if (session.date == sessionDate) {
+                    sessionPnL += pnl
                 }
+            }
+            netPnLByCurrency.merge(instanceCurrency, netPnL, Double::plus)
+            sessionPnLByCurrency.merge(instanceCurrency, sessionPnL, Double::plus)
         }
+        val formattedNetPnL = formatMoneyTotals(netPnLByCurrency)
+        val formattedSessionPnL = formatMoneyTotals(sessionPnLByCurrency)
         return ExpectedRollupUi(
             formattedTotalPnL = Formatters.currency(rollup.totalPnl, showSign = true),
             formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             formattedNoTradeRate = Formatters.noTradeRate(configRollup.noTradeDays, configRollup.closedDays),
             formattedNetPnL = formattedNetPnL,
+            formattedSessionPnL = formattedSessionPnL,
             formattedRollup30d = Formatters.currency(rollup.pnl30d, showSign = true),
             formattedSummaryWinRate = Formatters.winRate(summaryConfigRollup.winDays, summaryConfigRollup.lossDays),
             formattedSummaryNoTradeRate = Formatters.noTradeRate(
@@ -81,6 +86,16 @@ object E2ESessionRollupHelper {
             ),
         )
     }
+
+    private fun formatMoneyTotals(totals: Map<String, Double>): String =
+        when {
+            totals.isEmpty() -> "—"
+            else -> totals.entries
+                .sortedBy { it.key }
+                .joinToString(" · ") { (code, amount) ->
+                    Formatters.money(amount, code, showSign = true)
+                }
+        }
 
     fun assertRollupsConsistent(
         viewModel: StrategiesViewModel,
@@ -98,6 +113,7 @@ object E2ESessionRollupHelper {
             val summary = viewModel.listState.value.filteredSummary
             assertNotNull(summary, "expected filtered summary")
             assertEquals(expected.formattedNetPnL, summary.formattedNetPnL, "summary net PnL")
+            assertEquals(expected.formattedSessionPnL, summary.formattedSessionPnL, "summary session PnL")
             assertEquals(expected.formattedSummaryWinRate, summary.formattedWinRate, "summary win rate")
             assertEquals(
                 expected.formattedSummaryNoTradeRate,

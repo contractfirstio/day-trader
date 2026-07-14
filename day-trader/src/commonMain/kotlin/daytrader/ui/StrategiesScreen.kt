@@ -279,7 +279,6 @@ private fun StrategiesDeploymentDetail(viewModel: StrategiesViewModel) {
         onAdjustStop = viewModel::onAdjustStop,
         onAmendBracket = viewModel::onAmendBracket,
         onClosePosition = viewModel::onClosePosition,
-        onDuplicate = viewModel::onDuplicateSelected,
         onDelete = viewModel::onDeleteSelected,
         modifier = Modifier.fillMaxSize()
     )
@@ -326,7 +325,6 @@ private fun StrategyDeploymentDetailPanel(
     onAdjustStop: (String, String) -> Unit,
     onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit,
-    onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -382,7 +380,6 @@ private fun StrategyDeploymentDetailPanel(
                 onAdjustStop = onAdjustStop,
                 onAmendBracket = onAmendBracket,
                 onClosePosition = onClosePosition,
-                onDuplicate = onDuplicate,
                 onDelete = onDelete
             )
         }
@@ -542,7 +539,6 @@ private fun StrategyDeploymentDetail(
     onAdjustStop: (String, String) -> Unit,
     onAmendBracket: (BracketAmendTarget, String) -> Unit,
     onClosePosition: (String) -> Unit,
-    onDuplicate: () -> Unit,
     onDelete: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -610,11 +606,6 @@ private fun StrategyDeploymentDetail(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(if (instance.status == DeploymentStatus.RUNNING) "End session" else "Start session")
-                    }
-                    OutlinedButton(onClick = onDuplicate, shape = RoundedCornerShape(6.dp)) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Duplicate")
                     }
                     IconButton(onClick = onDelete) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = LossRed)

@@ -66,6 +66,8 @@ import daytrader.presentation.strategies.TouchTurnReasonSeverity
 import daytrader.presentation.strategies.TouchTurnSessionReasonUi
 import daytrader.presentation.strategies.TouchTurnSessionStatusUi
 import daytrader.presentation.strategies.TouchTurnRunRecordUiMapper
+import daytrader.presentation.strategies.TouchTurnSessionChronologyMapper
+import daytrader.presentation.strategies.TouchTurnSessionChronologyUi
 import daytrader.presentation.strategies.detailTitle
 import daytrader.presentation.strategies.fmt
 import daytrader.presentation.strategies.formattedAtr14
@@ -317,6 +319,9 @@ fun TouchTurnPipelineSectionClose(
             decisionOutcome = r.decision.outcome
         )
     }
+    val chronology = remember(closedRun?.id, closedRun?.stoppedAt, closedRun?.sessionTrades?.size) {
+        closedRun?.let(TouchTurnSessionChronologyMapper::fromClosedRun)
+    }
     Column(
         modifier = modifier.fillMaxWidth().testTag("TouchTurnPipelineSectionClose"),
         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -339,11 +344,74 @@ fun TouchTurnPipelineSectionClose(
                 color = TextSecondary
             )
         }
-        Text(
+        chronology?.takeIf { it.events.isNotEmpty() }?.let { outline ->
+            TouchTurnSessionChronologyOutline(outline = outline)
+        } ?: Text(
             "Use the pipeline steps above to review bar, liquidity, orders, and trade detail for this run.",
             fontSize = 10.sp,
             color = TextSecondary.copy(alpha = 0.85f)
         )
+    }
+}
+
+@Composable
+private fun TouchTurnSessionChronologyOutline(
+    outline: TouchTurnSessionChronologyUi,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(DarkBackground, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("TouchTurnSessionChronology"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Session timeline",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        outline.events.forEachIndexed { index, event ->
+            if (index > 0) {
+                HorizontalDivider(color = TableHeaderBg.copy(alpha = 0.7f))
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    event.timeLabel,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextSecondary,
+                    modifier = Modifier.width(36.dp).testTag("TouchTurnSessionChronologyTime"),
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        event.title,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White,
+                        modifier = Modifier.testTag("TouchTurnSessionChronologyTitle"),
+                    )
+                    event.detail?.let { detail ->
+                        Text(
+                            detail,
+                            fontSize = 10.sp,
+                            color = TextSecondary,
+                            lineHeight = 13.sp,
+                            modifier = Modifier.testTag("TouchTurnSessionChronologyDetail"),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

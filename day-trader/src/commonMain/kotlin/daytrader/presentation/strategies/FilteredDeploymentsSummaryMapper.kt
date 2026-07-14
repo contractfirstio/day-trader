@@ -25,6 +25,9 @@ data class FilteredDeploymentsSummaryUi(
     val formattedMaxProfit: String? = null,
     val formattedStopOutcome: String? = null,
     val stopOutcomeIsMinWin: Boolean = false,
+    val sessionDateLabel: String,
+    val formattedSessionPnL: String,
+    val isPositiveSessionPnL: Boolean? = null,
     val formattedWinRate: String,
     val winRateIsPositive: Boolean? = null,
     val formattedNoTradeRate: String = "—",
@@ -94,13 +97,21 @@ object FilteredDeploymentsSummaryMapper {
             asOfSessionDate = sessionDate,
         ) ?: configurationRollupsForDeployments(instances, sessionDate)
         val netPnLByCurrency = mutableMapOf<String, Double>()
+        val sessionPnLByCurrency = mutableMapOf<String, Double>()
         instances.forEach { instance ->
             val currency = deploymentCurrency(instance, brokerIndex)
-            val netPnl = instance.sessionHistory
-                .asSequence()
-                .filter { it.status == SessionStatus.CLOSED }
-                .sumOf { it.effectivePnL() }
+            var sessionPnl = 0.0
+            var netPnl = 0.0
+            instance.sessionHistory.forEach { session ->
+                if (session.status != SessionStatus.CLOSED) return@forEach
+                val pnl = session.effectivePnL()
+                netPnl += pnl
+                if (session.date == sessionDate) {
+                    sessionPnl += pnl
+                }
+            }
             netPnLByCurrency.addAmount(currency, netPnl)
+            sessionPnLByCurrency.addAmount(currency, sessionPnl)
         }
 
         val stopOutcomeTotals = stopOutcomeByCurrency.filterValues { it != 0.0 }
@@ -121,6 +132,9 @@ object FilteredDeploymentsSummaryMapper {
                 .takeIf { it.isNotEmpty() }
                 ?.let { formatMoneyTotals(it) },
             stopOutcomeIsMinWin = stopOutcomeTotals.isNotEmpty() && stopSum >= 0.0,
+            sessionDateLabel = Formatters.sessionDateLabel(sessionDate),
+            formattedSessionPnL = formatMoneyTotals(sessionPnLByCurrency),
+            isPositiveSessionPnL = singleCurrencySign(sessionPnLByCurrency),
             formattedWinRate = Formatters.winRate(configRollup.winDays, configRollup.lossDays),
             winRateIsPositive = when {
                 configRollup.tradedDays == 0 -> null

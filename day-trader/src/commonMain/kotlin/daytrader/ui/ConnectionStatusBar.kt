@@ -40,7 +40,6 @@ fun ConnectionStatusBar(
     marketDataGateway: BrokerGateway? = null,
     onOpenPriceFeedTester: (() -> Unit)? = null,
     onChangeBrokerMode: (() -> Unit)? = null,
-    onExportDebugInfo: (() -> Unit)? = null,
     portfolioExposureLabel: String? = null,
     portfolioExposureOverCap: Boolean = false,
     onKillSwitch: (() -> Unit)? = null,
@@ -98,14 +97,6 @@ fun ConnectionStatusBar(
                     modifier = Modifier.testTag("globalKillSwitchButton"),
                 ) {
                     Text("Kill switch", color = LossRed)
-                }
-            }
-            if (onExportDebugInfo != null) {
-                TextButton(
-                    onClick = onExportDebugInfo,
-                    modifier = Modifier.testTag("exportDebugInfoButton")
-                ) {
-                    Text("Debug info", color = TextSecondary)
                 }
             }
             if (onChangeBrokerMode != null) {

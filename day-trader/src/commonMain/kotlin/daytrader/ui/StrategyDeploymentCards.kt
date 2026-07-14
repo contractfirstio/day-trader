@@ -344,7 +344,7 @@ internal fun FilteredDeploymentsSummaryPanel(
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             Text(
-                "Session",
+                "Filter",
                 color = TextSecondary.copy(alpha = 0.9f),
                 fontSize = 7.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -406,6 +406,21 @@ internal fun FilteredDeploymentsSummaryPanel(
             }
             Spacer(modifier = Modifier.height(4.dp))
         }
+        DeploymentCardMetricBand(
+            title = "Session",
+            subtitle = summary.sessionDateLabel,
+            accent = TextSecondary,
+            surfaceColor = TableHeaderBg.copy(alpha = 0.55f),
+            showPulseDot = false,
+            modifier = Modifier.testTag("FilteredDeploymentsSessionBand")
+        ) {
+            CompactInstanceStat(
+                label = "Realized",
+                value = summary.formattedSessionPnL,
+                valueColor = pnlColor(summary.isPositiveSessionPnL)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
         DeploymentCardMetricBand(
             title = "All-time",
             subtitle = "closed sessions",

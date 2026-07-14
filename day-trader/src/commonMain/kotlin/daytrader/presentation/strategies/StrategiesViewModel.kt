@@ -48,7 +48,6 @@ import daytrader.domain.touchTurnRecapRun
 import daytrader.domain.DEFAULT_WATCHLIST_ID
 import daytrader.domain.defaultStrategyDeployment
 import daytrader.domain.newWatchlistEntry
-import daytrader.domain.duplicateStrategyDeployment
 import daytrader.domain.inProgressSession
 import daytrader.domain.sessionDisplayPnL
 import daytrader.domain.instanceDisplayName
@@ -1563,13 +1562,6 @@ class StrategiesViewModel(
             }
             emitUiState(UiRefreshScope.BrokerSnapshot)
         }
-    }
-
-    fun onDuplicateSelected() {
-        val selected = deployments.find { it.id == appState.selectedDeploymentId } ?: return
-        val copy = duplicateStrategyDeployment(selected)
-        repository.add(copy)
-        appStateRepository.update { it.copy(selectedDeploymentId = copy.id) }
     }
 
     fun onDeleteSelected() {
