@@ -645,7 +645,12 @@ class TouchTurnEngine(
         cancelJobsForInstance(command.instanceId)
         clearInstanceTracking(command.instanceId)
         val gateway = executionGateway ?: sessionGateway
-        val replayFlattenHooks = brokerKind == BrokerKind.REPLAY && replaySessionStopHook != null
+        // Headless replay has already synchronously drained emulator fills between quote ticks.
+        // The interactive stop hook is for the queued gateway path and can otherwise race that
+        // completed replay lifecycle, replacing its realized result with a zero-P&L flatten.
+        val replayFlattenHooks = brokerKind == BrokerKind.REPLAY &&
+            replaySessionStopHook != null &&
+            !backtestSyncCommands.get()
         if (replayFlattenHooks) {
             replaySessionStopHook?.flattenAndDrain(instance.symbol)
         }

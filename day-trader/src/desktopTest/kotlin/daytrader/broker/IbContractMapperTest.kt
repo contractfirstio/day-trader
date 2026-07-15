@@ -52,4 +52,47 @@ class IbContractMapperTest {
         assertEquals("SEHK", contracts[0].exchange())
         assertEquals("HKD", contracts[0].currency())
     }
+
+    /**
+     * META 2026-07-14 OPEN_DEADLINE: position callback had exchange=NASDAQ → MKT close rejected
+     * IB 10311 (direct routed). Session closes must use SMART + listing as primaryExch.
+     */
+    @Test
+    fun forSmartRoutedOrder_rewritesListingExchangeToSmartPreservingPrimary() {
+        val fromPosition = com.ib.client.Contract().also {
+            it.conid(107113386)
+            it.symbol("META")
+            it.secType("STK")
+            it.exchange("NASDAQ")
+            it.currency("USD")
+        }
+        val routed = IbContractMapper.forSmartRoutedOrder(fromPosition)
+        assertEquals("SMART", routed.exchange())
+        assertEquals("NASDAQ", routed.primaryExch())
+        assertEquals(107113386, routed.conid())
+        assertEquals("META", routed.symbol())
+        assertEquals("USD", routed.currency())
+    }
+
+    @Test
+    fun forSmartRoutedOrder_keepsSmartAndExistingPrimary() {
+        val alreadySmart = com.ib.client.Contract().also {
+            it.symbol("BAC")
+            it.secType("STK")
+            it.exchange("SMART")
+            it.primaryExch("NYSE")
+            it.currency("USD")
+        }
+        val routed = IbContractMapper.forSmartRoutedOrder(alreadySmart)
+        assertEquals("SMART", routed.exchange())
+        assertEquals("NYSE", routed.primaryExch())
+    }
+
+    @Test
+    fun forSmartRoutedOrder_leavesSehkUnchanged() {
+        val sehk = IbContractMapper.hkStock("00700")
+        val routed = IbContractMapper.forSmartRoutedOrder(sehk)
+        assertEquals("SEHK", routed.exchange())
+        assertEquals("SEHK", routed.primaryExch())
+    }
 }

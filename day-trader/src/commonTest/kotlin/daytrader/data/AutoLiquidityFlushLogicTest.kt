@@ -59,6 +59,30 @@ class AutoLiquidityFlushLogicTest {
     }
 
     @Test
+    fun shouldMarkZoneFlushed_falseWhenPartialDebitWithResizeFailuresAndPoolLeft() {
+        // Morning failure mode: one bracket resized, nine failed build, ~369k HKD left.
+        val audit = LiquidityFlushAudit(
+            currencyCode = "HKD",
+            sessionDate = "2026-07-14",
+            startingPoolAvailable = 400_000,
+            remainingPoolAvailable = 369_640,
+            loops = listOf(
+                LiquidityFlushLoopAudit(
+                    loopIndex = 1,
+                    eligibleCount = 13,
+                    distributionCount = 10,
+                    debited = mapOf("inst-10c0e4a924dbcd8f" to 30_360),
+                    failedResize = mapOf(
+                        "inst-496107e9a15e8759" to "bracket_resize_build_failed",
+                        "inst-672087192e5c393b" to "bracket_resize_build_failed",
+                    ),
+                )
+            ),
+        )
+        assertFalse(audit.shouldMarkZoneFlushed())
+    }
+
+    @Test
     fun shouldMarkZoneFlushed_trueWhenEmptyPoolOrSuccessfulDebit() {
         assertTrue(
             LiquidityFlushAudit(
@@ -81,6 +105,24 @@ class AutoLiquidityFlushLogicTest {
                         eligibleCount = 9,
                         distributionCount = 9,
                         debited = mapOf("dep-a" to 4_862),
+                    )
+                ),
+            ).shouldMarkZoneFlushed()
+        )
+        // Partial debit is fine once the pool is exhausted (nothing left to retry).
+        assertTrue(
+            LiquidityFlushAudit(
+                currencyCode = "HKD",
+                sessionDate = "2026-07-14",
+                startingPoolAvailable = 30_360,
+                remainingPoolAvailable = 0,
+                loops = listOf(
+                    LiquidityFlushLoopAudit(
+                        loopIndex = 1,
+                        eligibleCount = 2,
+                        distributionCount = 2,
+                        debited = mapOf("dep-ok" to 30_360),
+                        failedResize = mapOf("dep-fail" to "bracket_resize_build_failed"),
                     )
                 ),
             ).shouldMarkZoneFlushed()

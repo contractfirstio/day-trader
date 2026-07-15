@@ -10,6 +10,7 @@ import daytrader.gateway.GatewayEvent
 import daytrader.gateway.LiveQuote
 import daytrader.marketdata.MarketQuoteBus
 import daytrader.marketdata.QuoteSource
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,7 +24,7 @@ class EmulatorBrokerAdapterPriorityTest {
 
     @Test
     fun bracketsDuringQuoteFlood_emitAckAndOpenOrders() = runBlocking {
-        val events = mutableListOf<GatewayEvent>()
+        val events = CopyOnWriteArrayList<GatewayEvent>()
         val outbound = LinkedBlockingQueue<GatewayCommand>()
         val bus = MarketQuoteBus()
         val adapter = EmulatorBrokerAdapter(
@@ -79,7 +80,9 @@ class EmulatorBrokerAdapterPriorityTest {
 
     @Test
     fun multipleBrackets_completeWhileMarketTicksAndOrderProgressRun() = runBlocking {
-        val events = mutableListOf<GatewayEvent>()
+        // Emulator emits from market-tick / order-progress threads while this test iterates —
+        // must be concurrency-safe (ArrayList ConcurrentModificationException under load).
+        val events = CopyOnWriteArrayList<GatewayEvent>()
         val outbound = LinkedBlockingQueue<GatewayCommand>()
         val adapter = EmulatorBrokerAdapter(
             emit = { events.add(it) },
@@ -120,7 +123,7 @@ class EmulatorBrokerAdapterPriorityTest {
 
     @Test
     fun throwingLiveQuotesCallback_doesNotKillOrderActorForNextBracket() = runBlocking {
-        val events = mutableListOf<GatewayEvent>()
+        val events = CopyOnWriteArrayList<GatewayEvent>()
         val outbound = LinkedBlockingQueue<GatewayCommand>()
         var subscribeAttempts = 0
         val adapter = EmulatorBrokerAdapter(
@@ -163,7 +166,7 @@ class EmulatorBrokerAdapterPriorityTest {
 
     @Test
     fun bracketPlacement_doesNotBlockExternalQuoteIngestion() = runBlocking {
-        val events = mutableListOf<GatewayEvent>()
+        val events = CopyOnWriteArrayList<GatewayEvent>()
         val outbound = LinkedBlockingQueue<GatewayCommand>()
         val bus = MarketQuoteBus()
         val adapter = EmulatorBrokerAdapter(

@@ -173,6 +173,11 @@ class DesktopIbGatewayConnectionOpenDeadlineTest {
                 assertTrue(placed.order.getOrderType() == "MKT")
                 assertEquals(301L, placed.order.totalQuantity().longValue())
                 assertTrue(placed.contract.symbol() == "F")
+                assertEquals(
+                    "SMART",
+                    placed.contract.exchange(),
+                    "session close MKT must use SMART routing (IB 10311)"
+                )
 
                 val logged = captured.single { it.first == "session_position_close_placed" }
                 assertEquals("F", logged.second)

@@ -1,10 +1,12 @@
 # HK 15m Opening Bar — Running Log
 
 **Extend:** *"Add today's HK day data to `docs/hk-opening-bar-analysis.md`"*  
-**Updated:** 2026-07-14 | **Source:** `~/Library/.../interactive-brokers/sessions` SEHK live IB  
+**Updated:** 2026-07-15 | **Source:** `~/Library/.../interactive-brokers/sessions` SEHK live IB  
 **Inverse baseline (Jul 6–8):** n=3d, 63 sym-days, 32 nf (11W/21L), PnL −2531 HKD | ran inverse  
 **TT parity week (Jul 13–14):** n=2d, 42 sym-days, 15 nf (10W/5L), 27 flat, PnL **+3552** HKD | ran **TT** (`invertTradeSide:OFF`, TP:SL **2.0**)  
-**Live:** §Operator status — **TT parity week** (day 2 complete)
+**Live:** §Operator status — **TT parity week** (day 2 complete)  
+**Roster:** §Symbol roster — **next-week swaps planned** (week of Jul 20); 6 never-fills at gate  
+**Cross-mkt:** §US→HK lag — hypothesis tracking (US day D → HK next session)
 
 ## Legend
 
@@ -46,6 +48,50 @@ Bar shape = primary signal; symbol registry = bias/calibration over time; ATR = 
 - **Not:** colour alone, day-level switch, grind(B) as filter
 - **Symbol > day** — same sym, different bar → different outcome (00148, 01888, 03690); track per §Symbols
 - **TT week add (Jul13–14):** RED A → TT long **5W/0L +3601** on Jul14 fills; soft B cp=.15 b<.70 lost. Mode draft formula gaining support under live TT.
+- **US→HK lag:** inv week = mode-flip (inv lose ≈ TT win); **1st live TT↔TT** US Jul14 weak → HK Jul15 bad (op). See §US→HK lag.
+
+## US → HK lag (cross-market hypothesis)
+
+**H₀:** US high nf win% → next HK morning good **under the same side convention (TT)**; US low → next HK poor.  
+**Lag:** US RTH **D** → next HK session.  
+**Mode-adjust:** If HK ran **inverse**, day quality for H₀ is roughly **flipped** vs recorded: inv strong ≈ TT-equiv **weak**, inv bleed ≈ TT-equiv **strong**. (Not exact −1× — Jul13 replay same 3W/4L both modes — but day PnL / “would have won” direction is the working prior.)  
+**Metrics:** US nf WR + PnL (always TT in this window). HK: use **live** when TT; use **TT-equiv** when inv. Qual: strong / mixed / weak as before.
+
+### Operator read (2026-07-16)
+
+1. **Inverse week:** only Monday recorded good (+2061). That Monday under TT would likely have **lost**. Tue–Wed recorded bleed while US improved→**strong** — under TT those HK mornings would likely have **won**, matching the US lead. So first week **supports H₀ after mode-flip**, not contradicts it.
+2. **TT parity (live, no flip needed):** US Jul14 **bad** → HK Jul15 **bad** (op). First clean same-algo weak→weak.
+3. **US Jul15 ingested:** 8%/−343 **weak** → **lean HK Jul16 inverse** (soft tilt). Score after Jul16 close.
+4. **Still open:** US Jul13 → HK Jul14 crush; HK Jul16 result.
+
+### Pairing table
+
+| US day | US WR/PnL | US qual | → HK | HK ran | recorded | TT-equiv (for H₀) | align? |
+|--------|-----------|---------|------|--------|----------|-------------------|--------|
+| 07-06 | 33%/−17 | weak | 07-07 | inv | soft −1081 | **strong** (flip) | ? weak→would-win |
+| 07-07 | 36%/+20 | mixed→ok | 07-08 | inv | bad −3511 | **strong** (flip) | **yes** US ok / HK would-win |
+| 07-08 | 73%/+635 | **strong** | 07-09 | — | gap | — | — |
+| *(prior Fri?)* | — | — | 07-06 | inv | **+2061** | **weak** (flip) | Mon-only inv win = TT-equiv loss |
+| 07-10 | — | — | 07-13 | TT | −71 | = recorded | need US |
+| 07-13 | — | — | 07-14 | TT | **+3623** | = recorded | need US (strong→strong?) |
+| 07-14 | 23%/−255 | **weak** | 07-15 | TT | **bad** (op) | = recorded | **yes** weak→weak — 1st live TT↔TT |
+| 07-15 | 8%/−343 | **weak** | 07-16 | TT? | pending | = | lean **inv** (tilt) |
+
+**Verdict (n=3 scorable):** TT-space **2/3 ≈ 67%** follow; live TT↔TT **1/1** (+ Jul16 pending). Holds as a **small edge**, not a proof.
+
+### Use (intended — soft tilt only)
+
+**After US RTH close → next morning HK mode lean** (market-wide or as a tie-break when per-symbol is unclear):
+
+| Prior US day (TT) | HK lean next session |
+|-------------------|----------------------|
+| **strong** / high nf WR | bias **TT** |
+| **weak** / low nf WR | bias **inverse** (or skip aggressively if already on TT and book soft) |
+
+- **Not a hard gate** — small decision edge only; bar shape + per-symbol still primary (§Symbol strategy).
+- **Current lean (from US Jul15 weak):** bias **inverse** for HK Jul16; do not auto-flip all 21 on US alone.
+- Log whether the tilt was used in Validation log (`lag-tilt: TT|inv|ignored`).
+
 ## Mode draft (UNVALIDATED — per bar, future per-symbol)
 
 Pick mode at 09:45 from closed bar only. **Ran inverse on all sessions so far** — TT column is counterfactual target, not actual fills.
@@ -209,7 +255,8 @@ All 21 SEHK deployments — **Touch Turn parity preset** (confirmed Jul 13 from 
 | post-euphoria | 03690 Jul7→Jul8 | 2F streak |
 | TT parity week | Log actual mode + draft_mode | Jul13 −71 + Jul14 **+3623** = **+3552** (10W/5L) |
 | Fill rate drop | Track brackets-placed-no-fill | Jul14: 5 no-fill / 8 liq-skip / 1 max$ |
-| Roster swap | 6 names at **5F/5d** | §Symbol roster — gate met; pick replacements |
+| Roster swap (week of Jul 20) | Drop all 6 never-fills; add trials | §Symbol roster — planned 2026-07-15 |
+| US→HK lag | Soft tilt only: strong US→HK TT; weak US→HK inv | §US→HK lag · Use; ~67% (2/3); Jul14 weak→Jul15 bad |
 
 ### TT-switch candidates (inverse → Touch Turn per symbol)
 
@@ -348,23 +395,30 @@ All 21 SEHK deployments — **Touch Turn parity preset** (confirmed Jul 13 from 
 | 07709 | 0/0/5 | 0 | never opened |
 | 07747 | 0/0/5 | 0 | never opened |
 
-**Action (2026-07-14):** Swap gate **met** (≥5 consecutive flat). Pick liquid SEHK replacements; log `roster: dropped → added` in Validation log when executed.
+**Action (2026-07-14):** Swap gate **met** (≥5 consecutive flat).
 
-**Not swap candidates (yet):**
+### Next-week roster plan (week of Jul 20 — planned 2026-07-15)
 
-| Sym | Reason to keep |
-|-----|----------------|
-| 00700, 01888, 09988, 03033 | multi-W / 09988 4W streak |
-| 00148, 00939, 01810, 02628 | shape-flip signal value (01810/02628 A wins Jul14) |
-| 00388, 09992 | lose when they fill — data, not silence; both won Jul14 |
-| 00992 | flat-heavy but losses when liq — different from never-trade |
-| 01299, 09618, 02318 | mixed flat + losses — need more days |
+**Drop all 6** (gate met — execute together when replacements ready):
+
+| Drop | Replace with | Status |
+|------|--------------|--------|
+| **01347** | TBD | planned |
+| **02899** | TBD | planned |
+| **03750** | TBD | planned |
+| **06869** | TBD | planned |
+| **07709** | TBD | planned |
+| **07747** | TBD | planned |
+
+**If staged:** prefer first batch `02899, 03750, 07709, 07747`; hold `01347/06869` one more week only if still stress-testing wide-bar-no-fill.
+
+**Hold (do not swap):** 00700, 01888, 09988, 03033 (winners); 00148, 00939, 01810, 02628 (shape-flip); 00388, 09992 (fill data); 00992, 01299, 09618, 02318, 03690 (need more days).
 
 **Swap gate (suggested):** ≥**5 consecutive HK sessions** with `positionOpened=false` (or 3/3 flat if fewer days available) **and** bar often fails liquidity **or** brackets placed but never filled → drop; add replacement with similar sector/liquidity (log new sym in registry from day 1).
 
 **On swap:** Remove deployment; add new symbol; note `roster: dropped XXXX → YYYY (date)` in Validation log. Recompute totals — dropped symbols don't affect traded PnL but reduce wasted sym-days.
 
-**Replacements:** TBD — prefer liquid SEHK names with opening-range ≥25% ATR more often than swap list. No replacements chosen yet.
+**Replacements:** TBD — prefer liquid SEHK names with opening-range ≥25% ATR more often than swap list. Fill TBD cells above when chosen.
 
 ## Recommended HK config (all 21 SEHK deployments)
 
@@ -509,6 +563,8 @@ Session:     deadline ON 90m
 | 2026-07-13 | 1 | 21 | 3/4 | −71 | **TT parity d1**; replay inv **−658** same fills; symbol-level mode divergence |
 | 2026-07-14 | 1 | 21 | 7/1 | +3623 | **TT parity d2**; 17R/4G; A TT longs 5W/0L +3601; swap gate 5F/5d |
 | 2026-07-13–14 | 2 | 42 | 10/5 | +3552 | TT week to date; do not merge with inverse baseline |
+| 2026-07-15 | — | — | — | — | **roster plan:** week of Jul 20 drop 01347, 02899, 03750, 06869, 07709, 07747; replacements TBD |
+| 2026-07-15 | — | — | — | — | **US→HK lag:** inv week = mode-flip (Mon inv-win≈TT-loss; Tue–Wed inv-bleed≈TT-win w/ US strength); live TT↔TT Jul14→15; need Jul15 nf + US Jul13 |
 
 ---
-*Agent: north star = §Symbol strategy. **Respect §Operator status** — do not assume recommended config is live. Ingest day → tag `g1-would-skip`, **`draft_mode` TT/inv** per sym-day; update **§TT-switch candidates** counts/tiers and **§Symbol roster** flat streaks. Log roster drops/adds and per-sym TT flips in Validation log. Also: Symbols, Totals, Patterns, Mode draft, Guard rails, Recommended config, Days, Trades, Validation log. Keep terse.*
+*Agent: north star = §Symbol strategy. **Respect §Operator status** — do not assume recommended config is live. Ingest day → tag `g1-would-skip`, **`draft_mode` TT/inv** per sym-day; update **§TT-switch candidates** counts/tiers and **§Symbol roster** flat streaks. After US ingest or HK day close → update **§US→HK lag** pairing table (US D → next HK). Log roster drops/adds and per-sym TT flips in Validation log. Also: Symbols, Totals, Patterns, Mode draft, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** execute §Next-week roster plan when replacements chosen; ingest US gap Jul10/13 for lag test. Keep terse.*

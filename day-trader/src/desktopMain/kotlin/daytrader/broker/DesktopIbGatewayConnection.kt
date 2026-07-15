@@ -2546,7 +2546,9 @@ class DesktopIbGatewayConnection(
             quantity,
             submission.parentOrderId
         )
-        requestOpenOrders()
+        // Do not requestOpenOrders() here. Default clearCache=true wiped ibOrderTemplateById
+        // mid auto-liquidity flush (first resize OK → rest bracket_resize_build_failed).
+        // Local optimistic qty update + IB openOrder callbacks keep templates fresh.
         scheduleExecutionsRefresh()
         emit(
             GatewayEvent.TouchTurnBracketResized(
@@ -2962,10 +2964,12 @@ class DesktopIbGatewayConnection(
         if (config.accountCode.isNotBlank()) {
             order.account(config.accountCode)
         }
+        // Prefer SMART routing: IB position contracts often carry listing exchange (NASDAQ/NYSE),
+        // which rejects MKT closes with error 10311 under Precautionary Settings (META 2026-07-14).
         val contract = if (open != null) {
-            IbContractMapper.forDataRequest(IbContractMapper.clone(open.contract))
+            IbContractMapper.forSmartRoutedOrder(open.contract)
         } else {
-            IbContractMapper.forDataRequest(IbContractMapper.stockForHistorical(symbol))
+            IbContractMapper.forSmartRoutedOrder(IbContractMapper.stockForHistorical(symbol))
         }
         sessionCloseOrdersById[orderId] = SessionCloseOrderMeta(
             symbol = symbol,

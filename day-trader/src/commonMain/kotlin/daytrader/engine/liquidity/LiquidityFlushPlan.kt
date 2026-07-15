@@ -23,14 +23,15 @@ data class LiquidityFlushAudit(
     val totalDebited: Int get() = loops.sumOf { it.debited.values.sum() }
 
     /**
-     * Idempotency mark: burn the once-per-zone-day attempt unless broker resizes all failed
-     * with the pool still full — those should retry on the next poll.
+     * Idempotency mark: burn the once-per-zone-day attempt unless broker resizes failed
+     * while pool balance remains — those should retry on the next poll (including partial
+     * debit: one success must not lock out later names when the IB template cache was wiped).
      */
     fun shouldMarkZoneFlushed(): Boolean {
         if (skippedDisabled || skippedInFlight) return false
         if (skippedEmptyPool) return true
         val failedResizeCount = loops.sumOf { it.failedResize.size }
-        if (failedResizeCount > 0 && totalDebited == 0 && remainingPoolAvailable > 0) {
+        if (failedResizeCount > 0 && remainingPoolAvailable > 0) {
             return false
         }
         return true

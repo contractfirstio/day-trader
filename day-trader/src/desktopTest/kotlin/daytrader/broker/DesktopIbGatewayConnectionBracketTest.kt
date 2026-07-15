@@ -380,6 +380,57 @@ class DesktopIbGatewayConnectionBracketTest {
         }
     }
 
+    @Test
+    fun resizeTouchTurnBracket_success_doesNotClearOpenOrderTemplates() = runBlocking {
+        // Production: emitTouchTurnBracketResizeSuccess used requestOpenOrders() with default
+        // clearCache=true, wiping templates mid auto-flush burst (39→0 snapshot).
+        withHarness { harness ->
+            harness.recordingClient.connected = true
+            harness.connection.start()
+            // Skip nextValidId — it schedules requestOpenOrders(clearCache=true).
+            seedWorkingBracket(harness, orderIdBase = 500, quantity = 5)
+
+            val openOrdersRequestsBefore = harness.recordingClient.reqAllOpenOrdersCount
+
+            harness.queues.outbound.offer(
+                GatewayCommand.ResizeTouchTurnBracket(
+                    requestId = 77L,
+                    request = TouchTurnBracketResizeRequest(
+                        symbol = E2ETestFixtures.SYMBOL,
+                        currencyCode = "USD",
+                        instrument = null,
+                        orderIds = TouchTurnBracketOrderIds(500, 501, 502, null),
+                        plan = planWithQuantity(threeLegLiquidityPlan(), quantity = 10),
+                    ),
+                )
+            )
+            delay(300)
+            harness.connection.orderStatus(
+                orderId = 501,
+                status = "Submitted",
+                filled = Decimal.ZERO,
+                remaining = Decimal.get(10),
+                avgFillPrice = 0.0,
+                permId = 1_501L,
+                parentId = 500,
+                lastFillPrice = 0.0,
+                clientId = config.clientId,
+                whyHeld = "",
+                mktCapPrice = 0.0,
+            )
+
+            val resized = harness.awaitInbound(timeoutMs = 3_000) {
+                it is GatewayEvent.TouchTurnBracketResized
+            } as GatewayEvent.TouchTurnBracketResized
+            assertTrue(resized.result.isSuccess)
+            assertEquals(
+                openOrdersRequestsBefore,
+                harness.recordingClient.reqAllOpenOrdersCount,
+                "Resize success must not requestOpenOrders (clears sibling templates mid flush)",
+            )
+        }
+    }
+
     private fun planWithQuantity(plan: TouchTurnOrderPlan, quantity: Int): TouchTurnOrderPlan =
         plan.copy(
             quantity = quantity,
@@ -391,9 +442,10 @@ class DesktopIbGatewayConnectionBracketTest {
         orderIdBase: Int,
         quantity: Int,
         entryFilled: Int = 0,
+        symbol: String = E2ETestFixtures.SYMBOL,
     ) {
         val contract = Contract().also {
-            it.symbol(E2ETestFixtures.SYMBOL)
+            it.symbol(symbol)
             it.secType("STK")
             it.exchange("SMART")
             it.currency("USD")
@@ -442,25 +494,26 @@ class DesktopIbGatewayConnectionBracketTest {
         }
     }
 
-    private fun threeLegLiquidityPlan() = TouchTurnOrderPlanner.buildOrderPlan(
-        symbol = E2ETestFixtures.SYMBOL,
-        setup = TouchTurnBracketSetup(
-            range = 2.0,
-            rangeThreshold = 0.5,
-            isLiquidityCandle = true,
-            candleColor = FirstCandleColor.RED,
-            side = TouchTurnTradeSide.LONG,
-            entry = 100.0,
-            stopLoss = 99.0,
-            takeProfit = 101.0,
-        ),
-        maxDollars = 500,
-        currencyCode = "USD",
-        openingBarClose = 100.85,
-        rules = TouchTurnRuleConfig.DEFAULT.copy(
-            enables = TouchTurnRuleEnables.DEFAULT.copy(adjustableTrailingStop = false),
-        ),
-    )!!
+    private fun threeLegLiquidityPlan(symbol: String = E2ETestFixtures.SYMBOL) =
+        TouchTurnOrderPlanner.buildOrderPlan(
+            symbol = symbol,
+            setup = TouchTurnBracketSetup(
+                range = 2.0,
+                rangeThreshold = 0.5,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.RED,
+                side = TouchTurnTradeSide.LONG,
+                entry = 100.0,
+                stopLoss = 99.0,
+                takeProfit = 101.0,
+            ),
+            maxDollars = 500,
+            currencyCode = "USD",
+            openingBarClose = 100.85,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                enables = TouchTurnRuleEnables.DEFAULT.copy(adjustableTrailingStop = false),
+            ),
+        )!!
 
     private suspend fun withHarness(
         connectionMode: IbConnectionMode = IbConnectionMode.FULL,
@@ -511,11 +564,16 @@ class DesktopIbGatewayConnectionBracketTest {
 
         val placedOrders = mutableListOf<PlacedOrder>()
         @Volatile var connected: Boolean = false
+        @Volatile var reqAllOpenOrdersCount: Int = 0
 
         override fun isConnected(): Boolean = connected
 
         override fun placeOrder(orderId: Int, contract: Contract, order: Order) {
             placedOrders.add(PlacedOrder(orderId, contract, order))
+        }
+
+        override fun reqAllOpenOrders() {
+            reqAllOpenOrdersCount++
         }
     }
 }

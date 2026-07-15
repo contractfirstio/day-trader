@@ -152,6 +152,27 @@ internal object IbContractMapper {
         return copy
     }
 
+    /**
+     * Contract for order placement (session flatten / OPEN_DEADLINE MKT).
+     *
+     * IB position callbacks often set [Contract.exchange] to the listing venue (NASDAQ/NYSE).
+     * Placing MKT on that venue trips Precautionary Settings error **10311** ("directly routed").
+     * Brackets already use SMART; closes must match — keep [Contract.primaryExch] / conId.
+     * SEHK (and already-SMART) contracts are left unchanged.
+     */
+    fun forSmartRoutedOrder(contract: Contract): Contract {
+        val copy = forDataRequest(contract)
+        val secType = copy.getSecType().orEmpty().uppercase()
+        if (secType.isNotEmpty() && secType != "STK") return copy
+        val exchange = copy.exchange().orEmpty().uppercase()
+        if (exchange.isEmpty() || exchange == "SMART" || exchange == "SEHK") return copy
+        if (copy.primaryExch().isNullOrBlank()) {
+            copy.primaryExch(exchange)
+        }
+        copy.exchange("SMART")
+        return copy
+    }
+
     fun fromProto(proto: ContractProto.Contract): Contract {
         val contract = Contract()
         if (proto.hasConId()) contract.conid(proto.conId)

@@ -131,13 +131,16 @@ class ReplaySessionStopFlattenCaptureTest {
         runtime.drainEmulatorPipeline()
         runtime.drainAllPendingInboundEvents()
 
+        // Async flatten only enqueues the cover — without draining the emulator control /
+        // fill path, session-stop snapshot code sees entry-only fills. Do not partially drain:
+        // under suite load that race sometimes completes and flakes. Contrast with
+        // flattenAndDrainForSessionStop_capturesFlattenFillInGatewaySnapshot above.
         gateway.flattenSymbolForSymbol(symbol)
-        runtime.drainEmulatorControlQueue(maxRounds = 1)
 
         assertEquals(
             1,
             gateway.fills.value.size,
-            "async gateway flatten + immediate partial drain reproduces missing exit fill"
+            "async gateway flatten without drain reproduces missing exit fill"
         )
     }
 
