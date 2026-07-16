@@ -123,6 +123,26 @@ data class TouchTurnRuleConfig(
     /** Action when red bar cp is at or above [redSkipClosePositionAbove]. */
     val redClosePositionAboveAction: TouchTurnClosePositionTriggerMode =
         TouchTurnClosePositionTriggerMode.OFF,
+    /** Green liquidity bar: skip when body ratio is at or below this (inclusive). Null disables. */
+    val greenSkipBodyRatioBelow: Double? = null,
+    /** Green liquidity bar: skip when body ratio is at or above this (inclusive). Null disables. */
+    val greenSkipBodyRatioAbove: Double? = null,
+    /** Red liquidity bar: skip when body ratio is at or below this (inclusive). Null disables. */
+    val redSkipBodyRatioBelow: Double? = null,
+    /** Red liquidity bar: skip when body ratio is at or above this (inclusive). Null disables. */
+    val redSkipBodyRatioAbove: Double? = null,
+    /** Action when green bar body is at or below [greenSkipBodyRatioBelow]. */
+    val greenBodyRatioBelowAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when green bar body is at or above [greenSkipBodyRatioAbove]. */
+    val greenBodyRatioAboveAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when red bar body is at or below [redSkipBodyRatioBelow]. */
+    val redBodyRatioBelowAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
+    /** Action when red bar body is at or above [redSkipBodyRatioAbove]. */
+    val redBodyRatioAboveAction: TouchTurnClosePositionTriggerMode =
+        TouchTurnClosePositionTriggerMode.OFF,
     /** Action on a liquidity-qualified green opening bar. */
     val greenLiquidityBarAction: TouchTurnClosePositionTriggerMode =
         TouchTurnClosePositionTriggerMode.OFF,
@@ -160,10 +180,10 @@ data class TouchTurnRuleConfig(
             ),
             TouchTurnRuleToggleDefinition(
                 key = "closePositionGate",
-                label = "Close position (cp) triggers",
-                description = "Configure cp bounds on liquidity-qualified opening bars. Each bound can skip " +
-                    "the session or switch from inverse to Touch Turn when invert is on. With action Off, a set " +
-                    "threshold still skips when this toggle is enabled (legacy behaviour).",
+                label = "Opening-bar shape triggers (cp / body)",
+                description = "Configure cp and body-ratio bounds on liquidity-qualified opening bars. Each " +
+                    "bound can skip the session or switch from inverse to Touch Turn when invert is on. " +
+                    "With action Off, a set threshold still skips when this toggle is enabled (legacy behaviour).",
                 category = TouchTurnRuleCategory.TRIGGERS
             ),
             TouchTurnRuleToggleDefinition(
@@ -300,6 +320,78 @@ data class TouchTurnRuleConfig(
                 key = "redClosePositionAboveAction",
                 label = "Red bar — cp at or above action",
                 description = "Skip or flip invert when cp is at or above the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenSkipBodyRatioBelow",
+                label = "Green bar — body at or below",
+                description = "Trigger when body ratio (|close−open|/range) is at or below this value.",
+                kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_BODY,
+                defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenBodyRatioBelowAction",
+                label = "Green bar — body at or below action",
+                description = "Skip or flip invert when body is at or below the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenSkipBodyRatioAbove",
+                label = "Green bar — body at or above",
+                description = "Trigger when body ratio is at or above this value.",
+                kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_BODY,
+                defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "greenBodyRatioAboveAction",
+                label = "Green bar — body at or above action",
+                description = "Skip or flip invert when body is at or above the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redSkipBodyRatioBelow",
+                label = "Red bar — body at or below",
+                description = "Trigger when body ratio is at or below this value.",
+                kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_BODY,
+                defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redBodyRatioBelowAction",
+                label = "Red bar — body at or below action",
+                description = "Skip or flip invert when body is at or below the threshold.",
+                kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redSkipBodyRatioAbove",
+                label = "Red bar — body at or above",
+                description = "Trigger when body ratio is at or above this value.",
+                kind = TouchTurnRuleFieldKind.OPTIONAL_RATIO,
+                category = TouchTurnRuleCategory.TRIGGERS,
+                subGroup = TouchTurnRuleFieldSubGroup.OPENING_BAR_BODY,
+                defaultable = true,
+                visibleWhenToggleKey = "closePositionGate"
+            ),
+            TouchTurnRuleFieldDefinition(
+                key = "redBodyRatioAboveAction",
+                label = "Red bar — body at or above action",
+                description = "Skip or flip invert when body is at or above the threshold.",
                 kind = TouchTurnRuleFieldKind.CLOSE_POSITION_TRIGGER_MODE,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 visibleWhenToggleKey = "closePositionGate"
@@ -556,6 +648,14 @@ data class TouchTurnRuleConfig(
             "greenClosePositionAboveAction" -> config.greenClosePositionAboveAction.name
             "redClosePositionBelowAction" -> config.redClosePositionBelowAction.name
             "redClosePositionAboveAction" -> config.redClosePositionAboveAction.name
+            "greenSkipBodyRatioBelow" -> config.greenSkipBodyRatioBelow?.toString().orEmpty()
+            "greenSkipBodyRatioAbove" -> config.greenSkipBodyRatioAbove?.toString().orEmpty()
+            "redSkipBodyRatioBelow" -> config.redSkipBodyRatioBelow?.toString().orEmpty()
+            "redSkipBodyRatioAbove" -> config.redSkipBodyRatioAbove?.toString().orEmpty()
+            "greenBodyRatioBelowAction" -> config.greenBodyRatioBelowAction.name
+            "greenBodyRatioAboveAction" -> config.greenBodyRatioAboveAction.name
+            "redBodyRatioBelowAction" -> config.redBodyRatioBelowAction.name
+            "redBodyRatioAboveAction" -> config.redBodyRatioAboveAction.name
             "greenLiquidityBarAction" -> config.greenLiquidityBarAction.name
             "redLiquidityBarAction" -> config.redLiquidityBarAction.name
             else -> ""
@@ -578,6 +678,10 @@ data class TouchTurnRuleConfig(
                 "greenClosePositionAboveAction" -> config.copy(greenClosePositionAboveAction = mode)
                 "redClosePositionBelowAction" -> config.copy(redClosePositionBelowAction = mode)
                 "redClosePositionAboveAction" -> config.copy(redClosePositionAboveAction = mode)
+                "greenBodyRatioBelowAction" -> config.copy(greenBodyRatioBelowAction = mode)
+                "greenBodyRatioAboveAction" -> config.copy(greenBodyRatioAboveAction = mode)
+                "redBodyRatioBelowAction" -> config.copy(redBodyRatioBelowAction = mode)
+                "redBodyRatioAboveAction" -> config.copy(redBodyRatioAboveAction = mode)
                 "greenLiquidityBarAction" -> config.copy(greenLiquidityBarAction = mode)
                 "redLiquidityBarAction" -> config.copy(redLiquidityBarAction = mode)
                 else -> null
@@ -609,6 +713,10 @@ data class TouchTurnRuleConfig(
                     "greenSkipClosePositionAbove" -> config.copy(greenSkipClosePositionAbove = null)
                     "redSkipClosePositionBelow" -> config.copy(redSkipClosePositionBelow = null)
                     "redSkipClosePositionAbove" -> config.copy(redSkipClosePositionAbove = null)
+                    "greenSkipBodyRatioBelow" -> config.copy(greenSkipBodyRatioBelow = null)
+                    "greenSkipBodyRatioAbove" -> config.copy(greenSkipBodyRatioAbove = null)
+                    "redSkipBodyRatioBelow" -> config.copy(redSkipBodyRatioBelow = null)
+                    "redSkipBodyRatioAbove" -> config.copy(redSkipBodyRatioAbove = null)
                     else -> null
                 }
             } else {
@@ -619,6 +727,10 @@ data class TouchTurnRuleConfig(
                 "greenSkipClosePositionAbove" -> config.copy(greenSkipClosePositionAbove = value)
                 "redSkipClosePositionBelow" -> config.copy(redSkipClosePositionBelow = value)
                 "redSkipClosePositionAbove" -> config.copy(redSkipClosePositionAbove = value)
+                "greenSkipBodyRatioBelow" -> config.copy(greenSkipBodyRatioBelow = value)
+                "greenSkipBodyRatioAbove" -> config.copy(greenSkipBodyRatioAbove = value)
+                "redSkipBodyRatioBelow" -> config.copy(redSkipBodyRatioBelow = value)
+                "redSkipBodyRatioAbove" -> config.copy(redSkipBodyRatioAbove = value)
                 else -> null
             }
         }
@@ -792,6 +904,7 @@ data class TouchTurnRuleConfig(
 enum class TouchTurnRuleFieldSubGroup(val label: String) {
     LIQUIDITY_THRESHOLD("15m bar range threshold"),
     OPENING_BAR_CLOSE_POSITION("Close position (cp)"),
+    OPENING_BAR_BODY("Body ratio"),
     OPENING_BAR_COLOR("Bar color"),
     SUBMISSION_GATES("Submission gates"),
     BAR_TIMING("15m bar close timing"),

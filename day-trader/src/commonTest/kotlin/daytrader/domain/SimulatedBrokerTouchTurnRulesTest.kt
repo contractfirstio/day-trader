@@ -273,6 +273,30 @@ class SimulatedBrokerTouchTurnRulesTest {
     }
 
     @Test
+    fun withFieldValue_acceptsOptionalBodyRatioThresholds() {
+        val updated = TouchTurnRuleConfig.withFieldValue(
+            TouchTurnRuleConfig.DEFAULT,
+            "greenSkipBodyRatioBelow",
+            "0.70"
+        )
+        assertEquals(0.70, updated?.greenSkipBodyRatioBelow)
+
+        val withAction = TouchTurnRuleConfig.withFieldValue(
+            updated ?: TouchTurnRuleConfig.DEFAULT,
+            "greenBodyRatioBelowAction",
+            "SKIP"
+        )
+        assertEquals(TouchTurnClosePositionTriggerMode.SKIP, withAction?.greenBodyRatioBelowAction)
+
+        val cleared = TouchTurnRuleConfig.withFieldValue(
+            TouchTurnRuleConfig.DEFAULT.copy(redSkipBodyRatioAbove = 0.90),
+            "redSkipBodyRatioAbove",
+            ""
+        )
+        assertNull(cleared?.redSkipBodyRatioAbove)
+    }
+
+    @Test
     fun withFieldValue_acceptsClosedBarRefetchSettleMs() {
         val updated = TouchTurnRuleConfig.withFieldValue(
             TouchTurnRuleConfig.DEFAULT,

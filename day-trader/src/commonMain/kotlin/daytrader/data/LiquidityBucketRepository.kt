@@ -95,9 +95,15 @@ class FileLiquidityBucketRepository(
         creditedAtEpochMs: Long
     ) {
         if (!LiquidityBucketLogic.isNoTradeCreditEligible(touchTurn, maxDollars)) return
-        val outcome = touchTurn?.decisionOutcome
-            ?: touchTurn?.let { daytrader.domain.resolveTouchTurnSessionOutcome(it) }
+        val resolved = touchTurn?.let { daytrader.domain.resolveTouchTurnSessionOutcome(it) }
             ?: TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+        // Never stamp TRADE_BRACKET_SUBMITTED on a no-order credit (stale decisionOutcome).
+        val outcome =
+            if (resolved == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
+                TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            } else {
+                resolved
+            }
         val amount = LiquidityBucketLogic.creditAmountForSession(maxDollars)
         update { state ->
             LiquidityBucketLogic.creditSession(

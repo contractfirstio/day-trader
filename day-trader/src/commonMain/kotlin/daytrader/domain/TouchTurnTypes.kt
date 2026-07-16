@@ -119,7 +119,9 @@ data class TouchTurnBracketSetup(
     val stopLoss: Double,
     val takeProfit: Double,
     /** Close position on the opening bar: (close − low) / range; null when unavailable. */
-    val closePositionRatio: Double? = null
+    val closePositionRatio: Double? = null,
+    /** Body size on the opening bar: |close − open| / range; null when unavailable. */
+    val bodyRatio: Double? = null
 ) {
     val isActionable: Boolean
         get() = isLiquidityCandle && candleColor != FirstCandleColor.DOJI

@@ -42,9 +42,14 @@ class InMemoryLiquidityBucketRepository(
         creditedAtEpochMs: Long,
     ) {
         if (!LiquidityBucketLogic.isNoTradeCreditEligible(touchTurn, maxDollars)) return
-        val outcome = touchTurn?.decisionOutcome
-            ?: touchTurn?.let { resolveTouchTurnSessionOutcome(it) }
+        val resolved = touchTurn?.let { resolveTouchTurnSessionOutcome(it) }
             ?: TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+        val outcome =
+            if (resolved == TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED) {
+                TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED
+            } else {
+                resolved
+            }
         val amount = LiquidityBucketLogic.creditAmountForSession(maxDollars)
         update { state ->
             LiquidityBucketLogic.creditSession(

@@ -18,7 +18,7 @@ enum class TouchTurnClosePositionTriggerEvaluation {
 
 object TouchTurnClosePositionTriggers {
     /**
-     * Evaluates bar-color and cp bounds on a liquidity-qualified opening bar.
+     * Evaluates bar-color, cp, and body bounds on a liquidity-qualified opening bar.
      * Skip wins over switch; switch applies only when deployment invert is on.
      */
     fun evaluate(
@@ -41,10 +41,13 @@ object TouchTurnClosePositionTriggers {
         rules: TouchTurnRuleConfig
     ): TouchTurnSessionOutcome? {
         if (evaluate(setup, rules) != TouchTurnClosePositionTriggerEvaluation.SKIP) return null
-        return if (matchedColorActions(setup, rules).any { it == TouchTurnClosePositionTriggerMode.SKIP }) {
-            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED
-        } else {
-            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED
+        return when {
+            matchedColorActions(setup, rules).any { it == TouchTurnClosePositionTriggerMode.SKIP } ->
+                TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED
+            matchedBodyActions(setup, rules).any { it == TouchTurnClosePositionTriggerMode.SKIP } ->
+                TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED
+            else ->
+                TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED
         }
     }
 
@@ -85,6 +88,7 @@ object TouchTurnClosePositionTriggers {
         return buildList {
             addAll(matchedColorActions(setup, rules))
             addAll(matchedClosePositionActions(setup, rules))
+            addAll(matchedBodyActions(setup, rules))
         }
     }
 
@@ -113,14 +117,14 @@ object TouchTurnClosePositionTriggers {
                         threshold = rules.greenSkipClosePositionBelow,
                         action = rules.greenClosePositionBelowAction,
                         closePositionGate = rules.enables.closePositionGate,
-                        closePosition = closePosition,
+                        value = closePosition,
                         matches = { cp, bound -> cp <= bound }
                     )?.let(::add)
                     matchBound(
                         threshold = rules.greenSkipClosePositionAbove,
                         action = rules.greenClosePositionAboveAction,
                         closePositionGate = rules.enables.closePositionGate,
-                        closePosition = closePosition,
+                        value = closePosition,
                         matches = { cp, bound -> cp >= bound }
                     )?.let(::add)
                 }
@@ -129,15 +133,59 @@ object TouchTurnClosePositionTriggers {
                         threshold = rules.redSkipClosePositionBelow,
                         action = rules.redClosePositionBelowAction,
                         closePositionGate = rules.enables.closePositionGate,
-                        closePosition = closePosition,
+                        value = closePosition,
                         matches = { cp, bound -> cp <= bound }
                     )?.let(::add)
                     matchBound(
                         threshold = rules.redSkipClosePositionAbove,
                         action = rules.redClosePositionAboveAction,
                         closePositionGate = rules.enables.closePositionGate,
-                        closePosition = closePosition,
+                        value = closePosition,
                         matches = { cp, bound -> cp >= bound }
+                    )?.let(::add)
+                }
+                FirstCandleColor.DOJI -> Unit
+            }
+        }
+    }
+
+    private fun matchedBodyActions(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig
+    ): List<TouchTurnClosePositionTriggerMode> {
+        val body = setup.bodyRatio ?: return emptyList()
+        return buildList {
+            when (setup.candleColor) {
+                FirstCandleColor.GREEN -> {
+                    matchBound(
+                        threshold = rules.greenSkipBodyRatioBelow,
+                        action = rules.greenBodyRatioBelowAction,
+                        closePositionGate = rules.enables.closePositionGate,
+                        value = body,
+                        matches = { b, bound -> b <= bound }
+                    )?.let(::add)
+                    matchBound(
+                        threshold = rules.greenSkipBodyRatioAbove,
+                        action = rules.greenBodyRatioAboveAction,
+                        closePositionGate = rules.enables.closePositionGate,
+                        value = body,
+                        matches = { b, bound -> b >= bound }
+                    )?.let(::add)
+                }
+                FirstCandleColor.RED -> {
+                    matchBound(
+                        threshold = rules.redSkipBodyRatioBelow,
+                        action = rules.redBodyRatioBelowAction,
+                        closePositionGate = rules.enables.closePositionGate,
+                        value = body,
+                        matches = { b, bound -> b <= bound }
+                    )?.let(::add)
+                    matchBound(
+                        threshold = rules.redSkipBodyRatioAbove,
+                        action = rules.redBodyRatioAboveAction,
+                        closePositionGate = rules.enables.closePositionGate,
+                        value = body,
+                        matches = { b, bound -> b >= bound }
                     )?.let(::add)
                 }
                 FirstCandleColor.DOJI -> Unit
@@ -149,12 +197,12 @@ object TouchTurnClosePositionTriggers {
         threshold: Double?,
         action: TouchTurnClosePositionTriggerMode,
         closePositionGate: Boolean,
-        closePosition: Double,
-        matches: (cp: Double, bound: Double) -> Boolean
+        value: Double,
+        matches: (value: Double, bound: Double) -> Boolean
     ): TouchTurnClosePositionTriggerMode? {
         if (threshold == null) return null
         val resolved = resolvedAction(threshold, action, closePositionGate) ?: return null
-        return resolved.takeIf { matches(closePosition, threshold) }
+        return resolved.takeIf { matches(value, threshold) }
     }
 
     private fun triggersApply(setup: TouchTurnBracketSetup, rules: TouchTurnRuleConfig): Boolean =

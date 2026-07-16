@@ -147,7 +147,8 @@ internal object TouchTurnPersistence {
             entry = entry,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
-            closePositionRatio = candle?.let(TouchTurnLogic::closePositionRatio)
+            closePositionRatio = candle?.let(TouchTurnLogic::closePositionRatio),
+            bodyRatio = candle?.let(TouchTurnLogic::bodyRatio)
         )
     }
 

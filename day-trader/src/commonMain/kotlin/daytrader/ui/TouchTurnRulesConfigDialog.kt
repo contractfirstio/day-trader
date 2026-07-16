@@ -333,6 +333,11 @@ private fun TouchTurnRuleCategorySection(
                                         fieldValues = fieldValues,
                                         onFieldChange = onFieldChange
                                     )
+                                    TouchTurnBodyRatioTriggersPanel(
+                                        enabled = enabled,
+                                        fieldValues = fieldValues,
+                                        onFieldChange = onFieldChange
+                                    )
                                 }
                             }
                             openingBarTimingGroup?.let { group ->
@@ -373,7 +378,8 @@ private fun TouchTurnRuleCategorySection(
                             val suffix = it.testTagSuffix
                             suffix != TouchTurnRuleFieldSubGroup.LIQUIDITY_THRESHOLD.name.lowercase() &&
                                 suffix != TouchTurnRuleFieldSubGroup.BAR_TIMING.name.lowercase() &&
-                                suffix != TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION.name.lowercase()
+                                suffix != TouchTurnRuleFieldSubGroup.OPENING_BAR_CLOSE_POSITION.name.lowercase() &&
+                                suffix != TouchTurnRuleFieldSubGroup.OPENING_BAR_BODY.name.lowercase()
                         }.forEach { group ->
                             TouchTurnRuleFieldSubGroupPanel(
                                 label = group.label,
@@ -822,6 +828,45 @@ private fun TouchTurnClosePositionTriggersPanel(
             Triple("Green bar — cp at or above", "greenSkipClosePositionAbove", "greenClosePositionAboveAction"),
             Triple("Red bar — cp at or below", "redSkipClosePositionBelow", "redClosePositionBelowAction"),
             Triple("Red bar — cp at or above", "redSkipClosePositionAbove", "redClosePositionAboveAction")
+        ).forEach { (label, thresholdKey, actionKey) ->
+            TouchTurnClosePositionTriggerRow(
+                label = label,
+                thresholdKey = thresholdKey,
+                actionKey = actionKey,
+                thresholdValue = fieldValues[thresholdKey].orEmpty(),
+                actionValue = fieldValues[actionKey].orEmpty(),
+                enabled = enabled,
+                onThresholdChange = { onFieldChange(thresholdKey, it) },
+                onActionChange = { onFieldChange(actionKey, it) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TouchTurnBodyRatioTriggersPanel(
+    enabled: Boolean,
+    fieldValues: Map<String, String>,
+    onFieldChange: (String, String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, top = 4.dp)
+            .testTag("TouchTurnBodyRatioTriggersPanel"),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Body ratio triggers (|close−open|/range)",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextSecondary
+        )
+        listOf(
+            Triple("Green bar — body at or below", "greenSkipBodyRatioBelow", "greenBodyRatioBelowAction"),
+            Triple("Green bar — body at or above", "greenSkipBodyRatioAbove", "greenBodyRatioAboveAction"),
+            Triple("Red bar — body at or below", "redSkipBodyRatioBelow", "redBodyRatioBelowAction"),
+            Triple("Red bar — body at or above", "redSkipBodyRatioAbove", "redBodyRatioAboveAction")
         ).forEach { (label, thresholdKey, actionKey) ->
             TouchTurnClosePositionTriggerRow(
                 label = label,

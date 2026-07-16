@@ -623,8 +623,7 @@ object TouchTurnLogic {
         if (rules.enables.requiresLiquidityRange() && !setup.isLiquidityCandle) {
             return TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
         }
-        return openingBarColorBlockOutcome(setup, rules)
-            ?: openingBarClosePositionBlockOutcome(setup, rules)
+        return TouchTurnClosePositionTriggers.skipOutcome(setup, rules)
     }
 
     fun openingBarClosePositionBlockOutcome(
@@ -639,6 +638,12 @@ object TouchTurnLogic {
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): TouchTurnSessionOutcome? = TouchTurnClosePositionTriggers.skipOutcome(setup, rules)
             ?.takeIf { it == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED }
+
+    fun openingBarBodyBlockOutcome(
+        setup: TouchTurnBracketSetup,
+        rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
+    ): TouchTurnSessionOutcome? = TouchTurnClosePositionTriggers.skipOutcome(setup, rules)
+            ?.takeIf { it == TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED }
 
     data class EntryGateResult(
         val entryOrdersPermitted: Boolean,
@@ -700,6 +705,13 @@ object TouchTurnLogic {
     }
 
     fun closePositionRatio(bar: OhlcBar): Double? = closePositionRatioForPrice(bar, bar.close)
+
+    /** Body fraction of range: |close − open| / (high − low); null when range is not positive. */
+    fun bodyRatio(bar: OhlcBar): Double? {
+        val range = bar.high - bar.low
+        if (range <= 0.0) return null
+        return kotlin.math.abs(bar.close - bar.open) / range
+    }
 
     fun entryWindowExpiredAlert(
         candle: OhlcBar?,
@@ -1409,7 +1421,10 @@ object TouchTurnLogic {
             )
         }
         val setup = if (rules.invertTradeSide) applyInvertTradeSide(reversal, rules) else reversal
-        return setup.copy(closePositionRatio = closePositionRatio(bar))
+        return setup.copy(
+            closePositionRatio = closePositionRatio(bar),
+            bodyRatio = bodyRatio(bar)
+        )
     }
 
     /**

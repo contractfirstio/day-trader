@@ -93,10 +93,13 @@ object TouchTurnSessionReasonUi {
                 FirstCandleColor.RED -> "red"
                 else -> "opening"
             }
+            val bodyText = session?.setup?.bodyRatio?.let { body ->
+                val scaled = kotlin.math.round(body * 100.0) / 100.0
+                "body=$scaled"
+            } ?: "body unavailable"
             TouchTurnSessionStatusUi(
-                headline = "No trade — $colorLabel 15m bar shape trigger",
-                detail = "A configured opening-bar shape trigger matched with action Skip. Bracket orders " +
-                    "were not placed.",
+                headline = "No trade — $colorLabel 15m bar body out of range",
+                detail = "Body-ratio gate blocked this liquidity bar ($bodyText). Bracket orders were not placed.",
                 severity = TouchTurnReasonSeverity.Warning
             )
         }

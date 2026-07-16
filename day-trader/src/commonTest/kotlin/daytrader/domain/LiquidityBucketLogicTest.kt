@@ -117,6 +117,63 @@ class LiquidityBucketLogicTest {
     }
 
     @Test
+    fun isNoTradeCreditEligible_trueForOpeningBarShapeFiltersWithoutOrders() {
+        val outcomes = listOf(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_CLOSE_POSITION_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            TouchTurnSessionOutcome.NO_TRADE_DOJI,
+        )
+        for (outcome in outcomes) {
+            val touchTurn = TouchTurnSessionContext(
+                sessionDate = "2026-06-12",
+                status = TouchTurnCandleStatus.READY,
+                ordersPlacedForSession = false,
+                decisionOutcome = outcome,
+            )
+            assertTrue(
+                LiquidityBucketLogic.isNoTradeCreditEligible(touchTurn, 1_000),
+                "expected credit eligible for $outcome",
+            )
+        }
+    }
+
+    @Test
+    fun isNoTradeCreditEligible_trueWheneverOrdersWereNotPlaced() {
+        // Even if outcome label is wrong/stale, unused maxDollars must return to the pool.
+        val touchTurn = TouchTurnSessionContext(
+            sessionDate = "2026-06-12",
+            status = TouchTurnCandleStatus.READY,
+            ordersPlacedForSession = false,
+            decisionOutcome = TouchTurnSessionOutcome.TRADE_BRACKET_SUBMITTED,
+        )
+        assertTrue(LiquidityBucketLogic.isNoTradeCreditEligible(touchTurn, 750))
+    }
+
+    @Test
+    fun creditSession_shapeFilterOutcomeIncreasesAvailableByMaxDollars() {
+        val state = LiquidityBucketLogic.creditSession(
+            state = LiquidityBucketState(),
+            currencyCode = "USD",
+            sessionDate = "2026-07-15",
+            sessionId = "s-body-skip",
+            deploymentId = "d-soxl",
+            symbol = "SOXL",
+            amount = LiquidityBucketLogic.creditAmountForSession(2_500),
+            outcome = TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
+            creditedAtEpochMs = 1L,
+        )
+        val bucket = LiquidityBucketLogic.bucketForCurrency(state, "USD")
+        assertEquals(2_500, bucket.available)
+        assertEquals(1, bucket.credits.size)
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED.name,
+            bucket.credits.single().outcome,
+        )
+    }
+
+    @Test
     fun clearBucketForDate_removesCurrencyPoolAndReturnsClearedAmount() {
         val sessionDate = "2026-06-12"
         var state = LiquidityBucketLogic.creditSession(

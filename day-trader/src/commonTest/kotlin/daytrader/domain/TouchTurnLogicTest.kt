@@ -1085,6 +1085,60 @@ class TouchTurnLogicTest {
     }
 
     @Test
+    fun barSetupBlockOutcome_skipsGreenLiquidityBarWhenBodyRatioBelowThreshold() {
+        // Wide green doji-ish: body 0.5 / range 11 ≈ 0.045 — not A′
+        val bar = OhlcBar(open = 100.0, high = 110.0, low = 99.0, close = 100.5)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertEquals(FirstCandleColor.GREEN, setup.candleColor)
+        assertEquals(0.045454545454545456, setup.bodyRatio!!, 0.0001)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            greenSkipBodyRatioBelow = 0.70
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
+            TouchTurnLogic.barSetupBlockOutcome(setup, rules)
+        )
+    }
+
+    @Test
+    fun barSetupBlockOutcome_allowsGreenAPrimeWhenBodyAndCpPass() {
+        // A′: cp≈0.95, body≈0.91
+        val bar = OhlcBar(open = 100.0, high = 111.0, low = 100.0, close = 110.5)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertTrue(setup.closePositionRatio!! >= 0.85)
+        assertTrue(setup.bodyRatio!! >= 0.70)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            // Skip small-body greens (not A′); this bar's body clears 0.70
+            greenSkipBodyRatioBelow = 0.70
+        )
+        assertNull(TouchTurnLogic.barSetupBlockOutcome(setup, rules))
+    }
+
+    @Test
+    fun closePositionTriggers_bodySkipStacksIndependentlyOfCp() {
+        // Red A body but cp already mid — only body below should fire
+        val bar = OhlcBar(open = 110.0, high = 110.0, low = 100.0, close = 109.5)
+        val setup = TouchTurnLogic.computeBracketSetup(bar, rangeThreshold = 5.0)
+        assertEquals(FirstCandleColor.RED, setup.candleColor)
+        assertTrue(setup.bodyRatio!! < 0.20)
+        val rules = TouchTurnRuleConfig.DEFAULT.copy(
+            enables = TouchTurnRuleEnables.DEFAULT.copy(closePositionGate = true),
+            redSkipBodyRatioBelow = 0.70,
+            redBodyRatioBelowAction = TouchTurnClosePositionTriggerMode.SKIP
+        )
+        assertEquals(
+            TouchTurnClosePositionTriggerEvaluation.SKIP,
+            TouchTurnClosePositionTriggers.evaluate(setup, rules)
+        )
+        assertEquals(
+            TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_SHAPE_TRIGGER_SKIPPED,
+            TouchTurnClosePositionTriggers.skipOutcome(setup, rules)
+        )
+    }
+
+    @Test
     fun evaluateEntryGate_allowsLiquidityCandle() {
         val bar = OhlcBar(
             open = 400.0,

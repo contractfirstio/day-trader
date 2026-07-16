@@ -42,6 +42,14 @@ object TouchTurnRuleConfigPersistence {
                 greenClosePositionAboveAction = parseClosePositionTriggerMode(it.greenClosePositionAboveAction),
                 redClosePositionBelowAction = parseClosePositionTriggerMode(it.redClosePositionBelowAction),
                 redClosePositionAboveAction = parseClosePositionTriggerMode(it.redClosePositionAboveAction),
+                greenSkipBodyRatioBelow = it.greenSkipBodyRatioBelow,
+                greenSkipBodyRatioAbove = it.greenSkipBodyRatioAbove,
+                redSkipBodyRatioBelow = it.redSkipBodyRatioBelow,
+                redSkipBodyRatioAbove = it.redSkipBodyRatioAbove,
+                greenBodyRatioBelowAction = parseClosePositionTriggerMode(it.greenBodyRatioBelowAction),
+                greenBodyRatioAboveAction = parseClosePositionTriggerMode(it.greenBodyRatioAboveAction),
+                redBodyRatioBelowAction = parseClosePositionTriggerMode(it.redBodyRatioBelowAction),
+                redBodyRatioAboveAction = parseClosePositionTriggerMode(it.redBodyRatioAboveAction),
                 greenLiquidityBarAction = parseClosePositionTriggerMode(it.greenLiquidityBarAction),
                 redLiquidityBarAction = parseClosePositionTriggerMode(it.redLiquidityBarAction)
             ).let { config ->
@@ -129,6 +137,14 @@ object TouchTurnRuleConfigPersistence {
             greenClosePositionAboveAction = config.greenClosePositionAboveAction.name,
             redClosePositionBelowAction = config.redClosePositionBelowAction.name,
             redClosePositionAboveAction = config.redClosePositionAboveAction.name,
+            greenSkipBodyRatioBelow = config.greenSkipBodyRatioBelow,
+            greenSkipBodyRatioAbove = config.greenSkipBodyRatioAbove,
+            redSkipBodyRatioBelow = config.redSkipBodyRatioBelow,
+            redSkipBodyRatioAbove = config.redSkipBodyRatioAbove,
+            greenBodyRatioBelowAction = config.greenBodyRatioBelowAction.name,
+            greenBodyRatioAboveAction = config.greenBodyRatioAboveAction.name,
+            redBodyRatioBelowAction = config.redBodyRatioBelowAction.name,
+            redBodyRatioAboveAction = config.redBodyRatioAboveAction.name,
             greenLiquidityBarAction = config.greenLiquidityBarAction.name,
             redLiquidityBarAction = config.redLiquidityBarAction.name
         )

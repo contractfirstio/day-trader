@@ -41,14 +41,20 @@ data class LiquidityBucketState(
 object LiquidityBucketLogic {
     fun normalizeCurrency(currencyCode: String): String = currencyCode.trim().uppercase()
 
+    /**
+     * Unused risk returns to the session liquidity pool whenever a Touch Turn run stops
+     * **without placing bracket orders** — including liquidity fails, cp/body/color shape
+     * skips, confirmation misses, manual stop before place, etc.
+     *
+     * Does **not** credit when [TouchTurnSessionContext.ordersPlacedForSession] is true
+     * (capital may still be tied up in working entry/brackets).
+     */
     fun isNoTradeCreditEligible(
         touchTurn: TouchTurnSessionContext?,
         maxDollars: Int
     ): Boolean {
         if (touchTurn == null || maxDollars <= 0) return false
-        if (touchTurn.ordersPlacedForSession) return false
-        val outcome = resolveTouchTurnSessionOutcome(touchTurn)
-        return outcome.name.startsWith("NO_TRADE")
+        return !touchTurn.ordersPlacedForSession
     }
 
     fun creditAmountForSession(maxDollars: Int): Int = maxDollars.coerceAtLeast(0)
