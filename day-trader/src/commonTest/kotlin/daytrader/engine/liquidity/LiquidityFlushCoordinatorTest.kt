@@ -251,7 +251,11 @@ class LiquidityFlushCoordinatorTest {
         gateway.setQuotes(emptyMap())
 
         val plan = E2EBracketHelper.liquidityPlan(symbol = "939")
-        val deployment = E2ETestFixtures.runningDeployment(symbol = "939", sessionDate = sessionDate)
+        val deployment = E2ETestFixtures.runningDeployment(
+            symbol = "939",
+            sessionDate = sessionDate,
+            maxDollars = 100_000,
+        )
             .copy(
                 id = "dep-hk",
                 currencyCode = "HKD",
@@ -286,6 +290,68 @@ class LiquidityFlushCoordinatorTest {
         assertEquals(100_000, audit.totalDebited)
         assertEquals(50_000, audit.remainingPoolAvailable)
         assertEquals(2_000, repository.deployments.value.single().touchTurnSession?.plannedQuantity)
+    }
+
+    @Test
+    fun flush_capsDebitPerDeploymentAtMaxDollars() = runBlocking {
+        val sessionDate = "2026-06-04"
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        E2ELiquidityAllocatorHelper.creditUsdBucket(bucketRepository, amount = 1_000, sessionDate = sessionDate)
+
+        gateway.setOpenOrders(
+            E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "AAPL", orderIdBase = 2_000) +
+                E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "MSFT", orderIdBase = 1_000),
+        )
+        val safeQuote = { symbol: String ->
+            LiveQuote(symbol = symbol, bid = 99.0, ask = 99.5, last = 99.25, quoteEpochMillis = 0L)
+        }
+        gateway.setQuotes(mapOf("AAPL" to safeQuote("AAPL"), "MSFT" to safeQuote("MSFT")))
+
+        val strong = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment(
+            symbol = "MSFT",
+            deploymentId = "dep-strong",
+            winDays = 8,
+            lossDays = 2,
+        ).let { dep ->
+            dep.copy(
+                maxDollars = 50,
+                touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate),
+            )
+        }
+        val unknown = E2ELiquidityAllocatorHelper.allocatorEligibleDeployment(
+            symbol = "AAPL",
+            deploymentId = "dep-unknown",
+        ).let { dep ->
+            dep.copy(
+                maxDollars = 50,
+                touchTurnSession = dep.touchTurnSession?.copy(sessionDate = sessionDate),
+            )
+        }
+        repository.add(strong)
+        repository.add(unknown)
+
+        val coordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val audit = coordinator.flush(
+            LiquidityFlushRequest(
+                currencyCode = "USD",
+                sessionDate = sessionDate,
+                deployments = repository.deployments.value,
+                openOrders = gateway.openOrders.value,
+                quotes = gateway.quotes.value,
+                enabled = true,
+            ),
+        )
+
+        audit.loops.flatMap { it.debited.entries }.forEach { (_, amount) ->
+            assertTrue(amount <= 50, "debited $amount exceeds maxDollars cap")
+        }
+        assertTrue(audit.totalDebited <= 100)
     }
 
     @Test

@@ -1,12 +1,12 @@
 # HK 15m Opening Bar — Running Log
 
 **Extend:** *"Add today's HK day data to `docs/hk-opening-bar-analysis.md`"*  
-**Updated:** 2026-07-15 | **Source:** `~/Library/.../interactive-brokers/sessions` SEHK live IB  
+**Updated:** 2026-07-16 | **Source:** `~/Library/.../interactive-brokers/sessions` SEHK live IB  
 **Inverse baseline (Jul 6–8):** n=3d, 63 sym-days, 32 nf (11W/21L), PnL −2531 HKD | ran inverse  
-**TT parity week (Jul 13–14):** n=2d, 42 sym-days, 15 nf (10W/5L), 27 flat, PnL **+3552** HKD | ran **TT** (`invertTradeSide:OFF`, TP:SL **2.0**)  
-**Live:** §Operator status — **TT parity week** (day 2 complete)  
-**Roster:** §Symbol roster — **next-week swaps planned** (week of Jul 20); 6 never-fills at gate  
-**Cross-mkt:** §US→HK lag — hypothesis tracking (US day D → HK next session)
+**TT parity week (Jul 13–16):** n=4d, 84 sym-days, 28 nf (11W/17L), PnL **−3826** HKD | ran **TT** (`invertTradeSide:OFF`, TP:SL **2.0**)  
+**Live:** §Operator status — **TT parity week** (days 1–4; Wed–Thu wipeout)  
+**Roster:** §Symbol roster — **next-week swaps planned** (week of Jul 20); 6 never-fills now **7F/7d**  
+**Cross-mkt:** §US→HK lag — live TT↔TT **2/2** weak→weak (Jul14→15, Jul15→16)
 
 ## Legend
 
@@ -47,8 +47,10 @@ Bar shape = primary signal; symbol registry = bias/calibration over time; ATR = 
 - **A′ euphoria strong** — 4W/0L/1F +1675 (00939 Jul8, 02318 Jul8, 00700/03690 Jul7)
 - **Not:** colour alone, day-level switch, grind(B) as filter
 - **Symbol > day** — same sym, different bar → different outcome (00148, 01888, 03690); track per §Symbols
-- **TT week add (Jul13–14):** RED A → TT long **5W/0L +3601** on Jul14 fills; soft B cp=.15 b<.70 lost. Mode draft formula gaining support under live TT.
-- **US→HK lag:** inv week = mode-flip (inv lose ≈ TT win); **1st live TT↔TT** US Jul14 weak → HK Jul15 bad (op). See §US→HK lag.
+- **TT week (Jul13–16):** Mon near-flat (−71) → Tue crush (+3623) → **Wed–Thu wipe −7378** (0W/6L −3010; 1W/6L −4368). Week net **−3826**.
+- **RED A → TT long cracked Jul15** — Jul14 A 5W/0L +3601; Jul15 A fills **0W/2L −1315** (02628 atr%143 −1166; 02318 atr%39 −149). Wide A ≠ free win.
+- **GREEN A′ → TT short failed Jul16** — first live A′ under TT: **0W/3L −3318** (03033 −2156, 01810 −959, 09992 −203). Inverse A′ was 4W/0L — **do not assume TT fade matches**.
+- **US→HK lag:** inv week = mode-flip; live TT↔TT **2/2** weak→weak (Jul14→15, Jul15→16). Inv tilt for Jul16 was right; stayed TT for parity. See §US→HK lag.
 
 ## US → HK lag (cross-market hypothesis)
 
@@ -57,12 +59,12 @@ Bar shape = primary signal; symbol registry = bias/calibration over time; ATR = 
 **Mode-adjust:** If HK ran **inverse**, day quality for H₀ is roughly **flipped** vs recorded: inv strong ≈ TT-equiv **weak**, inv bleed ≈ TT-equiv **strong**. (Not exact −1× — Jul13 replay same 3W/4L both modes — but day PnL / “would have won” direction is the working prior.)  
 **Metrics:** US nf WR + PnL (always TT in this window). HK: use **live** when TT; use **TT-equiv** when inv. Qual: strong / mixed / weak as before.
 
-### Operator read (2026-07-16)
+### Operator read (2026-07-16 eve)
 
 1. **Inverse week:** only Monday recorded good (+2061). That Monday under TT would likely have **lost**. Tue–Wed recorded bleed while US improved→**strong** — under TT those HK mornings would likely have **won**, matching the US lead. So first week **supports H₀ after mode-flip**, not contradicts it.
-2. **TT parity (live, no flip needed):** US Jul14 **bad** → HK Jul15 **bad** (op). First clean same-algo weak→weak.
-3. **US Jul15 ingested:** 8%/−343 **weak** → **lean HK Jul16 inverse** (soft tilt). Score after Jul16 close.
-4. **Still open:** US Jul13 → HK Jul14 crush; HK Jul16 result.
+2. **TT parity (live, no flip needed):** US Jul14 **weak** → HK Jul15 **−3010** (0W/6L). US Jul15 **weak** → HK Jul16 **−4368** (1W/6L). Live TT↔TT **2/2** weak→weak.
+3. **Jul16 lag-tilt:** lean was **inv**; ran **TT** (`lag-tilt: inv ignored — parity week`) and got crushed. Tilt direction looks right; parity constraint prevented use.
+4. **Still open:** US Jul13 → HK Jul14 crush (need US ingest).
 
 ### Pairing table
 
@@ -74,10 +76,10 @@ Bar shape = primary signal; symbol registry = bias/calibration over time; ATR = 
 | *(prior Fri?)* | — | — | 07-06 | inv | **+2061** | **weak** (flip) | Mon-only inv win = TT-equiv loss |
 | 07-10 | — | — | 07-13 | TT | −71 | = recorded | need US |
 | 07-13 | — | — | 07-14 | TT | **+3623** | = recorded | need US (strong→strong?) |
-| 07-14 | 23%/−255 | **weak** | 07-15 | TT | **bad** (op) | = recorded | **yes** weak→weak — 1st live TT↔TT |
-| 07-15 | 8%/−343 | **weak** | 07-16 | TT? | pending | = | lean **inv** (tilt) |
+| 07-14 | 23%/−255 | **weak** | 07-15 | TT | **−3010** | = recorded | **yes** weak→weak |
+| 07-15 | 8%/−343 | **weak** | 07-16 | TT | **−4368** | = recorded | **yes** weak→weak — tilt said inv, ignored |
 
-**Verdict (n=3 scorable):** TT-space **2/3 ≈ 67%** follow; live TT↔TT **1/1** (+ Jul16 pending). Holds as a **small edge**, not a proof.
+**Verdict (n=4 scorable):** TT-space **3/4 = 75%** follow; live TT↔TT **2/2**. Still a **small edge**, not a hard gate — but two straight weak→weak under TT strengthens the soft tilt.
 
 ### Use (intended — soft tilt only)
 
@@ -89,7 +91,7 @@ Bar shape = primary signal; symbol registry = bias/calibration over time; ATR = 
 | **weak** / low nf WR | bias **inverse** (or skip aggressively if already on TT and book soft) |
 
 - **Not a hard gate** — small decision edge only; bar shape + per-symbol still primary (§Symbol strategy).
-- **Current lean (from US Jul15 weak):** bias **inverse** for HK Jul16; do not auto-flip all 21 on US alone.
+- **Jul16 lesson:** weak US → lean inv was correct; staying on TT for parity cost **−4368**. End-of-week review should weigh tilt vs parity uniformity.
 - Log whether the tilt was used in Validation log (`lag-tilt: TT|inv|ignored`).
 
 ## Mode draft (UNVALIDATED — per bar, future per-symbol)
@@ -98,8 +100,8 @@ Pick mode at 09:45 from closed bar only. **Ran inverse on all sessions so far** 
 
 | Bar | Draft mode | Rationale |
 |-----|------------|-----------|
-| RED archetype **A** (capitulation) | **TT** long | Inverse short 1W/8L on cp≤.15 |
-| GREEN archetype **A′** (euphoria) | **TT** short | Fade blow-off; inverse long 4W/0L |
+| RED archetype **A** (capitulation) | **TT** long | Inverse short 1W/8L on cp≤.15; Jul14 TT 5W/0L — **but Jul15 A 0W/2L −1315** (monitor) |
+| GREEN archetype **A′** (euphoria) | **TT** short | Fade blow-off — **Jul16 live TT 0W/3L −3318**; inverse long was 4W/0L. **Weakened** |
 | else | **inv** | Default until per-symbol n grows |
 
 ```
@@ -126,46 +128,46 @@ else inv
 `sym days W/L/F pnl avgcp avratr` — day lines: `MM-DD col cp atr% [draft_mode] pnl`
 
 ```
-00148  5d 1/2/2  -2 .38 34  | 07-06 R .12 76 inv +1809 | 07-07 R .31 27 inv -708 | 07-08 R .02 29 TT -1103 | 07-13 R .74 19 inv flat-liq | 07-14 G .69 20 inv flat-liq
-00388  5d 2/3/0 -599 .37 60  | 07-06 R .11 46 inv -437 | 07-07 G .14 35 inv -239 | 07-08 G .76 54 inv -279 | 07-13 G .76 82 inv +257 | 07-14 R .06 81 TT +99  ← TT long A
-00700  5d 2/0/3 +559 .62 71  | 07-06 G .62 95 inv +193 | 07-07 G .90 84 TT +366 | 07-08 G .62 80 inv 0 | 07-13 G .91 48 inv flat no-fill | 07-14 R .04 48 TT flat no-fill
-00939  5d 2/3/0 -751 .50 61  | 07-06 R .36 48 inv -582 | 07-07 R .10 46 inv -351 | 07-08 G 1.00 108 TT +360 | 07-13 G .75 53 inv -270 | 07-14 R .27 49 inv +92
-00992  5d 0/3/2 -1655 .28 63  | 07-06 R .06 61 TT -601 | 07-07 R .19 57 inv 0 | 07-08 R .27 60 inv -489 | 07-13 G .72 79 inv flat-max$ | 07-14 R .15 60 inv -565  ← soft B only L
-01299  5d 0/1/4 -370 .51 73  | 07-06 R .50 44 inv 0 | 07-07 R .06 81 TT -370 | 07-08 G .63 61 inv 0 | 07-13 G .87 109 inv flat no-fill | 07-14 G .48 71 inv flat no-fill
-01347  5d 0/0/5 0 .42 54  | 07-06 R .26 61 inv 0 | 07-07 G .93 63 TT 0 | 07-08 G .12 59 inv 0 | 07-13 G .67 48 inv flat-max$ | 07-14 R .14 41 inv flat-max$
-01810  5d 1/2/2 -424 .44 71  | 07-06 R .22 75 inv 0 | 07-07 G .70 92 inv -697 | 07-08 G .68 60 inv 0 | 07-13 G .59 61 inv -679 | 07-14 R .02 66 TT +952  ← TT long A (shape flip)
-01888  5d 2/0/3 +2942 .42 50  | 07-06 R .19 122 inv +2421 | 07-07 R .67 30 inv +521 | 07-08 R .08 44 TT 0 | 07-13 G .49 27 inv flat no-fill | 07-14 G .65 25 inv flat-liq
-02318  5d 1/2/2 -166 .46 54  | 07-06 G .56 41 inv -46 | 07-07 R .10 50 inv -197 | 07-08 G .94 57 TT +77 | 07-13 G .48 57 inv flat no-fill | 07-14 R .20 64 inv flat no-fill
-02628  5d 1/4/0 -904 .29 49  | 07-06 G .48 39 inv -554 | 07-07 R .11 47 inv -345 | 07-08 G .67 33 inv -366 | 07-13 R .11 36 TT -402 | 07-14 R .08 91 TT +763  ← wide A flip vs Jul13
-02899  5d 0/0/5 0 .49 34  | 07-06 G .80 58 inv 0 | 07-07 R .36 34 inv 0 | 07-08 G .52 32 inv 0 | 07-13 R .45 26 inv flat-max$ | 07-14 R .31 22 inv flat-liq
-03033  5d 3/2/0 +495 .48 62  | 07-06 R .16 53 inv -142 | 07-07 G .79 77 inv +291 | 07-08 G .64 66 inv -456 | 07-13 G .79 65 inv +554 | 07-14 R .03 51 TT +248
-03690  5d 1/1/3 +97 .49 66  | 07-06 R .24 55 inv 0 | 07-07 G 1.00 127 TT +873 | 07-08 G .61 60 inv -776 | 07-13 G .26 49 inv flat no-fill | 07-14 R .36 38 inv flat no-fill
-03750  5d 0/0/5 0 .39 42  | 07-06 R .13 60 inv 0 | 07-07 R .14 33 inv 0 | 07-08 R .25 44 inv 0 | 07-13 G .77 55 inv flat-max$ | 07-14 G .66 20 inv flat-liq
-06869  5d 0/0/5 0 .22 42  | 07-06 R .12 109 TT 0 | 07-07 R .27 19 inv 0 | 07-08 R .10 40 TT 0 | 07-13 R .33 23 inv flat-liq | 07-14 R .29 18 inv flat-liq
-07709  5d 0/0/5 0 .35 19  | 07-06 R .00 18 TT 0 | 07-07 G 1.00 18 inv 0 | 07-08 R .20 23 inv 0 | 07-13 R .25 16 inv flat-liq | 07-14 R .30 21 inv flat-liq
-07747  5d 0/0/5 0 .41 20  | 07-06 R .08 17 inv 0 | 07-07 G .99 24 inv 0 | 07-08 R .25 24 inv 0 | 07-13 R .25 14 inv flat-liq | 07-14 R .46 19 inv flat-liq
-09618  5d 0/3/2 -1559 .39 59  | 07-06 R .50 56 inv 0 | 07-07 R .07 42 inv -443 | 07-08 G .84 85 inv -672 | 07-13 G .53 48 inv -444 | 07-14 R .00 64 TT flat no-fill
-09988  5d 4/0/1 +2865 .43 60  | 07-06 R .27 57 inv 0 | 07-07 G .51 49 inv +218 | 07-08 G .72 49 inv +193 | 07-13 G .57 83 inv +914 | 07-14 R .06 62 TT +1540  ← **4W streak**
-09992  5d 1/2/2 -594 .23 64  | 07-06 R .06 65 TT -601 | 07-07 R .19 56 inv 0 | 07-08 R .27 60 inv -489 | 07-13 G .60 69 inv flat no-fill | 07-14 R .04 70 inv +496
+00148  7d 1/2/4  -2 .42 34  | 07-06 R .12 76 inv +1809 | 07-07 R .31 27 inv -708 | 07-08 R .02 29 TT -1103 | 07-13 R .74 19 inv flat-liq | 07-14 G .69 20 inv flat-liq | 07-15 R .35 35 inv flat no-fill | 07-16 R .73 33 inv flat no-fill
+00388  7d 2/5/0 -1007 .38 58  | 07-06 R .11 46 inv -437 | 07-07 G .14 35 inv -239 | 07-08 G .76 54 inv -279 | 07-13 G .76 82 inv +257 | 07-14 R .06 81 TT +99 | 07-15 R .15 51 inv -222 | 07-16 R .71 54 inv -186
+00700  7d 2/0/5 +559 .65 68  | 07-06 G .62 95 inv +193 | 07-07 G .90 84 TT +366 | 07-08 G .62 80 inv 0 | 07-13 G .91 48 inv flat no-fill | 07-14 R .04 48 TT flat no-fill | 07-15 R .72 66 inv flat no-fill | 07-16 G .77 52 inv flat no-fill
+00939  7d 2/4/1 -1053 .51 53  | 07-06 R .36 48 inv -582 | 07-07 R .10 46 inv -351 | 07-08 G 1.00 108 TT +360 | 07-13 G .75 53 inv -270 | 07-14 R .27 49 inv +92 | 07-15 R .43 31 inv -302 | 07-16 G .63 37 inv flat no-fill
+00992  7d 0/3/4 -1655 .35 55  | 07-06 R .06 61 TT -601 | 07-07 R .19 57 inv 0 | 07-08 R .27 60 inv -489 | 07-13 G .72 79 inv flat-max$ | 07-14 R .15 60 inv -565 | 07-15 R .24 43 inv flat no-fill | 07-16 R .84 56 inv flat no-fill
+01299  7d 0/2/5 -833 .48 70  | 07-06 R .50 44 inv 0 | 07-07 R .06 81 TT -370 | 07-08 G .63 61 inv 0 | 07-13 G .87 109 inv flat no-fill | 07-14 G .48 71 inv flat no-fill | 07-15 R .08 76 inv -463 | 07-16 G .73 51 inv flat no-fill
+01347  7d 0/0/7 0 .46 51  | 07-06 R .26 61 inv 0 | 07-07 G .93 63 TT 0 | 07-08 G .12 59 inv 0 | 07-13 G .67 48 inv flat-max$ | 07-14 R .14 41 inv flat-max$ | 07-15 R .23 50 inv flat | 07-16 R .90 35 inv flat
+01810  7d 1/4/2 -2092 .50 69  | 07-06 R .22 75 inv 0 | 07-07 G .70 92 inv -697 | 07-08 G .68 60 inv 0 | 07-13 G .59 61 inv -679 | 07-14 R .02 66 TT +952 | 07-15 R .36 51 inv -709 | 07-16 G .92 76 TT -959  ← A′ TT short L
+01888  7d 2/0/5 +2942 .43 50  | 07-06 R .19 122 inv +2421 | 07-07 R .67 30 inv +521 | 07-08 R .08 44 TT 0 | 07-13 G .49 27 inv flat no-fill | 07-14 G .65 25 inv flat-liq | 07-15 R .33 61 inv flat no-fill | 07-16 R .58 41 inv flat no-fill
+02318  7d 1/4/2 -416 .36 49  | 07-06 G .56 41 inv -46 | 07-07 R .10 50 inv -197 | 07-08 G .94 57 TT +77 | 07-13 G .48 57 inv flat no-fill | 07-14 R .20 64 inv flat no-fill | 07-15 R .00 39 TT -149  ← A TT long L | 07-16 R .23 34 inv -101
+02628  7d 2/5/0 -2013 .26 59  | 07-06 G .48 39 inv -554 | 07-07 R .11 47 inv -345 | 07-08 G .67 33 inv -366 | 07-13 R .11 36 TT -402 | 07-14 R .08 91 TT +763 | 07-15 R .09 143 TT -1166  ← wide A L | 07-16 R .25 27 inv +57
+02899  7d 0/0/7 0 .52 47  | 07-06 G .80 58 inv 0 | 07-07 R .36 34 inv 0 | 07-08 G .52 32 inv 0 | 07-13 R .45 26 inv flat-max$ | 07-14 R .31 22 inv flat-liq | 07-15 R .29 96 inv flat | 07-16 G .93 60 inv flat
+03033  7d 3/3/1 -1661 .52 60  | 07-06 R .16 53 inv -142 | 07-07 G .79 77 inv +291 | 07-08 G .64 66 inv -456 | 07-13 G .79 65 inv +554 | 07-14 R .03 51 TT +248 | 07-15 R .32 34 inv flat no-fill | 07-16 G .90 71 TT -2156  ← A′ worst L
+03690  7d 1/2/4 -722 .52 65  | 07-06 R .24 55 inv 0 | 07-07 G 1.00 127 TT +873 | 07-08 G .61 60 inv -776 | 07-13 G .26 49 inv flat no-fill | 07-14 R .36 38 inv flat no-fill | 07-15 R .48 65 inv flat no-fill | 07-16 G .70 64 inv -819
+03750  7d 0/0/7 0 .38 45  | 07-06 R .13 60 inv 0 | 07-07 R .14 33 inv 0 | 07-08 R .25 44 inv 0 | 07-13 G .77 55 inv flat-max$ | 07-14 G .66 20 inv flat-liq | 07-15 R .43 44 inv flat | 07-16 R .32 56 inv flat
+06869  7d 0/0/7 0 .29 48  | 07-06 R .12 109 TT 0 | 07-07 R .27 19 inv 0 | 07-08 R .10 40 TT 0 | 07-13 R .33 23 inv flat-liq | 07-14 R .29 18 inv flat-liq | 07-15 R .15 97 inv flat | 07-16 G .77 32 inv flat
+07709  7d 0/0/7 0 .33 21  | 07-06 R .00 18 TT 0 | 07-07 G 1.00 18 inv 0 | 07-08 R .20 23 inv 0 | 07-13 R .25 16 inv flat-liq | 07-14 R .30 21 inv flat-liq | 07-15 R .02 25 inv flat-liq | 07-16 R .52 25 inv flat-liq
+07747  7d 0/0/7 0 .33 18  | 07-06 R .08 17 inv 0 | 07-07 G .99 24 inv 0 | 07-08 R .25 24 inv 0 | 07-13 R .25 14 inv flat-liq | 07-14 R .46 19 inv flat-liq | 07-15 R .02 13 TT flat-liq | 07-16 R .30 14 inv flat-liq
+09618  7d 0/3/4 -1559 .44 66  | 07-06 R .50 56 inv 0 | 07-07 R .07 42 inv -443 | 07-08 G .84 85 inv -672 | 07-13 G .53 48 inv -444 | 07-14 R .00 64 TT flat no-fill | 07-15 R .44 41 inv flat no-fill | 07-16 G .73 126 inv flat no-fill
+09988  7d 4/0/3 +2865 .44 60  | 07-06 R .27 57 inv 0 | 07-07 G .51 49 inv +218 | 07-08 G .72 49 inv +193 | 07-13 G .57 83 inv +914 | 07-14 R .06 62 TT +1540 | 07-15 R .52 61 inv flat no-fill | 07-16 G .45 60 inv flat no-fill
+09992  7d 1/3/3 -797 .35 68  | 07-06 R .06 65 TT -601 | 07-07 R .19 56 inv 0 | 07-08 R .27 60 inv -489 | 07-13 G .60 69 inv flat no-fill | 07-14 R .04 70 inv +496 | 07-15 R .41 34 inv flat no-fill | 07-16 G .85 123 TT -203  ← A′ TT short L
 ```
 
 **Symbol tags (revise as n grows):**
 
 | Tag | Symbols | Note |
 |-----|---------|------|
-| **4W** | 09988 | Jul 14 +1540 extends streak (TT short Jul13 → TT long Jul14) |
-| **3W** | 03033 | Jul 14 A long +248 |
-| **2W** | 00700, 01888, 00388 | 00388 +99 A long today |
-| **3L** | 00992, 09618 | 00992 −565 soft B only loser today |
-| **shape flip** | 00148, 03033, 00939, 01299, 01810, 02628 | 01810/02628 A TT long won Jul14 after prior losses |
-| **flat-heavy** | 00992 | fills when liq but 0/3/2 — watch |
-| **swap-candidate** | 01347, 02899, 03750, 06869, 07709, 07747 | **0W/0L, 5F/5d** — **swap gate met** (≥5 consec flat) |
-| **tt-switch-strong** | 00148, 06869, 01810, 02628, 09988, 00388, 03033 | Jul14 flooded RED-A TT-draft; 01810/02628/09988 A wins |
-| **tt-switch-A′** | 00700, 00939, 03690, 02318, 01347, 01299 | no A′ today (4G only, max cp=.69) |
-| **tt-switch-RED-A** | 00148, 09992, 01299, 07709, 07747, 01888, 02628, 01810, 09988, 00388, 03033, 00700, 09618 | Jul14 A TT long **5W/0L +3601** among fills |
-| **inv ok wide** | 01888 | still no Jul14 fill |
-| **post-euphoria risk** | 03690 | 2F streak after Jul8 loss |
-| **TT-week winner** | 09988, 03033, 01810, 02628, 09992, 00388, 00939 | Jul 14 TT longs |
+| **4W** | 09988 | Still 4W; Jul15–16 flat no-fill (streak paused, not broken by L) |
+| **3W** | 03033 | Jul14 +248 then Jul16 A′ **−2156** — largest single L in log |
+| **2W** | 00700, 01888 | 00388 now 2W/5L after Jul15–16 |
+| **3L+** | 00992, 09618, 00388, 01810, 02628 | 01810/02628 bled Jul15–16 |
+| **shape flip** | 00148, 03033, 00939, 01299, 01810, 02628 | 02628 Jul14 A win → Jul15 wide A loss |
+| **flat-heavy** | 00992 | fills when liq but 0/3/4 |
+| **swap-candidate** | 01347, 02899, 03750, 06869, 07709, 07747 | **0W/0L, 7F/7d** — execute week of Jul 20 |
+| **tt-switch-strong** | 00148, 06869, 01810, 02628, 09988, 00388, 03033 | A′ TT shorts hurt 01810/03033/09992 Jul16 |
+| **tt-switch-A′** | 00700, 00939, 03690, 02318, 01347, 01299, 01810, 03033, 09992 | Jul16 A′ live test **failed** under TT |
+| **tt-switch-RED-A** | … | Jul14 A 5W/0L; Jul15 A 0W/2L — **mixed**; do not promote on Jul14 alone |
+| **inv ok wide** | 01888 | still sparse fills TT week |
+| **post-euphoria risk** | 03690 | Jul16 ordinary GREEN TT short −819 |
+| **TT-week winner** | 09988 (paused), 02628 Jul16 only +57 | Tue winners mostly gave back Wed–Thu |
 
 ## Guard rails (UNVALIDATED — n=32)
 
@@ -208,7 +210,11 @@ if invert and 40<=atr_pct<=60: skip           # G2
 
 **Operator update (2026-07-14):** TT parity **day 2** — RED-heavy open (17R/4G), TT longs crushed it: **+3623, 7W/1L**. Archetype **A** fills **5W/0L +3601**. Under inverse, G1 would have *skipped* most of these winners; under TT they are the intended fade. Strongest day-level support yet for §Mode draft A→TT long. Swap-gate met for 6 never-fill names (5F/5d). Continue TT through Sun.
 
-**Schedule:** Jul 6–8 inverse → Jul 9–12 no full HK roster (partial sessions only; excluded) → **Jul 13–14 TT parity week days 1–2**. Continue TT through Sun; end-of-week review vs inverse baseline.
+**Operator update (2026-07-15):** TT parity **day 3** — **all-RED open** (21R/0G), **0W/6L −3010**. A TT longs that crushed Tue **failed** (02628 atr%143 −1166; 02318 −149). No winners. US Jul14 weak→HK weak aligned.
+
+**Operator update (2026-07-16):** TT parity **day 4** — mixed 10R/11G, **1W/6L −4368**. First live **A′ TT shorts 0W/3L −3318** (03033 −2156). Only winner 02628 +57. US Jul15 weak→HK weak aligned; **lag-tilt inv ignored** (parity). Week net now **−3826**. End-of-week review must confront: Tue outlier vs Wed–Thu regime + A′ TT short failure.
+
+**Schedule:** Jul 6–8 inverse → Jul 9–12 no full HK roster (partial; excluded from totals) → **Jul 13–16 TT parity days 1–4**. Continue TT through Sun unless operator aborts; end-of-week review vs inverse baseline.
 
 **Live — TT parity week (HK, from 2026-07-13):**
 
@@ -247,16 +253,16 @@ All 21 SEHK deployments — **Touch Turn parity preset** (confirmed Jul 13 from 
 
 | Signal | Action | Evidence so far |
 |--------|--------|-----------------|
-| RED cp≤.15 | Under TT = long (not G1 skip). Tag `g1-would-skip` for inv cf | Inv 1W/8L −2040; **Jul14 TT A longs 5W/0L +3601**; Jul13 02628 A −402 (narrow atr%) |
-| GREEN A′ (cp≥.85, b≥.70) | Keep trading; monitor fill rate under TT | 01299 cp=.87 Jul13 no-fill; **no A′ Jul14** |
-| Ordinary GREEN (not A′) | Monitor; no knob yet | Jul13 TT 3W/3L +331; Jul14 only 4G all flat |
-| RED cp .15–.25 | Trade; do not widen G1 to 0.20 | Jul14 00992 soft B cp=.15 −565 only L |
-| Symbol repeat losers | 00992, 09618 | 09618 still no win; 01810/02628 flipped Jul14 |
-| post-euphoria | 03690 Jul7→Jul8 | 2F streak |
-| TT parity week | Log actual mode + draft_mode | Jul13 −71 + Jul14 **+3623** = **+3552** (10W/5L) |
-| Fill rate drop | Track brackets-placed-no-fill | Jul14: 5 no-fill / 8 liq-skip / 1 max$ |
-| Roster swap (week of Jul 20) | Drop all 6 never-fills; add trials | §Symbol roster — planned 2026-07-15 |
-| US→HK lag | Soft tilt only: strong US→HK TT; weak US→HK inv | §US→HK lag · Use; ~67% (2/3); Jul14 weak→Jul15 bad |
+| RED cp≤.15 | Under TT = long (not G1 skip). Tag `g1-would-skip` for inv cf | Inv 1W/8L −2040; Jul14 A 5W/0L +3601; **Jul15 A 0W/2L −1315** |
+| GREEN A′ (cp≥.85, b≥.70) | **Caution** — first TT fills failed | **Jul16 A′ TT short 0W/3L −3318**; inv A′ was 4W/0L |
+| Ordinary GREEN (not A′) | Monitor; no knob yet | Jul13 TT 3W/3L +331; Jul16 03690 −819 |
+| RED cp .15–.25 | Trade; do not widen G1 to 0.20 | Jul14 00992 soft B −565; Jul16 02628 D +57 / 02318 −101 |
+| Symbol repeat losers | 00992, 09618, 01810, 00388 | 03033 A′ −2156; 02628 Jul15 −1166 |
+| post-euphoria | 03690 | Jul16 −819 TT short |
+| TT parity week | Log actual mode + draft_mode | Jul13–16: **11W/17L −3826** |
+| Fill rate drop | Track brackets-placed-no-fill | Jul16: 7 fills / 8 no-fill / 2 liq / 4 other flat |
+| Roster swap (week of Jul 20) | Drop all 6 never-fills; add trials | **7F/7d** confirmed |
+| US→HK lag | Soft tilt: weak US→HK inv | live TT↔TT **2/2**; Jul16 tilt ignored → −4368 |
 
 ### TT-switch candidates (inverse → Touch Turn per symbol)
 
@@ -380,22 +386,79 @@ All 21 SEHK deployments — **Touch Turn parity preset** (confirmed Jul 13 from 
 
 **Recommended preset:** documented in §Recommended config — **not live** until promotion gate met.
 
+### Jul 15 synthesis (TT parity week — day 3)
+
+| Metric | Jul 15 live (TT) | Jul 14 live (TT) | Jul 13 live (TT) |
+|--------|-----------------|-----------------|-----------------|
+| nf W/L | **0W/6L** | 7W/1L | 3W/4L |
+| PnL | **−3010** | +3623 | −71 |
+| Fill set | 6 sym | 8 sym | 7 sym |
+| Fill rate | 6/21 (29%) | 8/21 (38%) | 7/21 (33%) |
+| Bar mix | **21R / 0G** | 17R / 4G | 15G / 6R |
+
+**Config:** All fills **Touch Turn** (RED→LONG). All-RED open.
+
+**Losers:** 02628 −1166 (A, atr%143), 01810 −709 (C), 01299 −463 (D), 00939 −302 (C), 00388 −222 (D), 02318 −149 (A)
+
+**Archetype A fills:** 0W/2L **−1315** — reverses Jul14’s A narrative on the next RED day.
+
+**Conclusions:**
+
+1. **Worst TT day so far** — 0 winners; gave back most of Tue’s +3623.
+2. **A→TT long is not automatic** — same shape family that crushed Jul14 lost Jul15, including **wide** 02628 (atr%143). ATR size alone does not save A.
+3. **US→HK:** Jul14 US weak → Jul15 HK −3010 — **aligned** (1st fully scored live TT↔TT).
+4. **All-RED ≠ Jul14** — colour skew similar to Tue but outcomes opposite; bar quality / follow-through differed.
+5. **Do not midweek-flip** — still collecting parity data; note the crack in A support.
+
+**Operator read (day 3):** Capitulation fade failed on a pure-RED open. Hold TT for logging; roster swaps still the clean action item.
+
+### Jul 16 synthesis (TT parity week — day 4)
+
+| Metric | Jul 16 live (TT) | Jul 15 live (TT) | Jul 14 live (TT) |
+|--------|-----------------|-----------------|-----------------|
+| nf W/L | **1W/6L** | 0W/6L | 7W/1L |
+| PnL | **−4368** | −3010 | +3623 |
+| Fill set | 7 sym | 6 sym | 8 sym |
+| Fill rate | 7/21 (33%) | 6/21 (29%) | 8/21 (38%) |
+| Bar mix | **10R / 11G** | 21R / 0G | 17R / 4G |
+
+**Config:** All 7 fills **Touch Turn** (RED→LONG / GREEN→SHORT). `lag-tilt: inv ignored — parity week`.
+
+**Only winner:** 02628 +57 (R D, atr%27 — scrap)  
+**Losers:** 03033 −2156 (A′), 01810 −959 (A′), 03690 −819 (D-G), 09992 −203 (A′), 00388 −186 (C), 02318 −101 (D)
+
+**Archetype A′ fills (first under TT):** 0W/3L **−3318**. Mode draft A′→TT short **fails this day**. Inverse baseline A′ was 4W/0L long — opposite side, opposite result quality.
+
+**Conclusions:**
+
+1. **Worst day in the HK log** — −4368 tops Jul8 inverse (−3511).
+2. **A′ TT short not validated** — all three euphoria fades lost; largest single L = 03033 −2156.
+3. **US→HK:** Jul15 US weak (8%/−343) → Jul16 −4368 — **aligned** (2nd live TT↔TT). Soft inv tilt was the right lean; parity kept TT on.
+4. **Two-day wipe** Wed–Thu **−7378** erased Tue and then some. Week-to-date **−3826** (11W/17L).
+5. **Mode draft caution** — A (Jul15) and A′ (Jul16) both hurt under TT after looking strong on thinner evidence. Per-symbol + lag tilt > global archetype faith.
+6. **Roster** — 6 never-fills now **7F/7d**; still execute week of Jul 20.
+7. **End-of-week call** — TT parity no longer “winning”; decide stay / revert inv / per-symbol with eyes open on lag tilt.
+
+**Operator read (day 4):** Weak US lead + ignored inv tilt + A′ TT shorts = expensive day. Continue logging Fri if parity holds; do not promote A′→TT short from this sample.
+
+**Recommended preset:** documented in §Recommended config — **not live** until promotion gate met.
+
 ### Symbol roster (swap policy — memory)
 
 **Intent (2026-07-08):** May **remove low-activity symbols and add new ones** instead of (or before) rule changes. Priority: names that **never get a fill** — they consume a deployment slot but contribute no shape/PnL data.
 
-**Swap candidates (Jul 6–14, 0 fills all 5 days — gate met):** `01347`, `02899`, `03750`, `06869`, `07709`, `07747` (6 of 21).
+**Swap candidates (Jul 6–16, 0 fills all 7 days — gate met):** `01347`, `02899`, `03750`, `06869`, `07709`, `07747` (6 of 21).
 
-| Sym | 5d W/L/F | PnL | Why candidate |
+| Sym | 7d W/L/F | PnL | Why candidate |
 |-----|----------|-----|---------------|
-| 01347 | 0/0/5 | 0 | never opened; had A′ Jul7 + A-ish Jul14 (max$) |
-| 02899 | 0/0/5 | 0 | never opened |
-| 03750 | 0/0/5 | 0 | never opened |
-| 06869 | 0/0/5 | 0 | never opened; wide bar Jul6 still flat |
-| 07709 | 0/0/5 | 0 | never opened |
-| 07747 | 0/0/5 | 0 | never opened |
+| 01347 | 0/0/7 | 0 | never opened |
+| 02899 | 0/0/7 | 0 | never opened |
+| 03750 | 0/0/7 | 0 | never opened |
+| 06869 | 0/0/7 | 0 | never opened; wide bars still flat |
+| 07709 | 0/0/7 | 0 | never opened; chronic flat-liq |
+| 07747 | 0/0/7 | 0 | never opened; chronic flat-liq |
 
-**Action (2026-07-14):** Swap gate **met** (≥5 consecutive flat).
+**Action (2026-07-16):** Swap gate still **met** (now 7F/7d). Execute week of Jul 20 when replacements chosen.
 
 ### Next-week roster plan (week of Jul 20 — planned 2026-07-15)
 
@@ -500,10 +563,25 @@ Session:     deadline ON 90m
 | 2026-07-08 | 21 | 3/7 | −3511 | 53 | mostly GREEN (14/21); 00148 −1103, 03690 −776, 09618 −672 |
 | 2026-07-13 | 21 | 3/4 | −71 | 55 | **TT parity d1**; 15G/6R; 09988 +914, 01810 −679; 7 fills / 14 flat |
 | 2026-07-14 | 21 | 7/1 | +3623 | 66 | **TT parity d2**; 17R/4G; A longs crush; 09988 +1540, 01810 +952; only L 00992 −565 |
+| 2026-07-15 | 21 | 0/6 | −3010 | 55 | **TT parity d3**; **21R/0G**; A longs fail; 02628 −1166; US lag weak→weak |
+| 2026-07-16 | 21 | 1/6 | −4368 | 54 | **TT parity d4**; 10R/11G; A′ TT shorts 0W/3L −3318; only W 02628 +57; lag-tilt inv ignored |
 
 ## Trades (non-flat) — `date sym col cp b atr% arch pnl`
 
 ```
+2026-07-16 02628 R .25 .25 27 D +57
+2026-07-16 02318 R .23 .38 34 D -101
+2026-07-16 00388 R .71 .00 54 C -186
+2026-07-16 09992 G .85 .83 123 A' -203
+2026-07-16 03690 G .70 .64 64 D-G -819
+2026-07-16 01810 G .92 .90 76 A' -959
+2026-07-16 03033 G .90 .85 71 A' -2156
+2026-07-15 02318 R .00 .93 39 A -149
+2026-07-15 00388 R .15 .15 51 D -222
+2026-07-15 00939 R .43 .00 31 C -302
+2026-07-15 01299 R .08 .35 76 D -463
+2026-07-15 01810 R .36 .52 51 C -709
+2026-07-15 02628 R .09 .74 143 A -1166
 2026-07-14 09988 R .06 .91 62 A +1540
 2026-07-14 01810 R .02 .79 66 A +952
 2026-07-14 02628 R .08 .90 91 A +763
@@ -553,7 +631,7 @@ Session:     deadline ON 90m
 2026-07-06 01888 R .19 .61 122 B +2421
 ```
 
-31 flat sessions omitted (rebuild from captures if needed).
+45 flat sessions omitted (rebuild from captures if needed).
 
 ## Validation log
 
@@ -562,9 +640,11 @@ Session:     deadline ON 90m
 | 2026-07-06–08 | 3 | 63 | 11/21 | −2531 | live IB inverse; Jul8 worst day; G1 cf −492 |
 | 2026-07-13 | 1 | 21 | 3/4 | −71 | **TT parity d1**; replay inv **−658** same fills; symbol-level mode divergence |
 | 2026-07-14 | 1 | 21 | 7/1 | +3623 | **TT parity d2**; 17R/4G; A TT longs 5W/0L +3601; swap gate 5F/5d |
-| 2026-07-13–14 | 2 | 42 | 10/5 | +3552 | TT week to date; do not merge with inverse baseline |
+| 2026-07-15 | 1 | 21 | 0/6 | −3010 | **TT parity d3**; 21R/0G; A TT longs 0W/2L −1315; US Jul14 weak→align |
+| 2026-07-16 | 1 | 21 | 1/6 | −4368 | **TT parity d4**; A′ TT shorts 0W/3L −3318; `lag-tilt: inv ignored`; US Jul15 weak→align |
+| 2026-07-13–16 | 4 | 84 | 11/17 | −3826 | TT week to date; do not merge with inverse baseline |
 | 2026-07-15 | — | — | — | — | **roster plan:** week of Jul 20 drop 01347, 02899, 03750, 06869, 07709, 07747; replacements TBD |
-| 2026-07-15 | — | — | — | — | **US→HK lag:** inv week = mode-flip (Mon inv-win≈TT-loss; Tue–Wed inv-bleed≈TT-win w/ US strength); live TT↔TT Jul14→15; need Jul15 nf + US Jul13 |
+| 2026-07-16 | — | — | — | — | **US→HK lag:** live TT↔TT 2/2 weak→weak; TT-space ~75% (3/4); Jul16 tilt unused |
 
 ---
-*Agent: north star = §Symbol strategy. **Respect §Operator status** — do not assume recommended config is live. Ingest day → tag `g1-would-skip`, **`draft_mode` TT/inv** per sym-day; update **§TT-switch candidates** counts/tiers and **§Symbol roster** flat streaks. After US ingest or HK day close → update **§US→HK lag** pairing table (US D → next HK). Log roster drops/adds and per-sym TT flips in Validation log. Also: Symbols, Totals, Patterns, Mode draft, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** execute §Next-week roster plan when replacements chosen; ingest US gap Jul10/13 for lag test. Keep terse.*
+*Agent: north star = §Symbol strategy. **Respect §Operator status** — do not assume recommended config is live. Ingest day → tag `g1-would-skip`, **`draft_mode` TT/inv** per sym-day; update **§TT-switch candidates** counts/tiers and **§Symbol roster** flat streaks. After US ingest or HK day close → update **§US→HK lag** pairing table (US D → next HK). Log roster drops/adds and per-sym TT flips in Validation log. Also: Symbols, Totals, Patterns, Mode draft, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** end-of-week TT review (A/A′ cracked; lag tilt); execute §Next-week roster plan when replacements chosen; ingest US Jul13 for lag vs HK Jul14. Keep terse.*

@@ -184,4 +184,108 @@ class LiquidityAllocationLogicTest {
             ),
         )
     }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_roundRobinLeftover_spreadsAcrossMixedLotCosts() {
+        val rows = listOf(
+            LiquidityLotAllocationRow(
+                deploymentId = "cheap",
+                winDays = 0,
+                lossDays = 0,
+                entryPrice = 4.762,
+                orderSizeRules = InstrumentOrderSizeRules(minOrderSize = 200, orderSizeIncrement = 200),
+                currentQuantity = 10_400,
+            ),
+            LiquidityLotAllocationRow(
+                deploymentId = "mid",
+                winDays = 0,
+                lossDays = 0,
+                entryPrice = 86.96,
+                orderSizeRules = InstrumentOrderSizeRules(minOrderSize = 100, orderSizeIncrement = 100),
+                currentQuantity = 500,
+            ),
+            LiquidityLotAllocationRow(
+                deploymentId = "expensive",
+                winDays = 0,
+                lossDays = 0,
+                entryPrice = 119.5,
+                orderSizeRules = InstrumentOrderSizeRules(minOrderSize = 100, orderSizeIncrement = 100),
+                currentQuantity = 400,
+            ),
+        )
+        val distribution = distributeLiquidityByBayesianWinRateInLots(rows, available = 300_000)
+
+        val cheap = distribution.getValue("cheap")
+        val greedyCheapShare = 203_942
+        assertTrue(cheap < greedyCheapShare)
+        assertTrue(distribution.containsKey("mid"))
+        assertTrue(distribution.containsKey("expensive"))
+        assertTrue(distribution.values.sum() >= 280_000)
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_maxAllocationDollars_capsSingleDeployment() {
+        val rules = InstrumentOrderSizeRules(minOrderSize = 200, orderSizeIncrement = 200)
+        val rows = listOf(
+            LiquidityLotAllocationRow(
+                deploymentId = "cheap",
+                winDays = 8,
+                lossDays = 2,
+                entryPrice = 4.762,
+                orderSizeRules = rules,
+                currentQuantity = 10_400,
+                maxAllocationDollars = 50_000,
+            ),
+            LiquidityLotAllocationRow(
+                deploymentId = "peer",
+                winDays = 0,
+                lossDays = 0,
+                entryPrice = 86.96,
+                orderSizeRules = InstrumentOrderSizeRules(minOrderSize = 100, orderSizeIncrement = 100),
+                currentQuantity = 500,
+                maxAllocationDollars = 50_000,
+            ),
+        )
+        val distribution = distributeLiquidityByBayesianWinRateInLots(rows, available = 300_000)
+
+        assertTrue(distribution.getValue("cheap") <= 50_000)
+        assertTrue(distribution.getValue("peer") <= 50_000)
+        assertTrue(distribution.values.sum() > 50_000)
+    }
+
+    @Test
+    fun distributeLiquidityByBayesianWinRateInLots_mixedHkBook_capAndRoundRobin_preventsConcentration() {
+        fun row(
+            id: String,
+            entry: Double,
+            min: Int,
+            inc: Int,
+            qty: Int,
+            wins: Int,
+            losses: Int,
+        ) = LiquidityLotAllocationRow(
+            deploymentId = id,
+            winDays = wins,
+            lossDays = losses,
+            entryPrice = entry,
+            orderSizeRules = InstrumentOrderSizeRules(minOrderSize = min, orderSizeIncrement = inc),
+            currentQuantity = qty,
+            maxAllocationDollars = 50_000,
+        )
+
+        val rows = listOf(
+            row("03033", 4.762, 200, 200, 10_400, 4, 2),
+            row("03690", 86.96, 100, 100, 500, 1, 1),
+            row("09618", 119.7, 50, 50, 400, 1, 4),
+            row("09988", 119.5, 100, 100, 400, 5, 0),
+            row("01810", 27.08, 200, 200, 1_800, 1, 4),
+            row("00939", 8.33, 1000, 1000, 6_000, 2, 6),
+        )
+        val distribution = distributeLiquidityByBayesianWinRateInLots(rows, available = 300_000)
+
+        assertTrue((distribution["03033"] ?: 0) <= 50_000)
+        assertTrue(distribution.size >= 4)
+        assertTrue(distribution.values.max() <= 50_000)
+        assertTrue(distribution.values.sum() >= 200_000)
+    }
 }

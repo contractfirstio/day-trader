@@ -71,7 +71,7 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 - **Fill-drain Jul15 clean** — all nf `complete`; Jul14 entry_only not repeated
 - **SPY 5F** — swap gate met
 - **Not enough n** for hard gates beyond U2; finish parity week — **no midweek config change**
-- **US→HK lag:** Jul15 US **weak** → lean HK Jul16 **inv**; Jul14 weak → Jul15 HK bad aligned. See §US→HK lag + HK doc.
+- **US→HK lag:** Jul15 US **weak** → HK Jul16 **−4368** (align; inv tilt ignored); Jul14 weak → Jul15 **−3010**. Live TT↔TT **2/2**. See §US→HK lag + HK doc.
 
 ## US → HK lag (lead-day tags)
 
@@ -79,11 +79,11 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 **H₀:** US high nf win% → next HK TT-good; US low → next HK TT-poor.  
 **Tag:** **strong** ≥60% WR or outlier +PnL | **mixed** 40–59% | **weak** <40% or heavy −PnL.
 
-### Operator read (2026-07-16)
+### Operator read (2026-07-16 eve)
 
 - **Inverse week:** Mon inv good (= TT-equiv **bad**). Tue–Wed inv bled while US mixed→**strong** (= those HK days TT-equiv **won**). First week **supports** H₀ after flip.
-- **TT parity:** Jul14 weak US → Jul15 bad HK (op). Jul15 US **worse** (8%/−343) → lean HK Jul16 **inv**.
-- **Still need:** US Jul13 vs HK Jul14 crush; HK Jul16 result to score 2nd live TT↔TT lag.
+- **TT parity:** Jul14 weak US → HK Jul15 **−3010**. Jul15 weak US → HK Jul16 **−4368**. Live TT↔TT **2/2** weak→weak. Jul16 inv tilt was right but ignored (parity).
+- **Still need:** US Jul13 vs HK Jul14 crush.
 
 | US day | WR/PnL | lead | → HK | HK ran | recorded | TT-equiv | for H₀? |
 |--------|--------|------|------|--------|----------|----------|---------|
@@ -92,12 +92,12 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 | 07-08 | 73%/+635 | **strong** | 07-09 | — | gap | — | — |
 | 07-10 | — | — | 07-13 | TT | −71 | = | need US |
 | 07-13 | — | — | 07-14 | TT | +3623 | = | **priority** |
-| 07-14 | 23%/−255 | **weak** | 07-15 | TT | **bad** (op) | = | **align** live TT↔TT |
-| 07-15 | 8%/−343 | **weak** | 07-16 | TT? | pending | = | lean HK **inv** |
+| 07-14 | 23%/−255 | **weak** | 07-15 | TT | **−3010** | = | **align** live TT↔TT |
+| 07-15 | 8%/−343 | **weak** | 07-16 | TT | **−4368** | = | **align**; tilt inv ignored |
 
-**Use:** after US close, tag lead qual → HK morning **soft tilt** only (strong US → lean HK **TT**; weak US → lean HK **inv**). Not a hard gate. Holding ~67% TT-space (n=3) + pending Jul16. See HK §US→HK lag · Use.
+**Use:** after US close, tag lead qual → HK morning **soft tilt** only (strong US → lean HK **TT**; weak US → lean HK **inv**). Not a hard gate. Holding ~**75%** TT-space (n=4) + live TT↔TT **2/2**. See HK §US→HK lag · Use.
 
-**Ingest priority:** US Jul **13**, HK Jul16 nf. Inv-flip rows soft until replayed.
+**Ingest priority:** US Jul **13** (lag vs HK Jul14). Inv-flip rows soft until replayed.
 
 ## Mode draft (UNVALIDATED)
 
@@ -175,7 +175,7 @@ All 20 SMART deployments — **Touch Turn, no cp gate**.
 | OPEN_DEADLINE entry_only | Tag + corr PnL | Jul6+8 (8) + Jul14 BAC/META/PFE; Jul15 clean |
 | Symbol shape flips | Track per §Symbols | META 5W; SOXL/COIN/AMD flip |
 | Roster swap (week of Jul 20) | **SPY 5F gate met**; AMZN/IWM/TSLA | §Symbol roster |
-| US→HK lead tag | After US day → HK soft TT/inv tilt | Jul15 weak → lean HK Jul16 **inv** |
+| US→HK lead tag | After US day → HK soft TT/inv tilt | Jul15 weak → HK Jul16 −4368 **align** (tilt ignored) |
 
 ### Inv-switch candidates (TT → inverse per symbol)
 
@@ -492,7 +492,7 @@ TSLA  5d 0/2/3  -21 .47 34  | 07-06 G .76 53 TT -5 | 07-07 R .08 31 TT -16 | 07-
 | 2026-07-15 | 1 | 20 | 1/12 | **−343** | TT parity; META +24 only; A cluster −144; fills **clean**; SPY 5F gate |
 | 2026-07-06–08+14–15 | 5 | 100 | 20/40 | **+40** | gap Jul9–10/13; U2 cf +114; parity 2d −598 |
 | 2026-07-15 | — | — | — | — | **roster plan:** week of Jul 20 drop SPY (gate), AMZN, IWM, TSLA; replacements TBD; live target 2026-08-11 |
-| 2026-07-16 | — | — | — | — | **US→HK lag:** Jul15 weak (8%/−343) → lean HK Jul16 **inv**; Jul14→Jul15 aligned weak↔weak |
+| 2026-07-16 | — | — | — | — | **US→HK lag:** Jul15 weak → HK Jul16 **−4368** align (2/2 live TT↔TT); tilt inv ignored |
 
 ---
-*Agent: north star = §Symbol strategy. US ≠ HK — separate totals/modes. **Respect §Operator status** — do not assume §Recommended config is live. Ingest day → check **`open_deadline_entry_only`**; tag `draft_mode`, `u2-would-skip` on RED cp≥.50; tag **US→HK lead qual** and update HK §US→HK lag pairing row for next HK session. Update §Inv-switch, §Symbol roster, §Symbol tags. Also: Symbols, Totals, Patterns, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** ingest Jul 9–10, **13** (lag priority) gap days; execute SPY drop when replacement chosen; score HK Jul16 vs Jul15 US weak lead. Keep terse.*
+*Agent: north star = §Symbol strategy. US ≠ HK — separate totals/modes. **Respect §Operator status** — do not assume §Recommended config is live. Ingest day → check **`open_deadline_entry_only`**; tag `draft_mode`, `u2-would-skip` on RED cp≥.50; tag **US→HK lead qual** and update HK §US→HK lag pairing row for next HK session. Update §Inv-switch, §Symbol roster, §Symbol tags. Also: Symbols, Totals, Patterns, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** ingest Jul 9–10, **13** (lag priority) gap days; execute SPY drop when replacement chosen. Keep terse.*

@@ -112,6 +112,7 @@ class LiquidityFlushCoordinator(
                         orderSizeRules = deployment.instrument?.orderSizeRules()
                             ?: InstrumentOrderSizeRules.DEFAULT,
                         currentQuantity = row.currentQuantity,
+                        maxAllocationDollars = deployment.maxDollars,
                     )
                 },
                 available = available,
@@ -134,6 +135,14 @@ class LiquidityFlushCoordinator(
                 val deployment = deploymentRepository.deployments.value.find { it.id == deploymentId }
                     ?: deploymentsSnapshot.find { it.id == deploymentId }
                     ?: continue
+                val alreadyDebited = debited[deploymentId] ?: 0
+                val cappedDollarWeight = dollarWeight.coerceAtMost(
+                    (deployment.maxDollars - alreadyDebited).coerceAtLeast(0),
+                )
+                if (cappedDollarWeight <= 0) {
+                    skippedLot.add(deploymentId)
+                    continue
+                }
                 val freshOrders = openOrdersSnapshot
                 val freshQuotes = request.quotes
                 val row = LiquidityAllocatorMapper.buildRowForDeploymentFromDollars(
@@ -141,7 +150,7 @@ class LiquidityFlushCoordinator(
                     openOrders = freshOrders,
                     quotes = freshQuotes,
                     selectedCurrency = currency,
-                    allocationDollars = dollarWeight,
+                    allocationDollars = cappedDollarWeight,
                 )
                 if (row == null) {
                     skippedNotEligible.add(deploymentId)

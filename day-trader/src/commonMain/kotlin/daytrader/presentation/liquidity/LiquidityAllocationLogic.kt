@@ -73,6 +73,8 @@ data class LiquidityLotAllocationRow(
     val entryPrice: Double,
     val orderSizeRules: InstrumentOrderSizeRules,
     val currentQuantity: Int,
+    /** Auto-flush cap per deployment; null = no cap (manual allocator). */
+    val maxAllocationDollars: Int? = null,
 )
 
 /**
@@ -126,6 +128,7 @@ private data class LotAllocationTarget(
     val weight: Double,
     val lotCost: Int,
     val lotShares: Int,
+    val maxAllocationDollars: Int? = null,
 )
 
 private fun lotTargetsFromRows(
@@ -142,6 +145,7 @@ private fun lotTargetsFromRows(
             weight = weight,
             lotCost = lotCost,
             lotShares = row.orderSizeRules.additionalLotShares(row.currentQuantity),
+            maxAllocationDollars = row.maxAllocationDollars,
         )
     }
 
@@ -158,16 +162,20 @@ private fun distributeLotCountsInWholeLots(
         val lotCost: Int,
         val floorLots: Int,
         val remainder: Double,
+        val maxAllocationDollars: Int?,
     )
 
     val shares = targets.map { target ->
         val exactLots = available * target.weight / totalWeight / target.lotCost
-        val floorLots = kotlin.math.floor(exactLots).toInt()
+        val uncappedFloor = kotlin.math.floor(exactLots).toInt()
+        val maxLots = maxWholeLotsForCap(target.maxAllocationDollars, target.lotCost)
+        val floorLots = maxLots?.let { kotlin.math.min(uncappedFloor, it) } ?: uncappedFloor
         Share(
             deploymentId = target.deploymentId,
             lotCost = target.lotCost,
             floorLots = floorLots,
-            remainder = exactLots - floorLots,
+            remainder = exactLots - uncappedFloor,
+            maxAllocationDollars = target.maxAllocationDollars,
         )
     }
 
@@ -178,10 +186,48 @@ private fun distributeLotCountsInWholeLots(
     )
 
     while (leftover > 0) {
-        val next = priority.firstOrNull { leftover >= it.lotCost } ?: break
-        lotCounts[next.deploymentId] = lotCounts.getValue(next.deploymentId) + 1
-        leftover -= next.lotCost
+        var progressed = false
+        for (share in priority) {
+            if (!canAddWholeLot(
+                    deploymentId = share.deploymentId,
+                    lotCost = share.lotCost,
+                    maxAllocationDollars = share.maxAllocationDollars,
+                    lotCounts = lotCounts,
+                    leftover = leftover,
+                )
+            ) {
+                continue
+            }
+            lotCounts[share.deploymentId] = lotCounts.getValue(share.deploymentId) + 1
+            leftover -= share.lotCost
+            progressed = true
+            if (leftover <= 0) break
+        }
+        if (!progressed) break
     }
 
     return lotCounts.filterValues { it > 0 }
+}
+
+private fun maxWholeLotsForCap(maxAllocationDollars: Int?, lotCost: Int): Int? {
+    if (maxAllocationDollars == null || lotCost <= 0) return null
+    return maxAllocationDollars / lotCost
+}
+
+private fun allocatedDollarsFor(
+    deploymentId: String,
+    lotCounts: Map<String, Int>,
+    lotCost: Int,
+): Int = lotCounts.getOrDefault(deploymentId, 0) * lotCost
+
+private fun canAddWholeLot(
+    deploymentId: String,
+    lotCost: Int,
+    maxAllocationDollars: Int?,
+    lotCounts: Map<String, Int>,
+    leftover: Int,
+): Boolean {
+    if (leftover < lotCost) return false
+    val max = maxAllocationDollars ?: return true
+    return allocatedDollarsFor(deploymentId, lotCounts, lotCost) + lotCost <= max
 }
