@@ -102,6 +102,11 @@ data class BrokerEmulatorConfig(
     val fiveMinuteBarSecondsUntilClose: Long? = 3L,
     /** Zero-based index (0..2) of the 5m bar slot that prints a valid hammer. `-1` = no hammer slot. */
     val fiveMinuteHammerBarIndex: Int = 1,
+    /**
+     * When set, the matching window slot (0..2) prints a classic engulfing confirmation bar.
+     * The preceding bar (pre-window prior when index is 0) is opposite-colored for the pattern.
+     */
+    val fiveMinuteEngulfingBarIndex: Int? = null,
     /** When set, the matching slot prints a 5m bar whose close invalidates the liquidity sweep. */
     val fiveMinuteInvalidatingBarIndex: Int? = null,
     /**

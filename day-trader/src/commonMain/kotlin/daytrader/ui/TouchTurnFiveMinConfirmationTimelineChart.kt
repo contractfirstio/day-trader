@@ -202,16 +202,19 @@ fun TouchTurnFiveMinConfirmationTimelineChart(
 
             fiveMinuteBars.forEachIndexed { index, bar ->
                 val centerX = fiveMinAreaLeft + slotWidth * (index + 0.5f)
-                val isHammer = bar.time == confirmedHammerBarTime &&
+                val isConfirmed = bar.time == confirmedHammerBarTime &&
                     confirmationStatus == FiveMinuteConfirmationStatus.CONFIRMED
-                val isHammerCandidate = tradeSide != null &&
-                    FiveMinuteConfirmationLogic.isHammerPattern(bar, tradeSide)
+                val prior = fiveMinuteBars.getOrNull(index - 1)
+                val isPatternCandidate = tradeSide != null && (
+                    FiveMinuteConfirmationLogic.isHammerPattern(bar, tradeSide) ||
+                        (prior != null && FiveMinuteConfirmationLogic.isEngulfingPattern(prior, bar, tradeSide))
+                    )
                 val barColor = when {
-                    isHammer -> GainGreen
-                    isHammerCandidate -> CandleGreen.copy(alpha = 0.85f)
+                    isConfirmed -> GainGreen
+                    isPatternCandidate -> CandleGreen.copy(alpha = 0.85f)
                     else -> TextSecondary.copy(alpha = 0.75f)
                 }
-                if (isHammer) {
+                if (isConfirmed) {
                     drawRect(
                         color = GainGreen.copy(alpha = 0.12f),
                         topLeft = Offset(centerX - slotWidth * 0.45f, plotTop),

@@ -171,9 +171,10 @@ data class TouchTurnRuleConfig(
             ),
             TouchTurnRuleToggleDefinition(
                 key = "fiveMinuteConfirmation",
-                label = "5-minute hammer confirmation",
-                description = "After a 15m liquidity sweep, wait up to three 5m bars for a hammer that closes " +
-                    "inside the sweep range, then enter at market using the original 15m stop and take-profit. " +
+                label = "5-minute confirmation",
+                description = "After a 15m liquidity sweep, wait up to three 5m bars for a hammer or classic " +
+                    "engulfing pattern that closes inside the sweep range, then enter at market using the " +
+                    "confirming bar close with the original 15m take-profit (stop recomputed). " +
                     "Rejected when projected gross profit to the 15m target is below the configured minimum. " +
                     "Available only in Touch Turn (reversal) mode — hidden when invert trade side is on.",
                 category = TouchTurnRuleCategory.TRIGGERS

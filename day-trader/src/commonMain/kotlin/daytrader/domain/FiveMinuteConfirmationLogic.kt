@@ -41,8 +41,10 @@ object FiveMinuteConfirmationLogic {
     const val TTL_MS = 3 * BAR_DURATION_MS
     const val MAX_BARS = 3
     const val MISSED_TOUCH_TURN_MESSAGE =
-        "Hammer entry crossed the 15-minute take-profit level — the touch-and-turn opportunity was missed. " +
+        "5-minute confirmation entry crossed the 15-minute take-profit level — the touch-and-turn opportunity was missed. " +
             "Bracket orders were not placed."
+    const val EXPIRED_NO_CONFIRMATION_MESSAGE =
+        "No qualifying 5-minute confirmation within 15 minutes of the liquidity sweep."
 
     fun stateAfterBarEvaluated(state: FiveMinuteConfirmationState, bar: OhlcBar): FiveMinuteConfirmationState {
         val barTime = bar.time ?: return state
@@ -88,11 +90,76 @@ object FiveMinuteConfirmationLogic {
     fun isExpired(state: FiveMinuteConfirmationState, nowEpochMillis: Long): Boolean =
         nowEpochMillis >= state.expiresAtEpochMs
 
+    data class ConfirmationEvaluation(
+        val isHammer: Boolean,
+        val isEngulfing: Boolean,
+        val closeInsideSweepRange: Boolean,
+        val invalidatesSetup: Boolean
+    ) {
+        val isQualifying: Boolean get() = isHammer || isEngulfing
+    }
+
+    /** @deprecated Prefer [ConfirmationEvaluation]; [isHammer] here means any qualifying pattern. */
     data class HammerEvaluation(
         val isHammer: Boolean,
         val closeInsideSweepRange: Boolean,
         val invalidatesSetup: Boolean
     )
+
+    data class PartitionedFiveMinuteBars(
+        val contextPrior: OhlcBar?,
+        val windowBars: List<OhlcBar>
+    )
+
+    /**
+     * Split fetched 5m bars into an optional pre-window prior and in-window confirmation candidates.
+     * [barOpenEpochMs] maps each bar to its open epoch; bars with unknown open are dropped.
+     */
+    fun partitionFiveMinuteBars(
+        bars: List<OhlcBar>,
+        windowStartEpochMs: Long,
+        barOpenEpochMs: (OhlcBar) -> Long?
+    ): PartitionedFiveMinuteBars {
+        var contextPrior: OhlcBar? = null
+        val windowBars = mutableListOf<OhlcBar>()
+        for (bar in bars) {
+            val openEpoch = barOpenEpochMs(bar) ?: continue
+            when {
+                openEpoch < windowStartEpochMs -> contextPrior = bar
+                else -> windowBars += bar
+            }
+        }
+        return PartitionedFiveMinuteBars(contextPrior = contextPrior, windowBars = windowBars)
+    }
+
+    /**
+     * Validates hammer or classic engulfing confirmation and that [bar.close] remains inside the
+     * 15m bar range ([fifteenMinuteBar.low] .. [fifteenMinuteBar.high]).
+     */
+    fun evaluateConfirmation(
+        bar: OhlcBar,
+        priorBar: OhlcBar?,
+        side: TouchTurnTradeSide,
+        fifteenMinuteBar: OhlcBar
+    ): ConfirmationEvaluation {
+        val closeInside = bar.close in fifteenMinuteBar.low..fifteenMinuteBar.high
+        if (!closeInside) {
+            return ConfirmationEvaluation(
+                isHammer = false,
+                isEngulfing = false,
+                closeInsideSweepRange = false,
+                invalidatesSetup = true
+            )
+        }
+        val isHammer = isHammerPattern(bar, side)
+        val isEngulfing = priorBar != null && isEngulfingPattern(priorBar, bar, side)
+        return ConfirmationEvaluation(
+            isHammer = isHammer,
+            isEngulfing = isEngulfing,
+            closeInsideSweepRange = true,
+            invalidatesSetup = false
+        )
+    }
 
     /**
      * Validates hammer geometry and that [bar.close] remains inside the 15m bar range
@@ -101,17 +168,14 @@ object FiveMinuteConfirmationLogic {
     fun evaluateHammer(
         bar: OhlcBar,
         side: TouchTurnTradeSide,
-        fifteenMinuteBar: OhlcBar
+        fifteenMinuteBar: OhlcBar,
+        priorBar: OhlcBar? = null
     ): HammerEvaluation {
-        val closeInside = bar.close in fifteenMinuteBar.low..fifteenMinuteBar.high
-        if (!closeInside) {
-            return HammerEvaluation(isHammer = false, closeInsideSweepRange = false, invalidatesSetup = true)
-        }
-        val isHammer = isHammerPattern(bar, side)
+        val result = evaluateConfirmation(bar, priorBar, side, fifteenMinuteBar)
         return HammerEvaluation(
-            isHammer = isHammer,
-            closeInsideSweepRange = true,
-            invalidatesSetup = false
+            isHammer = result.isQualifying,
+            closeInsideSweepRange = result.closeInsideSweepRange,
+            invalidatesSetup = result.invalidatesSetup
         )
     }
 
@@ -134,6 +198,30 @@ object FiveMinuteConfirmationLogic {
         if (rejectionShadow < body * TouchTurnDefaults.FIVE_MIN_HAMMER_MIN_REJECTION_BODY_RATIO) return false
         if (oppositeShadow / range > TouchTurnDefaults.FIVE_MIN_HAMMER_MAX_OPPOSITE_SHADOW_RATIO) return false
         return true
+    }
+
+    /**
+     * Classic engulfing: prior opposite color, confirming bar side-aligned, confirming body
+     * fully covers prior body. Doji prior or missing direction → false.
+     */
+    fun isEngulfingPattern(prior: OhlcBar, current: OhlcBar, side: TouchTurnTradeSide): Boolean {
+        val priorBody = abs(prior.close - prior.open)
+        if (priorBody <= 0.0) return false
+        val currentBody = abs(current.close - current.open)
+        if (currentBody <= 0.0) return false
+        val priorBullish = prior.close > prior.open
+        val priorBearish = prior.close < prior.open
+        val currentBullish = current.close > current.open
+        val currentBearish = current.close < current.open
+        when (side) {
+            TouchTurnTradeSide.LONG -> if (!priorBearish || !currentBullish) return false
+            TouchTurnTradeSide.SHORT -> if (!priorBullish || !currentBearish) return false
+        }
+        val priorLow = minOf(prior.open, prior.close)
+        val priorHigh = max(prior.open, prior.close)
+        val currentLow = minOf(current.open, current.close)
+        val currentHigh = max(current.open, current.close)
+        return currentLow <= priorLow && currentHigh >= priorHigh
     }
 
     /** Signed distance from [marketEntry] to the fixed 15m take-profit (positive when still profitable). */

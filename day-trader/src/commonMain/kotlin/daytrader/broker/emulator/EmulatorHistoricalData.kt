@@ -412,7 +412,12 @@ internal object EmulatorHistoricalData {
 
     /**
      * Synthetic closed 5m bars after a 15m sweep for emulator / manual testing.
-     * [config.fiveMinuteHammerBarIndex] selects which slot (0..2) prints a valid hammer.
+     * [config.fiveMinuteHammerBarIndex] selects which window slot (0..2) prints a valid hammer.
+     * [config.fiveMinuteEngulfingBarIndex] selects which window slot prints a classic engulfing bar.
+     *
+     * When [windowStartEpochMs] is set (engine prior-lookback path), slot 0 is the pre-window prior
+     * and window slots begin at index 1. Otherwise [afterBarOpenEpochMs] is the first window bar
+     * (legacy fixture callers).
      */
     fun fiveMinuteBarsSince(
         openingFifteenMinuteBar: OhlcBar,
@@ -420,7 +425,8 @@ internal object EmulatorHistoricalData {
         config: BrokerEmulatorConfig,
         afterBarOpenEpochMs: Long,
         marketZoneId: String,
-        nowEpochMillis: Long = System.currentTimeMillis()
+        nowEpochMillis: Long = System.currentTimeMillis(),
+        windowStartEpochMs: Long? = null
     ): List<OhlcBar> {
         config.touchTurnScenario?.let { scenario ->
             val scenarioSide = when {
@@ -439,15 +445,40 @@ internal object EmulatorHistoricalData {
             )
         }
         val barDurationMs = fiveMinuteBarDurationMs(config)
+        val includePriorSlot = windowStartEpochMs != null
+        val windowSlotCount = (FiveMinuteConfirmationLogic.TTL_MS / FiveMinuteConfirmationLogic.BAR_DURATION_MS)
+            .toInt()
+            .coerceAtMost(3)
+        val totalSlots = windowSlotCount + if (includePriorSlot) 1 else 0
         val bars = mutableListOf<OhlcBar>()
-        val slots = (FiveMinuteConfirmationLogic.TTL_MS / barDurationMs).toInt().coerceAtMost(3)
         var priorClose = openingFifteenMinuteBar.close
-        for (index in 0 until slots) {
+        var previousBar: OhlcBar? = null
+        val engulfingWindowIndex = config.fiveMinuteEngulfingBarIndex
+        for (index in 0 until totalSlots) {
             val barOpenEpoch = afterBarOpenEpochMs + index * barDurationMs
             val barEndEpoch = barOpenEpoch + barDurationMs
             if (nowEpochMillis < barEndEpoch) continue
+            val windowIndex = if (includePriorSlot) index - 1 else index
+            val isPriorSlot = includePriorSlot && index == 0
             val bar = when {
-                index == config.fiveMinuteInvalidatingBarIndex ->
+                isPriorSlot && engulfingWindowIndex == 0 ->
+                    syntheticEngulfingPriorBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        openPrice = priorClose
+                    )
+                isPriorSlot ->
+                    syntheticNonHammerBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        slotIndex = index,
+                        openPrice = priorClose
+                    )
+                windowIndex == config.fiveMinuteInvalidatingBarIndex ->
                     syntheticInvalidatingBar(
                         openingFifteenMinuteBar = openingFifteenMinuteBar,
                         side = side,
@@ -455,25 +486,44 @@ internal object EmulatorHistoricalData {
                         marketZoneId = marketZoneId,
                         openPrice = priorClose
                     )
-                index == config.fiveMinuteHammerBarIndex ->
-                syntheticHammerBar(
-                    openingFifteenMinuteBar = openingFifteenMinuteBar,
-                    side = side,
-                    barOpenEpoch = barOpenEpoch,
-                    marketZoneId = marketZoneId,
-                    openPrice = priorClose
-                )
-            else ->
-                syntheticNonHammerBar(
-                    openingFifteenMinuteBar = openingFifteenMinuteBar,
-                    side = side,
-                    barOpenEpoch = barOpenEpoch,
-                    marketZoneId = marketZoneId,
-                    slotIndex = index,
-                    openPrice = priorClose
-                )
+                engulfingWindowIndex != null && windowIndex == engulfingWindowIndex && previousBar != null ->
+                    syntheticEngulfingBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        prior = previousBar,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId
+                    )
+                engulfingWindowIndex != null &&
+                    engulfingWindowIndex > 0 &&
+                    windowIndex == engulfingWindowIndex - 1 ->
+                    syntheticEngulfingPriorBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        openPrice = priorClose
+                    )
+                windowIndex == config.fiveMinuteHammerBarIndex ->
+                    syntheticHammerBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        openPrice = priorClose
+                    )
+                else ->
+                    syntheticNonHammerBar(
+                        openingFifteenMinuteBar = openingFifteenMinuteBar,
+                        side = side,
+                        barOpenEpoch = barOpenEpoch,
+                        marketZoneId = marketZoneId,
+                        slotIndex = index,
+                        openPrice = priorClose
+                    )
             }
             priorClose = bar.close
+            previousBar = bar
             bars += bar
         }
         return bars
@@ -592,12 +642,48 @@ internal object EmulatorHistoricalData {
     ): OhlcBar {
         val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
         val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
-        val barRange = span * 0.06
-        val open = openPrice
-        val drift = barRange * 0.55 * if (slotIndex % 2 == 0) 1.0 else -1.0
-        val close = (open + drift).coerceIn(openingFifteenMinuteBar.low, openingFifteenMinuteBar.high)
-        val high = maxOf(open, close) + barRange * 0.2
-        val low = minOf(open, close) - barRange * 0.2
+        // Side-aligned color with a fat body so bars never qualify as hammer or classic engulfing
+        // (engulfing requires an opposite-colored prior).
+        val body = span * 0.08
+        val open = openPrice.coerceIn(openingFifteenMinuteBar.low, openingFifteenMinuteBar.high)
+        val driftScale = 1.0 + (slotIndex % 3) * 0.15
+        val close = when (side) {
+            TouchTurnTradeSide.LONG ->
+                (open + body * driftScale).coerceAtMost(openingFifteenMinuteBar.high)
+                    .let { if (it <= open) (open + span * 0.01).coerceAtMost(openingFifteenMinuteBar.high) else it }
+            TouchTurnTradeSide.SHORT ->
+                (open - body * driftScale).coerceAtLeast(openingFifteenMinuteBar.low)
+                    .let { if (it >= open) (open - span * 0.01).coerceAtLeast(openingFifteenMinuteBar.low) else it }
+        }
+        val wick = body * 0.05
+        return OhlcBar(
+            open = open,
+            high = (maxOf(open, close) + wick).coerceAtMost(openingFifteenMinuteBar.high),
+            low = (minOf(open, close) - wick).coerceAtLeast(openingFifteenMinuteBar.low),
+            close = close,
+            time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
+            volume = mid * 1_500.0
+        )
+    }
+
+    /** Opposite-colored compact body used as the engulfed prior for classic engulfing. */
+    internal fun syntheticEngulfingPriorBar(
+        openingFifteenMinuteBar: OhlcBar,
+        side: TouchTurnTradeSide,
+        barOpenEpoch: Long,
+        marketZoneId: String,
+        openPrice: Double = openingFifteenMinuteBar.close
+    ): OhlcBar {
+        val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
+        val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
+        val body = span * 0.04
+        val open = openPrice.coerceIn(openingFifteenMinuteBar.low + body, openingFifteenMinuteBar.high - body)
+        val close = when (side) {
+            TouchTurnTradeSide.LONG -> (open - body).coerceAtLeast(openingFifteenMinuteBar.low) // red prior
+            TouchTurnTradeSide.SHORT -> (open + body).coerceAtMost(openingFifteenMinuteBar.high) // green prior
+        }
+        val high = maxOf(open, close) + body * 0.1
+        val low = minOf(open, close) - body * 0.1
         return OhlcBar(
             open = open,
             high = high.coerceAtMost(openingFifteenMinuteBar.high),
@@ -606,5 +692,65 @@ internal object EmulatorHistoricalData {
             time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
             volume = mid * 1_500.0
         )
+    }
+
+    /** Side-aligned body that fully covers [prior] without hammer geometry. */
+    internal fun syntheticEngulfingBar(
+        openingFifteenMinuteBar: OhlcBar,
+        side: TouchTurnTradeSide,
+        prior: OhlcBar,
+        barOpenEpoch: Long,
+        marketZoneId: String
+    ): OhlcBar {
+        val setup = TouchTurnLogic.computeBracketSetup(
+            openingFifteenMinuteBar,
+            TouchTurnLiquidityThresholds(thresholdDailyAtr = 0.0),
+            TouchTurnRuleConfig.DEFAULT
+        )
+        val takeProfit = setup.takeProfit
+        val mid = (openingFifteenMinuteBar.low + openingFifteenMinuteBar.high) / 2.0
+        val span = (openingFifteenMinuteBar.high - openingFifteenMinuteBar.low).coerceAtLeast(0.5)
+        val cushion = span * 0.01
+        val priorLow = minOf(prior.open, prior.close)
+        val priorHigh = maxOf(prior.open, prior.close)
+        val pad = span * 0.01
+        val bar = when (side) {
+            TouchTurnTradeSide.LONG -> {
+                val open = (priorLow - pad).coerceAtLeast(openingFifteenMinuteBar.low)
+                val maxClose = (takeProfit - cushion).coerceAtMost(openingFifteenMinuteBar.high)
+                val close = (priorHigh + pad).coerceAtMost(maxClose)
+                OhlcBar(
+                    open = open,
+                    high = (close + pad).coerceAtMost(openingFifteenMinuteBar.high),
+                    low = (open - pad).coerceAtLeast(openingFifteenMinuteBar.low),
+                    close = close,
+                    time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
+                    volume = mid * 2_000.0
+                )
+            }
+            TouchTurnTradeSide.SHORT -> {
+                val open = (priorHigh + pad).coerceAtMost(openingFifteenMinuteBar.high)
+                val minClose = (takeProfit + cushion).coerceAtLeast(openingFifteenMinuteBar.low)
+                val close = (priorLow - pad).coerceAtLeast(minClose)
+                OhlcBar(
+                    open = open,
+                    high = (open + pad).coerceAtMost(openingFifteenMinuteBar.high),
+                    low = (close - pad).coerceAtLeast(openingFifteenMinuteBar.low),
+                    close = close,
+                    time = TouchTurnLogic.formatIbBarOpenTime(barOpenEpoch, marketZoneId),
+                    volume = mid * 2_000.0
+                )
+            }
+        }
+        check(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, bar, side)) {
+            "Emulator engulfing bar failed classic pattern for $side"
+        }
+        check(!FiveMinuteConfirmationLogic.isHammerPattern(bar, side)) {
+            "Emulator engulfing bar unexpectedly matched hammer geometry"
+        }
+        check(!FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, bar.close)) {
+            "Emulator engulfing close ${bar.close} crossed 15m take-profit $takeProfit for $side"
+        }
+        return bar
     }
 }

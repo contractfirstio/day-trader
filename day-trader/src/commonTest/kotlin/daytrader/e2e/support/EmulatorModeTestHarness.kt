@@ -120,6 +120,20 @@ class EmulatorModeTestHarness(
             config = fiveMinuteScenarioConfig(scenario, hammerBarIndex = 1)
         )
 
+        /** Classic engulfing on the first in-window 5m bar (pre-window prior is opposite color). */
+        fun fiveMinuteEngulfingConfirmationForScenario(
+            scope: CoroutineScope,
+            scenario: TouchTurnMarketScenario =
+                TouchTurnMarketFixtures.scenario(TouchTurnMarketScenarioId.RED_LIQUIDITY_LONG),
+        ) = EmulatorModeTestHarness(
+            scope = scope,
+            config = fiveMinuteScenarioConfig(
+                scenario,
+                hammerBarIndex = -1,
+                engulfingBarIndex = 0,
+            )
+        )
+
         /** No hammer slot; pair with [E2EWorld.advanceTestClockBy] after liquidity evaluation. */
         fun fiveMinuteConfirmationExpired(
             scope: CoroutineScope,
@@ -148,10 +162,12 @@ class EmulatorModeTestHarness(
             scenario: TouchTurnMarketScenario,
             hammerBarIndex: Int,
             invalidatingBarIndex: Int? = null,
+            engulfingBarIndex: Int? = null,
         ) = scenario.emulatorConfig(tradeLifecycleConfig(bracketExitTakeProfitProbability = 1.0)).copy(
             fiveMinuteBarSecondsUntilClose = 1L,
             fiveMinuteHammerBarIndex = hammerBarIndex,
             fiveMinuteInvalidatingBarIndex = invalidatingBarIndex,
+            fiveMinuteEngulfingBarIndex = engulfingBarIndex,
             touchTurnEntryFillImmediately = true,
             touchTurnEntryScenarioOverride = TouchTurnEntryScenario.IMMEDIATE,
         )

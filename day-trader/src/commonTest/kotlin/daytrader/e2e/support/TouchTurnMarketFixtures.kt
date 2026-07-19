@@ -169,25 +169,40 @@ object TouchTurnMarketFixtures {
         scenario: TouchTurnMarketScenario,
         hammerBarIndex: Int = 1,
         invalidatingBarIndex: Int? = null,
+        engulfingBarIndex: Int? = null,
         afterBarOpenEpochMs: Long = scenario.barCloseEpochMs,
         nowEpochMillis: Long = System.currentTimeMillis(),
-    ): List<OhlcBar> = EmulatorHistoricalData.fiveMinuteBarsSince(
-        openingFifteenMinuteBar = scenario.openingBar,
-        side = tradeSide(scenario),
-        config = BrokerEmulatorConfig(
-            fiveMinuteBarSecondsUntilClose = SYNTHETIC_FIVE_MIN_BAR_SECONDS,
-            fiveMinuteHammerBarIndex = hammerBarIndex,
-            fiveMinuteInvalidatingBarIndex = invalidatingBarIndex,
-        ),
-        afterBarOpenEpochMs = afterBarOpenEpochMs,
-        marketZoneId = DEFAULT_MARKET_ZONE,
-        nowEpochMillis = nowEpochMillis,
-    )
+    ): List<OhlcBar> {
+        val compressedDurationMs = SYNTHETIC_FIVE_MIN_BAR_SECONDS * 1_000L
+        return EmulatorHistoricalData.fiveMinuteBarsSince(
+            openingFifteenMinuteBar = scenario.openingBar,
+            side = tradeSide(scenario),
+            config = BrokerEmulatorConfig(
+                fiveMinuteBarSecondsUntilClose = SYNTHETIC_FIVE_MIN_BAR_SECONDS,
+                fiveMinuteHammerBarIndex = hammerBarIndex,
+                fiveMinuteInvalidatingBarIndex = invalidatingBarIndex,
+                fiveMinuteEngulfingBarIndex = engulfingBarIndex,
+            ),
+            afterBarOpenEpochMs = afterBarOpenEpochMs - compressedDurationMs,
+            marketZoneId = DEFAULT_MARKET_ZONE,
+            nowEpochMillis = nowEpochMillis,
+            windowStartEpochMs = afterBarOpenEpochMs,
+        )
+    }
 
     fun syntheticFiveMinuteHammerBars(
         scenario: TouchTurnMarketScenario,
         hammerBarIndex: Int = 1,
     ): List<OhlcBar> = syntheticFiveMinuteBars(scenario, hammerBarIndex = hammerBarIndex)
+
+    fun syntheticFiveMinuteEngulfingBars(
+        scenario: TouchTurnMarketScenario,
+        engulfingBarIndex: Int = 0,
+    ): List<OhlcBar> = syntheticFiveMinuteBars(
+        scenario,
+        hammerBarIndex = -1,
+        engulfingBarIndex = engulfingBarIndex,
+    )
 
     fun syntheticFiveMinuteInvalidatingBars(
         scenario: TouchTurnMarketScenario,

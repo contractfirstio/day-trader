@@ -959,7 +959,11 @@ fun TouchTurnPipelineSectionFiveMin(
             }
             evaluatedBars.forEachIndexed { index, bar ->
                 val side = session.setup?.side
+                val prior = evaluatedBars.getOrNull(index - 1)
                 val isHammer = side != null && FiveMinuteConfirmationLogic.isHammerPattern(bar, side)
+                val isEngulfing = side != null && prior != null &&
+                    FiveMinuteConfirmationLogic.isEngulfingPattern(prior, bar, side)
+                val isPattern = isHammer || isEngulfing
                 val isConfirmed = bar.time == state.confirmedHammerBar?.time &&
                     state.status == daytrader.domain.FiveMinuteConfirmationStatus.CONFIRMED
                 DataCaptureRow(
@@ -968,9 +972,12 @@ fun TouchTurnPipelineSectionFiveMin(
                         bar.time?.let { append("$it · ") }
                         append(
                             when {
-                                isConfirmed -> "hammer confirmed"
+                                isConfirmed && isEngulfing -> "engulfing confirmed"
+                                isConfirmed && isHammer -> "hammer confirmed"
+                                isConfirmed -> "confirmation confirmed"
+                                isEngulfing -> "engulfing pattern"
                                 isHammer -> "hammer pattern"
-                                else -> "no hammer"
+                                else -> "no confirmation"
                             }
                         )
                         append(" · C ")
@@ -978,7 +985,7 @@ fun TouchTurnPipelineSectionFiveMin(
                     },
                     valueColor = when {
                         isConfirmed -> GainGreen
-                        isHammer -> GainGreen.copy(alpha = 0.75f)
+                        isPattern -> GainGreen.copy(alpha = 0.75f)
                         else -> TextSecondary
                     },
                     testTag = "TouchTurnFiveMinBar${index + 1}"

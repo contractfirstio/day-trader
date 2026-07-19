@@ -139,6 +139,11 @@ class BrokerModeSteps {
         world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteConfirmationForScenario(it) }
     }
 
+    @Given("the emulator is configured for red liquidity with five minute engulfing confirmation")
+    fun emulatorRedLiquidityFiveMinuteEngulfing() {
+        world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteEngulfingConfirmationForScenario(it) }
+    }
+
     @Given("the emulator is configured for five minute confirmation expiry without a hammer")
     fun emulatorFiveMinuteConfirmationExpiry() {
         world.configureEmulatorHarness { EmulatorModeTestHarness.fiveMinuteConfirmationExpired(it) }
@@ -154,6 +159,13 @@ class BrokerModeSteps {
         val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
         world.activeIbHarness().gateway.fiveMinuteBarsFetchResult =
             Result.success(TouchTurnMarketFixtures.syntheticFiveMinuteHammerBars(scenario))
+    }
+
+    @Given("the IB gateway returns five minute engulfing bars for canonical scenario {string}")
+    fun ibGatewayFiveMinuteEngulfingBars(scenarioId: String) {
+        val scenario = TouchTurnMarketFixtures.scenario(parseCanonicalScenarioId(scenarioId))
+        world.activeIbHarness().gateway.fiveMinuteBarsFetchResult =
+            Result.success(TouchTurnMarketFixtures.syntheticFiveMinuteEngulfingBars(scenario))
     }
 
     @Given("the IB gateway returns five minute invalidating bars for canonical scenario {string}")

@@ -4,6 +4,7 @@ import daytrader.broker.FillCommissionReportApplier
 import daytrader.broker.SessionTradeMatcher
 import daytrader.broker.SymbolMarkets
 import daytrader.domain.FirstCandleColor
+import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.OhlcBar
 import daytrader.domain.MacroTrendState
 import daytrader.domain.RthMarketSessions
@@ -493,13 +494,20 @@ class BrokerEmulatorEngine(
             if (opening == null || side == null) {
                 Result.failure(IllegalStateException("Missing opening 15m bar for $trimmed"))
             } else {
+                // Runner requests windowStart - BAR_DURATION_MS for a pre-window prior. Remap to the
+                // emulator's compressed bar duration so prior + three window slots stay aligned.
+                val compressedDurationMs = config.fiveMinuteBarSecondsUntilClose?.times(1_000L)
+                    ?: FiveMinuteConfirmationLogic.BAR_DURATION_MS
+                val windowStart = afterBarOpenEpochMs + FiveMinuteConfirmationLogic.BAR_DURATION_MS
+                val fetchStart = windowStart - compressedDurationMs
                 Result.success(
                     EmulatorHistoricalData.fiveMinuteBarsSince(
                         openingFifteenMinuteBar = opening,
                         side = side,
                         config = config,
-                        afterBarOpenEpochMs = afterBarOpenEpochMs,
-                        marketZoneId = marketZoneId
+                        afterBarOpenEpochMs = fetchStart,
+                        marketZoneId = marketZoneId,
+                        windowStartEpochMs = windowStart
                     )
                 )
             }

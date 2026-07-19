@@ -64,7 +64,7 @@ internal class FiveMinuteConfirmationRunner(
                 repository.update(instanceId) { current ->
                     current.withFiveMinuteConfirmationReset(
                         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED,
-                        detailMessage = "No qualifying 5-minute hammer within 15 minutes of the liquidity sweep."
+                        detailMessage = FiveMinuteConfirmationLogic.EXPIRED_NO_CONFIRMATION_MESSAGE
                     )
                 }
                 onFinished(instanceId)
@@ -78,20 +78,32 @@ internal class FiveMinuteConfirmationRunner(
             }
             val setup = session.setup ?: return
             val rules = session.rules
+            val windowStart = confirmation.sweepActiveStartedAtEpochMs
             val barsResult = marketData.fetchFiveMinuteBars(
                 symbol = instance.symbol,
                 instrument = DeploymentMarket.effectiveInstrument(instance),
-                afterBarOpenEpochMs = confirmation.sweepActiveStartedAtEpochMs,
+                afterBarOpenEpochMs = windowStart - FiveMinuteConfirmationLogic.BAR_DURATION_MS,
                 marketZoneId = session.marketZoneId
             )
             if (barsResult.isFailure) {
                 delayMillis(pollIntervalMs(instance.symbol))
                 continue
             }
-            val bars = barsResult.getOrThrow()
-            for (bar in bars) {
+            val partitioned = FiveMinuteConfirmationLogic.partitionFiveMinuteBars(
+                bars = barsResult.getOrThrow(),
+                windowStartEpochMs = windowStart,
+                barOpenEpochMs = { bar ->
+                    bar.time?.let { TouchTurnLogic.barStartEpochMillis(it, session.marketZoneId) }
+                }
+            )
+            var priorBar = partitioned.contextPrior
+                ?: confirmation.evaluatedBars.lastOrNull()
+            for (bar in partitioned.windowBars) {
                 val barTime = bar.time ?: continue
-                if (barTime in confirmation.processedBarTimes) continue
+                if (barTime in confirmation.processedBarTimes) {
+                    priorBar = bar
+                    continue
+                }
                 SessionHistoricalLog.recordFiveMinuteBar(
                     deploymentId = instanceId,
                     sessionId = instance.inProgressSession()?.id,
@@ -99,14 +111,19 @@ internal class FiveMinuteConfirmationRunner(
                     bar = bar,
                     sweepPrice = confirmation.sweepPrice
                 )
-                val evaluation = FiveMinuteConfirmationLogic.evaluateHammer(bar, setup.side, candle)
+                val evaluation = FiveMinuteConfirmationLogic.evaluateConfirmation(
+                    bar = bar,
+                    priorBar = priorBar,
+                    side = setup.side,
+                    fifteenMinuteBar = candle
+                )
                 val updated = FiveMinuteConfirmationLogic.stateAfterBarEvaluated(confirmation, bar)
                 SessionTrace.fiveMinuteBarEvaluated(
                     deploymentId = instanceId,
                     sessionId = instance.inProgressSession()?.id,
                     symbol = instance.symbol,
                     barTime = barTime,
-                    isHammer = evaluation.isHammer,
+                    isHammer = evaluation.isQualifying,
                     invalidatesSetup = evaluation.invalidatesSetup,
                     processedBarCount = updated.processedBarTimes.size,
                     open = bar.open,
@@ -125,10 +142,11 @@ internal class FiveMinuteConfirmationRunner(
                     onFinished(instanceId)
                     return
                 }
-                if (!evaluation.isHammer) {
+                if (!evaluation.isQualifying) {
                     repository.update(instanceId) { current ->
                         current.withFiveMinuteConfirmationUpdated(updated)
                     }
+                    priorBar = bar
                     continue
                 }
                 if (FiveMinuteConfirmationLogic.entryPastTakeProfit(setup, bar.close)) {

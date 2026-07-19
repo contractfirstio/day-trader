@@ -341,14 +341,14 @@ object TouchTurnStatusBreadcrumbMapper {
         val sweep = confirmation?.sweepPrice?.let { "%.2f".format(it) } ?: "n/a"
         return when (confirmation?.status) {
             FiveMinuteConfirmationStatus.CONFIRMED ->
-                "5m hammer confirmed — submitting order"
+                "5m confirmation confirmed — submitting order"
             FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT ->
-                "5m hammer rejected — insufficient gross profit"
+                "5m confirmation rejected — insufficient gross profit"
             FiveMinuteConfirmationStatus.REJECTED_MISSED_TOUCH_TURN ->
-                "5m hammer rejected — missed touch-and-turn"
+                "5m confirmation rejected — missed touch-and-turn"
             FiveMinuteConfirmationStatus.AWAITING ->
-                "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
-            else -> "Awaiting 5m hammer ($evaluated/$maxBars bars · sweep $sweep)"
+                "Awaiting 5m confirmation ($evaluated/$maxBars bars · sweep $sweep)"
+            else -> "Awaiting 5m confirmation ($evaluated/$maxBars bars · sweep $sweep)"
         }
     }
 

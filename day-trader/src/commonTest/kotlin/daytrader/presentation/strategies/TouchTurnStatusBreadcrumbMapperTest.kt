@@ -283,7 +283,7 @@ class TouchTurnStatusBreadcrumbMapperTest {
             nowEpochMillis = now
         )
         assertTrue(TouchTurnPipelineNodeId.FiveMinConfirmation in graph.activePath)
-        assertTrue(graph.caption.contains("Awaiting 5m hammer"))
+        assertTrue(graph.caption.contains("Awaiting 5m confirmation"))
         assertEquals(7, graph.nodes.size)
         assertTrue(graph.nodes.any { it.id == TouchTurnPipelineNodeId.FiveMinConfirmation })
     }

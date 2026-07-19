@@ -41,4 +41,39 @@ class EmulatorFiveMinuteBarTest {
         )
         assertTrue(hammer.close in opening.low..opening.high)
     }
+
+    @Test
+    fun fiveMinuteBarsSince_emitsEngulfingOnFirstWindowBarWithPreWindowPrior() {
+        val opening = OhlcBar(
+            open = 110.0,
+            high = 110.0,
+            low = 100.0,
+            close = 100.2,
+            time = "20260522  09:30:00"
+        )
+        val config = BrokerEmulatorConfig(
+            fiveMinuteBarSecondsUntilClose = 1L,
+            fiveMinuteHammerBarIndex = -1,
+            fiveMinuteEngulfingBarIndex = 0
+        )
+        val windowStart = System.currentTimeMillis() - 2_500L
+        val bars = EmulatorHistoricalData.fiveMinuteBarsSince(
+            openingFifteenMinuteBar = opening,
+            side = TouchTurnTradeSide.LONG,
+            config = config,
+            afterBarOpenEpochMs = windowStart - 1_000L,
+            marketZoneId = "America/New_York",
+            nowEpochMillis = System.currentTimeMillis(),
+            windowStartEpochMs = windowStart
+        )
+        assertTrue(bars.size >= 2, "expected prior + engulfing bar, got ${bars.size}")
+        val prior = bars[0]
+        val engulfing = bars[1]
+        assertTrue(
+            FiveMinuteConfirmationLogic.isEngulfingPattern(prior, engulfing, TouchTurnTradeSide.LONG)
+        )
+        assertTrue(
+            !FiveMinuteConfirmationLogic.isHammerPattern(engulfing, TouchTurnTradeSide.LONG)
+        )
+    }
 }

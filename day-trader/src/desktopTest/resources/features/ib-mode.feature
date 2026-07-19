@@ -128,6 +128,18 @@ Feature: Interactive Brokers mode end-to-end
     And the IB gateway should have placed a bracket for "AAPL"
 
   @ib-shard-3
+  Scenario: Engine five minute engulfing confirmation submits bracket on IB
+    Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
+    And the IB gateway returns five minute engulfing bars for canonical scenario "RED_LIQUIDITY_LONG"
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "CONFIRMED"
+    And the session should have orders placed for the session
+    And the IB gateway should have placed a bracket for "AAPL"
+
+  @ib-shard-3
   Scenario: Engine five minute confirmation invalidates on IB when bar closes outside sweep range
     Given the IB gateway returns canonical scenario "RED_LIQUIDITY_LONG"
     And the IB gateway returns five minute invalidating bars for canonical scenario "RED_LIQUIDITY_LONG"

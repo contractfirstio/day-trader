@@ -70,6 +70,111 @@ class FiveMinuteConfirmationLogicTest {
     }
 
     @Test
+    fun isEngulfingPattern_bullishClassic() {
+        val prior = OhlcBar(open = 102.0, high = 102.2, low = 100.8, close = 101.0) // red
+        val current = OhlcBar(open = 100.5, high = 103.5, low = 100.4, close = 103.0) // green, body covers
+        assertTrue(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, current, TouchTurnTradeSide.LONG))
+        assertFalse(FiveMinuteConfirmationLogic.isHammerPattern(current, TouchTurnTradeSide.LONG))
+    }
+
+    @Test
+    fun isEngulfingPattern_bearishClassic() {
+        val prior = OhlcBar(open = 101.0, high = 102.2, low = 100.8, close = 102.0) // green
+        val current = OhlcBar(open = 102.5, high = 102.6, low = 100.0, close = 100.5) // red, body covers
+        assertTrue(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, current, TouchTurnTradeSide.SHORT))
+        assertFalse(FiveMinuteConfirmationLogic.isHammerPattern(current, TouchTurnTradeSide.SHORT))
+    }
+
+    @Test
+    fun isEngulfingPattern_rejectsSameColorPrior() {
+        val prior = OhlcBar(open = 101.0, high = 102.0, low = 100.5, close = 101.8) // green
+        val current = OhlcBar(open = 100.5, high = 103.0, low = 100.4, close = 102.5) // green
+        assertFalse(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, current, TouchTurnTradeSide.LONG))
+    }
+
+    @Test
+    fun isEngulfingPattern_rejectsPartialBodyCover() {
+        val prior = OhlcBar(open = 102.0, high = 102.2, low = 100.0, close = 100.5) // red, wide body
+        val current = OhlcBar(open = 101.0, high = 102.5, low = 100.8, close = 102.0) // green, does not cover prior low body
+        assertFalse(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, current, TouchTurnTradeSide.LONG))
+    }
+
+    @Test
+    fun isEngulfingPattern_rejectsDojiPrior() {
+        val prior = OhlcBar(open = 101.0, high = 101.5, low = 100.5, close = 101.0)
+        val current = OhlcBar(open = 100.5, high = 102.5, low = 100.4, close = 102.0)
+        assertFalse(FiveMinuteConfirmationLogic.isEngulfingPattern(prior, current, TouchTurnTradeSide.LONG))
+    }
+
+    @Test
+    fun evaluateConfirmation_qualifiesOnEngulfingWithoutHammer() {
+        val prior = OhlcBar(open = 102.0, high = 102.2, low = 100.8, close = 101.0)
+        val current = OhlcBar(open = 100.5, high = 103.5, low = 100.4, close = 103.0)
+        val result = FiveMinuteConfirmationLogic.evaluateConfirmation(
+            bar = current,
+            priorBar = prior,
+            side = TouchTurnTradeSide.LONG,
+            fifteenMinuteBar = fifteenMinBar
+        )
+        assertTrue(result.isQualifying)
+        assertTrue(result.isEngulfing)
+        assertFalse(result.isHammer)
+        assertFalse(result.invalidatesSetup)
+    }
+
+    @Test
+    fun evaluateConfirmation_qualifiesOnHammerWithoutEngulfing() {
+        val hammer = OhlcBar(open = 101.0, high = 101.3, low = 100.0, close = 101.2)
+        val result = FiveMinuteConfirmationLogic.evaluateConfirmation(
+            bar = hammer,
+            priorBar = null,
+            side = TouchTurnTradeSide.LONG,
+            fifteenMinuteBar = fifteenMinBar
+        )
+        assertTrue(result.isQualifying)
+        assertTrue(result.isHammer)
+        assertFalse(result.isEngulfing)
+    }
+
+    @Test
+    fun evaluateConfirmation_invalidatesWhenCloseOutsideFifteenMinRange() {
+        val prior = OhlcBar(open = 102.0, high = 102.2, low = 100.8, close = 101.0)
+        val outside = OhlcBar(open = 100.5, high = 101.0, low = 98.0, close = 98.5)
+        val result = FiveMinuteConfirmationLogic.evaluateConfirmation(
+            bar = outside,
+            priorBar = prior,
+            side = TouchTurnTradeSide.LONG,
+            fifteenMinuteBar = fifteenMinBar
+        )
+        assertTrue(result.invalidatesSetup)
+        assertFalse(result.isQualifying)
+        assertFalse(result.closeInsideSweepRange)
+    }
+
+    @Test
+    fun partitionFiveMinuteBars_separatesPreWindowPriorFromWindowBars() {
+        val windowStart = 1_000_000L
+        val prior = OhlcBar(open = 100.0, high = 101.0, low = 99.0, close = 99.5, time = "prior")
+        val first = OhlcBar(open = 99.5, high = 102.0, low = 99.0, close = 101.5, time = "first")
+        val second = OhlcBar(open = 101.5, high = 102.0, low = 101.0, close = 101.8, time = "second")
+        val barOpenEpochMs: (OhlcBar) -> Long? = { bar ->
+            when (bar.time) {
+                "prior" -> windowStart - FiveMinuteConfirmationLogic.BAR_DURATION_MS
+                "first" -> windowStart
+                "second" -> windowStart + FiveMinuteConfirmationLogic.BAR_DURATION_MS
+                else -> null
+            }
+        }
+        val partitioned = FiveMinuteConfirmationLogic.partitionFiveMinuteBars(
+            bars = listOf(prior, first, second),
+            windowStartEpochMs = windowStart,
+            barOpenEpochMs = barOpenEpochMs
+        )
+        assertEquals(prior, partitioned.contextPrior)
+        assertEquals(listOf(first, second), partitioned.windowBars)
+    }
+
+    @Test
     fun buildConfirmationSetup_recomputesStopFromMarketEntryWithRatio() {
         val hammer = OhlcBar(open = 101.0, high = 101.3, low = 100.0, close = 101.2)
         val setup = FiveMinuteConfirmationLogic.buildConfirmationSetup(

@@ -67,6 +67,17 @@ Feature: Broker Emulator mode end-to-end
     And the emulator should have received a bracket for "AAPL"
 
   @emulator-shard-2
+  Scenario: Engine five minute engulfing confirmation submits bracket on emulator
+    Given the emulator is configured for red liquidity with five minute engulfing confirmation
+    And the deployment has liquidity evaluation enabled
+    And the deployment has five minute confirmation enabled
+    When the Touch Turn engine starts
+    And the engine evaluates liquidity for the session
+    Then the session five minute confirmation status should be "CONFIRMED"
+    And the session should have orders placed for the session
+    And the emulator should have received a bracket for "AAPL"
+
+  @emulator-shard-2
   Scenario: Engine five minute confirmation expires without a qualifying hammer
     Given the emulator is configured for five minute confirmation expiry without a hammer
     And the deployment has liquidity evaluation enabled
