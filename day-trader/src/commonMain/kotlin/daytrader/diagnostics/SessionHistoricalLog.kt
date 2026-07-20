@@ -53,7 +53,7 @@ object SessionHistoricalLog {
         sessionId: String?,
         symbol: String,
         bar: OhlcBar,
-        sweepPrice: Double
+        sweepPrice: Double? = null
     ) {
         if (!enabled || sessionId == null) return
         val stamp = LogTimestamps.now()

@@ -177,7 +177,8 @@ class EmulatorBrokerAdapter(
                                     requestId = command.requestId,
                                     symbol = command.symbol,
                                     afterBarOpenEpochMs = command.afterBarOpenEpochMs,
-                                    marketZoneId = command.marketZoneId
+                                    marketZoneId = command.marketZoneId,
+                                    includePrecedingBar = command.includePrecedingBar
                                 )
                             }
                         }

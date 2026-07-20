@@ -426,7 +426,9 @@ internal object EmulatorHistoricalData {
         afterBarOpenEpochMs: Long,
         marketZoneId: String,
         nowEpochMillis: Long = System.currentTimeMillis(),
-        windowStartEpochMs: Long? = null
+        windowStartEpochMs: Long? = null,
+        /** Null = emit every closed slot from [afterBarOpenEpochMs] until now (session history). */
+        maxBars: Int? = 3
     ): List<OhlcBar> {
         config.touchTurnScenario?.let { scenario ->
             val scenarioSide = when {
@@ -449,7 +451,18 @@ internal object EmulatorHistoricalData {
         val windowSlotCount = (FiveMinuteConfirmationLogic.TTL_MS / FiveMinuteConfirmationLogic.BAR_DURATION_MS)
             .toInt()
             .coerceAtMost(3)
-        val totalSlots = windowSlotCount + if (includePriorSlot) 1 else 0
+        val totalSlots = when {
+            includePriorSlot -> windowSlotCount + 1
+            maxBars == null -> {
+                val elapsed = (nowEpochMillis - afterBarOpenEpochMs).coerceAtLeast(0L)
+                val raw = (elapsed / barDurationMs).toInt().coerceAtLeast(0)
+                // Cap to roughly one RTH session of 5m bars. Needed when fixture bar open
+                // times are far behind wall-clock (compressed emulator would otherwise OOM).
+                raw.coerceAtMost(TouchTurnDefaults.STOP_AFTER_OPEN_MINUTES.coerceAtLeast(90))
+                    .coerceAtMost(200)
+            }
+            else -> maxBars.coerceAtLeast(0)
+        }
         val bars = mutableListOf<OhlcBar>()
         var priorClose = openingFifteenMinuteBar.close
         var previousBar: OhlcBar? = null

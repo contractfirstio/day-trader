@@ -66,7 +66,8 @@ data class TouchTurnSessionRecord(
     val bracketParentOrderId: Int? = null,
     val bracketTakeProfitOrderId: Int? = null,
     val bracketStopLossOrderId: Int? = null,
-    val bracketAdjustableStopOrderId: Int? = null
+    val bracketAdjustableStopOrderId: Int? = null,
+    val sessionFiveMinuteBars: List<OhlcBarRecord> = emptyList()
 )
 
 @Serializable
@@ -211,7 +212,8 @@ data class TouchTurnRunRecordRecord(
     val stopEvent: TouchTurnStopEventRecord,
     val milestones: TouchTurnMilestoneTimestampsRecord,
     val rules: TouchTurnRuleConfigRecord? = null,
-    val fiveMinuteConfirmation: FiveMinuteConfirmationStateRecord? = null
+    val fiveMinuteConfirmation: FiveMinuteConfirmationStateRecord? = null,
+    val sessionFiveMinuteBars: List<OhlcBarRecord> = emptyList()
 )
 
 @Serializable

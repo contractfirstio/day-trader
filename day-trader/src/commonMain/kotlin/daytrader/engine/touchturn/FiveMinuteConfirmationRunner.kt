@@ -83,7 +83,8 @@ internal class FiveMinuteConfirmationRunner(
                 symbol = instance.symbol,
                 instrument = DeploymentMarket.effectiveInstrument(instance),
                 afterBarOpenEpochMs = windowStart - FiveMinuteConfirmationLogic.BAR_DURATION_MS,
-                marketZoneId = session.marketZoneId
+                marketZoneId = session.marketZoneId,
+                includePrecedingBar = true
             )
             if (barsResult.isFailure) {
                 delayMillis(pollIntervalMs(instance.symbol))

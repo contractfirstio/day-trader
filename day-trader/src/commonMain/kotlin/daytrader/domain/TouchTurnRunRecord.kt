@@ -154,7 +154,9 @@ data class TouchTurnRunRecord(
     /** Rule thresholds and enable flags in effect when this run ended. */
     val rules: TouchTurnRuleConfig? = null,
     /** Frozen 5m confirmation window (bars + sweep) for post-session pipeline recap. */
-    val fiveMinuteConfirmation: FiveMinuteConfirmationState? = null
+    val fiveMinuteConfirmation: FiveMinuteConfirmationState? = null,
+    /** Full-session closed 5m bars for analysis (independent of confirmation). */
+    val sessionFiveMinuteBars: List<OhlcBar> = emptyList()
 )
 
 fun TouchTurnOrderPlan.toPlannedBracket(): TouchTurnPlannedBracket {
@@ -303,7 +305,8 @@ fun buildTouchTurnRunRecord(
         ),
         milestones = touchTurnSession.milestones,
         rules = touchTurnSession.rules,
-        fiveMinuteConfirmation = touchTurnSession.fiveMinuteConfirmation
+        fiveMinuteConfirmation = touchTurnSession.fiveMinuteConfirmation,
+        sessionFiveMinuteBars = touchTurnSession.sessionFiveMinuteBars
     )
 }
 

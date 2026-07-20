@@ -1,13 +1,14 @@
 # US 15m Opening Bar — Running Log
 
 **Extend:** *"Add today's US day data to `docs/us-opening-bar-analysis.md"`*  
-**Updated:** 2026-07-17 (eve, post US close) | **Source:** `~/Library/.../interactive-brokers/sessions` SMART live IB  
+**Updated:** 2026-07-20 (eve, post US close) | **Source:** `~/Library/.../interactive-brokers/sessions` SMART live IB  
 **Jul 6–8 baseline:** n=3d, 60 sym-days, 34 nf (16W/18L), PnL **+638** USD (corr) | ran **TT**  
 **TT parity week (Jul 14–17):** n=4d, 80 sym-days, 51 nf (18W/33L), PnL **−197** USD | ran **TT**  
-**All ingested:** n=7d, 140 sym-days, 85 nf (34W/51L), PnL **+441** | gap: Jul 9–10, 13 not yet ingested  
-**Live:** §Operator status — **TT parity week complete** (Fri **5W/6L +145**; week **−197**)  
-**Roster:** §Symbol roster — SPY thin again (1/0/6); META **broke 6W**; next-week swaps (week of Jul 20); live shortlist **2026-08-11**  
-**Cross-mkt:** §US→HK lag — Jul16 strong→Jul17 HK **miss**; Jul17 US **mixed** → HK Jul20 soft (no hard tilt)
+**Post-parity (Jul 20):** n=1d, 20 sym-days, 10 nf (**5W/5L**), PnL **+185** USD | ran **TT** with **wrong shape gate** (body≥0.5, not U2 cp≥0.50)  
+**All ingested:** n=8d, 160 sym-days, 95 nf (39W/56L), PnL **+626** | gap: Jul 9–10, 13 not yet ingested  
+**Live:** §Operator status — **fix body gate ASAP**; promote true **U2** (cp); Mon **5W/5L +185** (A′ led)  
+**Roster:** §Symbol roster — SPY still thin (1/0/7); COIN **5W**; META **6W/2L**; swaps still planned  
+**Cross-mkt:** §US→HK lag — Jul17 mixed→Jul20 HK inv **−6188**; Jul20 US **mixed** (+185) → HK Jul21 soft only
 
 ## Legend
 
@@ -35,7 +36,7 @@ Dedupe: 1 session per (date,symbol). Bar: `historical.jsonl` closed refetch.
 | 2026-07-14 | PFE | 0 | **−9** | LONG deadline mid |
 | 2026-07-16 | T | 0 | **+10** | SHORT deadline mid |
 
-**Ingest rule:** Pre-fix days → tag `open_deadline_entry_only`, apply **corr*** (TP when confirmed, else deadline quote). **Post-fix days** → trust `recordedPnl`; flag if `entry_only` still appears (regression). **Jul14:** BAC/META/PFE still entry_only → corr* via deadline mid (regression). **Jul15:** all nf `roundTrips=complete` — **no entry_only**; trust `recordedPnl`. **Jul16:** T `entry_only` again → corr* +10 (regression intermittent). **Jul17:** all nf `complete` — **no entry_only**; trust `recordedPnl`.
+**Ingest rule:** Pre-fix days → tag `open_deadline_entry_only`, apply **corr*** (TP when confirmed, else deadline quote). **Post-fix days** → trust `recordedPnl`; flag if `entry_only` still appears (regression). **Jul14:** BAC/META/PFE still entry_only → corr* via deadline mid (regression). **Jul15:** all nf `roundTrips=complete` — **no entry_only**; trust `recordedPnl`. **Jul16:** T `entry_only` again → corr* +10 (regression intermittent). **Jul17:** all nf `complete` — **no entry_only**; trust `recordedPnl`. **Jul20:** all nf `complete` — trust `recordedPnl`.
 
 ## Symbol strategy (target — north star)
 
@@ -53,25 +54,25 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 | atr% | 48 | 47 | +1 |
 | range | 7.73 | 5.38 | — |
 
-**By color (TT):** RED LONG 46t **18W/28L** +105 | GREEN SHORT 39t **16W/23L** +336  
-**ATR buckets:** <40% 32t 8W/24L −155 | 40–60% 36t 19W/17L +516 | ≥60% 17t 7W/10L +80  
-**RED cp buckets:** ≤.15 25t 13W/12L +281 | .15–.25 6t 3W/3L −5 | .25–.35 5t 1W/4L −54 | .35–.50 6t 1W/5L −43 | .50+ 4t 0W/4L −74  
-**Archetype (incl flat):** A 7W/7L/4F | B 6W/4L/6F | C 3W/13L/14F | D-R 2W/4L/5F | A′ 4W/7L/1F | D-G 12W/16L/25F
+**By color (TT):** RED LONG 50t **19W/31L** +106 | GREEN SHORT 45t **20W/25L** +520  
+**ATR buckets:** <40% 32t 8W/24L −155 | 40–60% 36t 19W/17L +516 | ≥60% 17t 7W/10L +80 *(Jul20 not fully rebucketed)*  
+**RED cp buckets:** ≤.15 25t 13W/12L +281 | .15–.25 6t 3W/3L −5 | .25–.35 5t 1W/4L −54 | .35–.50 6t 1W/5L −43 | .50+ **5t 0W/5L −96**  
+**Archetype (incl flat):** A 7W/7L/5F | B 6W/4L/7F | C 4W/16L/15F | D-R 2W/4L/5F | A′ **7W/7L/4F** | D-G 13W/18L/27F
 
-## Patterns (n=85 — hypothesis only; Jul 9–10/13 gap)
+## Patterns (n=95 — hypothesis only; Jul 9–10/13 gap)
 
-- **GREEN TT short still leads PnL** — 16W/23L +336 vs RED 18W/28L +105; Jul16–17 RED books (+288/+228) closed most of the gap
-- **cp W/L flipped slightly** — W .46 vs L .51 after low-cp RED winners; treat cp as **mode/color-conditional**, not pooled
-- **Parity week complete** — 18W/33L **−197** (Jul14–17). Fri **+145** after Wed wipe / Thu bounce
-- **RED soft-B carried Fri** — AMD +93 / INTC +86 (B); A split PLTR +42 / META −17. Cumulative A **7W/7L/4F**
-- **META broke 6W** — first loss (−17 A); still best consistency (**6W/1L +129**)
-- **A′ euphoria TT short still weak** — 4W/7L/1F; Jul17 T A′ no-fill
-- **RED cp≥.50 TT long poor** — 0W/4L −74 — **U2 still holds** (no Jul17 U2 fills)
-- **Wide bars win** — W range 7.73 vs L 5.38
-- **Deadline no-fill cluster Fri** — 8/20 brackets submitted, never filled (40%); fill-drain **clean** on the 11 nf
-- **SPY thin again** — Jul17 no-liq; 1 fill / 7d — swap still on
-- **Promotion gate open** — parity week done; re-run U2 on `recordedPnl` (still 0W/4L −74)
-- **US→HK lag:** Jul16 strong→Jul17 HK **−7165 miss**. Jul17 US **mixed** (+145) → HK Jul20 soft only.
+- **GREEN TT short leads hard after Mon** — 20W/25L **+520** vs RED 19W/31L +106; Jul20 GREEN book **+184** (A′ INTC +159)
+- **A′ euphoria TT short revived Jul20** — was 4W/7L/1F; now **7W/7L/4F** after INTC/GOOGL/QQQ (+203 filled A′)
+- **Wrong body gate live Jul20** — `redSkipBodyRatioAbove=0.5` blocked **AAPL/F/TSLA** (shape-skip); true **U2** (cp≥.50) would have blocked only **META −22**
+- **U2 still holds** — RED cp≥.50 now **0W/5L −96** (META Jul20 adds −22); cf all-ingest **+648** vs **+626**
+- **cp W/L flipped slightly** — W .46 vs L .51; treat cp as **mode/color-conditional**, not pooled
+- **Parity week complete** — 18W/33L **−197** (Jul14–17). Post-parity Mon **+185**
+- **META 6W/2L** — second L (−22 U2-shape C); still core (**+107**)
+- **COIN 5W** — Jul20 C +56; best win count
+- **Wide bars win** — W range 7.73 vs L 5.38 *(pre-Jul20)*
+- **Deadline no-fills Mon** — 4/20 (AMD/IWM/NVDA/PLTR); plus 3 shape-skips + 3 no-liq
+- **SPY thin** — Jul20 no-liq again; **1 fill / 8d** — swap still on
+- **US→HK lag:** Jul17 mixed→Jul20 HK inv **−6188**. Jul20 US **mixed** (+185) → HK Jul21 soft only.
 
 ## US → HK lag (lead-day tags)
 
@@ -79,11 +80,12 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 **H₀:** US high nf win% → next HK TT-good; US low → next HK TT-poor.  
 **Tag:** **strong** ≥60% WR or outlier +PnL | **mixed** 40–59% | **weak** <40% or heavy −PnL.
 
-### Operator read (2026-07-17 eve, post US)
+### Operator read (2026-07-20 eve, post US)
 
 - **Inverse week:** Mon inv good (= TT-equiv **bad**). Tue–Wed inv bled while US mixed→**strong** (= those HK days TT-equiv **won**). First week **supports** H₀ after flip.
-- **TT parity live:** weak→weak **2/2** (Jul14→15, Jul15→16). Jul16 **strong** → Jul17 HK **−7165** = **miss** (strong↛strong). Live TT↔TT **2/3**.
-- **Jul17 US mixed** (5W/6L +145) → HK Jul20 **soft** only (no strong TT/inv lean).
+- **TT parity live:** weak→weak **2/2** (Jul14→15, Jul15→16). Jul16 **strong** → Jul17 HK **−7165** = **miss**. Live TT↔TT **2/3**.
+- **Jul17 US mixed** → HK Jul20 inv **−6188** (soft; TT-equiv would-win) — logged.
+- **Jul20 US mixed** (5W/5L +185) → HK Jul21 **soft** only.
 - **Still need:** US Jul13 vs HK Jul14 crush.
 
 | US day | WR/PnL | lead | → HK | HK ran | recorded | TT-equiv | for H₀? |
@@ -96,7 +98,8 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 | 07-14 | 23%/−255 | **weak** | 07-15 | TT | **−3010** | = | **align** live TT↔TT |
 | 07-15 | 8%/−343 | **weak** | 07-16 | TT | **−4368** | = | **align**; tilt inv ignored |
 | 07-16 | 64%/+256 | **strong** | 07-17 | TT | **−7165** | = | **miss** strong→weak |
-| 07-17 | 45%/+145 | **mixed** | 07-20 | — | pending | = | soft only |
+| 07-17 | 45%/+145 | **mixed** | 07-20 | inv | **−6188** | **strong** (flip) | soft — inv bled; TT-equiv would-win |
+| 07-20 | 50%/+185 | **mixed** | 07-21 | — | pending | — | soft tilt only |
 
 **Use:** after US close, tag lead qual → HK morning **soft tilt** only (strong US → lean HK **TT**; weak US → lean HK **inv**). Not a hard gate — Jul17 strong→TT wipe proves it. TT-space ~**60%** (n=5) + live TT↔TT **2/3**. See HK §US→HK lag · Use.
 
@@ -106,30 +109,31 @@ Calibrate **separately from HK** — thresholds and mode bias may differ.
 
 Jul 6–8 ran TT on all. Draft formula (HK parity) tags bars that *would* use inv if we split modes.
 
-| Bar | Draft mode | Note (n=85) |
+| Bar | Draft mode | Note (n=95) |
 |-----|------------|--------------|
-| GREEN (esp cp≥.60) | **TT** short | 16W/23L +336; Jul17 GREEN 1W/4L −83 |
-| GREEN archetype **A′** (cp≥.85, b≥.70) | **TT** short | 4W/7L/1F; Jul17 T no-fill |
-| RED archetype **A** (cp≤.15, b≥.70) | **TT** long | **7W/7L/4F** — Jul17 PLTR +42 / META −17 |
-| RED cp≥.50 | **inv** or skip? | 0W/4L −74 TT long (U2) |
-| else RED | **monitor** | Jul17 soft-B AMD/INTC +179 |
+| GREEN (esp cp≥.60) | **TT** short | 20W/25L **+520**; Jul20 GREEN +184 |
+| GREEN archetype **A′** (cp≥.85, b≥.70) | **TT** short | **7W/7L/4F** — Jul20 INTC +159 / GOOGL +29 / QQQ +15 |
+| RED archetype **A** (cp≤.15, b≥.70) | **TT** long | **7W/7L/5F** — Jul20 AAPL shape-skipped (wrong body gate) |
+| RED cp≥.50 | **inv** or skip? | **0W/5L −96** TT long (U2) — Jul20 META −22 |
+| else RED | **monitor** | Jul20 COIN C +56; BAC/PFE L |
 
 ```
 draft_mode = TT if (RED and cp<=0.15 and b>=0.70) or (GREEN and cp>=0.85 and b>=0.70) else inv
 # US currently runs TT on all — inv column is counterfactual target
 ```
 
-## Guard rails (UNVALIDATED — n=85, TT mode)
+## Guard rails (UNVALIDATED — n=95, TT mode)
 
 | ID | Skip when | Evidence | Cost (W skipped) |
 |----|-----------|----------|------------------|
-| **U1** | TT ∧ RED (all RED longs) | 18W/28L +105 | Jul16–17 RED books (AMD/INTC/PLTR/…) |
-| **U2** | TT ∧ RED ∧ **cp≥.50** | 0W/4L −74 | none |
+| **U1** | TT ∧ RED (all RED longs) | 19W/31L +106 | Jul16–17 RED + Jul20 COIN +56 |
+| **U2** | TT ∧ RED ∧ **cp≥.50** | **0W/5L −96** | none |
 | **U3** | TT ∧ GREEN ∧ **cp<.50** | 0W/0L | none (n=0) |
+| **≠U2** | TT ∧ RED ∧ **body≥.50** | **wrong** — Jul20 blocked AAPL/F/TSLA | would-trade A/B shapes |
 
-**Counterfactual (all ingested, corrected):** U2 → 81t PnL **+515** (vs +441); skips INTC, QQQ, BAC, PFE. Jul17 adds **0** U2 fills. U1 would skip Fri soft-B + A winners — **reject U1**. **Apply U2 when promoted.**
+**Counterfactual (all ingested, corrected):** U2 → 90t PnL **+648** (vs +626); skips prior 4 + **META −22**. Jul20 body gate ≠ U2. U1 would skip COIN +56 — **reject U1**. **Apply true U2 (cp) when fixed.**
 
-**Apply first:** U2 when promoted. See §Recommended config.
+**Apply first:** Fix live gate to **U2 cp≥0.50** (not body). See §Recommended config.
 
 ## Operator status (memory — update when decisions change)
 
@@ -149,56 +153,62 @@ draft_mode = TT if (RED and cp<=0.15 and b>=0.70) or (GREEN and cp>=0.85 and b>=
 
 **Operator update (2026-07-17 eve):** Jul17 US — **5W/6L +145** (fills **clean**). Parity week **complete** −197. Soft-B AMD/INTC +179; META **broke 6W** (−17 A); PLTR A +42; GREEN 1W/4L (−83, only PFE +39). **8/20 deadline no-fills**. U2 idle. **Promotion gate open** — re-run U2 next.
 
-**OPEN_DEADLINE (2026-07-14..17):** Jul14 BAC/META/PFE `entry_only` (corr*). Jul15 all `complete`. Jul16 T `entry_only`. Jul17 all nf `complete` — drain clean on filled book; **8 submitted-but-unfilled** at deadline.
+**Operator update (2026-07-20 eve):** Jul20 US — **5W/5L +185** (fills **clean**). Post-parity Mon. **GREEN A′ led** (INTC +159, GOOGL +29, QQQ +15). **Config bug:** live had **`redSkipBodyRatioAbove=0.5`** (not U2 cp) — blocked **AAPL/F/TSLA** shape-skips; true U2 would only skip **META −22**. COIN +56; AMZN broke 0W (+24). SPY no-liq thin. **Fix gate to cp U2 before next session.**
 
-**Why wait on U2 deploy:** was n/gap; now parity week done. U2 still 0W/4L −74; Jul17 pain was GREEN + META A (non-U2). **Promote U2** when operator confirms — cf +515 vs +441.
+**OPEN_DEADLINE (2026-07-14..20):** Jul14 BAC/META/PFE `entry_only` (corr*). Jul15 all `complete`. Jul16 T `entry_only`. Jul17+20 all nf `complete`.
 
-**Promotion gate (met):** Parity week complete. Re-run U2 on `recordedPnl`; deploy **`US Touch Turn + U2`** if RED cp≥.50 still 0W — **yes, still 0W/4L**. Fill-drain intermittent historically but Jul17 nf clean.
+**Why wait on U2 deploy:** was n/gap; now parity week done + Mon evidence. U2 **0W/5L −96**; Jul20 wrong **body** gate hurt A/B shapes. **Promote true U2 (cp)** — do **not** leave body≥0.5 on.
+
+**Promotion gate (met):** Parity week complete. U2 still 0W on RED cp≥.50. **Tonight's live gate was wrong field** — fix to `redSkipClosePositionAbove=0.50` + clear body skip.
 
 **Ingest gap:** Jul **9–10, 13** US sessions present on disk — not in this log yet (add next; Jul13 = lag priority).
 
 ### Live config (what is running now)
 
-All 20 SMART deployments — **Touch Turn, no cp gate**.
+All 20 SMART deployments — **Touch Turn**; **shape gate MISCONFIGURED** (body, not cp) as of Jul20 session.
 
-| Setting | Live value | Note |
-|---------|------------|------|
+| Setting | Live value (Jul20 ran) | Note |
+|---------|------------------------|------|
 | invertTradeSide | **OFF** (TT) | RED→LONG, GREEN→SHORT |
 | liquidityRangeDailyAtr | **ON**, 0.25 | |
-| closePositionGate | **OFF** | U2 not deployed |
+| closePositionGate | **ON** but **wrong field** | body≥0.5 SKIP — **not U2** |
+| redSkipBodyRatioAbove | **0.5** SKIP | **REMOVE** — blocked AAPL/F/TSLA |
+| redSkipClosePositionAbove | *(empty / not U2)* | **SET 0.50** for true U2 |
 | skipGreen/Red liquidity bar | **OFF** | |
 | adjustableTrailingStop | **OFF** | |
-| openDeadline | **ON**, 90 min | Jul17 nf clean; 8 deadline no-fills; Jul16 T entry_only |
+| openDeadline | **ON**, 90 min | Jul20 nf clean; 4 deadline no-fills |
 
 ### Watch list while collecting
 
 | Signal | Action | Evidence so far |
 |--------|--------|-----------------|
-| GREEN cp≥.60 TT short | Keep; wounded | 16W/23L +336 (Jul17 GREEN 1W/4L −83) |
-| GREEN A′ (cp≥.85, b≥.70) | Keep TT short; **pain** | 4W/7L/1F (Jul17 T no-fill) |
-| RED cp≤.15 TT long (A) | Keep; even | 7W/7L/4F — Jul17 PLTR W / META L |
-| RED soft B (cp≤.25, b≥.50) | **Keep** — Fri lead | Jul17 AMD +93 / INTC +86 |
-| RED cp≥.50 TT long | **Promote U2** | 0W/4L −74 (no Jul17 cases) |
-| OPEN_DEADLINE entry_only | Tag + corr PnL | Jul6+8 (8) + Jul14×3 + Jul16 T; Jul17 nf clean |
-| Deadline no-fill rate | Track | Jul17 **8/20** submitted unfilled |
-| Symbol shape flips | Track per §Symbols | META broke 6W; COIN/PLTR 4W |
-| Roster swap (week of Jul 20) | SPY/AMZN/IWM/TSLA | §Symbol roster |
-| US→HK lead tag | After US day → HK soft TT/inv tilt | Jul17 **mixed** → HK Jul20 soft |
+| GREEN cp≥.60 TT short | **Keep — strong** | 20W/25L +520 (Jul20 GREEN +184) |
+| GREEN A′ (cp≥.85, b≥.70) | **Keep TT short — revived** | **7W/7L/4F** (Jul20 INTC +159) |
+| RED cp≤.15 TT long (A) | Keep; even | 7W/7L/5F — Jul20 AAPL shape-skipped |
+| RED soft B (cp≤.25, b≥.50) | Keep | Jul20 TSLA shape-skipped (wrong gate) |
+| RED cp≥.50 TT long | **Fix+promote U2** | **0W/5L −96** (META Jul20 −22) |
+| Body≥0.5 RED skip | **Disable** — not U2 | Jul20 blocked 3 would-trade bars |
+| OPEN_DEADLINE entry_only | Tag + corr PnL | Jul6+8 (8) + Jul14×3 + Jul16 T; Jul17+20 nf clean |
+| Deadline no-fill rate | Track | Jul20 **4/20** + 3 shape-skips |
+| Symbol shape flips | Track per §Symbols | COIN 5W; META 6W/2L; AMZN broke 0W |
+| Roster swap (week of Jul 20) | SPY/AMZN/IWM/TSLA | AMZN +24 softens drop; SPY still thin |
+| US→HK lead tag | After US day → HK soft TT/inv tilt | Jul20 **mixed** → HK Jul21 soft |
 
 ### Inv-switch candidates (TT → inverse per symbol)
 
 | Sym | inv-draft / ingested | TT PnL on inv-draft days | Tier | Notes |
 |-----|----------------------|--------------------------|------|-------|
-| *most* | high | mixed | stay TT | GREEN +336 + Jul16–17 RED books |
-| INTC | high | −2*, −46, flat, flat, −37 A, −30 A, **+86 B** | watch | Fri soft-B rescue |
-| AMZN | high | flat, −15, flat, flat, −27, flat, **−27** | watch | swap |
-| TSLA | high | −5, −16, flat, flat, flat, −16 A, flat | watch | swap |
-| SOXL | inv Jul14–15 | −88 soft-B, −68 A, Jul16–17 flat | watch | 2-day −156 vs Jul8 +233 |
-| MU | TT draft A Jul15 | −39 A, Jul16–17 no-fill | watch | |
-| IWM | A′/GREEN | −11 A′, **−17** | watch | swap |
-| META | A Jul17 | first L **−17** after 6W | stay TT | streak broke; still core |
+| *most* | high | mixed | stay TT | GREEN **+520** + A′ Mon |
+| INTC | high | … **+86 B**, **+159 A′** | stay TT | Mon A′ crush |
+| AMZN | high | … −27, **+24** | watch | broke 0W; softens swap |
+| TSLA | high | … flat, shape-skip | watch | swap; Jul20 body-blocked |
+| SOXL | inv Jul14–15 | −88, −68, flat×3 | watch | |
+| MU | TT draft A Jul15 | −39 A, no-fill×3 | watch | |
+| IWM | A′/GREEN | −11, −17, no-fill | watch | swap |
+| META | C Jul20 U2 | −17 A, **−22** U2 | stay TT | 6W/2L; U2 would skip 2nd L |
+| COIN | C Jul20 | **+56** | stay TT | **5W** |
 
-**Do not inv-flip yet:** parity week −197 but lifetime +441; GREEN + soft-B still carry. Promote **U2** first.
+**Do not inv-flip yet:** lifetime **+626**; GREEN/A′ carrying. **Fix body→cp U2** first.
 
 ### Jul 6–8 synthesis (for next agent)
 
@@ -300,35 +310,63 @@ All 20 SMART deployments — **Touch Turn, no cp gate**.
 
 **Counterfactual anchor (all ingested, corrected):** U2 → **+515** vs actual **+441**.
 
+### Jul 20 synthesis (post-parity — TT, wrong body gate)
+
+| Metric | Jul 20 (TT*) | Jul 17 | Jul 16 | Jul 6–8 avg/day |
+|--------|-------------|-------|-------|----------------|
+| nf W/L | **5W/5L** | 5W/6L | 9W/5L | ~5.3W/6L |
+| PnL | **+185** | +145 | +256 | **+213** |
+| Bar mix | **7R / 13G** | 13R/7G | 16R/4G | variable |
+| Fill rate | 10/14 placed (50% of book) | 55% | 70% | ~57% |
+| Avg atr% | 35 | 51 | 45 | ~42 |
+
+**Config:** TT. **Wrong gate:** `redSkipBodyRatioAbove=0.5` (not U2 cp). All nf `complete`. Trust `recordedPnl`.
+
+**Shape-skips (body gate):** AAPL R .15/.79, F R .39/.61, TSLA R .16/.75 — true U2 would **allow** all three.  
+**U2 would-skip:** META R .74/−22 only among fills.  
+**No-liq:** MU/SOXL/SPY. **Deadline no-fill:** AMD/IWM/NVDA/PLTR.
+
+**Conclusions (n=10):**
+
+1. **A′ TT short revived** — INTC +159, GOOGL +29, QQQ +15 (**+203**); PLTR A′ no-fill. Cumulative A′ **7W/7L/4F**.
+2. **GREEN book led** — 4W/2L **+184** vs RED 1W/3L +1 (only COIN +56).
+3. **Wrong body gate ≠ U2** — blocked 3 RED A/B/C shapes; let META U2-loser through. Fix field before claiming U2 live.
+4. **U2 still holds** — 0W/5L **−96**; cf all-ingest **+648** vs **+626**.
+5. **COIN 5W** / **META 6W/2L** (−22). AMZN broke 0W (+24) — softens swap case.
+6. **SPY 1 fill / 8d** — still thin; swap list stands (AMZN less urgent).
+7. **US→HK:** Jul20 **mixed** → HK Jul21 soft only.
+
+**Counterfactual anchor (all ingested, corrected):** U2 → **+648** vs actual **+626**.
+
 ### Symbol roster (swap policy — memory)
 
-**Flat-heavy / thin:** `SPY` 1W/0L/6F +7 — Jul17 no-liq again; 1 fill / 7d.  
-**Low activity / weak:** `AMZN` (0W/3L/4F −69), `TSLA` (0W/3L/4F −37), `IWM` (0W/5L/2F −44).  
-**Keep (core):** `META` (**6W/1L** +129), `COIN` (+147), `PLTR` (+113), `MU` (+92), `SOXL` (+77), `AMD` (+132), `AAPL`.
+**Flat-heavy / thin:** `SPY` 1W/0L/7F +7 — Jul20 no-liq; **1 fill / 8d**.  
+**Low activity / weak:** `TSLA` (0W/3L/5F −37), `IWM` (0W/5L/3F −44). `AMZN` **1W/3L/4F −45** (broke 0W Mon) — demote urgency.  
+**Keep (core):** `COIN` (**5W/1L** +203), `META` (**6W/2L** +107), `INTC` (+130 after A′), `PLTR` (+113), `AMD` (+132), `MU` (+92), `SOXL` (+77).
 
-**Swap gate (suggested):** ≥**5 consecutive US sessions** flat **and** bar often fails liquidity → drop; log replacement in Validation log. **SPY hit gate Jul15 then filled Jul16** — keep on next-week drop list unless activity improves.
+**Swap gate (suggested):** ≥**5 consecutive US sessions** flat **and** bar often fails liquidity → drop. **SPY still meets thinness** — keep on drop list.
 
-### Next-week roster plan (week of Jul 20 — planned 2026-07-15)
+### Next-week roster plan (week of Jul 20 — in progress)
 
 **Goal:** free dead/weak slots before **2026-08-11** live cutover; paper stays on remaining 16 + new trials.
 
-| Priority | Drop | 7d W/L/F | PnL | Why |
+| Priority | Drop | 8d W/L/F | PnL | Why |
 |----------|------|----------|-----|-----|
-| 1 | **SPY** | 1/0/6 | +7 | thin (1 fill / 7d); Jul17 no-liq |
-| 2 | **AMZN** | 0/3/4 | −69 | burns slot |
-| 3 | **IWM** | 0/5/2 | −44 | weak; Jul17 −17 |
-| 4 | **TSLA** | 0/3/4 | −37 | weak / flat-heavy |
+| 1 | **SPY** | 1/0/7 | +7 | thin (1 fill / 8d); Jul20 no-liq |
+| 2 | **IWM** | 0/5/3 | −44 | weak; no Mon fill |
+| 3 | **TSLA** | 0/3/5 | −37 | weak / flat-heavy; Jul20 shape-skip |
+| 4 | **AMZN** | 1/3/4 | −45 | **softened** (+24 Mon) — optional |
 
-**Hold (do not swap next week):** INTC / PFE / BAC (U2 data); META (6W/1L); SOXL / AMD / PLTR / GOOGL / NVDA / QQQ / T / MSFT / COIN / F (shape or watch).
+**Hold:** INTC (A′ Mon +159); META; COIN **5W**; PFE/BAC (U2 data); SOXL/AMD/PLTR/GOOGL/NVDA/QQQ/T/MSFT/F.
 
-**Replacements:** TBD — prefer liquid SMART single names that clear liq 0.25 ATR often; avoid another SPY/IWM-class placeholder. Log each as `roster: dropped X → Y (date)` in Validation log when executed.
+**Replacements:** TBD. Log `roster: dropped X → Y (date)` when executed.
 
-**Aug 11 live shortlist (draft — revise after swaps):** Core `META, COIN, PLTR, AMD, MU, AAPL` ± probation `SOXL` / `F`; INTC soft-B Fri win keeps on watch not drop.
+**Aug 11 live shortlist (draft):** Core `COIN, META, INTC, PLTR, AMD, MU` ± `AAPL` / `GOOGL` / `QQQ` (A′ Mon); probation `SOXL`/`F`.
 
 ## Recommended US config (all 20 SMART deployments)
 
-**Preset name:** `US Touch Turn + U2` | **Status:** hypothesis — **promotion gate met**; not deployed yet — apply uniformly when operator confirms (§Operator status)  
-**Maps research →** `TouchTurnRuleConfig` cp gate (`redSkipClosePositionAbove`). US runs **TT** (`invertTradeSide` OFF) — **not** HK inverse + G1. **Based on Jul 6–8+14–17 corrected (n=85; gap 9–10/13).**
+**Preset name:** `US Touch Turn + U2` | **Status:** promotion gate **met** — Jul20 ran **wrong field** (body); deploy true **cp** U2 before next session  
+**Maps research →** `TouchTurnRuleConfig` cp gate (`redSkipClosePositionAbove`). US runs **TT** (`invertTradeSide` OFF). **Based on Jul 6–8+14–17+20 (n=95; gap 9–10/13).**
 
 ### Triggers
 
@@ -336,13 +374,14 @@ All 20 SMART deployments — **Touch Turn, no cp gate**.
 |---------|-------|------|
 | Require minimum range (× daily ATR) | **ON** | |
 | Liquidity range (× ATR) | **0.25** | do not raise |
-| Skip when bar is green | **OFF** | GREEN TT short still +336 net |
-| Skip when bar is red | **OFF** | RED winners exist (META 6W/1L; Jul17 soft-B) |
+| Skip when bar is green | **OFF** | GREEN TT short **+520** |
+| Skip when bar is red | **OFF** | RED winners exist (COIN 5W; soft-B) |
 | Close position (cp) gate | **ON** | |
 | Green — skip if cp at or below | *(empty)* | U3 n=0 |
-| Green — skip if cp at or above | *(empty)* | **never** — kills A′ |
-| Red — skip if cp at or below | *(empty)* | **never** — would skip A (Jul16–17) |
-| Red — skip if cp at or above | **0.50** | **U2** — 0W/4L −74 over ingested days |
+| Green — skip if cp at or above | *(empty)* | **never** — kills A′ (Jul20 +203) |
+| Red — skip if cp at or below | *(empty)* | **never** — would skip A |
+| Red — skip if cp at or above | **0.50** | **U2** — **0W/5L −96** |
+| Red — skip if body at or above | *(empty)* | **never** — Jul20 body≥0.5 blocked AAPL/F/TSLA |
 | Min gross profit | **0** | |
 | Closed-bar refetch settle | **3000** ms | default |
 
@@ -361,7 +400,7 @@ All 20 SMART deployments — **Touch Turn, no cp gate**.
 | Setting | Value | Note |
 |---------|-------|------|
 | Adjustable trailing stop | **OFF** | |
-| RTH open deadline | **ON**, **90** min | requires fill-drain fix branch merged |
+| RTH open deadline | **ON**, **90** min | Jul20 nf clean |
 
 ### Compact reference
 
@@ -369,6 +408,7 @@ All 20 SMART deployments — **Touch Turn, no cp gate**.
 Triggers:    liq ON 0.25 | skipGreen OFF | skipRed OFF | cpGate ON
              green cp below/above: — / —
              red cp below: — | red cp above: 0.50
+             red body above: —   # NOT 0.50 — that was the Jul20 bug
 Execution:   invert OFF (TT) | entryInward 0.0 | TP:SL 2.0
 Post-entry:  trailing OFF
 Session:     deadline ON 90m
@@ -378,42 +418,46 @@ Session:     deadline ON 90m
 
 ```
 if not liq: skip
-if color==RED and cp>=0.50: skip   # U2
+if color==RED and cp>=0.50: skip   # U2 (cp — NOT body)
 # else: trade TT (RED→long, GREEN→short)
 ```
 
-### Counterfactual (Jul 6–8+14–17, corrected, cp gate as configured)
+### Counterfactual (Jul 6–8+14–17+20, corrected, cp gate as configured)
 
-`redSkipClosePositionAbove=0.50` → skip 4 nf (0W: INTC −46, QQQ −8, BAC −11, PFE −9*); kept 81t **+515** vs actual **+441**. Jul17 unchanged by U2.
+`redSkipClosePositionAbove=0.50` → skip 5 nf (0W incl META −22); kept 90t **+648** vs actual **+626**.
 
-**Do not use U1** (skip all RED) — would skip Jul16–17 RED books (soft-B AMD/INTC + A PLTR); destroys structural RED edge.
+**Do not use U1** (skip all RED) — skips COIN + soft-B/A winners.
 
-**Do not use HK G1** (`redSkipClosePositionBelow=0.15`) — skips RED-A; Jul15 would have “looked” good but Jul16–17 A still net contributor.
+**Do not use body≥0.5 RED skip** — Jul20 bug; blocks A/B shapes U2 would keep.
+
+**Do not use HK G1** (`redSkipClosePositionBelow=0.15`) — skips RED-A.
 
 ### Leave off (explicit)
 
 | Setting | Why |
 |---------|-----|
-| `redSkipClosePositionBelow = 0.15` | blocks RED-A TT long wins (Jul16–17) |
-| `greenSkipClosePositionAbove = 0.85` | blocks A′ TT short |
+| `redSkipClosePositionBelow = 0.15` | blocks RED-A TT long wins |
+| `greenSkipClosePositionAbove = 0.85` | blocks A′ TT short (Jul20 +203) |
+| `redSkipBodyRatioAbove = 0.5` | **Jul20 misconfig** — not U2 |
 | `skipGreenLiquidityBar` / `skipRedLiquidityBar` | colour-only; disproved |
-| G2 atr 40–60% skip | US mid-atr still best bucket (+516) |
+| G2 atr 40–60% skip | US mid-atr still best bucket |
 | `invertTradeSide = ON` | inverts GREEN book |
 | `fiveMinuteConfirmation` | N/A on current TT path |
 
 ### Caveats
 
-- n=85 with Jul 9–10/13 gap; 8× Jul6+8 corr + 3× Jul14 corr* + Jul16 T corr*; Jul15+17 nf clean.
-- Parity week **−197** (Thu–Fri recovered). U2 still 0W; does not stop A/GREEN variance.
-- Roster: SPY thin; META **6W/1L** (streak broke Fri).
+- n=95 with Jul 9–10/13 gap; corr* on older entry_only days; Jul15+17+20 nf clean.
+- Parity week **−197**; post-parity Mon **+185**. U2 still 0W on cp≥.50.
+- Roster: SPY thin; COIN **5W**; META **6W/2L**.
 
 ### Live vs recommended (summary)
 
-| | **Live now** | **Recommended when promoted** |
-|--|--------------|-------------------------------|
+| | **Live Jul20 (bug)** | **Recommended now** |
+|--|----------------------|---------------------|
 | invertTradeSide | OFF | OFF |
-| closePositionGate | OFF | **ON** |
-| red cp above | — | **0.50** |
+| closePositionGate | ON (wrong field) | **ON** |
+| red **body** above | **0.5** | **— (clear)** |
+| red **cp** above | — | **0.50** |
 | All other triggers | same | same |
 
 ## Days
@@ -428,57 +472,68 @@ if color==RED and cp>=0.50: skip   # U2
 | 2026-07-15 | 20 | 1/12 | **−343** | 37 | TT parity; META +24 only; A cluster −144; fills clean |
 | 2026-07-16 | 20 | 9/5 | **+256** | 45 | TT parity bounce; A cluster +184; T +10*; SPY broke 5F |
 | 2026-07-17 | 20 | 5/6 | **+145** | 51 | TT parity Fri; soft-B +179; META broke 6W; 8 deadline no-fills; week −197 |
+| 2026-07-20 | 20 | 5/5 | **+185** | 35 | post-parity; A′ +203; **wrong body gate** skipped AAPL/F/TSLA; META −22 u2; fills clean |
 
 ## Symbols (US registry)
 
 `sym days W/L/F pnl avgcp avratr` — day: `MM-DD col cp atr% [ran_mode] pnl` — `*` = corr PnL  
-*(Jul 9–10/13 omitted — gap; 7d ingested)*
+*(Jul 9–10/13 omitted — gap; 8d ingested)*
 
 ```
-AAPL  7d 2/2/3   +9 .58 41  | 07-06 G .76 32 TT -3 | 07-07 R .35 60 TT 0 | 07-08 R .03 47 TT +23 | 07-14 G .78 41 TT +11 | 07-15 G .96 43 TT -22 | 07-16 R .50 23 TT 0 | 07-17 G .71 43 TT 0
-AMD   7d 3/3/1 +132 .49 45  | 07-06 G .97 73 TT -10 | 07-07 G .73 33 TT 0 | 07-08 G .87 40 TT +85 | 07-14 R .14 56 TT -50 | 07-15 R .47 28 TT -23 | 07-16 R .13 28 TT +37 | 07-17 R .10 57 TT +93 ← B W
-AMZN  7d 0/3/4  -69 .44 50  | 07-06 R .06 53 TT 0 | 07-07 R .34 37 TT -15 | 07-08 R .83 48 TT 0 | 07-14 G .62 46 TT 0 | 07-15 G .43 42 TT -27 | 07-16 R .19 73 TT 0 | 07-17 G .63 49 TT -27 ← swap
-BAC   7d 1/3/3   -5 .69 86  | 07-06 G .86 83 TT 0 | 07-07 G .53 56 TT 0 | 07-08 R .51 47 TT -11 | 07-14 G .84 197 TT -8* | 07-15 G .84 74 TT 0 | 07-16 R .28 75 TT +39 | 07-17 G .97 70 TT -25
-COIN  7d 4/1/2 +147 .30 45  | 07-06 G .65 45 TT +1* | 07-07 G .34 37 TT 0 | 07-08 G .68 33 TT 0 | 07-14 R .25 45 TT +66 | 07-15 R .10 53 TT -35 | 07-16 R .00 69 TT +76 | 07-17 R .06 36 TT +39
-F     7d 2/2/3  +44 .66 51  | 07-06 G 1.00 53 TT +46* | 07-07 G .71 28 TT 0 | 07-08 G 1.00 68 TT +70* | 07-14 R .33 27 TT -19 | 07-15 R .10 24 TT 0 | 07-16 R .50 47 TT 0 | 07-17 G .95 108 TT -53
-GOOGL 7d 1/4/2  -29 .50 50  | 07-06 R .20 40 TT -3 | 07-07 G .92 45 TT +42 | 07-08 R .38 44 TT -16 | 07-14 G .86 33 TT -17 | 07-15 G .93 67 TT -35 | 07-16 R .10 59 TT 0 | 07-17 R .05 63 TT 0 ← deadline no-fill
-INTC  7d 1/4/2  -29 .37 34  | 07-06 G .84 44 TT -2* | 07-07 R .77 48 TT -46 | 07-08 G .38 23 TT 0 | 07-14 R .42 18 TT 0 | 07-15 R .12 32 TT -37 | 07-16 R .03 29 TT -30 | 07-17 R .04 46 TT +86 ← B W
-IWM   7d 0/5/2  -44 .59 38  | 07-06 G .95 42 TT -1* | 07-07 R .02 36 TT -8 | 07-08 G .54 30 TT 0 | 07-14 G .84 31 TT 0 | 07-15 R .17 28 TT -7 | 07-16 G .86 39 TT -11 | 07-17 G .79 61 TT -17 ← swap
-META  7d 6/1/0 +129 .32 45  | 07-06 R .18 58 TT +3 | 07-07 G .97 39 TT +43 | 07-08 R .08 62 TT +41* | 07-14 G .77 43 TT +1* | 07-15 R .18 30 TT +24 | 07-16 R .00 47 TT +34 | 07-17 R .10 37 TT -17 ← broke 6W A L
-MSFT  7d 1/3/3  -39 .42 43  | 07-06 R .37 60 TT 0 | 07-07 R .27 46 TT 0 | 07-08 G .76 28 TT 0 | 07-14 G .92 39 TT -28 | 07-15 G .22 37 TT -24 | 07-16 R .02 52 TT +28 | 07-17 R .36 40 TT -15
-MU    7d 1/2/4  +92 .43 30  | 07-06 R .78 18 TT 0 | 07-07 G .87 22 TT 0 | 07-08 G .84 52 TT +166* | 07-14 R .26 28 TT -35 | 07-15 R .07 27 TT -39 | 07-16 G .12 24 TT 0 | 07-17 R .10 40 TT 0 ← deadline no-fill
-NVDA  7d 2/1/4  +28 .44 49  | 07-06 G .93 24 TT 0 | 07-07 G .61 30 TT +27 | 07-08 G .94 54 TT -30 | 07-14 R .09 66 TT 0 | 07-15 G .34 38 TT 0 | 07-16 R .09 51 TT +31 | 07-17 R .07 79 TT 0 ← A no-fill
-PFE   7d 1/5/1  -62 .69 49  | 07-06 R .11 76 TT -22 | 07-07 G .70 37 TT -17 | 07-08 R .88 27 TT 0 | 07-14 R .68 42 TT -9* | 07-15 G .68 38 TT -22 | 07-16 G .91 60 TT -31 | 07-17 G .88 64 TT +39 ← GREEN W
-PLTR  7d 4/2/1 +113 .44 54  | 07-06 G .94 74 TT +1* | 07-07 R .49 42 TT -24 | 07-08 R .42 58 TT +57 | 07-14 G 1.00 62 TT -55 | 07-15 G .10 37 TT 0 | 07-16 R .05 64 TT +92 | 07-17 R .08 42 TT +42 ← A W
-QQQ   7d 1/2/4   -1 .39 29  | 07-06 G .85 22 TT 0 | 07-07 R .53 27 TT -8 | 07-08 G .80 27 TT +17 | 07-14 R .47 20 TT 0 | 07-15 R .01 23 TT 0 | 07-16 R .05 36 TT -10 | 07-17 R .04 47 TT 0 ← deadline no-fill
-SOXL  7d 1/2/4  +77 .45 27  | 07-06 G .93 24 TT 0 | 07-07 G .76 22 TT 0 | 07-08 G .90 30 TT +233 | 07-14 R .19 30 TT -88 | 07-15 R .14 28 TT -68 | 07-16 R .06 21 TT 0 | 07-17 R .12 31 TT 0 ← deadline no-fill
-SPY   7d 1/0/6   +7 .45 21  | 07-06 R .54 20 TT 0 | 07-07 R .53 17 TT 0 | 07-08 G .81 22 TT 0 | 07-14 G .90 22 TT 0 | 07-15 G .13 16 TT 0 | 07-16 R .07 28 TT +7 | 07-17 R .13 22 TT 0 ← no-liq thin
-T     7d 2/3/2  -22 .66 47  | 07-06 R .40 72 TT -22 | 07-07 G .80 40 TT +42 | 07-08 R .44 35 TT 0 | 07-14 R .35 31 TT -24 | 07-15 G .87 43 TT -28 | 07-16 G .91 50 TT +10* | 07-17 G .86 62 TT 0 ← A' no-fill
-TSLA  7d 0/3/4  -37 .35 33  | 07-06 G .76 53 TT -5 | 07-07 R .08 31 TT -16 | 07-08 R .80 23 TT 0 | 07-14 R .23 22 TT 0 | 07-15 G .48 39 TT 0 | 07-16 R .03 31 TT -16 | 07-17 R .07 30 TT 0 ← A no-fill swap
+AAPL  8d 2/2/4   +9 .53 42  | 07-06 G .76 32 TT -3 | 07-07 R .35 60 TT 0 | 07-08 R .03 47 TT +23 | 07-14 G .78 41 TT +11 | 07-15 G .96 43 TT -22 | 07-16 R .50 23 TT 0 | 07-17 G .71 43 TT 0 | 07-20 R .15 45 TT 0 ← shape-skip (body gate)
+AMD   8d 3/3/2 +132 .54 43  | 07-06 G .97 73 TT -10 | 07-07 G .73 33 TT 0 | 07-08 G .87 40 TT +85 | 07-14 R .14 56 TT -50 | 07-15 R .47 28 TT -23 | 07-16 R .13 28 TT +37 | 07-17 R .10 57 TT +93 | 07-20 G .87 29 TT 0 ← deadline no-fill
+AMZN  8d 1/3/4  -45 .51 47  | 07-06 R .06 53 TT 0 | 07-07 R .34 37 TT -15 | 07-08 R .83 48 TT 0 | 07-14 G .62 46 TT 0 | 07-15 G .43 42 TT -27 | 07-16 R .19 73 TT 0 | 07-17 G .63 49 TT -27 | 07-20 G 1.00 29 TT +24 ← broke 0W
+BAC   8d 1/4/3  -23 .64 82  | 07-06 G .86 83 TT 0 | 07-07 G .53 56 TT 0 | 07-08 R .51 47 TT -11 | 07-14 G .84 197 TT -8* | 07-15 G .84 74 TT 0 | 07-16 R .28 75 TT +39 | 07-17 G .97 70 TT -25 | 07-20 R .30 51 TT -18
+COIN  8d 5/1/2 +203 .31 43  | 07-06 G .65 45 TT +1* | 07-07 G .34 37 TT 0 | 07-08 G .68 33 TT 0 | 07-14 R .25 45 TT +66 | 07-15 R .10 53 TT -35 | 07-16 R .00 69 TT +76 | 07-17 R .06 36 TT +39 | 07-20 R .37 29 TT +56 ← 5W
+F     8d 2/2/4  +44 .63 50  | 07-06 G 1.00 53 TT +46* | 07-07 G .71 28 TT 0 | 07-08 G 1.00 68 TT +70* | 07-14 R .33 27 TT -19 | 07-15 R .10 24 TT 0 | 07-16 R .50 47 TT 0 | 07-17 G .95 108 TT -53 | 07-20 R .39 43 TT 0 ← shape-skip (body gate)
+GOOGL 8d 2/4/2   +0 .56 53  | 07-06 R .20 40 TT -3 | 07-07 G .92 45 TT +42 | 07-08 R .38 44 TT -16 | 07-14 G .86 33 TT -17 | 07-15 G .93 67 TT -35 | 07-16 R .10 59 TT 0 | 07-17 R .05 63 TT 0 | 07-20 G .96 75 TT +29 ← A' W
+INTC  8d 2/4/2 +130 .43 34  | 07-06 G .84 44 TT -2* | 07-07 R .77 48 TT -46 | 07-08 G .38 23 TT 0 | 07-14 R .42 18 TT 0 | 07-15 R .12 32 TT -37 | 07-16 R .03 29 TT -30 | 07-17 R .04 46 TT +86 | 07-20 G .88 38 TT +159 ← A' W
+IWM   8d 0/5/3  -44 .58 36  | 07-06 G .95 42 TT -1* | 07-07 R .02 36 TT -8 | 07-08 G .54 30 TT 0 | 07-14 G .84 31 TT 0 | 07-15 R .17 28 TT -7 | 07-16 G .86 39 TT -11 | 07-17 G .79 61 TT -17 | 07-20 G .48 26 TT 0 ← deadline no-fill swap
+META  8d 6/2/0 +107 .37 43  | 07-06 R .18 58 TT +3 | 07-07 G .97 39 TT +43 | 07-08 R .08 62 TT +41* | 07-14 G .77 43 TT +1* | 07-15 R .18 30 TT +24 | 07-16 R .00 47 TT +34 | 07-17 R .10 37 TT -17 | 07-20 R .74 28 TT -22 ← u2
+MSFT  8d 1/4/3  -59 .45 41  | 07-06 R .37 60 TT 0 | 07-07 R .27 46 TT 0 | 07-08 G .76 28 TT 0 | 07-14 G .92 39 TT -28 | 07-15 G .22 37 TT -24 | 07-16 R .02 52 TT +28 | 07-17 R .36 40 TT -15 | 07-20 G .70 29 TT -20
+MU    8d 1/2/5  +92 .48 29  | 07-06 R .78 18 TT 0 | 07-07 G .87 22 TT 0 | 07-08 G .84 52 TT +166* | 07-14 R .26 28 TT -35 | 07-15 R .07 27 TT -39 | 07-16 G .12 24 TT 0 | 07-17 R .10 40 TT 0 | 07-20 G .86 25 TT 0 ← no-liq
+NVDA  8d 2/1/5  +28 .48 47  | 07-06 G .93 24 TT 0 | 07-07 G .61 30 TT +27 | 07-08 G .94 54 TT -30 | 07-14 R .09 66 TT 0 | 07-15 G .34 38 TT 0 | 07-16 R .09 51 TT +31 | 07-17 R .07 79 TT 0 | 07-20 G .80 36 TT 0 ← deadline no-fill
+PFE   8d 1/6/1  -77 .64 48  | 07-06 R .11 76 TT -22 | 07-07 G .70 37 TT -17 | 07-08 R .88 27 TT 0 | 07-14 R .68 42 TT -9* | 07-15 G .68 38 TT -22 | 07-16 G .91 60 TT -31 | 07-17 G .88 64 TT +39 | 07-20 R .30 39 TT -15
+PLTR  8d 4/2/2 +113 .50 54  | 07-06 G .94 74 TT +1* | 07-07 R .49 42 TT -24 | 07-08 R .42 58 TT +57 | 07-14 G 1.00 62 TT -55 | 07-15 G .10 37 TT 0 | 07-16 R .05 64 TT +92 | 07-17 R .08 42 TT +42 | 07-20 G .94 50 TT 0 ← deadline no-fill
+QQQ   8d 2/2/4  +14 .46 28  | 07-06 G .85 22 TT 0 | 07-07 R .53 27 TT -8 | 07-08 G .80 27 TT +17 | 07-14 R .47 20 TT 0 | 07-15 R .01 23 TT 0 | 07-16 R .05 36 TT -10 | 07-17 R .04 47 TT 0 | 07-20 G .96 25 TT +15 ← A' W
+SOXL  8d 1/2/5  +77 .51 26  | 07-06 G .93 24 TT 0 | 07-07 G .76 22 TT 0 | 07-08 G .90 30 TT +233 | 07-14 R .19 30 TT -88 | 07-15 R .14 28 TT -68 | 07-16 R .06 21 TT 0 | 07-17 R .12 31 TT 0 | 07-20 G .93 15 TT 0 ← no-liq
+SPY   8d 1/0/7   +7 .51 22  | 07-06 R .54 20 TT 0 | 07-07 R .53 17 TT 0 | 07-08 G .81 22 TT 0 | 07-14 G .90 22 TT 0 | 07-15 G .13 16 TT 0 | 07-16 R .07 28 TT +7 | 07-17 R .13 22 TT 0 | 07-20 G .92 25 TT 0 ← no-liq thin
+T     8d 2/4/2  -45 .62 45  | 07-06 R .40 72 TT -22 | 07-07 G .80 40 TT +42 | 07-08 R .44 35 TT 0 | 07-14 R .35 31 TT -24 | 07-15 G .87 43 TT -28 | 07-16 G .91 50 TT +10* | 07-17 G .86 62 TT 0 | 07-20 G .36 29 TT -23
+TSLA  8d 0/3/5  -37 .33 33  | 07-06 G .76 53 TT -5 | 07-07 R .08 31 TT -16 | 07-08 R .80 23 TT 0 | 07-14 R .23 22 TT 0 | 07-15 G .48 39 TT 0 | 07-16 R .03 31 TT -16 | 07-17 R .07 30 TT 0 | 07-20 R .16 32 TT 0 ← shape-skip (body gate) swap
 ```
 
-**Symbol tags (7d ingested — revise as n grows):**
+**Symbol tags (8d ingested — revise as n grows):**
 
 | Tag | Symbols | Note |
 |-----|---------|------|
-| **6W/1L** | META | streak broke Fri −17; still best |
-| **4W** | COIN, PLTR | Jul16–17 A/RED |
-| **3W** | AMD | Fri soft-B +93 |
-| **2W** | F, NVDA, T | |
-| **big Jul8 / bled** | SOXL, MU | SOXL Jul14–15 −156; Jul16–17 flat |
-| **shape flip** | GOOGL, NVDA, PLTR, QQQ, META, SOXL, AMD, COIN, MSFT, INTC | |
-| **flat-heavy / thin** | SPY | 1 fill / 7d; Jul17 no-liq |
-| **swap-candidate** | SPY, AMZN, IWM, TSLA | week of Jul 20 |
-| **RED win** | AMD, INTC, PLTR, COIN | Jul17 soft-B + A |
-| **A′ watch** | GOOGL, AAPL, IWM, T | Jul17 T no-fill |
-| **A watch** | META, PLTR, NVDA, TSLA | Jul17 split / no-fill |
-| **u2-would-skip** | INTC, QQQ, BAC, PFE | RED cp≥.50 (no Jul17 cases) |
-| **deadline-bug** | Jul6+8 set + Jul14 BAC/META/PFE + Jul16 T | Jul15+17 nf clean |
-| **deadline no-fill** | Jul17×8 | AAPL/GOOGL/MU/NVDA/QQQ/SOXL/T/TSLA |
+| **6W/2L** | META | −22 U2 Mon; still core +107 |
+| **5W** | COIN | Jul20 C +56 |
+| **4W** | PLTR | |
+| **3W** | AMD | |
+| **2W** | F, NVDA, T, GOOGL, INTC, QQQ, AAPL | INTC A′ +159 Mon |
+| **big Jul8 / bled** | SOXL, MU | Jul16–20 flat-heavy |
+| **shape flip** | GOOGL, INTC, QQQ, AMZN, META, COIN | A′ Mon + GREEN |
+| **flat-heavy / thin** | SPY | 1 fill / 8d |
+| **swap-candidate** | SPY, IWM, TSLA (± AMZN) | AMZN softened |
+| **A′ W Mon** | INTC, GOOGL, QQQ | +203 |
+| **u2-would-skip** | INTC, QQQ, BAC, PFE, **META** | META Jul20 −22 |
+| **deadline-bug** | Jul6+8 set + Jul14×3 + Jul16 T | Jul15+17+20 nf clean |
+| **shape-skip (body bug)** | Jul20 AAPL/F/TSLA | wrong gate |
+| **deadline no-fill** | Jul20 AMD/IWM/NVDA/PLTR | |
 
 ## Trades (non-flat) — `date sym col cp b atr% arch pnl`
 
 ```
+2026-07-20 INTC  G .88 .72 38 A' +159
+2026-07-20 COIN  R .37 .19 29 C   +56
+2026-07-20 GOOGL G .96 .90 75 A'  +29
+2026-07-20 AMZN  G 1.00 .65 29 D   +24
+2026-07-20 QQQ   G .96 .86 25 A'  +15
+2026-07-20 PFE   R .30 .35 39 C   -15
+2026-07-20 BAC   R .30 .48 51 C   -18
+2026-07-20 MSFT  G .70 .18 29 D   -20
+2026-07-20 META  R .74 .26 28 C   -22  ← u2
+2026-07-20 T     G .36 .18 29 D   -23
 2026-07-17 AMD   R .10 .64 57 B   +93
 2026-07-17 INTC  R .04 .55 46 B   +86
 2026-07-17 PLTR  R .08 .75 42 A   +42
@@ -566,7 +621,7 @@ TSLA  7d 0/3/4  -37 .35 33  | 07-06 G .76 53 TT -5 | 07-07 R .08 31 TT -16 | 07-
 2026-07-07 INTC  R .77 .22 48 C   -46
 ```
 
-`*` = OPEN_DEADLINE exit fill missing (corr via deadline mid). Jul6–8: 26 flat; Jul14: 7 flat; Jul15: 7 flat; Jul16: 6 flat omitted (AAPL/MU/SOXL no-liq; AMZN/F/GOOGL deadline no-fill). T counted nf via corr*. Jul17: 9 flat omitted (SPY no-liq; AAPL/GOOGL/MU/NVDA/QQQ/SOXL/T/TSLA deadline no-fill).
+`*` = OPEN_DEADLINE exit fill missing (corr via deadline mid). Jul6–8: 26 flat; Jul14: 7 flat; Jul15: 7 flat; Jul16: 6 flat omitted. Jul17: 9 flat omitted. Jul20: 10 flat omitted (AAPL/F/TSLA shape-skip body gate; MU/SOXL/SPY no-liq; AMD/IWM/NVDA/PLTR deadline no-fill).
 
 ## Validation log
 
@@ -586,6 +641,9 @@ TSLA  7d 0/3/4  -37 .35 33  | 07-06 G .76 53 TT -5 | 07-07 R .08 31 TT -16 | 07-
 | 2026-07-17 | — | — | — | — | **US→HK lag:** Jul16 strong → HK Jul17 **−7165 miss** (live TT↔TT 2/3) |
 | 2026-07-17 | 1 | 20 | 5/6 | **+145** | TT parity Fri; soft-B AMD/INTC +179; META broke 6W; 8 deadline no-fills; fills clean |
 | 2026-07-06–08+14–17 | 7 | 140 | 34/51 | **+441** | gap Jul9–10/13; U2 cf +515; **parity week −197**; Jul17 mixed → HK Jul20 soft |
+| 2026-07-20 | 1 | 20 | 5/5 | **+185** | post-parity; A′ INTC/GOOGL/QQQ +203; **body gate bug** skipped AAPL/F/TSLA; META −22 u2; fills clean |
+| 2026-07-20 | — | — | — | — | **config:** clear `redSkipBodyRatioAbove`; set U2 `redSkipClosePositionAbove=0.50` before next session |
+| 2026-07-06–08+14–17+20 | 8 | 160 | 39/56 | **+626** | gap Jul9–10/13; U2 cf **+648**; Jul20 mixed → HK Jul21 soft |
 
 ---
-*Agent: north star = §Symbol strategy. US ≠ HK — separate totals/modes. **Respect §Operator status** — do not assume §Recommended config is live (U2 promotion gate **met**, awaiting deploy confirm). Ingest day → check **`open_deadline_entry_only`**; tag `draft_mode`, `u2-would-skip` on RED cp≥.50; tag **US→HK lead qual** and update HK §US→HK lag pairing row for next HK session. Update §Inv-switch, §Symbol roster, §Symbol tags. Also: Symbols, Totals, Patterns, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** deploy U2 if confirmed; ingest Jul 9–10, **13** (lag priority); execute SPY/AMZN/IWM/TSLA drops when replacements chosen; HK Jul20 soft after mixed US. Keep terse.*
+*Agent: north star = §Symbol strategy. US ≠ HK — separate totals/modes. **Respect §Operator status** — Jul20 ran **wrong body gate**; fix to true **U2 cp≥0.50** before next session (clear body skip). Ingest day → check **`open_deadline_entry_only`**; tag `draft_mode`, `u2-would-skip` on RED cp≥.50; tag **US→HK lead qual**. Update §Inv-switch, §Symbol roster, §Symbol tags. Also: Symbols, Totals, Patterns, Guard rails, Recommended config, Days, Trades, Validation log. **Next:** fix U2 field; ingest Jul 9–10, **13**; roster SPY/IWM/TSLA; HK Jul21 soft after mixed US. Keep terse.*

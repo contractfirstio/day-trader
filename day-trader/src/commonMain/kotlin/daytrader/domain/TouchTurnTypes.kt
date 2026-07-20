@@ -199,7 +199,12 @@ data class TouchTurnSessionContext(
     /** True while waiting for a 5m hammer after a qualifying 15m liquidity sweep. */
     val sweepActive: Boolean = false,
     /** Post-sweep 5m confirmation state; null when module bypassed or not yet started. */
-    val fiveMinuteConfirmation: FiveMinuteConfirmationState? = null
+    val fiveMinuteConfirmation: FiveMinuteConfirmationState? = null,
+    /**
+     * Closed 5m bars collected for the full session (analysis), independent of confirmation toggle.
+     * Deduped by bar time; frozen onto [TouchTurnRunRecord.sessionFiveMinuteBars] at stop.
+     */
+    val sessionFiveMinuteBars: List<OhlcBar> = emptyList()
 ) {
     fun sessionOrdersPlaced(): Boolean = ordersPlacedForSession || entryOrdersPermitted == true
 

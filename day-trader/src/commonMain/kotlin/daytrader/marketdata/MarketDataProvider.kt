@@ -24,12 +24,16 @@ interface MarketDataProvider {
         rules: TouchTurnRuleConfig = TouchTurnRuleConfig.DEFAULT
     ): Result<TouchTurnSignalContext>
 
-    /** Closed 5m bars with open time at or after [afterBarOpenEpochMs] (for hammer confirmation). */
+    /**
+     * Closed 5m bars with open time at or after [afterBarOpenEpochMs].
+     * [includePrecedingBar] requests one prior closed bar for engulfing confirmation.
+     */
     suspend fun fetchFiveMinuteBars(
         symbol: String,
         instrument: InstrumentIdentity? = null,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean = false
     ): Result<List<OhlcBar>>
 
     /** Live incremental volume for post-entry buffer monitoring. */

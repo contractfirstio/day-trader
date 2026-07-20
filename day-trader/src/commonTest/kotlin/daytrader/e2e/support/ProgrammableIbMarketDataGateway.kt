@@ -127,7 +127,8 @@ class ProgrammableIbMarketDataGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean
     ): Result<List<OhlcBar>> = Result.success(emptyList())
 
     override fun placeTouchTurnBracket(plan: TouchTurnOrderPlan) =

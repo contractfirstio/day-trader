@@ -216,7 +216,8 @@ class FakeBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean
     ): Result<List<OhlcBar>> = fiveMinuteBarsFetchResult
 
     fun resetRefetchIndex() {

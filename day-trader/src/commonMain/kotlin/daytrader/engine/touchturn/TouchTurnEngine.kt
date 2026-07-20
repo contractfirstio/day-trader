@@ -63,7 +63,9 @@ import daytrader.domain.withOrdersPlacedForSession
 import daytrader.domain.FiveMinuteConfirmationLogic
 import daytrader.domain.TouchTurnGrossProfitGate
 import daytrader.domain.withFiveMinuteConfirmationStarted
+import daytrader.domain.withSessionFiveMinuteBarsAppended
 import daytrader.engine.touchturn.FiveMinuteConfirmationRunner
+import daytrader.engine.touchturn.SessionFiveMinuteBarCollector
 import daytrader.domain.withTouchTurnCandleFailed
 import daytrader.domain.withTouchTurnClosingMilestoneIfNeeded
 import daytrader.domain.withTouchTurnDecisionOutcome
@@ -156,6 +158,7 @@ class TouchTurnEngine(
     private val liquidityJobs = ConcurrentHashMap<String, Job>()
     private val liquidityEvalJobs = ConcurrentHashMap<String, Job>()
     private val fiveMinuteConfirmationJobs = ConcurrentHashMap<String, Job>()
+    private val sessionFiveMinuteBarJobs = ConcurrentHashMap<String, Job>()
     private val closedBarRefetchJobs = ConcurrentHashMap<String, Job>()
     private val loadJobs = ConcurrentHashMap<String, Job>()
     private val prepareJobs = ConcurrentHashMap<String, Job>()
@@ -314,7 +317,9 @@ class TouchTurnEngine(
             closedBarRefetchJobs.values.any { it.isActive } ||
             loadJobs.values.any { it.isActive } ||
             prepareJobs.values.any { it.isActive } ||
-            replayLiquidityRetryJobs.values.any { it.isActive }
+            replayLiquidityRetryJobs.values.any { it.isActive } ||
+            fiveMinuteConfirmationJobs.values.any { it.isActive } ||
+            sessionFiveMinuteBarJobs.values.any { it.isActive }
 
     private fun clearInstanceTracking(instanceId: String) {
         stuckFormingLogged.remove(instanceId)
@@ -340,6 +345,8 @@ class TouchTurnEngine(
         loadJobs.remove(instanceId)?.cancel()
         prepareJobs.remove(instanceId)?.cancel()
         replayLiquidityRetryJobs.remove(instanceId)?.cancel()
+        fiveMinuteConfirmationJobs.remove(instanceId)?.cancel()
+        sessionFiveMinuteBarJobs.remove(instanceId)?.cancel()
     }
 
     private fun replayOpeningBarQuotesReady(symbol: String): Boolean =
@@ -533,6 +540,12 @@ class TouchTurnEngine(
         loadJobs.clear()
         prepareJobs.values.forEach { it.cancel() }
         prepareJobs.clear()
+        fiveMinuteConfirmationJobs.values.forEach { it.cancel() }
+        fiveMinuteConfirmationJobs.clear()
+        sessionFiveMinuteBarJobs.values.forEach { it.cancel() }
+        sessionFiveMinuteBarJobs.clear()
+        replayLiquidityRetryJobs.values.forEach { it.cancel() }
+        replayLiquidityRetryJobs.clear()
     }
 
     private suspend fun handle(command: TouchTurnCommand) {
@@ -1119,6 +1132,7 @@ class TouchTurnEngine(
                     deploymentMarketZoneId = zoneId,
                     session = loadedSession
                 )
+                startSessionFiveMinuteBarCollection(instanceId)
             }
             repository.deployments.value.find { it.id == instanceId }?.let { current ->
                 if (current.status != DeploymentStatus.RUNNING) {
@@ -1612,6 +1626,24 @@ class TouchTurnEngine(
                 }
             )
             runner.runUntilResolved(instanceId, executionGw)
+        }
+    }
+
+    private fun startSessionFiveMinuteBarCollection(instanceId: String) {
+        if (sessionFiveMinuteBarJobs[instanceId]?.isActive == true) return
+        sessionFiveMinuteBarJobs[instanceId]?.cancel()
+        sessionFiveMinuteBarJobs[instanceId] = scope.launch {
+            try {
+                SessionFiveMinuteBarCollector(
+                    marketData = marketData,
+                    repository = repository,
+                    nowEpochMillis = { nowEpochMillis() },
+                    delayMillis = { ms -> delayMillis(ms) },
+                    pollIntervalMs = { liquidityPollIntervalMs() }
+                ).runUntilSessionEnds(instanceId)
+            } finally {
+                sessionFiveMinuteBarJobs.remove(instanceId)
+            }
         }
     }
 

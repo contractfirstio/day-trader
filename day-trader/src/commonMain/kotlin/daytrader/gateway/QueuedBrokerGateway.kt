@@ -278,7 +278,8 @@ class QueuedBrokerGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean
     ): Result<List<OhlcBar>> {
         val requestId = allocateRequestId()
         val deferred = CompletableDeferred<Result<List<OhlcBar>>>()
@@ -289,7 +290,8 @@ class QueuedBrokerGateway(
                 symbol = symbol,
                 instrument = instrument,
                 afterBarOpenEpochMs = afterBarOpenEpochMs,
-                marketZoneId = marketZoneId
+                marketZoneId = marketZoneId,
+                includePrecedingBar = includePrecedingBar
             )
         )
         return try {

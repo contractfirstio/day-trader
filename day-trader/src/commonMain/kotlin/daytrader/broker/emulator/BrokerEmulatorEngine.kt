@@ -481,7 +481,8 @@ class BrokerEmulatorEngine(
         requestId: Long,
         symbol: String,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean = false
     ) {
         delay(config.historicalDelayMs)
         val trimmed = symbol.trim().uppercase()
@@ -493,8 +494,8 @@ class BrokerEmulatorEngine(
             val side = touchTurnTradeSideBySymbol[trimmed]
             if (opening == null || side == null) {
                 Result.failure(IllegalStateException("Missing opening 15m bar for $trimmed"))
-            } else {
-                // Runner requests windowStart - BAR_DURATION_MS for a pre-window prior. Remap to the
+            } else if (includePrecedingBar) {
+                // Confirmation lookback: runner passes windowStart - BAR_DURATION_MS. Remap to the
                 // emulator's compressed bar duration so prior + three window slots stay aligned.
                 val compressedDurationMs = config.fiveMinuteBarSecondsUntilClose?.times(1_000L)
                     ?: FiveMinuteConfirmationLogic.BAR_DURATION_MS
@@ -508,6 +509,18 @@ class BrokerEmulatorEngine(
                         afterBarOpenEpochMs = fetchStart,
                         marketZoneId = marketZoneId,
                         windowStartEpochMs = windowStart
+                    )
+                )
+            } else {
+                // Full-session history: every closed 5m slot from afterBarOpen until now.
+                Result.success(
+                    EmulatorHistoricalData.fiveMinuteBarsSince(
+                        openingFifteenMinuteBar = opening,
+                        side = side,
+                        config = config,
+                        afterBarOpenEpochMs = afterBarOpenEpochMs,
+                        marketZoneId = marketZoneId,
+                        maxBars = null
                     )
                 )
             }

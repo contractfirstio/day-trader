@@ -59,7 +59,8 @@ internal object TouchTurnRunPersistence {
             ),
             milestones = TouchTurnPersistence.milestonesToDomain(record.milestones),
             rules = TouchTurnRuleConfigPersistence.toDomain(record.rules),
-            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toDomain()
+            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toDomain(),
+            sessionFiveMinuteBars = record.sessionFiveMinuteBars.map { it.toDomain() }
         )
     }
 
@@ -97,7 +98,8 @@ internal object TouchTurnRunPersistence {
             ),
             milestones = TouchTurnPersistence.milestonesToRecord(record.milestones),
             rules = record.rules?.let(TouchTurnRuleConfigPersistence::toRecord),
-            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toRecord()
+            fiveMinuteConfirmation = record.fiveMinuteConfirmation?.toRecord(),
+            sessionFiveMinuteBars = record.sessionFiveMinuteBars.map { it.toRecord() }
         )
     }
 

@@ -236,6 +236,16 @@ fun StrategyDeployment.withLiquidityEvaluatedIfClosed(
     return copy(touchTurnSession = updatedSession)
 }
 
+fun StrategyDeployment.withSessionFiveMinuteBarsAppended(
+    bars: List<OhlcBar>
+): StrategyDeployment {
+    if (!isTouchTurn || bars.isEmpty()) return this
+    val session = touchTurnSession ?: return this
+    val merged = SessionFiveMinuteBarsLogic.appendClosedBars(session.sessionFiveMinuteBars, bars)
+    if (merged === session.sessionFiveMinuteBars) return this
+    return copy(touchTurnSession = session.copy(sessionFiveMinuteBars = merged))
+}
+
 /** Arms sweep-active state and starts the 5m confirmation window after a qualifying 15m sweep. */
 fun StrategyDeployment.withFiveMinuteConfirmationStarted(
     nowEpochMillis: Long = System.currentTimeMillis()
@@ -576,6 +586,7 @@ fun StrategySession.toTouchTurnAnalysisContext(
         plannedQuantity = record?.decision?.plannedQuantity,
         plannedBracket = plannedBracket,
         executedBracketLegs = executedBracketLegs,
-        fiveMinuteConfirmation = record?.fiveMinuteConfirmation
+        fiveMinuteConfirmation = record?.fiveMinuteConfirmation,
+        sessionFiveMinuteBars = record?.sessionFiveMinuteBars.orEmpty()
     )
 }

@@ -68,7 +68,8 @@ sealed interface GatewayCommand {
         val symbol: String,
         val instrument: InstrumentIdentity? = null,
         val afterBarOpenEpochMs: Long,
-        val marketZoneId: String
+        val marketZoneId: String,
+        val includePrecedingBar: Boolean = false
     ) : GatewayCommand
 
     data class CancelOrder(val orderId: Int) : GatewayCommand

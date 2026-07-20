@@ -88,12 +88,17 @@ interface BrokerGateway {
         )
     }
 
-    /** Closed 5m bars with open at or after [afterBarOpenEpochMs] in [marketZoneId]. */
+    /**
+     * Closed 5m bars with open at or after [afterBarOpenEpochMs] in [marketZoneId].
+     * When [includePrecedingBar] is true, also include the closed bar immediately before the cutoff
+     * (used by 5m confirmation engulfing prior lookback).
+     */
     suspend fun fetchFiveMinuteBars(
         symbol: String,
         instrument: InstrumentIdentity? = null,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean = false
     ): Result<List<OhlcBar>> =
         Result.failure(UnsupportedOperationException("five_minute_bars_not_supported"))
 

@@ -45,9 +45,10 @@ class BrokerGatewayMarketDataProvider(
         symbol: String,
         instrument: InstrumentIdentity?,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean
     ): Result<List<OhlcBar>> =
-        gateway.fetchFiveMinuteBars(symbol, instrument, afterBarOpenEpochMs, marketZoneId)
+        gateway.fetchFiveMinuteBars(symbol, instrument, afterBarOpenEpochMs, marketZoneId, includePrecedingBar)
 
     override fun observeVolumeTicks(symbol: String): Flow<VolumeTick> {
         val normalized = SymbolMarkets.normalizeSymbol(symbol)

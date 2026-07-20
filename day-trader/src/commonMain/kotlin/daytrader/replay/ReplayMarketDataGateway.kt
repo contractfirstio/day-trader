@@ -146,10 +146,16 @@ class ReplayMarketDataGateway(
         symbol: String,
         instrument: InstrumentIdentity?,
         afterBarOpenEpochMs: Long,
-        marketZoneId: String
+        marketZoneId: String,
+        includePrecedingBar: Boolean
     ): Result<List<OhlcBar>> {
         val bundle = registry.bundleFor(symbol)
             ?: return Result.failure(IllegalStateException("No replay capture registered for $symbol"))
+        val cutoff = if (includePrecedingBar) {
+            afterBarOpenEpochMs - daytrader.domain.FiveMinuteConfirmationLogic.BAR_DURATION_MS
+        } else {
+            afterBarOpenEpochMs
+        }
         val bars = bundle.fiveMinuteBarEvents
             .filter { it.symbol == SymbolMarkets.normalizeSymbol(symbol) }
             .map { it.bar }
@@ -157,7 +163,7 @@ class ReplayMarketDataGateway(
                 val time = bar.time ?: return@filter false
                 val open = daytrader.domain.TouchTurnLogic.barStartEpochMillis(time, marketZoneId)
                     ?: return@filter false
-                open >= afterBarOpenEpochMs
+                open >= cutoff
             }
         return Result.success(bars)
     }

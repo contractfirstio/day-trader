@@ -34,7 +34,8 @@ internal object TouchTurnPersistence {
             decisionOutcome = parseOutcome(record.decisionOutcome),
             plannedQuantity = record.plannedQuantity,
             plannedBracket = record.plannedBracket?.toDomain(),
-            bracketOrderIds = record.toBracketOrderIds()
+            bracketOrderIds = record.toBracketOrderIds(),
+            sessionFiveMinuteBars = record.sessionFiveMinuteBars.map { it.toDomain() }
         )
     }
 
@@ -61,7 +62,8 @@ internal object TouchTurnPersistence {
             bracketParentOrderId = context.bracketOrderIds?.parentOrderId,
             bracketTakeProfitOrderId = context.bracketOrderIds?.takeProfitOrderId,
             bracketStopLossOrderId = context.bracketOrderIds?.stopLossOrderId,
-            bracketAdjustableStopOrderId = context.bracketOrderIds?.adjustableStopOrderId
+            bracketAdjustableStopOrderId = context.bracketOrderIds?.adjustableStopOrderId,
+            sessionFiveMinuteBars = context.sessionFiveMinuteBars.map { it.toRecord() }
         )
     }
 
