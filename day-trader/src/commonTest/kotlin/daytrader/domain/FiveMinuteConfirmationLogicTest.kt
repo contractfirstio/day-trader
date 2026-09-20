@@ -234,24 +234,28 @@ class FiveMinuteConfirmationLogicTest {
 
     @Test
     fun projectedGrossProfit_usesSignedDistanceToFifteenMinuteTakeProfit() {
-        val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
+        val projected = TouchTurnGrossProfitGate.projectedMaxProfit(
             takeProfitPrice = 103.0,
             entryPrice = 101.0,
             quantity = 10,
-            side = TouchTurnTradeSide.LONG
+            side = TouchTurnTradeSide.LONG,
+            currency = "USD",
         )
-        assertEquals(20.0, projected)
+        assertEquals(19.30, projected, 0.001)
     }
 
     @Test
-    fun passesGrossProfitGate_whenMinZeroOrProjectedAboveThreshold() {
+    fun passesGrossProfitGate_whenMinZeroOrProjectedRatioAboveThreshold() {
         val hammer = OhlcBar(open = 101.0, high = 101.3, low = 100.0, close = 101.0)
+        // Confirmation setup: TP 103, entry 101 → stop recomputed at 100 (default 2.0 geometry)
+        // Net ratio ≈ 19.30 / 10.70 ≈ 1.804
         assertTrue(
             FiveMinuteConfirmationLogic.passesGrossProfitGate(
                 fifteenMinuteSetup = fifteenMinuteSetup,
                 hammerBar = hammer,
                 quantity = 10,
-                minGrossProfit = 0.0
+                minProfitToLossRatio = 0.0,
+                currency = "USD",
             )
         )
         assertTrue(
@@ -259,7 +263,8 @@ class FiveMinuteConfirmationLogicTest {
                 fifteenMinuteSetup = fifteenMinuteSetup,
                 hammerBar = hammer,
                 quantity = 10,
-                minGrossProfit = 20.0
+                minProfitToLossRatio = 1.8,
+                currency = "USD",
             )
         )
         assertFalse(
@@ -267,7 +272,17 @@ class FiveMinuteConfirmationLogicTest {
                 fifteenMinuteSetup = fifteenMinuteSetup,
                 hammerBar = hammer,
                 quantity = 10,
-                minGrossProfit = 21.0
+                minProfitToLossRatio = 1.9,
+                currency = "USD",
+            )
+        )
+        assertFalse(
+            FiveMinuteConfirmationLogic.passesGrossProfitGate(
+                fifteenMinuteSetup = fifteenMinuteSetup,
+                hammerBar = hammer,
+                quantity = 10,
+                minProfitToLossRatio = 100.0,
+                currency = "USD",
             )
         )
     }

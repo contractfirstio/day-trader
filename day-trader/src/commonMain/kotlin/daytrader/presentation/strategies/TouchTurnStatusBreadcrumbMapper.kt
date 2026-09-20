@@ -343,7 +343,7 @@ object TouchTurnStatusBreadcrumbMapper {
             FiveMinuteConfirmationStatus.CONFIRMED ->
                 "5m confirmation confirmed — submitting order"
             FiveMinuteConfirmationStatus.REJECTED_INSUFFICIENT_GROSS_PROFIT ->
-                "5m confirmation rejected — insufficient gross profit"
+                "5m confirmation rejected — insufficient profit/loss ratio"
             FiveMinuteConfirmationStatus.REJECTED_MISSED_TOUCH_TURN ->
                 "5m confirmation rejected — missed touch-and-turn"
             FiveMinuteConfirmationStatus.AWAITING ->

@@ -1,8 +1,7 @@
 package daytrader.engine.liquidity
 
-import daytrader.domain.AUTO_LIQUIDITY_FLUSH_MAX_LOOPS
-import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.InstrumentIdentity
+import daytrader.domain.LiquidityBucketLogic
 import daytrader.domain.TouchTurnBracketOrderIds
 import daytrader.domain.withOrdersPlacedForSession
 import daytrader.e2e.support.E2EBracketHelper
@@ -293,7 +292,79 @@ class LiquidityFlushCoordinatorTest {
     }
 
     @Test
-    fun flush_capsDebitPerDeploymentAtMaxDollars() = runBlocking {
+    fun flush_drainsFullPoolOntoSingleEligible_ignoringMaxDollarsCap() = runBlocking {
+        val sessionDate = "2026-06-04"
+        val repository = InMemoryStrategyDeploymentRepository()
+        val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
+        val bucketRepository = InMemoryLiquidityBucketRepository()
+        val pool = 1_200_000
+        E2ELiquidityAllocatorHelper.creditCurrencyBucket(
+            repository = bucketRepository,
+            currencyCode = "HKD",
+            amount = pool,
+            sessionDate = sessionDate,
+        )
+
+        val hkInstrument = InstrumentIdentity(
+            symbol = "939",
+            exchange = "SEHK",
+            primaryExch = "SEHK",
+            currency = "HKD",
+            minOrderSize = 1_000,
+            orderSizeIncrement = 1_000,
+        )
+        gateway.setOpenOrders(
+            E2ELiquidityAllocatorHelper.bracketOpenOrders(symbol = "939", orderIdBase = 1_000).map {
+                it.copy(currency = "HKD", quantity = 1_000, remaining = 1_000)
+            },
+        )
+        gateway.setQuotes(emptyMap())
+
+        val plan = E2EBracketHelper.liquidityPlan(symbol = "939")
+        val deployment = E2ETestFixtures.runningDeployment(
+            symbol = "939",
+            sessionDate = sessionDate,
+            maxDollars = 80_000,
+        )
+            .copy(
+                id = "dep-hk",
+                currencyCode = "HKD",
+                instrument = hkInstrument,
+            )
+            .withOrdersPlacedForSession(
+                plan = plan,
+                bracketOrderIds = TouchTurnBracketOrderIds(
+                    parentOrderId = 1_000,
+                    takeProfitOrderId = 1_001,
+                    stopLossOrderId = 1_002,
+                ),
+            )
+        repository.add(deployment)
+
+        val coordinator = LiquidityFlushCoordinator(
+            liquidityBucketRepository = bucketRepository,
+            executionManager = BrokerGatewayExecutionManager(gateway),
+            deploymentRepository = repository,
+        )
+        val audit = coordinator.flush(
+            LiquidityFlushRequest(
+                currencyCode = "HKD",
+                sessionDate = sessionDate,
+                deployments = listOf(deployment),
+                openOrders = gateway.openOrders.value,
+                quotes = emptyMap(),
+                enabled = true,
+            )
+        )
+
+        // Entry 100 → board lot notional 100_000; full pool funds 12 lots.
+        assertEquals(1_200_000, audit.totalDebited)
+        assertEquals(0, audit.remainingPoolAvailable)
+        assertEquals(13_000, repository.deployments.value.single().touchTurnSession?.plannedQuantity)
+    }
+
+    @Test
+    fun flush_drainsFullPoolAcrossMultipleEligible_withoutMaxDollarsCap() = runBlocking {
         val sessionDate = "2026-06-04"
         val repository = InMemoryStrategyDeploymentRepository()
         val gateway = FakeBrokerGateway(brokerId = BrokerId.EMULATOR)
@@ -348,10 +419,17 @@ class LiquidityFlushCoordinatorTest {
             ),
         )
 
-        audit.loops.flatMap { it.debited.entries }.forEach { (_, amount) ->
-            assertTrue(amount <= 50, "debited $amount exceeds maxDollars cap")
-        }
-        assertTrue(audit.totalDebited <= 100)
+        // Unit-lot ~$100: drain until residual below one lot (not capped at 2×maxDollars=100).
+        assertTrue(
+            audit.totalDebited >= 900,
+            "expected full-pool drain, debited=${audit.totalDebited} remaining=${audit.remainingPoolAvailable} " +
+                "loops=${audit.loops.size} details=${audit.loops}",
+        )
+        assertTrue(audit.remainingPoolAvailable < 100)
+        val strongDebited = audit.loops.sumOf { it.debited["dep-strong"] ?: 0 }
+        val unknownDebited = audit.loops.sumOf { it.debited["dep-unknown"] ?: 0 }
+        assertTrue(strongDebited > 0 && unknownDebited > 0, "strong=$strongDebited unknown=$unknownDebited")
+        assertEquals(audit.totalDebited, strongDebited + unknownDebited)
     }
 
     @Test
@@ -503,7 +581,7 @@ class LiquidityFlushCoordinatorTest {
         )
 
         val strongResizes = gateway.bracketResizeRequests.filter { it.symbol.equals("MSFT", ignoreCase = true) }
-        assertTrue(strongResizes.size >= 2, "MSFT should resize in at least loop 1 and loop 2")
+        assertTrue(strongResizes.isNotEmpty(), "MSFT should receive at least one upsize from flush")
         strongResizes.zipWithNext { earlier, later ->
             assertTrue(
                 later.plan.quantity > earlier.plan.quantity,

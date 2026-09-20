@@ -1,11 +1,13 @@
 package daytrader.domain
 
+import daytrader.broker.ExpectedRoundTripCommission
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class DeploymentPositionOutcomeCalculatorTest {
     private val deployment = StrategyDeployment(
@@ -44,8 +46,9 @@ class DeploymentPositionOutcomeCalculatorTest {
         )
         val outcome = DeploymentPositionOutcomeCalculator.resolve(deployment, longPosition, orders)
         assertNotNull(outcome)
-        assertEquals(100.0, outcome.maxProfit, 0.001)
-        assertEquals(-50.0, outcome.stopOutcome, 0.001)
+        // Gross TP 100 / stop -50, minus US RT commission 0.70 (LMT+LMT / LMT+STP)
+        assertEquals(99.30, outcome.maxProfit, 0.001)
+        assertEquals(-50.70, outcome.stopOutcome, 0.001)
         assertEquals(false, outcome.stopIsMinWin)
     }
 
@@ -57,8 +60,8 @@ class DeploymentPositionOutcomeCalculatorTest {
         )
         val outcome = DeploymentPositionOutcomeCalculator.resolve(deployment, longPosition, orders)
         assertNotNull(outcome)
-        assertEquals(100.0, outcome.maxProfit, 0.001)
-        assertEquals(20.0, outcome.stopOutcome, 0.001)
+        assertEquals(99.30, outcome.maxProfit, 0.001)
+        assertEquals(19.30, outcome.stopOutcome, 0.001)
         assertEquals(true, outcome.stopIsMinWin)
     }
 
@@ -78,16 +81,16 @@ class DeploymentPositionOutcomeCalculatorTest {
         )
         val outcome = DeploymentPositionOutcomeCalculator.resolve(touchTurn, longPosition, emptyList())
         assertNotNull(outcome)
-        assertEquals(80.0, outcome.maxProfit, 0.001)
-        assertEquals(-40.0, outcome.stopOutcome, 0.001)
+        assertEquals(79.30, outcome.maxProfit, 0.001)
+        assertEquals(-40.70, outcome.stopOutcome, 0.001)
     }
 
     @Test
     fun resolve_fallsBackToLiveExecutionWithoutBrokerPosition() {
         val outcome = DeploymentPositionOutcomeCalculator.resolve(deployment, brokerPosition = null)
         assertNotNull(outcome)
-        assertEquals(100.0, outcome.maxProfit, 0.001)
-        assertEquals(-50.0, outcome.stopOutcome, 0.001)
+        assertEquals(99.30, outcome.maxProfit, 0.001)
+        assertEquals(-50.70, outcome.stopOutcome, 0.001)
     }
 
     @Test
@@ -120,8 +123,72 @@ class DeploymentPositionOutcomeCalculatorTest {
         )
         val outcome = DeploymentPositionOutcomeCalculator.resolve(touchTurn, longPosition, orders)
         assertNotNull(outcome)
-        assertEquals(100.0, outcome.maxProfit, 0.001)
-        assertEquals(10.0, outcome.stopOutcome, 0.001)
+        assertEquals(99.30, outcome.maxProfit, 0.001)
+        assertEquals(9.30, outcome.stopOutcome, 0.001)
+    }
+
+    @Test
+    fun resolve_hkSehk_subtractsRoundTripFeesFromOutcomes() {
+        val hkDeployment = deployment.copy(
+            symbol = "00939",
+            instrument = InstrumentIdentity(
+                symbol = "00939",
+                currency = "HKD",
+                exchange = "SEHK",
+                primaryExch = "SEHK",
+            ),
+            live = ActiveExecution(
+                state = ExecutionState.FILLED,
+                side = TradeSide.LONG,
+                quantity = 9_000,
+                entryPrice = 8.56,
+                stopPrice = 8.40,
+                targetPrice = 8.80,
+            ),
+        )
+        val hkPosition = AccountPosition(
+            account = "DU123",
+            symbol = "00939",
+            companyName = "CCB",
+            quantity = 9_000,
+            avgPrice = 8.56,
+            marketPrice = 8.60,
+            priorClose = 8.50,
+            totalUnrealizedPnL = 360.0,
+            currency = "HKD",
+        )
+        val outcome = DeploymentPositionOutcomeCalculator.resolve(
+            hkDeployment,
+            hkPosition,
+            emptyList(),
+        )
+        assertNotNull(outcome)
+        val grossTp = (8.80 - 8.56) * 9_000
+        val grossStop = (8.40 - 8.56) * 9_000
+        assertTrue(outcome.maxProfit < grossTp)
+        assertTrue(outcome.stopOutcome < grossStop)
+        val tpCommission = ExpectedRoundTripCommission.estimateRoundTrip(
+            quantity = 9_000,
+            entryPrice = 8.56,
+            exitPrice = 8.80,
+            currency = "HKD",
+            primaryExch = "SEHK",
+            exchange = "SEHK",
+            entryOrderType = "LMT",
+            exitOrderType = "LMT",
+        )
+        val stopCommission = ExpectedRoundTripCommission.estimateRoundTrip(
+            quantity = 9_000,
+            entryPrice = 8.56,
+            exitPrice = 8.40,
+            currency = "HKD",
+            primaryExch = "SEHK",
+            exchange = "SEHK",
+            entryOrderType = "LMT",
+            exitOrderType = "STP",
+        )
+        assertEquals(grossTp - tpCommission, outcome.maxProfit, 0.02)
+        assertEquals(grossStop - stopCommission, outcome.stopOutcome, 0.02)
     }
 
     private fun stopOrder(stop: Double, orderType: String = "STP") = WorkingOrder(

@@ -75,6 +75,7 @@ import daytrader.domain.withClosedPosition
 import daytrader.data.DeploymentSessionController
 import daytrader.data.LiveMarketDataLifecycle
 import daytrader.data.SessionMarketDataCapture
+import daytrader.data.SessionMarketDataCaptureRetention
 import daytrader.domain.withStopPrice
 import daytrader.domain.withoutClosedSessionHistory
 import daytrader.domain.withoutSessionHistoryEntry
@@ -163,6 +164,8 @@ class TouchTurnEngine(
     private val loadJobs = ConcurrentHashMap<String, Job>()
     private val prepareJobs = ConcurrentHashMap<String, Job>()
     private val replayLiquidityRetryJobs = ConcurrentHashMap<String, Job>()
+    /** Stops [SessionMarketDataCapture] at open + stopAfterOpenMinutes (survives early session stop). */
+    private val marketDataCaptureDeadlineJobs = ConcurrentHashMap<String, Job>()
     private val tracedFillExecIdsByInstance = ConcurrentHashMap<String, MutableSet<String>>()
     private val lastLoggedAutoStopCheck = ConcurrentHashMap<String, AutoStopCheckSnapshot>()
     private val pendingBracketPlacements = ConcurrentHashMap<String, PendingBracketPlacement>()
@@ -546,6 +549,8 @@ class TouchTurnEngine(
         sessionFiveMinuteBarJobs.clear()
         replayLiquidityRetryJobs.values.forEach { it.cancel() }
         replayLiquidityRetryJobs.clear()
+        marketDataCaptureDeadlineJobs.values.forEach { it.cancel() }
+        marketDataCaptureDeadlineJobs.clear()
     }
 
     private suspend fun handle(command: TouchTurnCommand) {
@@ -645,7 +650,7 @@ class TouchTurnEngine(
     private suspend fun handleStopSession(command: TouchTurnCommand.StopSession) {
         val instance = repository.deployments.value.find { it.id == command.instanceId } ?: return
         if (instance.status != DeploymentStatus.RUNNING) {
-            stopSessionMarketDataCapture(command.instanceId, command.trigger.name.lowercase())
+            maybeStopSessionMarketDataCapture(command.instanceId, command.trigger)
             maybeReleaseLiveMarketData(instance)
             return
         }
@@ -767,7 +772,7 @@ class TouchTurnEngine(
         val stopped = result.stoppedDeployment
         repository.update(command.instanceId) { stopped }
         repository.flushPersistenceBlocking()
-        stopSessionMarketDataCapture(command.instanceId, command.trigger.name.lowercase())
+        maybeStopSessionMarketDataCapture(command.instanceId, command.trigger)
         maybeReleaseLiveMarketData(stopped)
         maybePruneSymbolBrokerState(stopped)
         val sessionId = instance.inProgressSession()?.id
@@ -1721,14 +1726,37 @@ class TouchTurnEngine(
                         setup = setup,
                         entryPrice = setup.entry,
                         quantity = sizing.quantity,
-                        minGrossProfit = rules.minGrossProfit
+                        minProfitToLossRatio = rules.minProfitToLossRatio,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
                     )
                 ) {
-                    val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
+                    val projectedMaxProfit = TouchTurnGrossProfitGate.projectedMaxProfit(
                         takeProfitPrice = setup.takeProfit,
                         entryPrice = setup.entry,
                         quantity = sizing.quantity,
-                        side = setup.side
+                        side = setup.side,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
+                    )
+                    val projectedMaxLoss = TouchTurnGrossProfitGate.projectedMaxLoss(
+                        stopLossPrice = setup.stopLoss,
+                        entryPrice = setup.entry,
+                        quantity = sizing.quantity,
+                        side = setup.side,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
+                    )
+                    val projectedRatio = TouchTurnGrossProfitGate.projectedRatio(
+                        setup = setup,
+                        entryPrice = setup.entry,
+                        quantity = sizing.quantity,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
                     )
                     SessionTrace.grossProfitRejected(
                         deploymentId = instanceId,
@@ -1736,22 +1764,25 @@ class TouchTurnEngine(
                         symbol = instance.symbol,
                         entryPrice = setup.entry,
                         takeProfit = setup.takeProfit,
+                        stopLoss = setup.stopLoss,
                         quantity = sizing.quantity,
-                        projectedGrossProfit = projected,
-                        minGrossProfit = rules.minGrossProfit,
+                        projectedMaxProfit = projectedMaxProfit,
+                        projectedMaxLoss = projectedMaxLoss,
+                        projectedRatio = projectedRatio,
+                        minProfitToLossRatio = rules.minProfitToLossRatio,
                         currencyCode = session.currencyCode,
                         path = "liquidity_evaluation"
                     )
                     repository.update(instanceId) {
                         it.withTouchTurnDecisionOutcome(
                             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
-                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE
                         )
                     }
                     TouchTurnDecisionLog.ordersSkipped(
                         instanceId = instance.id,
                         symbol = instance.symbol,
-                        reason = "insufficient_gross_profit",
+                        reason = "insufficient_profit_to_loss_ratio",
                         session = session.copy(
                             decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT
                         ),
@@ -1761,10 +1792,12 @@ class TouchTurnEngine(
                         deploymentId = instanceId,
                         sessionId = instance.inProgressSession()?.id,
                         symbol = instance.symbol,
-                        reason = "insufficient_gross_profit",
+                        reason = "insufficient_profit_to_loss_ratio",
                         extraDetails = mapOf(
-                            "projectedGrossProfit" to projected.toString(),
-                            "minGrossProfit" to rules.minGrossProfit.toString(),
+                            "projectedMaxProfit" to projectedMaxProfit.toString(),
+                            "projectedMaxLoss" to projectedMaxLoss.toString(),
+                            "projectedRatio" to (projectedRatio?.toString() ?: "n/a"),
+                            "minProfitToLossRatio" to rules.minProfitToLossRatio.toString(),
                         )
                     )
                     return false
@@ -2159,6 +2192,15 @@ class TouchTurnEngine(
         (executionGateway as? QueuedBrokerGateway)?.requestSymbolSessionPrune(stopped.symbol)
     }
 
+    private fun maybeStopSessionMarketDataCapture(
+        deploymentId: String,
+        trigger: TouchTurnSessionStopTrigger
+    ) {
+        if (SessionMarketDataCaptureRetention.retainAfterSessionStop(trigger)) return
+        marketDataCaptureDeadlineJobs.remove(deploymentId)?.cancel()
+        stopSessionMarketDataCapture(deploymentId, trigger.name.lowercase())
+    }
+
     private fun stopSessionMarketDataCapture(deploymentId: String, trigger: String) {
         if (!brokerKind.capturesSessionMarketData) return
         val target = SessionMarketDataCapture.stop(deploymentId) ?: return
@@ -2186,6 +2228,26 @@ class TouchTurnEngine(
             sessionId = session.id,
             symbol = deployment.symbol
         )
+        scheduleMarketDataCaptureDeadline(deployment, session.date)
+    }
+
+    private fun scheduleMarketDataCaptureDeadline(deployment: StrategyDeployment, sessionDate: String) {
+        if (!brokerKind.capturesSessionMarketData) return
+        val openEpoch = TouchTurnSessionStopLogic.sessionOpenEpochMillis(deployment, sessionDate) ?: return
+        val minutes = deployment.effectiveTouchTurnRules().stopAfterOpenMinutes
+        val deadlineEpoch = SessionMarketDataCaptureRetention.captureDeadlineEpochMillis(openEpoch, minutes)
+        marketDataCaptureDeadlineJobs.remove(deployment.id)?.cancel()
+        marketDataCaptureDeadlineJobs[deployment.id] = scope.launch {
+            try {
+                val waitMs = (deadlineEpoch - nowEpochMillis()).coerceAtLeast(0L)
+                delayMillis(waitMs)
+                stopSessionMarketDataCapture(deployment.id, "capture_open_deadline")
+                val current = repository.deployments.value.find { it.id == deployment.id } ?: return@launch
+                maybeReleaseLiveMarketData(current)
+            } finally {
+                marketDataCaptureDeadlineJobs.remove(deployment.id)
+            }
+        }
     }
 
     private fun traceNewSessionFills(fills: List<BrokerFill>, positions: List<AccountPosition>) {

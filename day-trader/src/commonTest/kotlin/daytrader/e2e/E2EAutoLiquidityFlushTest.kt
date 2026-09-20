@@ -99,7 +99,8 @@ class E2EAutoLiquidityFlushTest {
                 LiquidityBucketLogic.bucketForCurrency(bucketRepository.state.value, "USD"),
                 sessionDate,
             ).available
-            assertTrue(available < 500)
+            // Full-pool drain: residual must be below one unit lot (~$100 at entry 100).
+            assertTrue(available < 100, "expected pool drained to lot residual, available=$available")
 
             assertTrue(
                 appStateRepository.state.value.flushedLiquidityZoneDates.contains(

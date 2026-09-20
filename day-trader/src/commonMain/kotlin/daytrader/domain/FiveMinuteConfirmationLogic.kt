@@ -15,7 +15,7 @@ enum class FiveMinuteConfirmationStatus {
     INVALIDATED,
     /** No qualifying hammer within three 5m bars (15 minutes). */
     EXPIRED,
-    /** Valid hammer but projected gross profit to 15m TP below minimum. */
+    /** Valid hammer but net max profit / max loss below configured minimum. */
     REJECTED_INSUFFICIENT_GROSS_PROFIT,
     /** Valid hammer but entry at hammer close crossed the 15m fib take-profit. */
     REJECTED_MISSED_TOUCH_TURN
@@ -278,7 +278,10 @@ object FiveMinuteConfirmationLogic {
         fifteenMinuteSetup: TouchTurnBracketSetup,
         hammerBar: OhlcBar,
         quantity: Int,
-        minGrossProfit: Double
+        minProfitToLossRatio: Double,
+        currency: String = "USD",
+        primaryExch: String? = null,
+        exchange: String? = null,
     ): Boolean {
         if (entryPastTakeProfit(fifteenMinuteSetup, hammerBar.close)) return false
         val confirmationSetup = buildConfirmationSetup(fifteenMinuteSetup, hammerBar.close)
@@ -286,12 +289,16 @@ object FiveMinuteConfirmationLogic {
             setup = confirmationSetup,
             entryPrice = confirmationSetup.entry,
             quantity = quantity,
-            minGrossProfit = minGrossProfit
+            minProfitToLossRatio = minProfitToLossRatio,
+            currency = currency,
+            primaryExch = primaryExch,
+            exchange = exchange,
         )
     }
 
-    /** @deprecated Use [TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE] */
-    const val INSUFFICIENT_GROSS_PROFIT_MESSAGE = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+    /** @deprecated Use [TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE] */
+    const val INSUFFICIENT_GROSS_PROFIT_MESSAGE =
+        TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE
 
     /** True when the bar's open time is at or after [afterBarOpenEpochMs] and the bar has closed. */
     fun isClosedBarAfter(

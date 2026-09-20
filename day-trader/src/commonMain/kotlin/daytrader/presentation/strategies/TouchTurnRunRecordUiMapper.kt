@@ -126,7 +126,7 @@ object TouchTurnRunRecordUiMapper {
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_MAX_DOLLARS_FOR_MIN_LOT -> "Min lot"
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_EXPIRED -> "5m expired"
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED -> "5m invalid"
-        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> "Low gross profit"
+        TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> "Low profit/loss ratio"
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> "Missed touch turn"
         TouchTurnSessionOutcome.NO_TRADE_ORDER_REJECTED -> "No order"
         TouchTurnSessionOutcome.NO_TRADE_VOLUME_EXHAUSTION -> "Volume exhaustion"

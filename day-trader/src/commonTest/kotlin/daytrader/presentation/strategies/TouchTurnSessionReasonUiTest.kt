@@ -15,6 +15,7 @@ import daytrader.domain.TouchTurnTradeSide
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 class TouchTurnSessionReasonUiTest {
@@ -133,6 +134,63 @@ class TouchTurnSessionReasonUiTest {
         )
         assertNotNull(ui)
         assertContains(ui!!.headline, "not liquid")
+    }
+
+    @Test
+    fun notLiquidity_detailUsesConfiguredAtrRatioAndObserved() {
+        val dailyAtr = 2.0
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-07-27",
+            status = TouchTurnCandleStatus.READY,
+            candle = daytrader.domain.OhlcBar(
+                open = 10.0,
+                high = 10.5,
+                low = 10.0,
+                close = 10.4,
+                time = "20260727  09:30:00"
+            ),
+            dailyAtr14 = dailyAtr,
+            rangeThreshold = dailyAtr * 0.7,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(atrLiquidityRatio = 0.7),
+            decisionOutcome = TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY
+        )
+        val ui = TouchTurnSessionReasonUi.forDecisionOutcome(
+            TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY,
+            session
+        )
+        assertContains(ui.detail!!, "70%")
+        assertContains(ui.detail!!, "25.0%")
+        assertFalse(ui.detail!!.contains("25% of 14-day"))
+    }
+
+    @Test
+    fun evaluatingLiquidity_detailUsesConfiguredAtrRatio() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-07-27",
+            status = TouchTurnCandleStatus.READY,
+            candle = daytrader.domain.OhlcBar(
+                open = 10.0,
+                high = 11.0,
+                low = 9.0,
+                close = 10.5,
+                time = "20260727  09:30:00"
+            ),
+            rules = TouchTurnRuleConfig.DEFAULT.copy(atrLiquidityRatio = 0.7),
+            milestones = TouchTurnMilestoneTimestamps(
+                barClosedAt = "2026-07-27T09:45:00"
+            )
+        )
+        val ui = TouchTurnSessionReasonUi.liveStatus(
+            session = session,
+            hasOpenPosition = false,
+            hasOpenOrders = false,
+            closing = false,
+            nowEpochMillis = System.currentTimeMillis(),
+            deploymentRunning = true
+        )
+        assertNotNull(ui)
+        assertContains(ui!!.detail!!, "70%")
+        assertFalse(ui.detail!!.contains("25%"))
     }
 
     @Test

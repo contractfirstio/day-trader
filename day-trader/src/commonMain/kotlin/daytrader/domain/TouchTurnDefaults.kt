@@ -75,8 +75,8 @@ object TouchTurnDefaults {
     /** 5m hammer: opposite shadow must be at most this fraction of bar range. */
     const val FIVE_MIN_HAMMER_MAX_OPPOSITE_SHADOW_RATIO = 0.10
     /**
-     * Minimum projected gross profit (|TP − entry| × quantity) before bracket submission.
-     * 0 = gate disabled.
+     * Minimum net max-profit / max-loss ratio before any bracket is submitted.
+     * Uses expected round-trip commission. 0 disables the gate.
      */
-    const val MIN_GROSS_PROFIT = 0.0
+    const val MIN_PROFIT_TO_LOSS_RATIO = 0.0
 }

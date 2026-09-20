@@ -1,10 +1,11 @@
 package daytrader.domain
 
+import daytrader.broker.ExpectedRoundTripCommission
 import daytrader.broker.SymbolMarkets
 import daytrader.gateway.AccountPosition
 import daytrader.gateway.WorkingOrder
 
-/** P&L bounds if the current bracket legs fill at their working prices. */
+/** P&L bounds if the current bracket legs fill at their working prices (net of expected RT commission). */
 data class DeploymentPositionOutcome(
     val maxProfit: Double,
     /** P&L if the current stop (including a ratcheted trailing stop) fills. */
@@ -26,10 +27,10 @@ object DeploymentPositionOutcomeCalculator {
         val stopPrice = liveStopPrice(orders) ?: planned?.stopLoss ?: deployment.live.stopPrice
         val takeProfitPrice = takeProfitPrice(orders) ?: planned?.takeProfit ?: deployment.live.targetPrice
         val maxProfit = takeProfitPrice?.let {
-            pnlAtExit(positionContext, it)
+            pnlAtExit(positionContext, it, exitOrderType = "LMT")
         } ?: return null
         val stopOutcome = stopPrice?.let {
-            pnlAtExit(positionContext, it)
+            pnlAtExit(positionContext, it, exitOrderType = "STP")
         } ?: return null
         return DeploymentPositionOutcome(
             maxProfit = maxProfit,
@@ -88,8 +89,12 @@ object DeploymentPositionOutcomeCalculator {
                 order.parentOrderId != 0
         }?.limitPrice
 
-    private fun pnlAtExit(context: PositionContext, exitPriceRaw: Double): Double =
-        InstrumentPriceScale.realizedPnLOnClose(
+    private fun pnlAtExit(
+        context: PositionContext,
+        exitPriceRaw: Double,
+        exitOrderType: String,
+    ): Double {
+        val gross = InstrumentPriceScale.realizedPnLOnClose(
             closeQty = context.quantity,
             avgPriceRaw = context.entryPrice,
             exitPriceRaw = exitPriceRaw,
@@ -98,4 +103,16 @@ object DeploymentPositionOutcomeCalculator {
             primaryExch = context.primaryExch,
             exchange = context.exchange,
         )
+        val commission = ExpectedRoundTripCommission.estimateRoundTrip(
+            quantity = context.quantity,
+            entryPrice = context.entryPrice,
+            exitPrice = exitPriceRaw,
+            currency = context.currency,
+            primaryExch = context.primaryExch,
+            exchange = context.exchange,
+            entryOrderType = "LMT",
+            exitOrderType = exitOrderType,
+        )
+        return gross - commission
+    }
 }

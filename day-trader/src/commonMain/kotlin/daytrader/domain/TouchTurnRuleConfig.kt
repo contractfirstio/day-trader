@@ -97,10 +97,10 @@ data class TouchTurnRuleConfig(
      */
     val trailingRequirePriceTrigger: Boolean = TouchTurnDefaults.TRAILING_REQUIRE_PRICE_TRIGGER,
     /**
-     * Minimum projected gross profit (|take-profit − entry| × quantity) before any bracket is
-     * submitted. In the symbol's trading currency; 0 disables the gate.
+     * Minimum net max-profit / max-loss before any bracket is submitted (expected commission
+     * included). Distinct from [takeProfitToStopLossRatio] (stop geometry). 0 disables the gate.
      */
-    val minGrossProfit: Double = TouchTurnDefaults.MIN_GROSS_PROFIT,
+    val minProfitToLossRatio: Double = TouchTurnDefaults.MIN_PROFIT_TO_LOSS_RATIO,
     /** Which entry-gate rules are enforced for this deployment. */
     val enables: TouchTurnRuleEnables = TouchTurnRuleEnables.DEFAULT,
     /** Green liquidity bar: skip when cp is at or below this (inclusive). Null disables. */
@@ -175,7 +175,7 @@ data class TouchTurnRuleConfig(
                 description = "After a 15m liquidity sweep, wait up to three 5m bars for a hammer or classic " +
                     "engulfing pattern that closes inside the sweep range, then enter at market using the " +
                     "confirming bar close with the original 15m take-profit (stop recomputed). " +
-                    "Rejected when projected gross profit to the 15m target is below the configured minimum. " +
+                    "Rejected when net max profit / max loss is below the configured minimum. " +
                     "Available only in Touch Turn (reversal) mode — hidden when invert trade side is on.",
                 category = TouchTurnRuleCategory.TRIGGERS
             ),
@@ -398,13 +398,13 @@ data class TouchTurnRuleConfig(
                 visibleWhenToggleKey = "closePositionGate"
             ),
             TouchTurnRuleFieldDefinition(
-                key = "minGrossProfit",
-                label = "Min gross profit",
-                description = "Before submitting a bracket, require projected gross profit to the " +
-                    "take-profit (|TP − entry| × quantity) to be at least this amount in the symbol's " +
-                    "currency. Applies to the default 15m entry and to 5m hammer-confirmed market entry. " +
-                    "0 disables the gate.",
-                kind = TouchTurnRuleFieldKind.PRICE,
+                key = "minProfitToLossRatio",
+                label = "Min profit / loss",
+                description = "Before submitting a bracket, require net max profit (to take-profit) to be " +
+                    "at least this multiple of net max loss (to stop), including expected round-trip " +
+                    "commission. Applies to the default 15m entry and to 5m hammer-confirmed market entry. " +
+                    "0 disables the gate. Separate from Take profit / stop geometry.",
+                kind = TouchTurnRuleFieldKind.RATIO,
                 category = TouchTurnRuleCategory.TRIGGERS,
                 subGroup = TouchTurnRuleFieldSubGroup.SUBMISSION_GATES,
                 defaultable = true
@@ -639,7 +639,7 @@ data class TouchTurnRuleConfig(
             "trailingActivateAfterMinutes" -> config.trailingActivateAfterMinutes.toString()
             "trailingActivateClockBase" -> config.trailingActivateClockBase.name
             "trailingRequirePriceTrigger" -> config.trailingRequirePriceTrigger.toString()
-            "minGrossProfit" -> config.minGrossProfit.toString()
+            "minProfitToLossRatio" -> config.minProfitToLossRatio.toString()
             "closedBarRefetchSettleMs" -> config.closedBarRefetchSettleMs.toString()
             "greenSkipClosePositionBelow" -> config.greenSkipClosePositionBelow?.toString().orEmpty()
             "greenSkipClosePositionAbove" -> config.greenSkipClosePositionAbove?.toString().orEmpty()
@@ -795,9 +795,9 @@ data class TouchTurnRuleConfig(
                             }
                             config.copy(entryOutwardOffsetRatioOfRange = doubleValue)
                         }
-                        "minGrossProfit" -> {
+                        "minProfitToLossRatio" -> {
                             if (doubleValue < 0.0) return null
-                            config.copy(minGrossProfit = doubleValue)
+                            config.copy(minProfitToLossRatio = doubleValue)
                         }
                         "trailingStopArmFractionOfEntryToStop" -> {
                             if (doubleValue < 0.0 || doubleValue > 1.0) return null

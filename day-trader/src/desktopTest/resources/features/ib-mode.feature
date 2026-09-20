@@ -109,10 +109,17 @@ Feature: Interactive Brokers mode end-to-end
     Then session market data capture should be active
 
   @ib-shard-2
-  Scenario: Manual session stop releases market data capture
+  Scenario: Manual session stop retains market data capture for replay tape
     Given session market data capture is active for the deployment
     And the Touch Turn engine starts
     When the session is stopped manually
+    Then session market data capture should be active
+
+  @ib-shard-2
+  Scenario: Open-deadline stop releases market data capture
+    Given session market data capture is active for the deployment
+    And the Touch Turn engine starts
+    When the session is stopped for open deadline
     Then session market data capture should be inactive
 
   @ib-shard-3

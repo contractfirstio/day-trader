@@ -78,10 +78,9 @@ class LiquidityFlushCoordinator(
 
         val loopAudits = mutableListOf<LiquidityFlushLoopAudit>()
         var openOrdersSnapshot = request.openOrders
-        repeat(AUTO_LIQUIDITY_FLUSH_MAX_LOOPS) { index ->
-            val loopIndex = index + 1
+        for (loopIndex in 1..AUTO_LIQUIDITY_FLUSH_MAX_LOOPS) {
             val available = poolAvailable(currency, request.sessionDate)
-            if (available <= 0) return@repeat
+            if (available <= 0) break
 
             val deploymentsSnapshot = deploymentRepository.deployments.value
                 .filter { dep -> request.deployments.any { it.id == dep.id } }
@@ -98,7 +97,7 @@ class LiquidityFlushCoordinator(
                     eligibleCount = 0,
                     distributionCount = 0,
                 )
-                return@repeat
+                break
             }
 
             val distribution = distributeLiquidityByBayesianWinRateInLots(
@@ -112,7 +111,8 @@ class LiquidityFlushCoordinator(
                         orderSizeRules = deployment.instrument?.orderSizeRules()
                             ?: InstrumentOrderSizeRules.DEFAULT,
                         currentQuantity = row.currentQuantity,
-                        maxAllocationDollars = deployment.maxDollars,
+                        // Auto-flush drains the shared pool; do not cap at deployment.maxDollars.
+                        maxAllocationDollars = null,
                     )
                 },
                 available = available,
@@ -123,7 +123,7 @@ class LiquidityFlushCoordinator(
                     eligibleCount = eligibleRows.size,
                     distributionCount = 0,
                 )
-                return@repeat
+                break
             }
 
             val debited = mutableMapOf<String, Int>()
@@ -135,11 +135,7 @@ class LiquidityFlushCoordinator(
                 val deployment = deploymentRepository.deployments.value.find { it.id == deploymentId }
                     ?: deploymentsSnapshot.find { it.id == deploymentId }
                     ?: continue
-                val alreadyDebited = debited[deploymentId] ?: 0
-                val cappedDollarWeight = dollarWeight.coerceAtMost(
-                    (deployment.maxDollars - alreadyDebited).coerceAtLeast(0),
-                )
-                if (cappedDollarWeight <= 0) {
+                if (dollarWeight <= 0) {
                     skippedLot.add(deploymentId)
                     continue
                 }
@@ -150,7 +146,7 @@ class LiquidityFlushCoordinator(
                     openOrders = freshOrders,
                     quotes = freshQuotes,
                     selectedCurrency = currency,
-                    allocationDollars = cappedDollarWeight,
+                    allocationDollars = dollarWeight,
                 )
                 if (row == null) {
                     skippedNotEligible.add(deploymentId)
@@ -207,6 +203,8 @@ class LiquidityFlushCoordinator(
                 skippedNotEligible = skippedNotEligible.toSet(),
                 failedResize = failedResize.toMap(),
             )
+            val remainingAfterLoop = poolAvailable(currency, request.sessionDate)
+            if (remainingAfterLoop >= available) break
         }
 
         val remaining = poolAvailable(currency, request.sessionDate)

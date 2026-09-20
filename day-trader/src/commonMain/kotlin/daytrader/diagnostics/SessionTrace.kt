@@ -460,16 +460,19 @@ object SessionTrace {
         )
     }
 
-    /** Bracket blocked because projected gross profit to take-profit is below minimum. */
+    /** Bracket blocked because net max profit / max loss is below the configured minimum. */
     fun grossProfitRejected(
         deploymentId: String,
         sessionId: String?,
         symbol: String,
         entryPrice: Double,
         takeProfit: Double,
+        stopLoss: Double,
         quantity: Int,
-        projectedGrossProfit: Double,
-        minGrossProfit: Double,
+        projectedMaxProfit: Double,
+        projectedMaxLoss: Double,
+        projectedRatio: Double?,
+        minProfitToLossRatio: Double,
         currencyCode: String,
         path: String
     ) {
@@ -481,12 +484,15 @@ object SessionTrace {
             details = mapOf(
                 "entryPrice" to entryPrice.toString(),
                 "takeProfit" to takeProfit.toString(),
+                "stopLoss" to stopLoss.toString(),
                 "quantity" to quantity.toString(),
-                "projectedGrossProfit" to projectedGrossProfit.toString(),
-                "minGrossProfit" to minGrossProfit.toString(),
+                "projectedMaxProfit" to projectedMaxProfit.toString(),
+                "projectedMaxLoss" to projectedMaxLoss.toString(),
+                "projectedRatio" to (projectedRatio?.toString() ?: "n/a"),
+                "minProfitToLossRatio" to minProfitToLossRatio.toString(),
                 "currencyCode" to currencyCode,
                 "path" to path,
-                "message" to daytrader.domain.TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+                "message" to daytrader.domain.TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE
             )
         )
     }
@@ -499,9 +505,12 @@ object SessionTrace {
         barTime: String,
         marketEntry: Double,
         takeProfit: Double,
+        stopLoss: Double,
         quantity: Int,
-        projectedGrossProfit: Double,
-        minGrossProfit: Double,
+        projectedMaxProfit: Double,
+        projectedMaxLoss: Double,
+        projectedRatio: Double?,
+        minProfitToLossRatio: Double,
         currencyCode: String
     ) {
         grossProfitRejected(
@@ -510,9 +519,12 @@ object SessionTrace {
             symbol = symbol,
             entryPrice = marketEntry,
             takeProfit = takeProfit,
+            stopLoss = stopLoss,
             quantity = quantity,
-            projectedGrossProfit = projectedGrossProfit,
-            minGrossProfit = minGrossProfit,
+            projectedMaxProfit = projectedMaxProfit,
+            projectedMaxLoss = projectedMaxLoss,
+            projectedRatio = projectedRatio,
+            minProfitToLossRatio = minProfitToLossRatio,
             currencyCode = currencyCode,
             path = "five_minute_hammer"
         )

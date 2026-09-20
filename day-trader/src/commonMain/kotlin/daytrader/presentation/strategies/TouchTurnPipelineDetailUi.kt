@@ -4,7 +4,6 @@ import daytrader.domain.FirstCandleCloseStatus
 import daytrader.domain.FirstCandleColor
 import daytrader.domain.LiquidityCandleEvaluation
 import daytrader.domain.OhlcBar
-import daytrader.domain.TouchTurnDefaults
 import daytrader.domain.TouchTurnCloseConfirmation
 import daytrader.domain.TouchTurnLogic
 import daytrader.domain.TouchTurnCandleStatus
@@ -25,12 +24,17 @@ data class SessionDataCaptureUi(
     val dataReadyAt: String?,
     val atr14: Double?,
     val rangeThreshold: Double,
+    /** Configured liquidity gate: atrLiquidityRatio × 100 (e.g. 70 for 0.7). */
     val atrRatioPercent: Int,
+    /** Opening-bar range ÷ daily/session ATR used for the liquidity gate. */
+    val observedRangeAtrRatio: Double? = null,
     val candle: OhlcBar?
 ) {
     val hasAtr: Boolean get() = atr14 != null && atr14 > 0.0
     val hasOpeningBar: Boolean get() = candle != null
     val isReady: Boolean get() = status == TouchTurnCandleStatus.READY && (hasAtr || hasOpeningBar)
+    val formattedObservedRangeAtrPercent: String?
+        get() = observedRangeAtrRatio?.let { TouchTurnAtrRatioFormat.percentLabel(it) }
 }
 
 data class FiveMinHammerBarDetailUi(
@@ -67,16 +71,42 @@ data class OpeningBarDetailUi(
 data class LiquidityCalculationUi(
     val evaluation: LiquidityCandleEvaluation,
     val atr14: Double?,
+    /** Configured liquidity gate: atrLiquidityRatio × 100 (e.g. 70 for 0.7). */
     val atrRatioPercent: Int,
     val rangeThreshold: Double,
     val barHigh: Double,
     val barLow: Double,
     val barRange: Double,
+    /** Opening-bar range ÷ ATR used for the liquidity gate. */
+    val observedRangeAtrRatio: Double? = null,
     val passes: Boolean?,
     val currency: String
 ) {
     val canCompare: Boolean
         get() = passes != null && evaluation != LiquidityCandleEvaluation.UNKNOWN
+    val formattedObservedRangeAtrPercent: String?
+        get() = observedRangeAtrRatio?.let { TouchTurnAtrRatioFormat.percentLabel(it) }
+}
+
+/** Shared formatting for range/ATR and configured liquidity-gate ratios. */
+object TouchTurnAtrRatioFormat {
+    fun percentLabel(ratio: Double): String =
+        "${String.format("%.1f", ratio * 100.0)}%"
+
+    fun gatePercentLabel(atrLiquidityRatio: Double): String {
+        val pct = atrLiquidityRatio * 100.0
+        return if (kotlin.math.abs(pct - pct.toInt()) < 1e-9) {
+            "${pct.toInt()}%"
+        } else {
+            percentLabel(atrLiquidityRatio)
+        }
+    }
+
+    fun gatePercentInt(atrLiquidityRatio: Double): Int =
+        kotlin.math.round(atrLiquidityRatio * 100.0).toInt()
+
+    fun observedRangeAtrRatio(barRange: Double, atr: Double?): Double? =
+        atr?.takeIf { it > 0.0 }?.let { barRange / it }
 }
 
 data class RuleCheckUi(
@@ -162,18 +192,24 @@ object TouchTurnPipelineDetailUiMapper {
         )
     }
 
-    fun sessionDataCapture(session: TouchTurnSessionContext): SessionDataCaptureUi =
-        SessionDataCaptureUi(
+    fun sessionDataCapture(session: TouchTurnSessionContext): SessionDataCaptureUi {
+        val atr = liquidityAtr(session)
+        val candle = session.candle
+        return SessionDataCaptureUi(
             status = session.status,
             errorMessage = session.errorMessage,
             marketZoneAbbrev = TouchTurnLogic.marketOpenZoneAbbrev(session.marketZoneId),
             currency = session.currencyCode,
             dataReadyAt = session.milestones.dataReadyAt,
-            atr14 = session.atr14 ?: session.adr14,
+            atr14 = atr,
             rangeThreshold = session.rangeThreshold,
-            atrRatioPercent = (TouchTurnDefaults.ATR_LIQUIDITY_RATIO * 100).toInt(),
-            candle = session.candle
+            atrRatioPercent = TouchTurnAtrRatioFormat.gatePercentInt(session.rules.atrLiquidityRatio),
+            observedRangeAtrRatio = candle?.let {
+                TouchTurnAtrRatioFormat.observedRangeAtrRatio(it.range, atr)
+            },
+            candle = candle
         )
+    }
 
     fun fiveMinHammerBarDetail(session: TouchTurnSessionContext): FiveMinHammerBarDetailUi? {
         val confirmation = session.fiveMinuteConfirmation ?: return null
@@ -242,18 +278,26 @@ object TouchTurnPipelineDetailUiMapper {
             LiquidityCandleEvaluation.NOT_LIQUIDITY -> false
             else -> null
         }
+        val atr = liquidityAtr(session)
         return LiquidityCalculationUi(
             evaluation = evaluation,
-            atr14 = session.atr14 ?: session.adr14,
-            atrRatioPercent = (TouchTurnDefaults.ATR_LIQUIDITY_RATIO * 100).toInt(),
+            atr14 = atr,
+            atrRatioPercent = TouchTurnAtrRatioFormat.gatePercentInt(session.rules.atrLiquidityRatio),
             rangeThreshold = session.rangeThreshold,
             barHigh = candle.high,
             barLow = candle.low,
             barRange = candle.range,
+            observedRangeAtrRatio = TouchTurnAtrRatioFormat.observedRangeAtrRatio(candle.range, atr),
             passes = passes,
             currency = session.currencyCode
         )
     }
+
+    /** Prefer daily ATR(14) when the daily liquidity gate is active. */
+    internal fun liquidityAtr(session: TouchTurnSessionContext): Double? =
+        session.dailyAtr14?.takeIf { it > 0.0 }
+            ?: session.atr14?.takeIf { it > 0.0 }
+            ?: session.adr14?.takeIf { it > 0.0 }
 
     fun rulesEvaluation(
         session: TouchTurnSessionContext,

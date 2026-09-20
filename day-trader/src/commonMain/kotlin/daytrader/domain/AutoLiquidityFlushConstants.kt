@@ -5,5 +5,9 @@ const val AUTO_LIQUIDITY_FLUSH_MINUTES_AFTER_OPEN = 16
 
 const val AUTO_LIQUIDITY_FLUSH_OFFSET_MS = AUTO_LIQUIDITY_FLUSH_MINUTES_AFTER_OPEN * 60_000L
 
-/** Maximum win-rate redistribution passes per flush event. */
-const val AUTO_LIQUIDITY_FLUSH_MAX_LOOPS = 3
+/**
+ * Safety bound for auto-flush drain loops. Each pass redistributes remaining pool liquidity
+ * onto eligible working brackets (uncapped by per-deployment maxAtRisk). Stops early when the
+ * pool no longer decreases (residual below one board lot, or no eligible rows).
+ */
+const val AUTO_LIQUIDITY_FLUSH_MAX_LOOPS = 50

@@ -16,6 +16,7 @@ import daytrader.domain.TouchTurnPrepareStatus
 import daytrader.domain.TouchTurnRuleConfig
 import daytrader.domain.TouchTurnRuleEnables
 import daytrader.domain.TouchTurnSessionOutcome
+import daytrader.domain.TouchTurnSessionStopTrigger
 import daytrader.domain.TouchTurnOrderPlanner
 import daytrader.domain.withClosedFirstFifteenMinuteCandle
 import daytrader.domain.withLiquidityEvaluatedIfClosed
@@ -123,12 +124,12 @@ class BrokerModeSteps {
         }
     }
 
-    @Given("the deployment minimum gross profit is {double}")
-    fun deploymentMinimumGrossProfit(minGrossProfit: Double) {
+    @Given("the deployment minimum profit to loss ratio is {double}")
+    fun deploymentMinimumProfitToLossRatio(minProfitToLossRatio: Double) {
         world.repository.update(activeDeploymentId()) { current ->
             current.copy(
                 touchTurnRules = (current.touchTurnRules ?: TouchTurnRuleConfig.DEFAULT).copy(
-                    minGrossProfit = minGrossProfit
+                    minProfitToLossRatio = minProfitToLossRatio
                 )
             )
         }
@@ -611,6 +612,18 @@ class BrokerModeSteps {
             world.driver!!.loadFirstCandle()
         }
         world.driver!!.stopSession()
+    }
+
+    @When("the session is stopped for open deadline")
+    fun sessionStoppedForOpenDeadline() = runBlocking {
+        if (world.engine == null || world.driver == null) {
+            touchTurnEngineStarts()
+        }
+        val deployment = world.repository.deployments.value.first()
+        if (deployment.touchTurnSession == null) {
+            world.driver!!.loadFirstCandle()
+        }
+        world.driver!!.stopSession(trigger = TouchTurnSessionStopTrigger.OPEN_DEADLINE)
     }
 
     @When("a liquidity bracket is placed on the emulator for {string}")

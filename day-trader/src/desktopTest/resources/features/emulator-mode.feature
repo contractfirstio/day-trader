@@ -98,11 +98,11 @@ Feature: Broker Emulator mode end-to-end
     And the session decision outcome should be "NO_TRADE_FIVE_MIN_CONFIRMATION_INVALIDATED"
 
   @emulator-shard-2
-  Scenario: Engine five minute hammer rejects bracket below minimum gross profit
+  Scenario: Engine five minute hammer rejects bracket below minimum profit to loss ratio
     Given the emulator is configured for red liquidity with five minute hammer confirmation
     And the deployment has liquidity evaluation enabled
     And the deployment has five minute confirmation enabled
-    And the deployment minimum gross profit is 100000.0
+    And the deployment minimum profit to loss ratio is 100.0
     When the Touch Turn engine starts
     And the engine evaluates liquidity for the session
     Then the session five minute confirmation status should be "REJECTED_INSUFFICIENT_GROSS_PROFIT"

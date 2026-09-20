@@ -118,7 +118,8 @@ object TouchTurnRuleExplanationMapper {
     ): RuleCheckUi = liquidityRangeGateCheck(
         key = "liquidityRangeDailyAtr",
         label = "15m opening bar range (daily ATR)",
-        description = "Closed 15-minute opening bar range must be at least 25% of daily ATR(14).",
+        description = "Closed 15-minute opening bar range must be at least " +
+            "${TouchTurnAtrRatioFormat.gatePercentLabel(session.rules.atrLiquidityRatio)} of daily ATR(14).",
         atrLabel = "Daily ATR14",
         atrValue = session.dailyAtr14,
         threshold = session.liquidityThresholds.thresholdDailyAtr,
@@ -144,6 +145,9 @@ object TouchTurnRuleExplanationMapper {
     ): RuleCheckUi {
         val closeStatus = session.candleCloseStatus(evaluationInstant)
         val ratio = session.rules.atrLiquidityRatio
+        val gatePct = TouchTurnAtrRatioFormat.gatePercentLabel(ratio)
+        val observedRatio = TouchTurnAtrRatioFormat.observedRangeAtrRatio(candle.range, atrValue)
+        val observedPct = observedRatio?.let { TouchTurnAtrRatioFormat.percentLabel(it) }
         val gatePassed = threshold != null && candle.range >= threshold
         val passed = when {
             !enabled -> null
@@ -161,7 +165,7 @@ object TouchTurnRuleExplanationMapper {
             if (atrValue != null && atrValue > 0.0 && threshold != null) {
                 add(
                     "Liquidity threshold = $atrLabel ${fmt(atrValue, currency)} × ${ratio} " +
-                        "= ${fmt(threshold, currency)}."
+                        "= ${fmt(threshold, currency)} (need ≥$gatePct of ATR)."
                 )
             } else if (threshold != null) {
                 add("Liquidity threshold for this run: ${fmt(threshold, currency)}.")
@@ -169,9 +173,10 @@ object TouchTurnRuleExplanationMapper {
                 add("$atrLabel was not available — this gate could not be evaluated.")
             }
             if (threshold != null) {
+                val observedClause = observedPct?.let { " — observed $it of ATR" }.orEmpty()
                 add(
                     "Compare range ${fmt(candle.range, currency)} against threshold ${fmt(threshold, currency)} " +
-                        "(need range ≥ threshold)."
+                        "(need range ≥ threshold; gate $gatePct$observedClause)."
                 )
             }
             add(stepResult(passed))
@@ -185,8 +190,9 @@ object TouchTurnRuleExplanationMapper {
                 !enabled -> "Disabled"
                 closeStatus != FirstCandleCloseStatus.CLOSED -> null
                 threshold == null -> "ATR unavailable"
-                gatePassed -> "OK"
-                else -> "Below threshold"
+                gatePassed -> observedPct?.let { "OK · $it of ATR (need ≥$gatePct)" } ?: "OK"
+                else -> observedPct?.let { "Below threshold · $it of ATR (need ≥$gatePct)" }
+                    ?: "Below threshold"
             },
             enabled = enabled,
             explanationSteps = steps

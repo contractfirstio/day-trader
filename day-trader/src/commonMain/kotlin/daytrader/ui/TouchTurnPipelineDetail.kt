@@ -536,6 +536,14 @@ private fun TouchTurnDataCaptureCard(capture: SessionDataCaptureUi) {
                 value = capture.fmt(capture.rangeThreshold),
                 testTag = "TouchTurnDataCaptureThreshold"
             )
+            capture.formattedObservedRangeAtrPercent?.let { observed ->
+                DataCaptureRow(
+                    label = "Opening range / ATR",
+                    value = "$observed (need ≥${capture.atrRatioPercent}%)",
+                    emphasize = true,
+                    testTag = "TouchTurnDataCaptureObservedAtrRatio"
+                )
+            }
         }
 
         capture.candle?.let { candle ->
@@ -1544,10 +1552,14 @@ private fun TouchTurnLiquidityCalculationCard(
     val verdict = when {
         calc.evaluation == LiquidityCandleEvaluation.AWAITING_CLOSE ->
             "Waiting for the opening bar to close before comparing range to threshold."
-        calc.passes == true ->
-            "Liquidity candle — bar range exceeds ${calc.atrRatioPercent}% of 14-period ATR. Trade path may continue."
-        calc.passes == false ->
-            "Not a liquidity candle — bar range did not exceed threshold. Session takes the no-trade branch."
+        calc.passes == true -> {
+            val observed = calc.formattedObservedRangeAtrPercent?.let { " ($it of ATR)" }.orEmpty()
+            "Liquidity candle — bar range exceeds ${calc.atrRatioPercent}% of ATR$observed. Trade path may continue."
+        }
+        calc.passes == false -> {
+            val observed = calc.formattedObservedRangeAtrPercent?.let { " ($it of ATR)" }.orEmpty()
+            "Not a liquidity candle — bar range$observed did not meet ${calc.atrRatioPercent}% of ATR. Session takes the no-trade branch."
+        }
         else -> TouchTurnLogic.liquidityEvaluationLabel(calc.evaluation)
     }
 
@@ -1590,22 +1602,30 @@ private fun TouchTurnLiquidityCalculationCard(
                 value = calc.fmt(calc.rangeThreshold),
                 detail = calc.formattedAtr14()?.let { atr ->
                     "$atr × ${calc.atrRatioPercent}% = ${calc.fmt(calc.rangeThreshold)}"
-                } ?: "25% of 14-period ATR."
+                } ?: "${calc.atrRatioPercent}% of ATR."
             )
 
             LiquidityCalcStep(
                 step = "3",
                 title = "Opening bar range (High − Low)",
                 value = calc.fmt(calc.barRange),
-                detail = "${calc.fmt(calc.barHigh)} − ${calc.fmt(calc.barLow)} = ${calc.fmt(calc.barRange)}"
+                detail = buildString {
+                    append("${calc.fmt(calc.barHigh)} − ${calc.fmt(calc.barLow)} = ${calc.fmt(calc.barRange)}")
+                    calc.formattedObservedRangeAtrPercent?.let { append(" · $it of ATR") }
+                }
             )
 
             if (calc.canCompare) {
                 HorizontalDivider(color = TableHeaderBg)
-                val comparison = if (calc.passes == true) {
-                    "${calc.fmt(calc.barRange)} > ${calc.fmt(calc.rangeThreshold)}"
-                } else {
-                    "${calc.fmt(calc.barRange)} ≤ ${calc.fmt(calc.rangeThreshold)}"
+                val comparison = buildString {
+                    if (calc.passes == true) {
+                        append("${calc.fmt(calc.barRange)} ≥ ${calc.fmt(calc.rangeThreshold)}")
+                    } else {
+                        append("${calc.fmt(calc.barRange)} < ${calc.fmt(calc.rangeThreshold)}")
+                    }
+                    calc.formattedObservedRangeAtrPercent?.let {
+                        append(" · $it of ATR (need ≥${calc.atrRatioPercent}%)")
+                    }
                 }
                 Row(
                     modifier = Modifier

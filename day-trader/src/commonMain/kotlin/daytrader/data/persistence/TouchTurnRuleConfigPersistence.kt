@@ -33,7 +33,7 @@ object TouchTurnRuleConfigPersistence {
                     fiveMinuteConfirmation = it.enableFiveMinuteConfirmation
                 ),
                 invertTradeSide = it.invertTradeSide,
-                minGrossProfit = it.minGrossProfit,
+                minProfitToLossRatio = it.minProfitToLossRatio,
                 greenSkipClosePositionBelow = it.greenSkipClosePositionBelow,
                 greenSkipClosePositionAbove = it.greenSkipClosePositionAbove,
                 redSkipClosePositionBelow = it.redSkipClosePositionBelow,
@@ -127,7 +127,8 @@ object TouchTurnRuleConfigPersistence {
             enableOpenDeadline = config.enables.openDeadline,
             enableAdjustableTrailingStop = config.enables.adjustableTrailingStop,
             enableFiveMinuteConfirmation = config.enables.fiveMinuteConfirmation,
-            minGrossProfit = config.minGrossProfit,
+            minProfitToLossRatio = config.minProfitToLossRatio,
+            minGrossProfit = 0.0,
             invertTradeSide = config.invertTradeSide,
             greenSkipClosePositionBelow = config.greenSkipClosePositionBelow,
             greenSkipClosePositionAbove = config.greenSkipClosePositionAbove,

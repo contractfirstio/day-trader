@@ -55,7 +55,7 @@ object TouchTurnSessionReasonUi {
         }
         TouchTurnSessionOutcome.NO_TRADE_NOT_LIQUIDITY -> TouchTurnSessionStatusUi(
             headline = "No trade — bar not liquid",
-            detail = "Opening 15-minute range did not exceed 25% of 14-day ADR. Bracket orders were not placed.",
+            detail = notLiquidityDetail(session),
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_OPENING_BAR_COLOR_SKIPPED -> {
@@ -207,9 +207,9 @@ object TouchTurnSessionReasonUi {
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT -> TouchTurnSessionStatusUi(
-            headline = "No trade — insufficient gross profit",
+            headline = "No trade — insufficient profit/loss ratio",
             detail = session?.decisionDetailMessage
-                ?: TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE,
+                ?: TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE,
             severity = TouchTurnReasonSeverity.Warning
         )
         TouchTurnSessionOutcome.NO_TRADE_FIVE_MIN_MISSED_TOUCH_TURN -> TouchTurnSessionStatusUi(
@@ -387,12 +387,15 @@ object TouchTurnSessionReasonUi {
             )
         }
         if (milestones.liquidityEvaluatedAt == null) {
+            val gatePct = TouchTurnAtrRatioFormat.gatePercentLabel(
+                session.rules.atrLiquidityRatio
+            )
             return TouchTurnSessionStatusUi(
                 headline = "Evaluating liquidity…",
                 detail = if (session.candle == null) {
-                    "Loading final bar OHLC, then comparing range to 25% of 14-day ATR."
+                    "Loading final bar OHLC, then comparing range to $gatePct of daily ATR."
                 } else {
-                    "Comparing opening bar range to 25% of 14-day ATR."
+                    "Comparing opening bar range to $gatePct of daily ATR."
                 },
                 severity = TouchTurnReasonSeverity.Info
             )
@@ -477,6 +480,22 @@ object TouchTurnSessionReasonUi {
             detail = "$error Bracket orders are still submitted with a fixed stop only.",
             severity = TouchTurnReasonSeverity.Warning
         )
+    }
+
+    private fun notLiquidityDetail(session: TouchTurnSessionContext?): String {
+        val gatePct = TouchTurnAtrRatioFormat.gatePercentLabel(
+            session?.rules?.atrLiquidityRatio ?: daytrader.domain.TouchTurnDefaults.ATR_LIQUIDITY_RATIO
+        )
+        val observed = session?.candle?.let { candle ->
+            val atr = TouchTurnPipelineDetailUiMapper.liquidityAtr(session)
+            TouchTurnAtrRatioFormat.observedRangeAtrRatio(candle.range, atr)
+                ?.let { TouchTurnAtrRatioFormat.percentLabel(it) }
+        }
+        return if (observed != null) {
+            "Opening 15-minute range was $observed of daily ATR (need ≥$gatePct). Bracket orders were not placed."
+        } else {
+            "Opening 15-minute range did not meet $gatePct of daily ATR. Bracket orders were not placed."
+        }
     }
 
     private fun inPositionStatus(hasOpenOrders: Boolean): TouchTurnSessionStatusUi =

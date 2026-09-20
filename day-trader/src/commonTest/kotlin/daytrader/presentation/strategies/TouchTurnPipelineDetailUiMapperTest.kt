@@ -24,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.math.abs
 
 class TouchTurnPipelineDetailUiMapperTest {
     @Test
@@ -45,6 +46,30 @@ class TouchTurnPipelineDetailUiMapperTest {
         assertEquals("20260522  09:30:00", capture.candle?.time)
         assertEquals("2026-05-22T09:30:12", capture.dataReadyAt)
         assertEquals(25, capture.atrRatioPercent)
+    }
+
+    @Test
+    fun sessionDataCapture_usesConfiguredAtrLiquidityRatioAndDailyAtr() {
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-07-27",
+            status = TouchTurnCandleStatus.READY,
+            candle = OhlcBar(open = 26.88, high = 28.32, low = 26.84, close = 27.96, time = "20260727  09:30:00"),
+            marketZoneId = "Asia/Hong_Kong",
+            currencyCode = "HKD",
+            dailyAtr14 = 1.3871428571428575,
+            rangeThreshold = 1.3871428571428575 * 0.7,
+            rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+                atrLiquidityRatio = 0.7,
+                enables = daytrader.domain.TouchTurnRuleEnables.DEFAULT.copy(
+                    liquidityRangeDailyAtr = true
+                )
+            )
+        )
+        val capture = TouchTurnPipelineDetailUiMapper.sessionDataCapture(session)
+        assertEquals(1.3871428571428575, capture.atr14)
+        assertEquals(70, capture.atrRatioPercent)
+        assertTrue(abs(capture.observedRangeAtrRatio!! - (1.48 / 1.3871428571428575)) < 0.0001)
+        assertEquals("106.7%", capture.formattedObservedRangeAtrPercent)
     }
 
     @Test
@@ -130,7 +155,7 @@ class TouchTurnPipelineDetailUiMapperTest {
         assertNotNull(evaluation)
         val liquidity = evaluation.checks.first { it.label == "15m opening bar range (daily ATR)" }
         assertEquals(true, liquidity.passed)
-        assertEquals("OK", liquidity.detail)
+        assertEquals("OK · 60.0% of ATR (need ≥25%)", liquidity.detail)
         assertEquals(true, liquidity.enabled)
     }
 
@@ -333,5 +358,34 @@ class TouchTurnPipelineDetailUiMapperTest {
         assertEquals(true, calc.passes)
         assertTrue(calc.canCompare)
         assertEquals(6.0, calc.barRange)
+    }
+
+    @Test
+    fun liquidityCalculation_includesObservedRangeOfDailyAtrAndConfiguredGate() {
+        val barTime = "20260727  09:30:00"
+        val now = TouchTurnLogic.barEndEpochMillis(barTime, "Asia/Hong_Kong")!! + 1
+        val dailyAtr = 1.3871428571428575
+        val session = TouchTurnSessionContext(
+            sessionDate = "2026-07-27",
+            status = TouchTurnCandleStatus.READY,
+            candle = OhlcBar(open = 26.88, high = 28.32, low = 26.84, close = 27.96, time = barTime),
+            marketZoneId = "Asia/Hong_Kong",
+            currencyCode = "HKD",
+            dailyAtr14 = dailyAtr,
+            rangeThreshold = dailyAtr * 0.7,
+            rules = daytrader.domain.TouchTurnRuleConfig.DEFAULT.copy(
+                atrLiquidityRatio = 0.7,
+                enables = daytrader.domain.TouchTurnRuleEnables.DEFAULT.copy(
+                    liquidityRangeDailyAtr = true
+                )
+            )
+        )
+        val calc = TouchTurnPipelineDetailUiMapper.liquidityCalculation(session, now)
+        assertNotNull(calc)
+        assertEquals(70, calc.atrRatioPercent)
+        assertEquals(dailyAtr, calc.atr14)
+        assertTrue(abs(calc.observedRangeAtrRatio!! - (1.48 / dailyAtr)) < 0.0001)
+        assertEquals("106.7%", calc.formattedObservedRangeAtrPercent)
+        assertEquals(true, calc.passes)
     }
 }

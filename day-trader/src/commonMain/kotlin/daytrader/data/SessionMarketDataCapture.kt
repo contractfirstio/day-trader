@@ -7,6 +7,10 @@ import daytrader.domain.InstrumentIdentity
  * Tracks IB market-data recording targets that outlive a stopped Touch Turn session.
  * While active, [daytrader.diagnostics.SessionPriceLog] continues appending to
  * `sessions/{deploymentId}/{sessionId}/prices.jsonl` and streaming subscriptions stay up.
+ *
+ * The engine retains capture after early session stops (e.g. no-trade guards) until
+ * RTH open + [daytrader.domain.TouchTurnRuleConfig.stopAfterOpenMinutes] (default 90),
+ * so replay has post-decision quotes for alternate rule scenarios.
  */
 object SessionMarketDataCapture {
     data class Target(

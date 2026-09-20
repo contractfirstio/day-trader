@@ -129,6 +129,8 @@ data class TouchTurnRuleConfigRecord(
     val enableOpenDeadline: Boolean = false,
     val enableAdjustableTrailingStop: Boolean = true,
     val enableFiveMinuteConfirmation: Boolean = false,
+    val minProfitToLossRatio: Double = 0.0,
+    /** Legacy absolute currency threshold; ignored on load (not a ratio). */
     val minGrossProfit: Double = 0.0,
     val invertTradeSide: Boolean = false,
     val greenSkipClosePositionBelow: Double? = null,

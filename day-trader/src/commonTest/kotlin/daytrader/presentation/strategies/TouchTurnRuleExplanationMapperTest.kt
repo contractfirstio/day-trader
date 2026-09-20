@@ -46,6 +46,51 @@ class TouchTurnRuleExplanationMapperTest {
     }
 
     @Test
+    fun buildChecks_liquidityGuardUsesConfiguredRatioAndShowsObserved() {
+        val dailyAtr = 1.3871428571428575
+        val session = sampleSession().copy(
+            sessionDate = "2026-07-27",
+            candle = OhlcBar(
+                open = 26.88,
+                high = 28.32,
+                low = 26.84,
+                close = 27.96,
+                volume = 50_798_400.0,
+                time = "20260727  09:30:00"
+            ),
+            setup = TouchTurnBracketSetup(
+                range = 1.48,
+                rangeThreshold = dailyAtr * 0.7,
+                isLiquidityCandle = true,
+                candleColor = FirstCandleColor.GREEN,
+                side = TouchTurnTradeSide.LONG,
+                entry = 28.32,
+                stopLoss = 28.08,
+                takeProfit = 28.89
+            ),
+            marketZoneId = "Asia/Hong_Kong",
+            currencyCode = "HKD",
+            dailyAtr14 = dailyAtr,
+            rangeThreshold = dailyAtr * 0.7,
+            rules = TouchTurnRuleConfig.DEFAULT.copy(
+                atrLiquidityRatio = 0.7,
+                enables = TouchTurnRuleEnables.DEFAULT.copy(liquidityRangeDailyAtr = true)
+            )
+        )
+        val checks = TouchTurnRuleExplanationMapper.buildChecks(
+            session = session,
+            evaluationInstant = TouchTurnLogic.barEndEpochMillis("20260727  09:30:00", "Asia/Hong_Kong")!! + 1,
+            verboseExplanations = true,
+            requireLivePriceChecks = false
+        )
+        val liquidity = checks.first { it.key == "liquidityRangeDailyAtr" }
+        assertTrue(liquidity.description.contains("70%"))
+        assertFalse(liquidity.description.contains("25%"))
+        assertEquals("OK · 106.7% of ATR (need ≥70%)", liquidity.detail)
+        assertTrue(liquidity.explanationSteps.any { it.contains("106.7%") && it.contains("70%") })
+    }
+
+    @Test
     fun buildChecks_disabledRuleOmitsStepsWhenVerbose() {
         val session = sampleSession().copy(
             rules = TouchTurnRuleConfig.DEFAULT.copy(

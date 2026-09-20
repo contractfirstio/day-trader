@@ -240,7 +240,10 @@ internal class FiveMinuteConfirmationRunner(
                         fifteenMinuteSetup = fifteenMinuteSetup,
                         hammerBar = hammerBar,
                         quantity = sizing.quantity,
-                        minGrossProfit = rules.minGrossProfit
+                        minProfitToLossRatio = rules.minProfitToLossRatio,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
                     )
                 ) {
                     val confirmationSetup = FiveMinuteConfirmationLogic.buildConfirmationSetup(
@@ -248,11 +251,31 @@ internal class FiveMinuteConfirmationRunner(
                         marketEntry,
                         rules
                     )
-                    val projected = TouchTurnGrossProfitGate.projectedGrossProfit(
+                    val projectedMaxProfit = TouchTurnGrossProfitGate.projectedMaxProfit(
                         takeProfitPrice = confirmationSetup.takeProfit,
                         entryPrice = marketEntry,
                         quantity = sizing.quantity,
-                        side = confirmationSetup.side
+                        side = confirmationSetup.side,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
+                    )
+                    val projectedMaxLoss = TouchTurnGrossProfitGate.projectedMaxLoss(
+                        stopLossPrice = confirmationSetup.stopLoss,
+                        entryPrice = marketEntry,
+                        quantity = sizing.quantity,
+                        side = confirmationSetup.side,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
+                    )
+                    val projectedRatio = TouchTurnGrossProfitGate.projectedRatio(
+                        setup = confirmationSetup,
+                        entryPrice = marketEntry,
+                        quantity = sizing.quantity,
+                        currency = session.currencyCode,
+                        primaryExch = deploymentInstrument?.primaryExch,
+                        exchange = deploymentInstrument?.exchange,
                     )
                     SessionTrace.grossProfitRejected(
                         deploymentId = instanceId,
@@ -260,16 +283,19 @@ internal class FiveMinuteConfirmationRunner(
                         symbol = instance.symbol,
                         entryPrice = marketEntry,
                         takeProfit = confirmationSetup.takeProfit,
+                        stopLoss = confirmationSetup.stopLoss,
                         quantity = sizing.quantity,
-                        projectedGrossProfit = projected,
-                        minGrossProfit = rules.minGrossProfit,
+                        projectedMaxProfit = projectedMaxProfit,
+                        projectedMaxLoss = projectedMaxLoss,
+                        projectedRatio = projectedRatio,
+                        minProfitToLossRatio = rules.minProfitToLossRatio,
                         currencyCode = session.currencyCode,
                         path = "five_minute_hammer"
                     )
                     repository.update(instanceId) { current ->
                         current.withFiveMinuteConfirmationReset(
                             TouchTurnSessionOutcome.NO_TRADE_INSUFFICIENT_GROSS_PROFIT,
-                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_GROSS_PROFIT_MESSAGE
+                            detailMessage = TouchTurnGrossProfitGate.INSUFFICIENT_PROFIT_TO_LOSS_RATIO_MESSAGE
                         )
                     }
                     onFinished(instanceId)

@@ -166,7 +166,7 @@ class SimulatedBrokerTouchTurnRulesTest {
         )
         assertEquals(3, withClosePosition.size)
         assertFalse(withClosePosition.any { it.label == "Close position (cp)" })
-        assertEquals("minGrossProfit", groups[1].fields.single().key)
+        assertEquals("minProfitToLossRatio", groups[1].fields.single().key)
         assertEquals("closedBarRefetchSettleMs", groups[2].fields.single().key)
     }
 
